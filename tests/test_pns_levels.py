@@ -1,5 +1,6 @@
 import dataclasses
 import itertools
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -213,7 +214,16 @@ def test_no_gradients():
     assert levels.peak_time_s is None
     assert levels.axis_peaks == {"x": 0.0, "y": 0.0, "z": 0.0}
     assert levels.hw == _hw_dict(safe_example_hw())
-    assert levels.above_limit == ()
+    assert levels.above[1.0] == ()
+
+
+def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
+    """A sequence with no gradient event and two thresholds gives `above` with the two keys,
+    in the order of `thresholds`, each with `()`."""
+    levels = pns_levels(empty_sequence(), thresholds=(1.0, 0.5))
+    assert levels.reason == NO_GRADIENTS
+    assert list(levels.above) == [1.0, 0.5]
+    assert levels.above == {1.0: (), 0.5: ()}
 
 
 def test_off_raster_block_falls_back_to_sampling():
@@ -263,25 +273,25 @@ def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
 
 
 def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
-    """`above_limit` is empty if and only if `peak < 1`; the largest interval peak is `peak`;
+    """`above[1.0]` is empty if and only if `peak < 1`; the largest interval peak is `peak`;
     the intervals are in time order, do not touch, and have the times and the count that
     their fields give."""
     seq = gre_sequence(num_trs=20)
     below = pns_levels(seq)
     assert below.peak < 1
-    assert below.above_limit == ()
+    assert below.above[1.0] == ()
 
     levels = pns_levels(seq, hardware=_hardware_for_peak(seq, 1.5))
     dt = levels.dt_s
     assert levels.peak >= 1
-    assert len(levels.above_limit) > 1
-    assert max(i.peak for i in levels.above_limit) == levels.peak
-    for i in levels.above_limit:
+    assert len(levels.above[1.0]) > 1
+    assert max(i.peak for i in levels.above[1.0]) == levels.peak
+    for i in levels.above[1.0]:
         first, last = _sample_range(i, dt)
         assert i.peak >= 1
         assert i.start_s <= i.peak_time_s <= i.end_s
         assert i.num_samples == last - first + 1
-    for a, b in itertools.pairwise(levels.above_limit):
+    for a, b in itertools.pairwise(levels.above[1.0]):
         assert a.end_s + dt < b.start_s  # at least one sample below the limit between them
 
 
@@ -293,7 +303,7 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     hardware = _hardware_for_peak(seq, 3.0)
     reference = pns_levels(seq, hardware=hardware)
     dt, bin_samples = reference.dt_s, reference.bin_samples
-    ranges = [_sample_range(i, dt) for i in reference.above_limit]
+    ranges = [_sample_range(i, dt) for i in reference.above[1.0]]
     assert len(ranges) > 1
 
     def crosses(chunk: int) -> bool:
@@ -308,7 +318,7 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
         monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
         _assert_levels_equal(pns_levels(seq, hardware=hardware), reference, ignore=())
     monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", across)
-    assert pns_levels(seq, hardware=hardware).above_limit == reference.above_limit
+    assert pns_levels(seq, hardware=hardware).above[1.0] == reference.above[1.0]
 
 
 @pytest.mark.parametrize(
@@ -354,7 +364,7 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
             )
         position += length
     assert len(expected) >= 1
-    assert levels.above_limit == tuple(expected)
+    assert levels.above[1.0] == tuple(expected)
 
 
 def test_two_separate_intervals_are_in_time_order():
@@ -371,13 +381,99 @@ def test_two_separate_intervals_are_in_time_order():
     two.add_block(pp.make_delay(gap))
     two.add_block(trapezoid)
     hardware = _hardware_for_peak(one, 1.02)  # only the larger hump of a trapezoid is above 1
-    assert len(pns_levels(one, hardware=hardware).above_limit) == 1
+    assert len(pns_levels(one, hardware=hardware).above[1.0]) == 1
 
-    first, second = pns_levels(two, hardware=hardware).above_limit
+    first, second = pns_levels(two, hardware=hardware).above[1.0]
     assert first.end_s < duration + gap / 2 < second.start_s
     assert second.start_s >= duration + gap  # the second trapezoid starts there
     assert first.peak >= 1
     assert second.peak >= 1
+
+
+def _chunk_across_an_interval(intervals: tuple[PnsInterval, ...], levels: PnsLevels) -> int:
+    """The first size of 1 to 19 bins, in samples, for which an interval of `intervals` has
+    a sample in a chunk and the next sample in the next chunk."""
+    ranges = [_sample_range(i, levels.dt_s) for i in intervals]
+    for n in range(1, 20):
+        chunk = n * levels.bin_samples
+        if any(last // chunk > first // chunk for first, last in ranges):
+            return chunk
+    raise AssertionError("no chunk size of 1 to 19 bins has an interval across a chunk end")
+
+
+def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
+    """`thresholds=(1.0, 0.5)` gives, for each threshold, the intervals of the call with
+    that one threshold, and the other fields of the result do not change. The keys are in
+    the order of `thresholds` (and `1` is the key `1.0`). It holds with chunks of 1 bin and
+    with a chunk size that has an interval of each threshold across a chunk end."""
+    seq = gre_sequence(num_trs=20)
+    hardware = _hardware_for_peak(seq, 3.0)
+    thresholds = (1.0, 0.5)
+    single = {t: pns_levels(seq, hardware=hardware, thresholds=(t,)) for t in thresholds}
+    high, low = single[1.0].above[1.0], single[0.5].above[0.5]
+    assert len(high) > 1
+    assert sum(i.num_samples for i in low) > sum(i.num_samples for i in high)
+    assert low != high
+
+    sizes = [None, 1]  # None: the CHUNK_SAMPLES of the module
+    sizes += [_chunk_across_an_interval(single[t].above[t], single[t]) for t in thresholds]
+    for chunk_samples in sizes:
+        if chunk_samples is not None:
+            monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+        both = pns_levels(seq, hardware=hardware, thresholds=thresholds)
+        assert list(both.above) == [1.0, 0.5]
+        for t in thresholds:
+            assert both.above[t] == single[t].above[t]
+        _assert_levels_equal(both, single[1.0], ignore=("above",))
+
+    monkeypatch.undo()
+    swapped = pns_levels(seq, hardware=hardware, thresholds=(0.5, 1.0))
+    assert list(swapped.above) == [0.5, 1.0]
+    assert swapped.above[0.5] == low
+    assert swapped.above[1.0] == high
+
+    keys = list(pns_levels(seq, hardware=hardware, thresholds=(1, 0.5)).above)
+    assert keys == [1.0, 0.5]
+    assert all(type(key) is float for key in keys)
+
+
+@pytest.mark.parametrize(
+    "thresholds",
+    [
+        pytest.param([1.0], id="list"),
+        pytest.param(1.0, id="float"),
+        pytest.param(None, id="none"),
+        pytest.param((), id="empty"),
+        pytest.param((True,), id="bool"),
+        pytest.param((1.0, False), id="bool second"),
+        pytest.param(("1.0",), id="string"),
+        pytest.param((None,), id="none element"),
+        pytest.param((np.float32(1.0),), id="numpy float32"),
+        pytest.param((math.nan,), id="nan"),
+        pytest.param((math.inf,), id="inf"),
+        pytest.param((10**400,), id="int too large for a float"),
+        pytest.param((0.0,), id="zero"),
+        pytest.param((-1.0,), id="negative"),
+        pytest.param((1.0, -math.inf), id="minus inf"),
+        pytest.param((1.0, 1.0), id="equal floats"),
+        pytest.param((1, 1.0), id="equal int and float"),
+        pytest.param((1.0, 0.5, 1.0), id="equal, not next to each other"),
+    ],
+)
+def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds):
+    """`pns_levels` raises `ValueError` for `thresholds` that is not a tuple, is empty, has
+    a `bool` or an element that is not an `int` or a `float`, has an element that is not
+    finite or not above 0, or has two elements that are equal as floats. It does so before
+    the sequence is read: the functions that read the rotations and the block table of the
+    sequence are replaced by ones that fail, and the error is still the `ValueError`."""
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("the sequence was read")
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    with pytest.raises(ValueError, match="threshold"):
+        pns_levels(spin_echo_sequence(), thresholds=thresholds)
 
 
 @pytest.fixture

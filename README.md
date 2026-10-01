@@ -9,14 +9,15 @@ sequence. It has no target profile, no limit, no pass or fail and no finding.
 to check a sequence against the limits of a scanner.
 
 The package is in development. The first release candidate, `0.1.0rc1`, has
-the modules of pulseq-checks `0.1.0rc2`.
+the modules of pulseq-checks `0.1.0rc2`. The second, `0.1.0rc2`, adds the
+analyses and their registry, and `Series`, the form of a value for JSON.
 
 ## Install
 
 With uv, from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc1"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc2"
 ```
 
 The package needs pypulseq 1.5.0.post1 with four commits that are not in a

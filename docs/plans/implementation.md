@@ -509,6 +509,20 @@ machine as the baseline.
 The first run also builds the block table (`sequence_index` keeps it for the
 sequence object), so it is the slowest.
 
+### 9.2 The thresholds (task 3.2)
+
+The same machine, versions and sequence as section 9.1, on 2026-10-01, on the
+branch `feature/series-and-analyses` (`29744e4` with the changes of tasks 3.1
+and 3.2, not committed yet):
+
+| Command | `pns_levels` | Minimum | Change from 9.47 s | Intervals |
+|---|---|---|---|---|
+| no `--thresholds` (the default, `(1.0,)`) | 10.00 s, 9.42 s, 9.34 s | **9.34 s** | −1.4 % | 1.0: 0 |
+| `--thresholds 1.0 0.9 0.8` | 10.14 s, 9.51 s, 9.47 s | **9.47 s** | 0.0 % | 1.0: 0, 0.9: 0, 0.8: 6252 |
+
+One threshold is not slower than the baseline (the limit is 5 %). Each more
+threshold adds less than 1 % (the total of a chunk is calculated one time).
+
 ## 10. Facts for the plan of pulseq-checks phase 2
 
 1. `safe_model.py` imports `SAFE_FIELDS` from `pulseq_analysis.pns_levels`

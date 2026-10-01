@@ -31,7 +31,7 @@ Contents:
 1. [Static checks](#1-static-checks)
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
-   the PNS levels, and the gradient limits)
+   the PNS levels, and the gradient limits); the series; the analyses and their registry
 
 ---
 
@@ -323,8 +323,10 @@ block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypul
 fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
 peak, the peak time and the axis peaks), and the intervals of consecutive samples
-whose total is at or above the stimulation limit (`PnsInterval`, `above_limit`); and `bin_samples_for`, which picks the bin
-size. The reference for most tests is `seq.calculate_pns` of the pinned fork
+whose total is at or above each threshold of the `thresholds` argument (`PnsInterval`,
+`PnsLevels.above`, a dict with one key for each threshold; the default threshold is the
+stimulation limit, 1.0, so the tests of one threshold read `above[1.0]`); and
+`bin_samples_for`, which picks the bin size. The reference for most tests is `seq.calculate_pns` of the pinned fork
 (decision 6 of section 2.2 of the plan: this project does not test pypulseq itself,
 only compares this library's output with pypulseq's or with its own other output).
 `calc_pns` samples `seq.get_gradients()` at the file times `(k + 0.5) * dt`, which
@@ -442,12 +444,22 @@ bins, so the sizes give chunks of 1, 2 and 7 bins and one chunk bigger than the 
 
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
 stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no interval at or
-above the limit, and still the example hardware and its `hw` fields.
+above the limit (`above[1.0]` is `()`), and still the example hardware and its `hw` fields.
 
 **How:** `pns_levels(empty_sequence())`. Checks `reason`, `hardware`, `asc_file`,
 the `(0,)` shape of `level_min`/`level_max`, `peak == 0.0`, `peak_time_s is None`,
 `axis_peaks == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw` against the 8 kept fields
-of `safe_example_hw()`, and `above_limit == ()`.
+of `safe_example_hw()`, and `above[1.0] == ()`.
+
+**Assumptions:** None.
+
+#### `test_no_gradients_gives_an_empty_tuple_for_each_threshold`
+
+**Checks:** A sequence with no gradient event and two thresholds gives `above` with the
+two keys, in the order of `thresholds`, each with `()`.
+
+**How:** `pns_levels(empty_sequence(), thresholds=(1.0, 0.5))`. Checks `reason`,
+`list(levels.above) == [1.0, 0.5]` and `levels.above == {1.0: (), 0.5: ()}`.
 
 **Assumptions:** None.
 
@@ -473,7 +485,7 @@ covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
 #### `test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some`
 
-**Checks:** `above_limit` is empty if and only if `peak < 1`. For a sequence above the
+**Checks:** `above[1.0]` is empty if and only if `peak < 1`. For a sequence above the
 limit, the largest interval peak equals `peak`, each interval has a peak of at least 1
 and a peak time between its start and its end, its `num_samples` is the number of
 samples from its start to its end, and the intervals are in time order with at least
@@ -517,7 +529,7 @@ with hardware that gives a peak of 1.5. The test sets `CHUNK_SAMPLES` to `10**9`
 chunk) and wraps `_chunk_total` to keep the totals it returns. It finds the runs of
 `total >= 1` with `itertools.groupby`, and takes the peak as the maximum of the run and
 the peak time as its first sample with that value. The expected `PnsInterval` tuple is
-compared with `above_limit` with `==` (exact).
+compared with `above[1.0]` with `==` (exact).
 
 **Assumptions:** The off-raster sequence has at least one interval at that peak.
 
@@ -534,6 +546,47 @@ trapezoid duration and the gap.
 
 **Assumptions:** The decay of the filters after a trapezoid does not keep the total at
 or above 1 for half of the gap.
+
+#### `test_two_thresholds_in_one_call_give_the_runs_of_two_calls`
+
+**Checks:** `thresholds=(1.0, 0.5)` gives, for each threshold, the intervals of the call
+with that one threshold, and every other field is unchanged. The keys of `above` are
+`float(t)` in the order of `thresholds` (`(0.5, 1.0)` gives the keys in that order, and
+`1` is the key `1.0`). It holds with the normal chunk size, with chunks of 1 bin and
+with a chunk size that has an interval of each threshold across a chunk end.
+
+**How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3. `single` has
+one call with `thresholds=(t,)` for each of 1.0 and 0.5. The test checks that the
+intervals of 1.0 are more than one and that those of 0.5 have more samples in total (so
+the two thresholds do not give the same runs). For each chunk size (the normal one, 1,
+and for each threshold the first of 1 to 19 bins with an interval across its end, found
+as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
+`CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
+have the keys `[1.0, 0.5]`, the same tuple as `single` for each threshold, and every
+other field equal (`_assert_levels_equal` with `ignore=("above",)`). After the chunk
+sizes are restored, `thresholds=(0.5, 1.0)` gives the keys `[0.5, 1.0]` and the same
+tuples, and `thresholds=(1, 0.5)` gives the keys `[1.0, 0.5]` as `float`.
+
+**Assumptions:** The intervals of 1.0 and of 0.5 each cross a chunk end for a chunk of 1
+to 19 bins (`_chunk_across_an_interval` fails if there is none).
+
+#### `test_pns_levels_refuses_bad_thresholds_before_any_work`
+
+**Checks:** `pns_levels` raises `ValueError` for `thresholds` that is not a tuple (a list,
+a float, `None`), is empty, has a `bool`, has an element that is not an `int` or a `float`
+(a string, `None`, a NumPy `float32`), has an element that is not finite (NaN, the two
+infinities, an `int` too large for a float) or not above 0 (0 and a negative number), or
+has two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)` and a pair that is not
+next to each other). The refusal is before the sequence is read.
+
+**How:** Parametrized on the value. The test replaces `refuse_rotations` and
+`sequence_index` of `pulseq_analysis.pns_levels` with functions that raise
+`RuntimeError`, and calls `pns_levels(spin_echo_sequence(), thresholds=value)` inside
+`pytest.raises(ValueError, match="threshold")`. A `RuntimeError` would show that the work
+started before the check.
+
+**Assumptions:** `pns_levels` calls `refuse_rotations` and `sequence_index` as module
+globals, so the replacements are used when it reads the sequence.
 
 #### `test_asc_hardware_file_is_used_for_the_levels`
 
@@ -1247,13 +1300,12 @@ trapezoid's own block ID.
 - The trapezoid's `fall_time` equals its `rise_time`, which is
   `pp.make_trapezoid`'s default when only `rise_time` is given.
 
-#### `test_gamma_converts_the_values_and_the_default_limits_with_that_gamma`
+#### `test_gamma_converts_the_values_with_that_gamma`
 
 **Checks:** `gradient_limits(seq, gamma=40e6)` gives the amplitudes (mT/m), the slew
-rates (T/m/s), the RMS amplitudes (of the window and of the whole file), the vector
-peak and the default limits of `seq.system`, all converted with 40 MHz/T: each value is
-the value of the default call times 42.576e6 / 40e6, and the limits are the values of
-`seq.system` in Hz/m and Hz/m/s divided by 40 MHz/T.
+rates (T/m/s), the RMS amplitudes (of the window and of the whole file) and the vector
+peak, all converted with 40 MHz/T: each value is the value of the default call times
+42.576e6 / 40e6.
 
 **How:** The test calls `gradient_limits` on `spin_echo_sequence()` with a window of the
 first half of the sequence, with and without `gamma`, and compares the two results field
@@ -1321,26 +1373,6 @@ calls `gradient_limits`. It checks that `reason` is
 `slew_block` both None.
 
 **Assumptions:** None.
-
-#### `test_default_limits_come_from_seq_system`
-
-**Checks:** With `limits=None`, the limits are `seq.system.max_grad` and
-`seq.system.max_slew`, converted to mT/m and T/m/s, with the label
-"pypulseq system limits".
-
-**How:** The test builds a sequence with one x trapezoid and calls
-`gradient_limits` with no `limits` argument. It checks that the result's
-`limits.label` is "pypulseq system limits", and that `max_grad_mt_per_m` and
-`max_slew_t_per_m_per_s` equal `seq.system.max_grad` and `seq.system.max_slew`
-converted with the gyromagnetic ratio, the same conversion the function itself
-documents.
-
-**Assumptions:**
-
-- `seq.system.max_grad` and `seq.system.max_slew` are always in Hz/m and
-  Hz/m/s, whatever unit was given to `pp.Opts`, because `pp.Opts` converts to
-  Hz/m (respectively Hz/m/s) before it stores the value. This is a fact about
-  pypulseq, not about the function under test, and is not itself checked here.
 
 #### `test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope`
 
@@ -1566,7 +1598,8 @@ sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 window and with a window from 0 to half the total duration, and compares every field (`reason`,
 `range_s`, each axis's peak, slew and RMS, and the vector peak), within a tolerance derived
 from the sequence (`_rounding_tol`): `1e-12 + 4 * eps * duration / shortest segment`, relative
-to the value or to the limit of the same kind. It checks only whether a block is credited, not
+to the value or to the limit of the same kind (the limit of the oracle result: `gradient_limits`
+itself has no limits). It checks only whether a block is credited, not
 which one, because `gre_sequence` repeats its readout, phase-encode and spoiler events every TR,
 and the oracle's own choice among such a tie can depend on the same rounding.
 
@@ -1633,9 +1666,8 @@ and `build_worst(50)` of `tests/scale_sequences.py`, four junction sequences of 
 step between two extended trapezoids, the same with a segment of the second block that has the
 same slew as the step, a gradient that ends non-zero before a delay, a first block that starts
 non-zero), and 20 random sequences of `_random_gradient_sequence` (seeds 0 to 19). For each
-sequence the test calls `block_gradient_values` and `gradient_limits` (with any
-`HardwareLimits`, which the values do not use) and compares them with `==`, not
-`pytest.approx`.
+sequence the test calls `block_gradient_values` and `gradient_limits` and compares them
+with `==`, not `pytest.approx`.
 
 **Assumptions:**
 
@@ -1747,13 +1779,14 @@ extension")`.
 `norm` or `axes`), built by `pns_prediction` from `pns_levels_for(seq,
 gradient_asc=...)` — the SAFE model itself (`pns_levels.pns_levels`, the pinned
 pypulseq fork's chunked SAFE recursion) has moved there. `pns_levels_for`
-keeps one `PnsLevels` for each (sequence object, hardware), the hardware
+keeps one `PnsLevels` for each (sequence object, hardware, thresholds), the hardware
 being the example hardware, the resolved path of the gradient `.asc`
 file, or a `hardware` pair `(struct, label)` (its key is the label and the 27
 values of the struct, so two pairs with the same label and values are one
 hardware), and the rule of `seq_index.sequence_index` for staleness (all are
 rebuilt when the number of blocks or the last block id changes), so that a page with both the PNS summary card and the
-diagram's PNS lane for one sequence runs the SAFE model once.
+diagram's PNS lane for one sequence runs the SAFE model once. The thresholds of the key are
+the tuple of `float(t)`, so `(1,)` and the default `(1.0,)` are one key.
 `peak_tr_window` is the start and end of the TR that holds the
 prediction's peak, counted from the sequence start in steps of the TR
 definition. Without a gradient `.asc` file, the prediction uses pypulseq's
@@ -2109,3 +2142,506 @@ hardwares of one sequence. Each runs the model one time.
 
 **How:** The test patches `pns.pns_levels` as above, and calls the three two times in
 the same order. It checks that there were 3 calls.
+
+#### `test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds`
+
+**Checks:** The thresholds are part of the key of a kept result: other thresholds, or
+the same ones in another order, run the model and do not give the result of the default;
+the same thresholds again give the kept result (the same object); `(1,)` is the key of
+the default `(1.0,)`.
+
+**How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)`, then
+`thresholds=(1.0, 0.5)`, again `(1.0, 0.5)`, the default again, `(1,)`, and
+`(0.5, 1.0)`. It checks that the call count is 1, 2, 2, 2, 2 and 3, that the second result
+is not the first, that the repeated results are the same objects as the kept ones, and
+that `list(result.above)` is `[1.0]`, `[1.0, 0.5]` and `[0.5, 1.0]`.
+
+**Assumptions:** None.
+
+### 2.8 Series (`test_series.py`)
+
+`test_series.py` tests `series.py`: `Series`, the JSON-ready form of an analysis value
+(design section 4.2), with its four kinds (`SAMPLES`, `ENVELOPE`, `POINTS` and `RUNS`),
+and `encode_array` and `decode_array`, which write one numpy array as
+`{"dtype", "length", "data"}`. The encoding is the one of `encode_tables` of
+pulseq-reports (commit `a322517`): the little-endian bytes of the array, gzipped and
+base64-encoded.
+
+The tests build small series by hand, with no sequence and no pypulseq. The round trip
+of a series is `Series.from_obj(json.loads(json.dumps(s.to_obj(), allow_nan=False)))`,
+the path that a report takes.
+
+**Assumptions for the whole file:**
+
+- The tests compare `encode_array` with the pulseq-reports encoding only through the
+  fixed texts of `test_encode_array_gives_the_fixed_text`. They do not import
+  pulseq-reports.
+- The gzip bytes depend on the version of zlib. The Nix devShell fixes it, so a local
+  run and CI use the same zlib.
+
+#### `test_series_refuses_a_bad_field`
+
+**Checks:** A series with a name that is not a string or is empty, a kind that is not a
+`SeriesKind`, a unit that is not a string, a `step_s` that is missing, zero, negative,
+infinite, NaN, a string or a bool, or a `t0_s` that is not a number, raises `TypeError`
+(a wrong type) or `ValueError` (a wrong value).
+
+**How:** Parametrized. Each case changes one field of a valid SAMPLES series and checks
+that the constructor raises the named error.
+
+**Assumptions:** None.
+
+#### `test_series_refuses_a_field_that_the_kind_does_not_use`
+
+**Checks:** A SAMPLES series with `end_s`, and a POINTS or RUNS series with a `t0_s` other
+than 0 (also NaN), a `step_s` or an `end_s`, raises `ValueError`, so that each kind has one
+form. The same series with the defaults is valid.
+
+**How:** Parametrized. Each case first builds a valid series of the kind with its necessary
+fields only, then sets one field that the kind does not use and checks for `ValueError`
+whose message says that the series "does not use" the field.
+
+**Assumptions:** ENVELOPE uses all three fields, so it has no case here.
+
+#### `test_envelope_refuses_a_missing_end`
+
+**Checks:** An ENVELOPE series without `end_s` raises `ValueError`.
+
+**How:** The test builds the arguments of a valid ENVELOPE series, leaves out `end_s`,
+and checks the error and that its message names `end_s`.
+
+**Assumptions:** None.
+
+#### `test_series_refuses_bad_arrays`
+
+**Checks:** A series raises when a necessary array of its kind is missing (for each kind),
+when an ENVELOPE has an array other than `min` and `max`, when `arrays` is not a mapping
+or has a key that is not a string, when an array is not a numpy array, is zero-dimensional
+or two-dimensional, or has a string, object or datetime dtype, and when two arrays have
+two lengths (for SAMPLES, ENVELOPE and RUNS).
+
+**How:** Parametrized. Each case builds a series of one kind with the bad `arrays`
+(with the valid `step_s` and `end_s` that the kind uses) and checks for `TypeError` or
+`ValueError`, as the wrong type or the wrong value.
+
+**Assumptions:** The test does not try each necessary array of each kind with a bad
+dtype, only the dtypes in the list.
+
+#### `test_series_refuses_bad_meta`
+
+**Checks:** A series raises when `meta` is not a mapping, has a key that is not a string,
+has a value that is a list, a dict or a numpy number, or has the string value "inf",
+"-inf" or "nan".
+
+**How:** Parametrized. Each case builds a valid SAMPLES series with the bad `meta` and
+checks for `TypeError` (a wrong type) or `ValueError` (the three strings). The rules are
+the rules of `Finding.data` in pulseq-checks.
+
+**Assumptions:** None.
+
+#### `test_series_copies_arrays_and_meta`
+
+**Checks:** A change to the `arrays` dict, to the `meta` dict, or to one of the arrays
+that the caller gave does not change the series, and the series keeps the order of the
+arrays that the caller gave.
+
+**How:** The test builds a series from a dict of three arrays (the necessary one first,
+then two more) and a `meta` dict. It then adds and removes an array in the dict, changes
+and adds a `meta` key, and writes into the caller's `value` array. It checks that the
+array names and their order, `meta`, and the first value of `value` are as they were, and
+that the series has other dict objects.
+
+**Assumptions:** The series keeps a copy of each array, not a view, so a change to the
+caller's array does not reach it. The docstring of `Series` says so.
+
+#### `test_series_arrays_are_read_only_and_the_callers_array_is_not`
+
+**Checks:** Each array of a series is read-only, and the array that the caller gave stays
+writable.
+
+**How:** The test builds a series, checks the `writeable` flag of its array, and checks
+that a write into it raises `ValueError`. It then checks that the caller's array is still
+writable, writes into it, and checks that the series is unchanged.
+
+**Assumptions:** None.
+
+#### `test_series_keeps_native_byte_order`
+
+**Checks:** A big-endian array is kept as a native-byte-order array of the same type of
+number, so the round trip gives an equal series.
+
+**How:** The test builds a series from an array with dtype `>f4`, checks that the dtype
+of the stored array is `float32` (native), and checks that the round trip equals the
+series.
+
+**Assumptions:** The machine is little-endian. On a big-endian machine the native dtype
+is `>f4`, and the first check is the same, but it does not test a change of byte order.
+
+#### `test_series_equal_treats_nan_as_equal`
+
+**Checks:** Two series with NaN in an array, in `t0_s` and in a `meta` value are equal, a
+series equals itself, and `!=` is false for them.
+
+**How:** The test builds two series from equal data with a NaN in each of the three
+places and checks `==` and `!=`.
+
+**Assumptions:** None.
+
+#### `test_series_not_equal_for_a_different_field_or_array`
+
+**Checks:** A series is not equal to a series with another array dtype, another array
+length, another value, NaN in place of a number, another name, unit, `t0_s`, `step_s`,
+`meta` or kind, and not equal to a value that is not a series.
+
+**How:** Parametrized. Each case builds one series that differs from a base SAMPLES series
+in one thing, and checks `!=`. The test also checks `!=` of the base series and a string.
+
+**Assumptions:** None.
+
+#### `test_envelope_series_not_equal_for_a_different_end`
+
+**Checks:** Two ENVELOPE series that differ only in `end_s` are not equal.
+
+**How:** The test builds an ENVELOPE series, copies it with `dataclasses.replace` and
+another `end_s`, and checks `!=`. A SAMPLES series cannot have `end_s`, so the case is not
+in the parametrized test above.
+
+**Assumptions:** None.
+
+#### `test_series_equality_compares_the_order_of_the_arrays`
+
+**Checks:** Two series with the same arrays in a different order are not equal, but two
+series with the same `meta` keys in a different order are equal.
+
+**How:** The test builds each pair and checks `==` or `!=`.
+
+**Assumptions:** The order of the `meta` keys does not matter for `==`, but `to_obj` keeps
+it. The docstring of `Series` says so.
+
+#### `test_series_equality_compares_the_type_of_a_meta_value`
+
+**Checks:** A `meta` value 1 (an int) is not equal to 1.0 (a float) or to True (a bool).
+
+**How:** The test builds series that differ only in this value and checks `!=`.
+
+**Assumptions:** None.
+
+#### `test_series_is_not_hashable`
+
+**Checks:** `hash` of a series raises `TypeError`.
+
+**How:** The test calls `hash` in `pytest.raises` and matches "unhashable".
+
+**Assumptions:** None.
+
+#### `test_series_round_trip_for_each_kind`
+
+**Checks:** For a series of each of the four kinds, the strict JSON text of `to_obj` is read
+by `from_obj` as a series equal to the original, with the arrays in the same order, and
+`to_obj` of the result equals `to_obj` of the original.
+
+**How:** Parametrized over one series of each kind: SAMPLES, ENVELOPE (with `meta` of a
+string, a float, an int and a bool), POINTS (with an extra `uint32` array and a `None` in
+`meta`) and RUNS (with an extra `int64` array). Each goes through `json.dumps` with
+`allow_nan=False` and `json.loads`.
+
+**Assumptions:** None.
+
+#### `test_series_round_trip_of_two_million_float32_values`
+
+**Checks:** A SAMPLES series of 2 × 10⁶ float32 values with a second array of int16
+values gives an equal series after the round trip, with the same dtypes.
+
+**How:** The test makes random values with a fixed seed, builds the series, and checks the
+round trip, the dtype of each array, and that the values are equal.
+
+**Assumptions:** The size is a check of the time and the memory of the path, not of a
+limit. The test has no time limit.
+
+#### `test_series_round_trip_of_values_that_are_not_finite`
+
+**Checks:** Infinity and NaN in an array, in `t0_s` and `end_s`, and in `meta` survive the
+round trip, `to_obj` writes the floats of the fields and of `meta` as "inf", "-inf" and
+"nan", and `json.dumps(allow_nan=False)` accepts the object.
+
+**How:** The test builds an ENVELOPE series with the four kinds of value in the arrays,
+`t0_s` of -infinity, `end_s` of NaN, and `meta` with infinity, -infinity, NaN, a finite
+float and the string "nan?" (a string that is not one of the three). It checks the strings
+in `to_obj`, that `json.dumps` accepts the object, that the round trip is equal, and that the
+non-finite values are floats again.
+
+**Assumptions:** None.
+
+#### `test_to_obj_keys_and_types`
+
+**Checks:** `to_obj` has the keys `name`, `kind`, `unit`, `t0_s`, `step_s`, `end_s`, `meta`
+and `arrays` in this order. `kind` is the string value. A `meta` int stays an int, a bool
+stays a bool and a float stays a float, also after `json.dumps` and `json.loads`. `arrays`
+has the arrays in their order, each as `dtype`, `length` and `data`. A `step_s` that the kind
+does not use is null.
+
+**How:** The test calls `to_obj` on an ENVELOPE and on a RUNS series and checks the keys,
+their order, the types of the `meta` values, and the null `step_s` of the RUNS series.
+
+**Assumptions:** None.
+
+#### `test_from_obj_refuses`
+
+**Checks:** `from_obj` raises `ValueError` (and no other error) for an object that is not
+a dict, an unknown key, a missing key, an unknown kind or a kind that is not a string, an
+empty name, a name or unit that is not a string, a `step_s` that is zero, a string or null,
+a null `end_s` or `t0_s`, a `t0_s` that is a bool, a `meta` or `arrays` that is not an
+object, a `meta` value that is a list, and an array that is not an object or an object
+with no arrays.
+
+**How:** Parametrized. Each case changes or removes one key of the `to_obj` of a valid
+ENVELOPE series and checks for `ValueError`. The `TypeError` of the series is a
+`ValueError` here, so a caller catches one type.
+
+**Assumptions:** None.
+
+#### `test_encode_array_gives_the_same_text_each_time`
+
+**Checks:** One array encoded two times gives the same dict, a copy of it gives the same
+dict, an array of the other byte order (`>f4`) gives the same dict, and a strided view
+gives the dict of its copy. The gzip header has no time stamp, its OS byte is 255, and
+the data decompress to the little-endian bytes.
+
+**How:** The test encodes a float32 array with 1000 values in each form and compares the
+dicts. It decodes the base64 text and checks bytes 4 to 7 and byte 9 of the header, and
+that `gzip.decompress` gives `a.tobytes()`.
+
+**Assumptions:** The machine is little-endian, so `a.tobytes()` is the little-endian
+bytes.
+
+#### `test_encode_array_gives_the_fixed_text`
+
+**Checks:** `encode_array` gives the text that `encode_tables` of pulseq-reports gave for
+the same array, for a float32 array with finite and non-finite values and for an int64
+array. `decode_array` of the text gives the array back.
+
+**How:** Parametrized over the two arrays. The expected dicts are literals in the test,
+made by running `encode_tables` of pulseq-reports at commit `a322517` (in
+`src/pulseq_reports/diagram_data.py`). The test compares the dict, and decodes the dict and
+compares the array (NaN equal).
+
+**Assumptions:**
+
+- The literals are correct for `encode_tables` at that commit. The test does not run
+  pulseq-reports.
+- The gzip bytes depend on the version of zlib. The Nix devShell fixes it, so a local run
+  and CI use the same zlib. A different zlib can give other bytes for the same data, and
+  the test then fails with no fault in the code.
+
+#### `test_decode_array_gives_back_the_array`
+
+**Checks:** For each of the dtypes bool, int8 to int64, uint8 to uint64, float16, float32,
+float64, complex64 and complex128, and for an empty array, `decode_array` of `encode_array`
+gives an equal array, with the same dtype, in native byte order, that is writable, and that
+is not the original object.
+
+**How:** Parametrized over the dtypes. The test makes 33 random values, converts them to
+the dtype, and checks each property for the array and for its empty slice.
+
+**Assumptions:** None.
+
+#### `test_encode_array_refuses_a_bad_array`
+
+**Checks:** `encode_array` raises `TypeError` or `ValueError` for a list, a two-dimensional
+array, an array of strings and an array of objects.
+
+**How:** Parametrized. The test calls `encode_array` in `pytest.raises` for each.
+
+**Assumptions:** None.
+
+#### `test_decode_array_refuses`
+
+**Checks:** `decode_array` raises `ValueError` for a value that is not a dict, a dict with
+a missing key or an unknown key, a `length` that is too large, too small, negative, a float
+or a bool, a dtype that is `object`, `datetime64[s]`, a string dtype, an unknown name, a
+short name (`f4`) or not a string, `data` that is not a string, not base64, not gzip or cut
+short, and data with a number of bytes that is not a whole number of items, more than
+`length` or fewer than `length`.
+
+**How:** Parametrized. Each case changes one key of a valid dict (or builds a gzip text of
+zero bytes) and checks for `ValueError`.
+
+**Assumptions:** The test does not check each byte of a damaged gzip stream, only the cases
+in the list.
+
+### 2.9 Analyses (`test_analyses.py`)
+
+`test_analyses.py` tests `analyses.py`: the entry-point registry of the group
+`pulseq_analysis.analyses`, the specification of each of the four analyses of the package
+(`seq.index`, `gradient.limits`, `gradient.blocks` and `pns.safe.levels`), `compute`, and
+`to_series` of `pns.safe.levels` (design section 4.4 of the plan of pulseq-analysis).
+
+The registry tests that need two packages, a broken entry point or an object without
+`spec.id` replace `importlib.metadata.entry_points` with a function that gives fake entry
+points (an object with a `name`, a `dist` with the package name, and a `load`). The test of
+the real registry uses the entry points that `uv sync` installs from `pyproject.toml`. The
+tests of the series use `gre_sequence(num_trs=20)` with the example hardware of pypulseq, with
+the stimulation limit multiplied so that the peak is 1.5, so that the total is above 1 in
+several runs (`_hardware_for_peak`, as in `test_pns_levels.py`).
+
+**Assumptions for the whole file:**
+
+- The package is installed in the environment of the tests, with its entry points: a run
+  of `pytest` without `uv sync` after a change of the entry points in `pyproject.toml`
+  fails the test of the real registry.
+
+#### `test_the_registry_has_the_four_analyses_of_the_package`
+
+**Checks:** With the installed entry points, `registry()` has the four IDs
+`gradient.blocks`, `gradient.limits`, `pns.safe.levels` and `seq.index`, no other ID, each
+with the object of this package, and each key is the `spec.id` of its analysis.
+
+**How:** The test calls `registry()` and compares the sorted keys, the identity of each value
+with `SEQ_INDEX`, `GRADIENT_LIMITS`, `GRADIENT_BLOCKS` and `PNS_SAFE_LEVELS`, and each key with
+`spec.id`.
+
+**Assumptions:** No other installed package gives an analysis (the test environment has only
+this package).
+
+#### `test_two_analyses_with_one_id_raise_an_error_that_names_both_packages`
+
+**Checks:** Two entry points whose analyses have the same ID raise `RegistryError`, and the
+message has the ID and the names of the two packages.
+
+**How:** The test makes two fake entry points with two analyses of the ID `t.a`, from the
+packages `pkg-one` and `pkg-two`, and checks the message of the error that `registry()`
+raises.
+
+**Assumptions:** None.
+
+#### `test_an_entry_point_that_cannot_load_raises_an_error_that_names_it`
+
+**Checks:** An entry point whose `load` raises gives a `RegistryError` with the name of the
+entry point, the name of its package, and the type and the text of the exception.
+
+**How:** The test makes one fake entry point whose `load` raises `ImportError("no module named
+foo")`, and checks the message of the error that `registry()` raises.
+
+**Assumptions:** None.
+
+#### `test_an_entry_point_without_a_spec_id_raises_an_error_that_names_it`
+
+**Checks:** An entry point whose object has no `spec`, and one whose `spec` has no `id`, give
+a `RegistryError` with the name of the entry point and the name of its package.
+
+**How:** For each of the two objects (`object()` and a namespace with an empty `spec`), the
+test makes one fake entry point and checks the message of the error that `registry()` raises.
+
+**Assumptions:** None.
+
+#### `test_the_spec_of_each_analysis_has_the_documented_values`
+
+**Checks:** The ID, the version 1, `params`, `rasters` and `cost` of each analysis are the
+values of section 8.3 of `docs/plans/implementation.md`. The title and the description are not
+empty. `series` is None for `seq.index`, `gradient.limits` and `gradient.blocks`, and a text
+for `pns.safe.levels`.
+
+**How:** Parametrized over the four analyses. The test compares each field with the table of
+the plan, which the test file holds as a list.
+
+**Assumptions:** The test does not check the words of the title, the description or the text
+of `series`: they are for a reader.
+
+#### `test_params_name_the_keyword_only_parameters_of_compute`
+
+**Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
+`spec.params` in order, and their defaults are those of the function that `compute` calls
+(`GAMMA`, `None` and `(PNS_LIMIT,)`). A keyword that is not a parameter is a `TypeError`.
+
+**How:** Parametrized over the four analyses. The test reads `inspect.signature(compute)`, and
+calls `compute` on `empty_sequence()` with `unknown=1`.
+
+**Assumptions:** None.
+
+#### `test_compute_gives_the_value_of_its_function_with_the_same_arguments`
+
+**Checks:** `compute` of each analysis gives the value of the function that it calls, with
+the same arguments, with the defaults and with others (`gamma=40e6`, and a hardware with
+`thresholds=(1.0, 0.5)`). `seq.index` and `pns.safe.levels` give the same object as
+`sequence_index` and `pns_levels_for`, which keep their result for the sequence object. The
+gradient analyses give an equal value.
+
+**How:** The test builds `gre_sequence(num_trs=4)` and compares `compute` with the function:
+`is` for the kept results, `==` for `GradientLimits`, and `numpy.array_equal` for each array of
+`BlockGradientValues` (the block IDs, the starts, the vector peak and its time, and for each
+axis the peak, the slew, the junction step and the times of the peak and of the slew).
+
+**Assumptions:** `BlockGradientValues` has no `__eq__` for its arrays, so the test compares
+each array one by one.
+
+#### `test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call`
+
+**Checks:** For a sequence with more than one run above 1, `to_series` gives `pns_total`, an
+ENVELOPE of unit "1" with the arrays `min` and `max` (float32) equal to `level_min` and
+`level_max`, `t0_s` 0, `step_s` `bin_samples * dt_s`, `end_s` `num_samples * dt_s`, and the
+`meta` of design 4.4 (`hardware`, `asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`,
+`peak_time_s` and the three `axis_peaks_*`). It gives `pns_above_1`, a RUNS series of unit "1"
+with the arrays `start_s`, `end_s`, `num_samples` (int64), `peak` and `peak_time_s` (float64),
+in this order, with one entry for each interval of `above[1.0]` and the `meta`
+`{"threshold": 1.0}`. For a `PnsLevels` of a gradient `.asc` file, `meta["hardware"]` is the
+name in the file and `meta["asc_file"]` is the file name.
+
+**How:** The test calls `compute` with the hardware of `_hardware_for_peak(seq, 1.5)` and
+compares each field of `to_series` with the field of the same `PnsLevels` (`numpy.array_equal`
+for the arrays, `tolist` for the intervals). For the file it writes a gradient `.asc` file with
+the `write_gradient_asc` fixture and calls `pns_levels` with it.
+
+**Assumptions:** The test does not build the expected `Series` with the code under test: each
+field is compared by itself.
+
+#### `test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds`
+
+**Checks:** With `thresholds=(1.0, 0.5)`, `to_series` gives `pns_total`, `pns_above_1` and
+`pns_above_0.5`, in this order, of the kinds ENVELOPE, RUNS and RUNS, and the `start_s`,
+`end_s` and `peak` of each RUNS series are those of `above` of its threshold, which are not
+empty and not equal. With `(0.5, 1.0)`, the two RUNS series are in the other order.
+
+**How:** The test calls `compute` with the hardware for the peak 1.5, and compares the names,
+the kinds, the `meta` and the arrays with `levels.above`.
+
+**Assumptions:** None.
+
+#### `test_to_series_refuses_two_thresholds_with_one_series_name`
+
+**Checks:** The thresholds 1.0000001 and 1.0000002 are two keys of `above`, but both give the
+name `pns_above_1` with `:g`, so `to_series` raises `ValueError`.
+
+**How:** The test calls `compute` on `gre_sequence(num_trs=2)` with the two thresholds, checks
+that `above` has two keys, and checks the error of `to_series`.
+
+**Assumptions:** `pns_levels` accepts the two thresholds: they are two different floats.
+
+#### `test_the_pns_series_survive_the_json_round_trip`
+
+**Checks:** Each series of `to_series` (the ENVELOPE and two RUNS series, for the thresholds
+1.0 and 0.8) is equal to the series that `Series.from_obj` reads from the text of
+`json.dumps(s.to_obj(), allow_nan=False)`.
+
+**How:** The test writes and reads each series and compares it with `==` (the `Series`
+equality).
+
+**Assumptions:** None.
+
+#### `test_to_series_gives_nothing_for_a_sequence_without_gradients`
+
+**Checks:** For `empty_sequence()` the `PnsLevels` has a `reason` (`NO_GRADIENTS`), and
+`to_series` gives `()`, with the default thresholds and with two thresholds.
+
+**How:** The test calls `compute` and `to_series` for each tuple of thresholds.
+
+**Assumptions:** None.
+
+#### `test_the_other_three_analyses_give_no_series`
+
+**Checks:** `to_series` of `seq.index`, `gradient.limits` and `gradient.blocks` gives `()`,
+for a sequence with gradients and for one without.
+
+**How:** For `gre_sequence(num_trs=2)` and `empty_sequence()`, the test gives the value of
+`compute` to `to_series`.
+
+**Assumptions:** None.
