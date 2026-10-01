@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# All the checks that CI runs, in one command. Run it in the devShell:
+#
+#   nix develop --command scripts/check
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+echo "# uv sync"
+uv sync --frozen
+
+echo
+echo "# ruff"
+uv run ruff check .
+uv run ruff format --check .
+
+echo
+echo "# pytest"
+uv run pytest -q tests
+
+echo
+echo "# shellcheck"
+shellcheck --severity=warning scripts/check .claude/hooks/block-main-writes.sh
+echo "ok    shellcheck"
