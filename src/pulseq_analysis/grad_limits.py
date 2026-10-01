@@ -3,8 +3,8 @@
 Each gradient event is piecewise linear between the points that `seq_utils.gradient_points`
 gives, as the Pulseq specification treats it. This module computes, for each logical axis
 (x, y, z) and for the three-axis vector, the peak amplitude, the peak slew rate, and the RMS
-amplitude over a time range, and compares the peak amplitude and the peak slew rate with the
-hardware limits.
+amplitude over a time range. It does not compare them with limits: a caller that has the
+hardware limits compares the values with them.
 
 The axes are the logical sequence axes, not the physical gradient axes of a scanner. The
 scanner rotates the logical axes onto the physical ones for the prescribed orientation, so on
@@ -47,21 +47,6 @@ _AXES = ("x", "y", "z")
 
 
 @dataclass(frozen=True)
-class HardwareLimits:
-    """The gradient hardware limits that a sequence is compared with.
-
-    `max_grad_mt_per_m` is in mT/m and `max_slew_t_per_m_per_s` in T/m/s. `label` names
-    the limits, for example "pypulseq system limits" (the limits of `seq.system`) or the
-    name of a target profile. The numbers of `gradient_limits` do not depend on `limits`:
-    it only gives them back in `GradientLimits.limits`, so that a caller can compare.
-    """
-
-    max_grad_mt_per_m: float
-    max_slew_t_per_m_per_s: float
-    label: str
-
-
-@dataclass(frozen=True)
 class AxisResult:
     """The gradient limit numbers for one logical axis, over a time range.
 
@@ -97,18 +82,20 @@ class GradientLimits:
     every numeric field is its zero value, except `whole_rms_mt_per_m`, which is the RMS of the
     whole file when `window` is given. The zero value is 0.0 for an amplitude, slew or RMS
     field, and 0.0 for a time field; every block field (`AxisResult.peak_block`,
-    `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that was used.
+    `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that
+    was used.
 
     `vector_peak_mt_per_m` is the largest magnitude of the three-axis gradient vector over the
     range, `vector_peak_time_s` is the first time in the range where it is reached, and
     `vector_peak_block` is the block ID of the block that holds that time, by the rule of
-    `AxisResult` (0.0 and None when the peak is 0). There is no vector slew field. The RMS of the vector magnitude is the square
-    root of the sum of the squares of the three axis RMS values, because the mean of |G|² is the
-    sum of the three axis means of G².
+    `AxisResult` (0.0 and None when the peak is 0). There is no vector slew field. The RMS of
+    the vector magnitude is the square root of the sum of the squares of the three axis RMS
+    values, because the mean of |G|² is the sum of the three axis means of G².
 
     `whole_rms_mt_per_m` is the RMS amplitude of each axis (mT/m) over the whole sequence,
     computed in the same call that computes `axes`, so that a caller that wants both the
-    window's values and the whole file's RMS needs only one call. It is None when `window` was None (then `axes`' own RMS already is the whole file's).
+    window's values and the whole file's RMS needs only one call. It is None when `window` was
+    None (then `axes`' own RMS already is the whole file's).
     """
 
     reason: str | None
@@ -117,7 +104,6 @@ class GradientLimits:
     vector_peak_mt_per_m: float
     vector_peak_time_s: float
     vector_peak_block: int | None
-    limits: HardwareLimits
     whole_rms_mt_per_m: dict[str, float] | None = None
 
 
@@ -156,19 +142,6 @@ class BlockGradientValues:
     junction_t_per_m_per_s: dict[str, np.ndarray]
     vector_peak_mt_per_m: np.ndarray
     vector_peak_time_s: np.ndarray
-
-
-def _default_limits(seq: pp.Sequence, gamma: float) -> HardwareLimits:
-    # seq.system.max_grad and seq.system.max_slew are always stored in Hz/m and
-    # Hz/m/s, whatever unit the caller gave pp.Opts, because pp.Opts.__init__
-    # converts every unit to Hz/m (respectively Hz/m/s) with the sequence's own gamma
-    # before it stores the value (verified in pypulseq's opts.py). The conversion back to mT/m
-    # (T/m/s) uses `gamma`, the same gamma as the measured values.
-    return HardwareLimits(
-        max_grad_mt_per_m=seq.system.max_grad / gamma * 1e3,
-        max_slew_t_per_m_per_s=seq.system.max_slew / gamma,
-        label="pypulseq system limits",
-    )
 
 
 def _clip_polyline(
@@ -587,12 +560,10 @@ def gradient_limits(
     seq: pp.Sequence,
     *,
     window: tuple[float, float] | None = None,
-    limits: HardwareLimits | None = None,
     gamma: float = GAMMA,
 ) -> GradientLimits:
     """The peak amplitude, the peak slew rate and the RMS amplitude of `seq`'s
-    gradients, on each logical axis and as a three-axis vector, compared with
-    `limits`.
+    gradients, on each logical axis and as a three-axis vector.
 
     With `window=None`, the range is the whole sequence, `(0.0, total_duration)`.
     Otherwise `window` is `(start_s, end_s)` in seconds from the sequence start; it
@@ -603,12 +574,9 @@ def gradient_limits(
     With `window` given, `GradientLimits.whole_rms_mt_per_m` also gives each axis's RMS
     over the whole sequence, computed in this same call.
 
-    With `limits=None`, the limits are `seq.system.max_grad` and `seq.system.max_slew`
-    (see `HardwareLimits`).
-
-    `gamma` (Hz/T) converts every value from Hz/m (Hz/m/s) to mT/m (T/m/s), and the default
-    limits too. The default is 42.576 MHz/T. A caller that compares the values with limits
-    of its own passes the gamma that converted those limits.
+    `gamma` (Hz/T) converts every value from Hz/m (Hz/m/s) to mT/m (T/m/s). The default is
+    42.576 MHz/T. A caller that compares the values with limits of its own passes the gamma
+    that converted those limits.
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
     `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
@@ -620,8 +588,6 @@ def gradient_limits(
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
     """
     refuse_rotations(seq)
-    if limits is None:
-        limits = _default_limits(seq, gamma)
 
     index = sequence_index(seq)
     ev = _event_values(seq, index)
@@ -663,7 +629,6 @@ def gradient_limits(
         vector_peak_mt_per_m=vector_peak_mt_per_m,
         vector_peak_time_s=vector_peak_time_s,
         vector_peak_block=vector_peak_block,
-        limits=limits,
         whole_rms_mt_per_m=whole_rms_mt_per_m,
     )
 

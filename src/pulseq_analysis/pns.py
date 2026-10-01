@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 
-from .pns_levels import SAFE_FIELDS, PnsLevels, pns_levels
+from .pns_levels import PNS_LIMIT, SAFE_FIELDS, PnsLevels, _validated_thresholds, pns_levels
 from .seq_index import sequence_index
 
 
@@ -43,12 +43,13 @@ class PnsPrediction:
 
 
 # For each sequence object: the number of blocks, the last block id (the rule of
-# `seq_index.sequence_index`) and one `PnsLevels` for each hardware, keyed by `None` (the
-# example hardware), the resolved path of the gradient .asc file, or the tuple of
-# `_hardware_key` (a tuple is never equal to a path or to `None`).
+# `seq_index.sequence_index`) and one `PnsLevels` for each pair of a hardware and the
+# thresholds. The hardware is `None` (the example hardware), the resolved path of the
+# gradient .asc file, or the tuple of `_hardware_key` (a tuple is never equal to a path or
+# to `None`). The thresholds are the tuple of `float(t)`.
 _Hardware = tuple[SimpleNamespace, str]
 _HardwareKey = str | None | tuple
-_Kept = tuple[int, int, dict[_HardwareKey, PnsLevels]]
+_Kept = tuple[int, int, dict[tuple[_HardwareKey, tuple[float, ...]], PnsLevels]]
 _LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Kept]" = weakref.WeakKeyDictionary()
 
 
@@ -68,15 +69,20 @@ def pns_levels_for(
     *,
     gradient_asc: str | Path | None = None,
     hardware: _Hardware | None = None,
+    thresholds: tuple[float, ...] = (PNS_LIMIT,),
 ) -> PnsLevels:
     """The `PnsLevels` of `seq` with the hardware of the gradient .asc file `gradient_asc`,
     with `hardware` (a pair of a SAFE hardware struct and its label), or with pypulseq's
     example hardware when both are None (`pns_levels.pns_levels`, which has the rules of
-    the arguments: both together raise ValueError).
+    the arguments: both together raise ValueError), and with `thresholds` (the same rules
+    and the same default, `(PNS_LIMIT,)`; a refused value raises ValueError before the
+    sequence is read).
 
-    The result is kept for the sequence object and the hardware, so that a caller that
-    needs the levels of one sequence for one hardware more than once (`pns_prediction`,
-    for example) runs the SAFE model one time for each hardware. A relative and an
+    The result is kept for the sequence object, the hardware and the thresholds, so that a
+    caller that needs the levels of one sequence for one hardware and one tuple of
+    thresholds more than once (`pns_prediction`, for example) runs the SAFE model one time
+    for each pair. The same thresholds in another order, or other thresholds, are another
+    result (the order of the keys of `PnsLevels.above`). A relative and an
     absolute spelling of one file are one hardware, and two `hardware` pairs with the same
     label and the same field values are one hardware (`_hardware_key`). The kept results
     are built again when the number of blocks or the last block id changed, for example
@@ -84,6 +90,7 @@ def pns_levels_for(
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")
+    threshold_keys = _validated_thresholds(thresholds)
     block_events = seq.block_events
     num_blocks = len(block_events)
     last_id = int(next(reversed(block_events))) if num_blocks else 0
@@ -97,10 +104,13 @@ def pns_levels_for(
     if kept is None or kept[0] != num_blocks or kept[1] != last_id:
         kept = (num_blocks, last_id, {})
         _LEVELS_CACHE[seq] = kept
-    by_hardware = kept[2]
-    if key not in by_hardware:
-        by_hardware[key] = pns_levels(seq, gradient_asc=gradient_asc, hardware=hardware)
-    return by_hardware[key]
+    by_key = kept[2]
+    kept_key = (key, threshold_keys)
+    if kept_key not in by_key:
+        by_key[kept_key] = pns_levels(
+            seq, gradient_asc=gradient_asc, hardware=hardware, thresholds=thresholds
+        )
+    return by_key[kept_key]
 
 
 def pns_prediction(seq: pp.Sequence, *, gradient_asc: str | Path | None = None) -> PnsPrediction:

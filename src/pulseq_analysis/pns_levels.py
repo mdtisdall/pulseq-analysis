@@ -1,5 +1,6 @@
 """The SAFE PNS prediction of a whole sequence: the summary (the peak, its time and the
-peak of each axis), the intervals at or above the stimulation limit, and the level.
+peak of each axis), the intervals at or above each threshold (the stimulation limit by
+default), and the level.
 
 The level is the minimum and the maximum of the PNS total in fixed time bins. It is for a
 caller that draws the PNS of a long sequence (pulseq-reports, for example) and cannot keep
@@ -10,7 +11,7 @@ runs the SAFE model of the pinned pypulseq fork over them in chunks
 (`_safe_gwf_to_pns_chunk`, which carries the filter state from one chunk to the next),
 and keeps only the level, the summary and the intervals. Its memory does not grow with
 the duration of the sequence, except for the level (at most `MAX_BINS` bins) and the
-intervals.
+intervals of each threshold.
 
 The samples of each block start at the start of that block, not at a time summed over the
 earlier blocks. Thus a block gives the same samples wherever it is in the sequence, and
@@ -53,15 +54,16 @@ NO_GRADIENTS = "no gradients"
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
-# The stimulation threshold of the SAFE model: a total of 1 is 100 %. An interval of
-# `PnsLevels.above_limit` is a run of samples with `total >= PNS_LIMIT`.
+# The stimulation threshold of the SAFE model: a total of 1 is 100 %. The default threshold
+# of `pns_levels`: an interval of `PnsLevels.above[PNS_LIMIT]` is a run of samples with
+# `total >= PNS_LIMIT`.
 PNS_LIMIT = 1.0
 
 
 @dataclass(frozen=True)
 class PnsInterval:
-    """A run of consecutive samples whose total is at or above `PNS_LIMIT`
-    (`PnsLevels.above_limit`). The time of sample `k` is `(k + 0.5) * dt`."""
+    """A run of consecutive samples whose total is at or above a threshold
+    (`PnsLevels.above`). The time of sample `k` is `(k + 0.5) * dt`."""
 
     start_s: float  # the time of the first sample of the interval
     end_s: float  # the time of the last sample of the interval
@@ -80,14 +82,18 @@ class PnsLevels:
     sample is `sqrt(x^2 + y^2 + z^2)` of the axis values. Sample `k` is at the time
     `(k + 0.5) * dt_s`, in seconds from the start of the sequence.
 
-    `peak`, `peak_time_s`, `axis_peaks` and `above_limit` are the summary. `level_min` and
+    `peak`, `peak_time_s`, `axis_peaks` and `above` are the summary. `level_min` and
     `level_max` are the level: bin `i` holds the samples `i * bin_samples` to
     `(i + 1) * bin_samples - 1` (the last bin can have fewer), and every total of those
     samples is in `[level_min[i], level_max[i]]`.
 
     Without a gradient event in the sequence, `reason` is `NO_GRADIENTS`, `num_samples` is
     0, the level has no bins, `peak` and each axis peak are 0, `peak_time_s` is None and
-    `above_limit` is empty.
+    `above` has an empty tuple for each threshold.
+
+    `above` is a plain dict, and the dataclass is frozen only in its fields: a caller must
+    not change the dict (a `MappingProxyType` would stop that, but it cannot be pickled or
+    copied with `copy.deepcopy`, and the dict type is the one of the interface).
     """
 
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
@@ -106,9 +112,10 @@ class PnsLevels:
     peak_time_s: float | None  # the first sample time within PEAK_TOLERANCE of the peak
     axis_peaks: dict[str, float]  # "x", "y", "z": the largest value of each axis
     on_raster: bool  # every block is a whole number of samples (`raster_block_lengths`)
-    above_limit: tuple[PnsInterval, ...] = ()  # the intervals with total >= PNS_LIMIT, in
-    # time order; not empty if and only if `peak >= PNS_LIMIT`, and then the largest
-    # `PnsInterval.peak` equals `peak`
+    above: dict[float, tuple[PnsInterval, ...]]  # one key for each threshold of
+    # `pns_levels`, as `float(t)` in the order of `thresholds`: the intervals with
+    # total >= that threshold, in time order; the tuple of a threshold is not empty if and
+    # only if `peak >=` that threshold, and then the largest `PnsInterval.peak` equals `peak`
 
 
 def bin_samples_for(num_samples: int, dt: float) -> int:
@@ -127,6 +134,7 @@ def pns_levels(
     *,
     gradient_asc: str | Path | None = None,
     hardware: tuple[SimpleNamespace, str] | None = None,
+    thresholds: tuple[float, ...] = (PNS_LIMIT,),
 ) -> PnsLevels:
     """The stored level and the summary of the SAFE PNS total of `seq`, with the hardware
     of the gradient .asc file `gradient_asc`, with `hardware`, or with pypulseq's example
@@ -138,6 +146,11 @@ def pns_levels(
     `tau1` to `tau3`, `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), and `label`
     is the string that `PnsLevels.hardware` gives. `PnsLevels.asc_file` is then None.
     `gradient_asc` and `hardware` together raise ValueError.
+
+    `thresholds` is a tuple of the totals whose intervals `PnsLevels.above` gives (1 is the
+    stimulation limit, `PNS_LIMIT`, the default). Each is a finite `int` or `float` above 0
+    (not a `bool`), and no two are equal as floats. Else ValueError, before the sequence is
+    read. The keys of `PnsLevels.above` are `float(t)`, in the order of `thresholds`.
 
     The model is `calc_pns` of the pinned fork, on other samples:
 
@@ -165,26 +178,29 @@ def pns_levels(
        `peak * (1 - PEAK_TOLERANCE)`, as `PnsPrediction.peak_time_s`. The peak is
        known only at the end, so `pns_levels` keeps the start state of each chunk
        (12 numbers) and the float64 maximum of each chunk, and runs again only the
-       first chunk whose maximum reaches the threshold.
-    6. The intervals (`above_limit`): the runs of consecutive samples whose float64
-       total is at or above `PNS_LIMIT`, found in the same loop as the peak (no second
-       pass). A run that reaches the end of a chunk continues in the next chunk when
-       the first sample of that chunk is also at or above `PNS_LIMIT`: it is one
-       interval. An interval keeps its first and last sample, its largest total and the
-       first sample with it. They use the totals of item 3, not the float32 bins, so
-       `above_limit` is not empty if and only if `peak >= PNS_LIMIT`.
+       first chunk whose maximum reaches `peak * (1 - PEAK_TOLERANCE)`.
+    6. The intervals (`above`): for each threshold, the runs of consecutive samples whose
+       float64 total is at or above it. There is one finder for each threshold, and every
+       chunk goes to every finder in the same loop as the peak (no second pass; the total
+       of a chunk is calculated one time). A run that reaches the end of a chunk
+       continues in the next chunk when the first sample of that chunk is also at or
+       above the threshold: it is one interval. An interval keeps its first and last
+       sample, its largest total and the first sample with it. They use the totals of
+       item 3, not the float32 bins, so the tuple of a threshold is not empty if and only
+       if `peak` is at or above it.
 
     The result does not depend on the chunk size (exact equality). A sequence without
     a gradient event gives `reason=NO_GRADIENTS`, no bins, peak 0, `peak_time_s` None
-    and no interval. Memory: the chunk, the longest block, the stored level and a few
-    numbers for each chunk and for each interval.
+    and no interval (an empty tuple for each threshold). Memory: the chunk, the longest
+    block, the stored level and a few numbers for each chunk and for each interval.
 
-    Raises ValueError when both `gradient_asc` and `hardware` are given, and
-    NotImplementedError for a sequence with the rotation extension
+    Raises ValueError when both `gradient_asc` and `hardware` are given or `thresholds`
+    is refused, and NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")
+    keys = _validated_thresholds(thresholds)
     refuse_rotations(seq)
     dt = seq.grad_raster_time
 
@@ -218,6 +234,7 @@ def pns_levels(
             peak_time_s=None,
             axis_peaks=dict.fromkeys(_AXES3, 0.0),
             on_raster=on_raster,
+            above={key: () for key in keys},
         )
 
     sampler = GradientSampler(seq, index)
@@ -253,7 +270,7 @@ def pns_levels(
     # enough to run again only the one chunk that holds the peak, instead of keeping every
     # sample.
     chunk_records: list[tuple[int, object, float]] = []
-    intervals = _IntervalFinder(dt)
+    finders = [_IntervalFinder(dt, key) for key in keys]
 
     bin_cursor = 0
     for chunk_index in range(num_chunks):
@@ -267,7 +284,8 @@ def pns_levels(
         chunk_max = float(total.max())
         peak = max(peak, chunk_max)
         chunk_records.append((s0, state_before, chunk_max))
-        intervals.add_chunk(s0, total)
+        for finder in finders:
+            finder.add_chunk(s0, total)
 
         bin_cursor = _store_bins(level_min, level_max, bin_cursor, total, bin_samples)
 
@@ -297,7 +315,7 @@ def pns_levels(
         peak_time_s=peak_time_s,
         axis_peaks=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
         on_raster=on_raster,
-        above_limit=intervals.finish(),
+        above={key: finder.finish() for key, finder in zip(keys, finders, strict=True)},
     )
 
 
@@ -308,6 +326,31 @@ _GRAD_COLUMNS = ("gx", "gy", "gz")
 # The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
 # `_safe_gwf_to_pns_chunk` does not use).
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
+
+
+def _validated_thresholds(thresholds: object) -> tuple[float, ...]:
+    """`thresholds` of `pns_levels` as the tuple of `float(t)`, in the same order. Raises
+    ValueError for a value that is not a tuple, an empty tuple, an element that is a
+    `bool` or not an `int` or a `float`, an element that is not finite or not above 0, and
+    two elements that are equal as floats. `pns.pns_levels_for` uses it too."""
+    if not isinstance(thresholds, tuple):
+        raise ValueError(f"thresholds must be a tuple, not {type(thresholds).__name__}")  # noqa: TRY004
+    if not thresholds:
+        raise ValueError("thresholds must not be empty")
+    keys = []
+    for t in thresholds:
+        if isinstance(t, bool) or not isinstance(t, int | float):
+            raise ValueError(f"each threshold must be an int or a float, not {t!r}")  # noqa: TRY004
+        try:
+            key = float(t)
+        except OverflowError:  # an int too large for a float
+            raise ValueError(f"each threshold must be finite, not {t!r}") from None
+        if not math.isfinite(key) or key <= 0:
+            raise ValueError(f"each threshold must be finite and above 0, not {t!r}")
+        keys.append(key)
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"thresholds must not repeat a value, got {thresholds!r}")
+    return tuple(keys)
 
 
 def _has_gradients(index) -> bool:
@@ -363,21 +406,22 @@ def _chunk_total(gwf: np.ndarray, dt: float, hw_ns, state) -> tuple[np.ndarray, 
 
 
 class _IntervalFinder:
-    """The intervals of consecutive samples with `total >= PNS_LIMIT` (item 6 of
-    `pns_levels`), from the chunks in order. A run that reaches the end of a chunk stays
-    open until the next chunk shows whether it continues. Each open or closed interval
-    is the global indices of its first sample, its last sample and the first sample of
-    its largest total, and that total."""
+    """The intervals of consecutive samples with `total >= threshold` (item 6 of
+    `pns_levels`; one finder for each threshold), from the chunks in order. A run that
+    reaches the end of a chunk stays open until the next chunk shows whether it continues.
+    Each open or closed interval is the global indices of its first sample, its last sample
+    and the first sample of its largest total, and that total."""
 
-    def __init__(self, dt: float):
+    def __init__(self, dt: float, threshold: float):
         self._dt = dt
+        self._threshold = threshold
         self._closed: list[PnsInterval] = []
         # The run at the end of the last chunk: (first, last, peak, peak sample), or None.
         self._open: tuple[int, int, float, int] | None = None
 
     def add_chunk(self, s0: int, total: np.ndarray) -> None:
         """Adds the next chunk: `total` (float64) starts at the global sample `s0`."""
-        mask = total >= PNS_LIMIT
+        mask = total >= self._threshold
         if not mask.any():
             self._close_open()
             return

@@ -1,6 +1,6 @@
 [project]
 name = "pulseq-analysis"
-version = "0.1.0rc1"
+version = "0.1.0rc2"
 description = "Derived values of a Pulseq sequence: waveforms, PNS and gradient summaries"
 readme = "README.md"
 license = "MIT"
@@ -10,6 +10,14 @@ dependencies = [
     "pypulseq>=1.5.0.post1",
     "numpy",
 ]
+
+# The analyses of this package (`pulseq_analysis.analyses`): the name of an entry point is the
+# ID of the analysis.
+[project.entry-points."pulseq_analysis.analyses"]
+"seq.index" = "pulseq_analysis.analyses:SEQ_INDEX"
+"gradient.limits" = "pulseq_analysis.analyses:GRADIENT_LIMITS"
+"gradient.blocks" = "pulseq_analysis.analyses:GRADIENT_BLOCKS"
+"pns.safe.levels" = "pulseq_analysis.analyses:PNS_SAFE_LEVELS"
 
 [build-system]
 requires = ["hatchling"]

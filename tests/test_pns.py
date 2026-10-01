@@ -350,3 +350,27 @@ def test_pns_levels_for_hardware_pair_is_not_the_example_hardware_or_a_file(
         pns_levels_for(seq, gradient_asc=path)
         pns_levels_for(seq, hardware=(safe_example_hw(), EXAMPLE_HARDWARE))
     assert len(calls) == 3
+
+
+def test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):
+    """The thresholds are part of the key of a kept result: other thresholds, or the same
+    ones in another order, run the model and do not give the result of the default; the
+    same thresholds again give the kept result (the same object), and `(1,)` is the key of
+    the default `(1.0,)`."""
+    calls = _count_pns_levels_calls(monkeypatch)
+    seq = spin_echo_sequence()
+
+    default = pns_levels_for(seq)
+    assert len(calls) == 1
+    other = pns_levels_for(seq, thresholds=(1.0, 0.5))
+    assert len(calls) == 2
+    assert other is not default
+    assert list(default.above) == [1.0]
+    assert list(other.above) == [1.0, 0.5]
+    assert pns_levels_for(seq, thresholds=(1.0, 0.5)) is other
+    assert pns_levels_for(seq) is default
+    assert pns_levels_for(seq, thresholds=(1,)) is default
+    assert len(calls) == 2
+    reordered = pns_levels_for(seq, thresholds=(0.5, 1.0))
+    assert len(calls) == 3
+    assert list(reordered.above) == [0.5, 1.0]
