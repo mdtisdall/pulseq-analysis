@@ -1,10 +1,15 @@
 [project]
 name = "pulseq-analysis"
-version = "0.1.0"
-description = "Analysis of Pulseq sequences"
+version = "0.1.0.dev0"
+description = "Derived values of a Pulseq sequence: waveforms, PNS and gradient summaries"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pypulseq>=1.5.0.post1",
+    "numpy",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -17,7 +22,17 @@ packages = ["src/pulseq_analysis"]
 dev = [
     "pytest",
     "ruff",
+    "scipy",
 ]
+
+# pypulseq 1.5.0.post1 with four commits, from the fork (tag pulseq-reports-pin-1, branch
+# pulseq-reports-pin): the SAFE PNS filter as a recursion, calculate_pns in chunks, the
+# get_block fix for oversampled arbitrary gradients (upstream PR #424), and the read fix of
+# upstream #359. TODO.md ("Move from the pypulseq fork to a pypulseq release") lists them.
+# uv also applies this source for a project that depends on pulseq-analysis by git URL; pip
+# does not.
+[tool.uv.sources]
+pypulseq = { git = "https://github.com/mdtisdall/pypulseq", rev = "a74ab06e51ca09707ff54837cf5ff652f6e69e94" }
 
 [tool.ruff]
 line-length = 100
