@@ -8,15 +8,15 @@ sequence. It has no target profile, no limit, no pass or fail and no finding.
 [pulseq-checks](https://github.com/mdtisdall/pulseq-checks) uses these values
 to check a sequence against the limits of a scanner.
 
-The package is in development. The modules come from pulseq-checks in the
-first release candidate.
+The package is in development. The first release candidate, `0.1.0rc1`, has
+the modules of pulseq-checks `0.1.0rc2`.
 
 ## Install
 
 With uv, from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc1"
 ```
 
 The package needs pypulseq 1.5.0.post1 with four commits that are not in a
@@ -24,10 +24,28 @@ release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`. uv
 applies this pin for a project that depends on `pulseq-analysis` by git URL.
 pip does not.
 
+## Example
+
+The SAFE PNS peak of a `.seq` file:
+
+```python
+import pypulseq as pp
+
+from pulseq_analysis.pns import pns_prediction
+
+seq = pp.Sequence()
+seq.read("sequence.seq")
+prediction = pns_prediction(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
+print(f"{prediction.peak:.0%} of the stimulation limit at {prediction.peak_time_s:.4f} s")
+```
+
+`gradient_asc` is the Siemens gradient `.asc` file of the scanner. Without
+it, the model uses pypulseq's example hardware, which is not a real scanner.
+[`docs/usage.md`](docs/usage.md) gives the other values and modules.
+
 ## Documents
 
-- [`docs/usage.md`](docs/usage.md): the modules and their interface (from the
-  first release candidate).
+- [`docs/usage.md`](docs/usage.md): the modules and their interface.
 - [`TESTS.md`](TESTS.md): each check that CI runs.
 - [`docs/plans/implementation.md`](docs/plans/implementation.md): the
   implementation plan.
