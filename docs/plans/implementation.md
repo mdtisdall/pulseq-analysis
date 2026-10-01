@@ -489,8 +489,25 @@ Checks of phase 3:
 
 ## 9. Measurements
 
-None yet. Phase 1T records the baseline. Task 3.2 records the time with one
-and with three thresholds.
+Task 3.2 records the time with one and with three thresholds, on the same
+machine as the baseline.
+
+### 9.1 The baseline (phase 1T)
+
+`scripts/time_pns_levels.py --blocks 1000000 --repeat 3`, on 2026-10-01, at
+`714b468` (the merge commit of phase 1, version `0.1.0rc1`):
+
+| Item | Value |
+|---|---|
+| Machine | Apple M1 Max, macOS 26.6.2 (arm64) |
+| Versions | Python 3.12.14, numpy 2.5.3, pypulseq 1.5.0.post1 (the fork pin) |
+| Sequence | `build_repeating(200000)`: 1000000 blocks, 119800000 samples, peak 0.826239 |
+| Build | 8.8 s (not part of the result) |
+| `pns_levels` | 10.23 s, 9.56 s, 9.47 s |
+| **Minimum** | **9.47 s** |
+
+The first run also builds the block table (`sequence_index` keeps it for the
+sequence object), so it is the slowest.
 
 ## 10. Facts for the plan of pulseq-checks phase 2
 
