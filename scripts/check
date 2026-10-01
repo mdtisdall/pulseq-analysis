@@ -5,6 +5,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# pytest writes the IDs of the tests that it collects to this file, and the
+# TESTS.md check reads them, so the tests are collected only one time.
+collected_tests="$(mktemp)"
+trap 'rm -f "$collected_tests"' EXIT
+
 echo "# uv sync"
 uv sync --frozen
 
@@ -15,7 +20,13 @@ uv run ruff format --check .
 
 echo
 echo "# pytest"
-uv run pytest -q tests
+# The tests argument loads tests/conftest.py before pytest reads its options,
+# so --collected-tests-file is known.
+uv run pytest -q tests --collected-tests-file "$collected_tests"
+
+echo
+echo "# TESTS.md"
+uv run python scripts/check_tests_md.py --collected "$collected_tests"
 
 echo
 echo "# shellcheck"

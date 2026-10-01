@@ -205,7 +205,7 @@ Branch: `chore/python-scaffolding`. One task, tier M. Files:
 | `TODO.md` | The fork item of pulseq-checks, with the three repositories named (T12). |
 | `scripts/check_tests_md.py` | A copy, with no change. |
 | `scripts/check` | The steps of the pulseq-checks file, without the `docs/checks.md` step: uv sync, ruff, pytest with `--collected-tests-file`, the TESTS.md check, shellcheck. |
-| `tests/conftest.py` | Lines 1 and 3 to 22 of the pulseq-checks file (the option and its hook), with no change. Line 2 (the import of `safe_example_hw`) comes in phase 1 with the fixture. |
+| `tests/conftest.py` | Lines 5 to 22 of the pulseq-checks file (the option and its hook), with no change. Lines 1 and 2 (the imports of `pytest` and `safe_example_hw`) come in phase 1 with the fixture, their only user. |
 | `tests/test_package.py` | A copy, with `pulseq_checks` changed to `pulseq_analysis` and `pulseq-checks` changed to `pulseq-analysis`. |
 | `tests/test_import.py` | Delete. `test_package.py` replaces it. |
 | `TESTS.md` | The introduction, section 1 (without "Check documents") and section 2.0, from the pulseq-checks file. Change the names. Remove the "Terms" paragraph until phase 1. |
@@ -239,7 +239,7 @@ changes of section 6.2.
 | `tests/test_seq_utils.py`, `test_pns_levels.py`, `test_extensions.py`, `test_seq_index.py`, `test_sampling.py`, `test_grad_limits.py`, `test_pns.py` | the same names in `tests/` |
 | `tests/synthetic.py`, `tests/scale_sequences.py` | the same names in `tests/` |
 | `tests/oracles/blocks.py`, `tests/oracles/grad_limits.py` | the same names in `tests/oracles/` |
-| `tests/conftest.py` | `tests/conftest.py` (the whole file: phase 0 has lines 1 and 3 to 22) |
+| `tests/conftest.py` | `tests/conftest.py` (the whole file: phase 0 has lines 5 to 22) |
 
 Do not copy `src/pulseq_checks/__init__.py`. Keep the `__init__.py` of
 PR #1.
