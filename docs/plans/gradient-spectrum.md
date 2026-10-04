@@ -222,6 +222,9 @@ class GradientSpectrum:
     frequency_hz: np.ndarray  # float64, F: 0 to MAX_FREQUENCY_HZ
     axes: dict[str, np.ndarray]  # "x", "y", "z": float64, F, Hz/m/sqrt(Hz)
     rss: np.ndarray  # float64, F, Hz/m/sqrt(Hz)
+    max_frequency_hz: float  # the arguments of the call, as floats
+    window_s: float
+    frequency_oversampling: float
 
 
 def gradient_spectrum(
@@ -242,7 +245,9 @@ def gradient_spectrum_for(
 ) -> GradientSpectrum: ...
 ```
 
-`eq=False` because the fields are arrays (as `Series`). With
+The last three fields were added in the review of task 6.2: without them,
+`to_series` cannot give the arguments of the call in `meta` (section 5.2),
+only the defaults. `eq=False` because the fields are arrays (as `Series`). With
 `NO_GRADIENTS`, `frequency_hz` and `rss` are empty and `axes` is `{}`, as
 in pulseq-reports. Each array is read-only (L12). The dataclass is frozen,
 so a caller cannot replace an array either. The dict `axes` stays a plain
@@ -560,4 +565,16 @@ pulseq-reports does this work in its own plan, after the tag `v0.1.0rc4`.
 
 ## 10. Measurements
 
-Task 6.4 records the time here.
+Task 6.4: `grad_spectrum.gradient_spectrum` on `build_repeating(200000)`, on
+2026-10-04, on the branch `feature/gradient-spectrum` (`8618e80` with the
+change of task 6.1, not committed yet). The sequence index was built before
+the timed calls. A test run of task 6.2 ran at the same time on the same
+machine.
+
+| Item | Value |
+|---|---|
+| Machine | Apple M1 Max, macOS 26.6.2 (arm64) |
+| Versions | Python 3.12.14, numpy 2.5.3, scipy 1.18.1, pypulseq 1.5.0.post1 (the fork pin) |
+| Sequence | `build_repeating(200000)`: 10⁶ blocks, 1198.0 s, 301 frequencies |
+| `gradient_spectrum` | 12.17 s, 12.13 s, 12.18 s |
+| **Minimum** | **12.13 s**, −1.3 % from 12.29 s (fact 9). The limit of L10 is +5 %. |

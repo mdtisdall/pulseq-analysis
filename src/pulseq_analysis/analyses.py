@@ -1,4 +1,4 @@
-"""The analyses of a sequence: the `Analysis` protocol, the registry and the four analyses of
+"""The analyses of a sequence: the `Analysis` protocol, the registry and the five analyses of
 this package.
 
 An analysis is a pass that calculates information about a sequence and does not change it
@@ -27,10 +27,14 @@ The analyses of this package:
   `gamma`, no series.
 - `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` and
   `thresholds`, and the series of the level and of the runs above each threshold.
+- `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
+  parameters, and the series of the spectrum.
 
 `gradient_limits` has a `window` argument, but `gradient.limits` is of the whole sequence and
 has no such parameter. `pns.pns_levels_for` keeps its result for the sequence object, so
-`compute` of `pns.safe.levels` gives the kept object.
+`compute` of `pns.safe.levels` gives the kept object. `grad_spectrum.gradient_spectrum_for`
+has the arguments of the method, but `gradient.spectrum` has no parameters and uses the
+defaults, and its `compute` also gives the kept object.
 """
 
 import importlib.metadata
@@ -42,6 +46,8 @@ import numpy as np
 import pypulseq as pp
 
 from .grad_limits import BlockGradientValues, GradientLimits, block_gradient_values, gradient_limits
+from .grad_spectrum import NO_GRADIENTS as NO_SPECTRUM_GRADIENTS
+from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
 from .pns import pns_levels_for
 from .pns_levels import NO_GRADIENTS, PNS_LIMIT, PnsLevels
 from .seq_index import SequenceIndex, sequence_index
@@ -291,10 +297,79 @@ class _PnsSafeLevels:
         return (level, *runs)
 
 
+class _GradientSpectrum:
+    spec = AnalysisSpec(
+        id="gradient.spectrum",
+        version=1,
+        title="Gradient spectrum",
+        description=(
+            "A `GradientSpectrum`: the spectrum of the gradient waveform of the whole "
+            "sequence, by the method of `calculate_gradient_spectrum` of pypulseq. Hann "
+            "windows with 50 % overlap, the magnitude spectrum of each window, and the "
+            "maximum over windows. The result has `frequency_hz` (from 0 up to the largest "
+            "frequency, float64), the spectrum of each logical axis (`axes`, with the keys "
+            "x, y, z) and `rss`, the root-sum-of-squares of the three axes in each window, "
+            "then the maximum over windows. The values are in Hz/m/sqrt(Hz), the unit of "
+            "the gradients of a `.seq` file, with no gamma. To get mT/m/sqrt(Hz), multiply "
+            "them by 1e3 / gamma, with gamma in Hz/T. A sequence with no gradient event has "
+            "no spectrum (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
+            "extension raises `NotImplementedError`. The arrays are read-only, and the "
+            "result is kept for the sequence object. This analysis has no parameters and "
+            "uses the defaults of pypulseq. A caller that needs other values calls "
+            "`grad_spectrum.gradient_spectrum_for` with them."
+        ),
+        params=(),
+        rasters=_GRADIENT_RASTERS,
+        cost="slow",
+        series=(
+            "A sequence with no gradient event gives (). Else one series: "
+            '`gradient_spectrum`, SAMPLES, unit "Hz/m/sqrt(Hz)", arrays `value` (`rss`), '
+            '`x`, `y` and `z` in this order (float64), `coord_unit` "Hz", `coord_start` 0, '
+            "`coord_step` the first nonzero frequency (`frequency_hz[1]`), so that "
+            "`coord_start + k * coord_step` is `frequency_hz[k]`, `meta` "
+            "`max_frequency_hz`, `window_s` and `frequency_oversampling`."
+        ),
+    )
+
+    def compute(self, seq: pp.Sequence) -> GradientSpectrum:
+        """`grad_spectrum.gradient_spectrum_for(seq)`: the kept result for the sequence
+        object, with the defaults."""
+        return gradient_spectrum_for(seq)
+
+    def to_series(self, value: GradientSpectrum) -> tuple[Series, ...]:
+        """The series of `spec.series`: the spectrum of `value` (`gradient_spectrum`), or
+        `()` for a result with `reason == NO_GRADIENTS`. `meta` has the three arguments of the
+        call that made `value` (the defaults for a value of `compute`)."""
+        if value.reason == NO_SPECTRUM_GRADIENTS:
+            return ()
+        return (
+            Series(
+                name="gradient_spectrum",
+                kind=SeriesKind.SAMPLES,
+                unit="Hz/m/sqrt(Hz)",
+                coord_unit="Hz",
+                coord_start=0.0,
+                coord_step=float(value.frequency_hz[1]),
+                arrays={
+                    "value": value.rss,
+                    "x": value.axes["x"],
+                    "y": value.axes["y"],
+                    "z": value.axes["z"],
+                },
+                meta={
+                    "max_frequency_hz": value.max_frequency_hz,
+                    "window_s": value.window_s,
+                    "frequency_oversampling": value.frequency_oversampling,
+                },
+            ),
+        )
+
+
 SEQ_INDEX = _SeqIndex()
 GRADIENT_LIMITS = _GradientLimits()
 GRADIENT_BLOCKS = _GradientBlocks()
 PNS_SAFE_LEVELS = _PnsSafeLevels()
+GRADIENT_SPECTRUM = _GradientSpectrum()
 
 
 def registry() -> dict[str, Analysis]:

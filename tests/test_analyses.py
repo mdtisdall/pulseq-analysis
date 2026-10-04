@@ -12,11 +12,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
-from synthetic import empty_sequence, gre_sequence
+from synthetic import empty_sequence, gre_sequence, spin_echo_sequence
 
 from pulseq_analysis.analyses import (
     GRADIENT_BLOCKS,
     GRADIENT_LIMITS,
+    GRADIENT_SPECTRUM,
     GROUP,
     PNS_SAFE_LEVELS,
     SEQ_INDEX,
@@ -25,6 +26,13 @@ from pulseq_analysis.analyses import (
     registry,
 )
 from pulseq_analysis.grad_limits import block_gradient_values, gradient_limits
+from pulseq_analysis.grad_spectrum import (
+    FFT_WINDOW_S,
+    FREQUENCY_OVERSAMPLING,
+    MAX_FREQUENCY_HZ,
+    NO_GRADIENTS,
+    gradient_spectrum_for,
+)
 from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.pns_levels import PNS_LIMIT, pns_levels
 from pulseq_analysis.seq_index import sequence_index
@@ -39,6 +47,7 @@ _SPECS = [
     (GRADIENT_LIMITS, "gradient.limits", ("gamma",), _RASTERS, "fast"),
     (GRADIENT_BLOCKS, "gradient.blocks", ("gamma",), _RASTERS, "fast"),
     (PNS_SAFE_LEVELS, "pns.safe.levels", ("hardware", "thresholds"), _RASTERS, "slow"),
+    (GRADIENT_SPECTRUM, "gradient.spectrum", (), _RASTERS, "slow"),
 ]
 
 
@@ -89,12 +98,18 @@ def _json_round_trip(series: Series) -> Series:
     return Series.from_obj(json.loads(json.dumps(series.to_obj(), allow_nan=False)))
 
 
-def test_the_registry_has_the_four_analyses_of_the_package():
-    """With the installed entry points, `registry()` has the four IDs, each with the object
+def test_the_registry_has_the_five_analyses_of_the_package():
+    """With the installed entry points, `registry()` has the five IDs, each with the object
     of this package, and each key is the `spec.id` of its analysis."""
     found = registry()
 
-    assert sorted(found) == ["gradient.blocks", "gradient.limits", "pns.safe.levels", "seq.index"]
+    assert sorted(found) == [
+        "gradient.blocks",
+        "gradient.limits",
+        "gradient.spectrum",
+        "pns.safe.levels",
+        "seq.index",
+    ]
     for analysis, analysis_id, *_ in _SPECS:
         assert found[analysis_id] is analysis
     assert all(key == analysis.spec.id for key, analysis in found.items())
@@ -161,7 +176,7 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
 ):
     """The ID, the version 1, `params`, `rasters` and `cost` of each analysis, and a title
     and a description that are text with something in it. `series` is None for the three
-    analyses that give `()`, and text for `pns.safe.levels`."""
+    analyses that give `()`, and text for `pns.safe.levels` and `gradient.spectrum`."""
     spec = analysis.spec
 
     assert isinstance(spec, AnalysisSpec)
@@ -172,7 +187,7 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
     assert spec.cost == cost
     assert spec.title.strip()
     assert spec.description.strip()
-    if analysis_id == "pns.safe.levels":
+    if analysis_id in ("pns.safe.levels", "gradient.spectrum"):
         assert spec.series
     else:
         assert spec.series is None
@@ -185,8 +200,9 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
         (GRADIENT_LIMITS, {"gamma": GAMMA}),
         (GRADIENT_BLOCKS, {"gamma": GAMMA}),
         (PNS_SAFE_LEVELS, {"hardware": None, "thresholds": (PNS_LIMIT,)}),
+        (GRADIENT_SPECTRUM, {}),
     ],
-    ids=["seq.index", "gradient.limits", "gradient.blocks", "pns.safe.levels"],
+    ids=["seq.index", "gradient.limits", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
 )
 def test_params_name_the_keyword_only_parameters_of_compute(analysis, defaults):
     """The parameters of `compute` after `seq` are all keyword-only, their names are
@@ -205,9 +221,9 @@ def test_params_name_the_keyword_only_parameters_of_compute(analysis, defaults):
 
 def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
     """`compute` of each analysis gives the value of the function that it calls, with the
-    default arguments and with others: the same object for `seq.index` and `pns.safe.levels`
-    (both keep their result for the sequence object), an equal value for the gradient
-    analyses."""
+    default arguments and with others: the same object for `seq.index`, `pns.safe.levels` and
+    `gradient.spectrum` (all keep their result for the sequence object), an equal value for
+    the gradient analyses."""
     seq = gre_sequence(num_trs=4)
     hardware = _hardware_for_peak(seq, 1.5)
 
@@ -235,6 +251,7 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
         pns_levels_for(seq, hardware=hardware, thresholds=(1.0, 0.5))
     )
     assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware) is pns_levels_for(seq, hardware=hardware)
+    assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum_for(seq)
 
 
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):
@@ -360,6 +377,53 @@ def test_to_series_gives_nothing_for_a_sequence_without_gradients():
         levels = PNS_SAFE_LEVELS.compute(seq, thresholds=thresholds)
         assert levels.reason is not None
         assert PNS_SAFE_LEVELS.to_series(levels) == ()
+
+
+def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
+    """`to_series` of `gradient.spectrum` gives one SAMPLES series, `gradient_spectrum`, of
+    unit "Hz/m/sqrt(Hz)" and `coord_unit` "Hz", with the arrays `value`, `x`, `y` and `z` (float64) equal to
+    the RSS and the axes of the same spectrum, in this order. `coord_start` is 0 and
+    `coord_start + k * coord_step` is `frequency_hz` bit for bit. The `meta` has the
+    three values of the call."""
+    seq = spin_echo_sequence()
+    spectrum = GRADIENT_SPECTRUM.compute(seq)
+
+    (series,) = GRADIENT_SPECTRUM.to_series(spectrum)
+
+    assert spectrum.reason is None
+    assert series.name == "gradient_spectrum"
+    assert series.kind is SeriesKind.SAMPLES
+    assert series.unit == "Hz/m/sqrt(Hz)"
+    assert series.coord_unit == "Hz"
+    assert list(series.arrays) == ["value", "x", "y", "z"]
+    assert all(a.dtype == np.float64 for a in series.arrays.values())
+    assert np.array_equal(series.arrays["value"], spectrum.rss)
+    for axis in "xyz":
+        assert np.array_equal(series.arrays[axis], spectrum.axes[axis])
+    assert np.any(series.arrays["value"] > 0)
+    assert series.coord_start == 0.0
+    assert series.coord_step == float(spectrum.frequency_hz[1])
+    n = len(spectrum.frequency_hz)
+    assert np.array_equal(
+        series.coord_start + np.arange(n) * series.coord_step, spectrum.frequency_hz
+    )
+    assert series.meta == {
+        "max_frequency_hz": MAX_FREQUENCY_HZ,
+        "window_s": FFT_WINDOW_S,
+        "frequency_oversampling": FREQUENCY_OVERSAMPLING,
+    }
+    # A value of other arguments gives its own arguments, not the defaults.
+    (wide,) = GRADIENT_SPECTRUM.to_series(gradient_spectrum_for(seq, window_s=0.1))
+    assert wide.meta["window_s"] == 0.1
+
+
+def test_the_spectrum_series_of_a_sequence_without_gradients_is_empty():
+    """`gradient.spectrum` for `empty_sequence()` has `reason == NO_GRADIENTS`, and
+    `to_series` gives `()` for it."""
+    spectrum = GRADIENT_SPECTRUM.compute(empty_sequence())
+
+    assert spectrum.reason == NO_GRADIENTS
+    assert GRADIENT_SPECTRUM.to_series(spectrum) == ()
 
 
 def test_the_other_three_analyses_give_no_series():
