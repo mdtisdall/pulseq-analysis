@@ -1,6 +1,6 @@
 [project]
 name = "pulseq-analysis"
-version = "0.1.0rc3"
+version = "0.1.0rc4"
 description = "Derived values of a Pulseq sequence: waveforms, PNS and gradient summaries"
 readme = "README.md"
 license = "MIT"
@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "pypulseq>=1.5.0.post1",
     "numpy",
+    "scipy",
 ]
 
 # The analyses of this package (`pulseq_analysis.analyses`): the name of an entry point is the
@@ -18,6 +19,7 @@ dependencies = [
 "gradient.limits" = "pulseq_analysis.analyses:GRADIENT_LIMITS"
 "gradient.blocks" = "pulseq_analysis.analyses:GRADIENT_BLOCKS"
 "pns.safe.levels" = "pulseq_analysis.analyses:PNS_SAFE_LEVELS"
+"gradient.spectrum" = "pulseq_analysis.analyses:GRADIENT_SPECTRUM"
 
 [build-system]
 requires = ["hatchling"]
@@ -30,7 +32,6 @@ packages = ["src/pulseq_analysis"]
 dev = [
     "pytest",
     "ruff",
-    "scipy",
 ]
 
 # pypulseq 1.5.0.post1 with four commits, from the fork (tag pulseq-reports-pin-1, branch

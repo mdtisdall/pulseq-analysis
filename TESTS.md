@@ -31,7 +31,8 @@ Contents:
 1. [Static checks](#1-static-checks)
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
-   the PNS levels, and the gradient limits); the series; the analyses and their registry
+   the PNS levels, and the gradient limits); the series; the analyses and their registry;
+   the gradient spectrum
 
 ---
 
@@ -2495,9 +2496,10 @@ in the list.
 ### 2.9 Analyses (`test_analyses.py`)
 
 `test_analyses.py` tests `analyses.py`: the entry-point registry of the group
-`pulseq_analysis.analyses`, the specification of each of the four analyses of the package
-(`seq.index`, `gradient.limits`, `gradient.blocks` and `pns.safe.levels`), `compute`, and
-`to_series` of `pns.safe.levels` (design section 4.4 of the plan of pulseq-analysis).
+`pulseq_analysis.analyses`, the specification of each of the five analyses of the package
+(`seq.index`, `gradient.limits`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum`),
+`compute`, and `to_series` of `pns.safe.levels` and `gradient.spectrum` (design section 4.4 of
+the plan of pulseq-analysis).
 
 The registry tests that need two packages, a broken entry point or an object without
 `spec.id` replace `importlib.metadata.entry_points` with a function that gives fake entry
@@ -2505,7 +2507,8 @@ points (an object with a `name`, a `dist` with the package name, and a `load`). 
 the real registry uses the entry points that `uv sync` installs from `pyproject.toml`. The
 tests of the series use `gre_sequence(num_trs=20)` with the example hardware of pypulseq, with
 the stimulation limit multiplied so that the peak is 1.5, so that the total is above 1 in
-several runs (`_hardware_for_peak`, as in `test_pns_levels.py`).
+several runs (`_hardware_for_peak`, as in `test_pns_levels.py`). The test of the spectrum series
+uses `spin_echo_sequence()`.
 
 **Assumptions for the whole file:**
 
@@ -2513,15 +2516,15 @@ several runs (`_hardware_for_peak`, as in `test_pns_levels.py`).
   of `pytest` without `uv sync` after a change of the entry points in `pyproject.toml`
   fails the test of the real registry.
 
-#### `test_the_registry_has_the_four_analyses_of_the_package`
+#### `test_the_registry_has_the_five_analyses_of_the_package`
 
-**Checks:** With the installed entry points, `registry()` has the four IDs
-`gradient.blocks`, `gradient.limits`, `pns.safe.levels` and `seq.index`, no other ID, each
+**Checks:** With the installed entry points, `registry()` has the five IDs
+`gradient.blocks`, `gradient.limits`, `gradient.spectrum`, `pns.safe.levels` and `seq.index`, no other ID, each
 with the object of this package, and each key is the `spec.id` of its analysis.
 
 **How:** The test calls `registry()` and compares the sorted keys, the identity of each value
-with `SEQ_INDEX`, `GRADIENT_LIMITS`, `GRADIENT_BLOCKS` and `PNS_SAFE_LEVELS`, and each key with
-`spec.id`.
+with `SEQ_INDEX`, `GRADIENT_LIMITS`, `GRADIENT_BLOCKS`, `PNS_SAFE_LEVELS` and
+`GRADIENT_SPECTRUM`, and each key with `spec.id`.
 
 **Assumptions:** No other installed package gives an analysis (the test environment has only
 this package).
@@ -2562,9 +2565,9 @@ test makes one fake entry point and checks the message of the error that `regist
 **Checks:** The ID, the version 1, `params`, `rasters` and `cost` of each analysis are the
 values of section 8.3 of `docs/plans/implementation.md`. The title and the description are not
 empty. `series` is None for `seq.index`, `gradient.limits` and `gradient.blocks`, and a text
-for `pns.safe.levels`.
+for `pns.safe.levels` and `gradient.spectrum`.
 
-**How:** Parametrized over the four analyses. The test compares each field with the table of
+**How:** Parametrized over the five analyses. The test compares each field with the table of
 the plan, which the test file holds as a list.
 
 **Assumptions:** The test does not check the words of the title, the description or the text
@@ -2574,9 +2577,10 @@ of `series`: they are for a reader.
 
 **Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
 `spec.params` in order, and their defaults are those of the function that `compute` calls
-(`GAMMA`, `None` and `(PNS_LIMIT,)`). A keyword that is not a parameter is a `TypeError`.
+(`GAMMA`, `None` and `(PNS_LIMIT,)`). `gradient.spectrum` has no parameter. A keyword that is
+not a parameter is a `TypeError`.
 
-**How:** Parametrized over the four analyses. The test reads `inspect.signature(compute)`, and
+**How:** Parametrized over the five analyses. The test reads `inspect.signature(compute)`, and
 calls `compute` on `empty_sequence()` with `unknown=1`.
 
 **Assumptions:** None.
@@ -2585,8 +2589,9 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 
 **Checks:** `compute` of each analysis gives the value of the function that it calls, with
 the same arguments, with the defaults and with others (`gamma=40e6`, and a hardware with
-`thresholds=(1.0, 0.5)`). `seq.index` and `pns.safe.levels` give the same object as
-`sequence_index` and `pns_levels_for`, which keep their result for the sequence object. The
+`thresholds=(1.0, 0.5)`). `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
+object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
+result for the sequence object. `gradient.spectrum` has no other arguments. The
 gradient analyses give an equal value.
 
 **How:** The test builds `gre_sequence(num_trs=4)` and compares `compute` with the function:
@@ -2595,7 +2600,7 @@ gradient analyses give an equal value.
 axis the peak, the slew, the junction step and the times of the peak and of the slew).
 
 **Assumptions:** `BlockGradientValues` has no `__eq__` for its arrays, so the test compares
-each array one by one.
+each array one by one. `GradientSpectrum` is compared by identity only.
 
 #### `test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call`
 
@@ -2661,6 +2666,33 @@ equality).
 
 **Assumptions:** None.
 
+#### `test_the_spectrum_series_equals_the_spectrum_of_the_same_call`
+
+**Checks:** For `spin_echo_sequence()`, `to_series` of `gradient.spectrum` gives one series,
+`gradient_spectrum`, of the kind SAMPLES, the unit "Hz/m/sqrt(Hz)" and `coord_unit` "Hz". Its
+arrays are `value`, `x`, `y` and `z` in this order, all float64, equal to `rss` and to the three
+axes of the same spectrum. `coord_start` is 0.0 and `coord_step` is `frequency_hz[1]`, and
+`coord_start + k * coord_step` is `frequency_hz` bit for bit. The `meta` is
+`max_frequency_hz`, `window_s` and `frequency_oversampling`, with the defaults of
+`gradient_spectrum_for`. For a spectrum of `window_s=0.1`, the `meta` has `window_s` 0.1: the
+`meta` comes from the value, not from the defaults.
+
+**How:** The test calls `compute` and `to_series` and compares each field by itself.
+It compares the arrays with `numpy.array_equal`, and the frequencies with an `arange` of the
+length of `frequency_hz`.
+
+**Assumptions:** The test does not build the expected `Series` with the code under test. It
+checks that the spectrum is not all zero, so that equal arrays are not empty of signal.
+
+#### `test_the_spectrum_series_of_a_sequence_without_gradients_is_empty`
+
+**Checks:** For `empty_sequence()` the `GradientSpectrum` has `reason == NO_GRADIENTS`, and
+`to_series` gives `()`.
+
+**How:** The test calls `compute` and `to_series`.
+
+**Assumptions:** None.
+
 #### `test_the_other_three_analyses_give_no_series`
 
 **Checks:** `to_series` of `seq.index`, `gradient.limits` and `gradient.blocks` gives `()`,
@@ -2668,5 +2700,295 @@ for a sequence with gradients and for one without.
 
 **How:** For `gre_sequence(num_trs=2)` and `empty_sequence()`, the test gives the value of
 `compute` to `to_series`.
+
+**Assumptions:** None.
+
+### 2.10 Gradient spectrum (`test_grad_spectrum.py`)
+
+The spectrum is calculated as in pypulseq: Hann windows (50 ms by default) with
+50 % overlap, the magnitude spectrum of each window, and the maximum over
+windows. Here the gradients are sampled to the end of the sequence, with half a
+window of zeros added at each end. The RSS spectrum is the root-sum-of-squares
+of the three axes in each window, then the maximum over windows. The values are
+in Hz/m/√Hz, the unit of the gradients of a `.seq` file, with no gamma. To get
+mT/m/√Hz, a caller multiplies the values by `1e3 / gamma`. The gradients are
+sampled through the raster sampler (`sampling.GradientSampler`), in chunks of
+`CHUNK_WINDOWS` windows, so the memory does not grow with the sequence length.
+`tests/oracles/grad_spectrum.py` is the module before the raster sampler,
+sampling through `Sequence.get_gradients()` instead. It gives mT/m/√Hz with
+`seq.system.gamma`. The oracle comparison multiplies this module's values by
+`1e3 / seq.system.gamma`, so it also tests the conversion. The tests call the
+oracle with no resonances. The oracle is a copy of the file of pulseq-reports,
+and it still has the code for the resonance bands.
+
+Several tests use a 1 mT/m sine on x, on the synthetic system. On a frequency
+bin, a Hann window gives an amplitude spectral density of
+(A/2) × Σw / √(fs × Σw²). With 5000 samples at 100 kHz, that is the expected
+peak for A = 1 mT/m. The test file multiplies it by `1e-3 * gamma` to get the
+peak in Hz/m/√Hz (`SINE_PEAK`).
+
+**Assumptions for the whole file:**
+
+- The test sine frequency (600 Hz) is exactly on a frequency bin, and each
+  window holds a whole number of cycles. So there is no scalloping loss, and
+  the peak is the full value.
+- The tests do not compare the result with vb-pulseq. Parity with vb-pulseq
+  (rtol 1e-12, several chunk sizes) was checked outside CI when this module
+  moved from vb-pulseq.
+
+#### `test_spin_echo_spectrum`
+
+**Checks:** For the synthetic spin echo, the spectrum runs from 0 to 2 kHz, the
+x and y axes have a non-zero spectrum, and the RSS is at least each axis at
+every frequency.
+
+**How:** The test calculates the spectrum of the synthetic spin echo. It
+checks that there is no reason, that the frequencies start at 0 and end at
+2 kHz, and that there are x, y and z spectra. The x and y spectra must have a
+maximum above 0 (the synthetic spin echo has no z gradient). Each axis
+spectrum must have the same length as the frequencies, and the RSS must be at
+least that axis at every frequency.
+
+**Assumptions:** None.
+
+#### `test_sine_peak_is_at_its_frequency`
+
+**Checks:** A 600 Hz sine gives an RSS peak at 600 Hz with the expected
+amplitude in Hz/m/√Hz.
+
+**How:** The test makes a 0.5 s, 1 mT/m, 600 Hz sine on x. The RSS peak must
+be at 600 Hz, with a value within 1 % of `SINE_PEAK`.
+
+**Assumptions:** None.
+
+#### `test_short_sequence_is_padded_to_one_window`
+
+**Checks:** A sequence shorter than one window still has a spectrum, with its
+peak at the sine frequency.
+
+**How:** The test makes a 20 ms, 600 Hz sine. There must be no reason, and the
+RSS peak must be within 20 Hz of 600 Hz.
+
+**Assumptions:**
+
+- A 20 ms sine has a wide spectral peak, so the tolerance is wider than one
+  frequency bin.
+
+#### `test_gradients_at_the_end_are_not_attenuated`
+
+**Checks:** A sine at the end of the sequence has its full amplitude in the
+spectrum.
+
+**How:** The test makes a sequence with 440 ms of no gradient and then 60 ms
+of a 600 Hz sine, so the last sample is at the end of the sequence. The RSS
+peak must be within 2 % of `SINE_PEAK`.
+
+**Assumptions:**
+
+- The sine is 60 ms long, so at least one 50 ms window is fully inside it and
+  the full amplitude is expected. The test fails if the gradient samples near
+  the end of the sequence are lost, or are only at the edge of a window.
+
+#### `test_no_gradients`
+
+**Checks:** A sequence without gradients has no spectrum, with the reason
+"no gradients", empty frequencies and RSS, and no axes.
+
+**How:** The test makes a sequence with only a block pulse. It checks the
+reason, that `frequency_hz` and `rss` have shape (0,), and that `axes` is `{}`.
+
+**Assumptions:** None.
+
+#### `test_chunks_give_the_same_spectrum_as_one_chunk`
+
+**Checks:** The spectrum does not depend on the chunk size.
+
+**How:** The test makes a synthetic GRE sequence of 30 TRs of 20 ms (600 ms,
+25 windows). It calculates the spectrum with `CHUNK_WINDOWS` set to 1,000,000
+(one chunk) and to 4 (7 chunks, the last one shorter). The frequencies must be
+equal, and each axis spectrum and the RSS must agree with a relative tolerance
+of 1e-12.
+
+**Assumptions:**
+
+- The results are not always bit-for-bit equal, because scipy computes the
+  FFTs of a different number of windows in each call. The tolerance allows for
+  that rounding.
+
+#### `test_matches_oracle_on_synthetic_sequences`
+
+**Checks:** The raster sampler replaced `Sequence.get_gradients()` in
+`gradient_spectrum`. This test checks that the axis spectra and the RSS
+spectrum, times `1e3 / gamma`, still agree with the oracle
+(`tests/oracles/grad_spectrum.py`, the module before that change), on the
+synthetic spin echo, GRE, arbitrary-gradient, empty and 600 Hz sine
+sequences.
+
+**How:** For each sequence, the test calculates the spectrum with this
+module and with the oracle. The reasons must be equal. When there is a
+spectrum, the frequencies must be equal. The axis spectra and the RSS of this
+module, multiplied by `1e3 / seq.system.gamma`, must agree with the oracle
+within a relative 1e-12 or an absolute 1e-12 times the array's own peak.
+
+**Assumptions:**
+
+- The sampler builds the waveform from each block's own corner points and
+  `numpy.interp`, a different order of float operations than
+  `Sequence.get_gradients()`'s one whole-axis `PPoly`, so the values are not
+  always bit-for-bit equal (section 3.5, item 2 of
+  `docs/plans/cards-at-scale.md` of pulseq-reports).
+- The multiplication by `1e3 / gamma` is exact only to the float rounding, and
+  the tolerance allows for it.
+- The long sequences are in `test_matches_oracle_on_long_sequences`, with a
+  tolerance that grows with the duration.
+
+#### `test_matches_oracle_on_long_sequences`
+
+**Checks:** The same comparison with the oracle as
+`test_matches_oracle_on_synthetic_sequences`, on the builders of
+`tests/scale_sequences.py` (`build_repeating` and `build_worst`) at 10^4
+blocks.
+
+**How:** The test builds each sequence with `10^4 / TR_BLOCKS` TRs, and
+compares this module's spectrum (times `1e3 / gamma`) with the oracle's, as the
+test above does, with the tolerance `1e-12 * max(1, duration in s)` instead of
+1e-12.
+
+**Assumptions:**
+
+- The user chose this tolerance on 2026-09-28, in the work on pulseq-reports.
+  Both implementations place each gradient corner at an absolute time with
+  float rounding, in a different order of additions: the sampler adds
+  `(block start + delay) + offset`, and `Sequence.get_gradients()` adds the
+  segment durations one at a time. The rounding of an absolute time grows with
+  the time, and a gradient ramp turns it into a value difference. Measured in
+  pulseq-reports: 2.5e-12 of the peak at 10^4 repeating blocks (12 s), 3.6e-12
+  at 10^5 blocks. Neither value is more correct.
+
+#### `test_spectrum_does_not_depend_on_the_gamma_of_the_system`
+
+**Checks:** The spectrum depends on the gradient values of the file only, not
+on `seq.system.gamma`.
+
+**How:** The test makes one 600 Hz sine waveform in Hz/m. It puts the waveform
+in two sequences, one with `SYSTEM` and one with a copy of `SYSTEM` that has
+another gamma (0.9 times). It checks that the two gammas differ. The
+frequencies, each axis spectrum and the RSS must be exactly equal.
+
+**Assumptions:** None.
+
+#### `test_gradient_spectrum_refuses_rotations`
+
+**Checks:** `gradient_spectrum` raises `NotImplementedError` for a sequence
+with the rotation extension.
+
+**How:** The test gives `gradient_spectrum` a GRE sequence with a rotation
+library (`_with_rotation_library` of `test_extensions.py`). The error message
+must contain "rotation extension".
+
+**Assumptions:**
+
+- pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
+  library by hand, as `test_gradient_limits_refuses_rotations` does.
+
+#### `test_gradient_spectrum_for_keeps_the_result`
+
+**Checks:** `gradient_spectrum_for` gives the same object for two calls on one
+sequence, and a new object after the sequence changed.
+
+**How:** The test calls `gradient_spectrum_for` two times on a GRE sequence of
+2 TRs, and checks that the objects are the same (`is`). It then adds a delay
+block and checks that the next call gives another object.
+
+**Assumptions:**
+
+- The test changes the number of blocks and the last block id, the changes that
+  the kept result sees. A block replaced in place is not seen, as for
+  `sequence_index`.
+
+#### `test_the_arrays_of_a_spectrum_are_read_only`
+
+**Checks:** Each array of a spectrum is read-only, also for a sequence without
+gradients. A conversion to a new array works.
+
+**How:** The test runs for the synthetic spin echo (the frequencies, the RSS
+and the three axes) and for a sequence without gradients (the frequencies and
+the RSS, empty). Each array must have `flags.writeable` off, and a change in
+place (`a *= 1e3 / GAMMA`) must raise `ValueError`. Then `s.rss * 1e3 / GAMMA`
+must give a writable array, and `s.rss` must not change.
+
+**Assumptions:** None.
+
+#### `test_the_defaults_are_those_of_pypulseq`
+
+**Checks:** A call with the three arguments at the defaults of pypulseq's
+`calculate_gradient_spectrum` gives the same spectrum as a call with no
+arguments. The result of a call with no arguments has these defaults in its
+fields `max_frequency_hz`, `window_s` and `frequency_oversampling`.
+
+**How:** The test reads the defaults of `max_frequency`, `window_width` and
+`frequency_oversampling` from the signature of
+`pp.Sequence.calculate_gradient_spectrum`. It gives them as `max_frequency_hz`,
+`window_s` and `frequency_oversampling` for the synthetic spin echo. The
+frequencies, each axis spectrum and the RSS must be exactly equal to those of a
+call with no arguments. The test also compares the three fields of the result
+with the defaults.
+
+**Assumptions:**
+
+- The test compares the defaults only. It does not compare the spectrum with
+  the spectrum of pypulseq, which differs in the padding and in the start of
+  the first window.
+
+#### `test_the_arguments_change_the_frequencies`
+
+**Checks:** `window_s`, `frequency_oversampling` and `max_frequency_hz` change
+the frequencies as documented, and the result keeps the arguments of the call
+as floats.
+
+**How:** For a 0.5 s, 600 Hz sine, the test calculates three spectra. With
+`window_s=0.1`, the frequency step is `1 / (3 * 0.1)` Hz, and the RSS peak is
+at 600 Hz. With `frequency_oversampling=1`, the step is `1 / 0.05` Hz. With
+`max_frequency_hz=500`, the last frequency is at most 500 Hz. The result of
+`window_s=0.1` has the fields 2000.0, 0.1 and 3.0, and the int
+`frequency_oversampling=1` becomes a float.
+
+**Assumptions:**
+
+- The sine has a whole number of cycles in a 0.1 s window, so its peak stays on
+  a frequency bin.
+
+#### `test_gradient_spectrum_refuses_bad_arguments`
+
+**Checks:** `gradient_spectrum` and `gradient_spectrum_for` refuse each bad
+argument with the right error type, before they read the blocks.
+
+**How:** The test runs for both functions. It replaces `sequence_index` of the
+module with a function that fails, so a call that reads the blocks fails the
+test. Each case gives one bad argument to the synthetic spin echo. The error
+must be `TypeError` for a string and for a bool, in each argument. It must be
+`ValueError` for NaN and for infinity, in each argument, for `window_s` of 0,
+below 0 and of one sample, for a `frequency_oversampling` of 0.5, and for a
+`max_frequency_hz` of 0, below 0, above the Nyquist frequency (60 kHz) and
+below the frequency step. One case has a `max_frequency_hz` of 10 Hz with
+`frequency_oversampling=1`: it is above the step of the defaults and below the
+step of 20 Hz of the arguments.
+
+**Assumptions:**
+
+- The synthetic sequence has the default gradient raster of 10 µs, so the
+  Nyquist frequency is 50 kHz and the step of the defaults is 6.67 Hz.
+- The test does not check the message text.
+
+#### `test_gradient_spectrum_for_keeps_one_result_for_each_set_of_arguments`
+
+**Checks:** `gradient_spectrum_for` keeps one result for each tuple of the
+three arguments, as floats.
+
+**How:** For a GRE sequence of 2 TRs, the test calls `gradient_spectrum_for`
+with no arguments, and then with `max_frequency_hz=1000.0`. The two objects
+must be different, and the second has no frequency above 1000 Hz. A call with
+no arguments again must give the first object. A call with
+`max_frequency_hz=1000` (an integer) must give the second object.
 
 **Assumptions:** None.

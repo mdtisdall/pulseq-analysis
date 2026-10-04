@@ -600,31 +600,31 @@ wheels = [
 
 [[package]]
 name = "pulseq-analysis"
-version = "0.1.0rc3"
+version = "0.1.0rc4"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "pypulseq" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
-    { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
     { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=a74ab06e51ca09707ff54837cf5ff652f6e69e94" },
+    { name = "scipy" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
-    { name = "scipy" },
 ]
 
 [[package]]

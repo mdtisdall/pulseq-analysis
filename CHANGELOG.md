@@ -3,6 +3,35 @@
 Each version of `pulseq-analysis` has an entry here. The version numbers
 follow [PEP 440](https://peps.python.org/pep-0440/).
 
+## 0.1.0rc4 (2026-10-04)
+
+The fourth release candidate: the gradient spectrum
+(`docs/plans/gradient-spectrum.md`). The module moves from pulseq-reports
+(`src/pulseq_reports/grad_spectrum.py` at `cc87563`). It is the first analysis
+that uses the coordinate unit of `0.1.0rc3`.
+
+### Added
+
+- **`grad_spectrum`**: `gradient_spectrum`, `gradient_spectrum_for`,
+  `GradientSpectrum` and `NO_GRADIENTS`. The functions take the keyword
+  arguments `max_frequency_hz`, `window_s` and `frequency_oversampling`, with
+  the defaults of pypulseq's `calculate_gradient_spectrum`.
+  `gradient_spectrum_for` keeps the result for each sequence object and each
+  set of arguments. The arrays of a `GradientSpectrum` are read-only.
+  `gradient_spectrum` raises `NotImplementedError` for a file with the
+  rotation extension.
+- The analysis `gradient.spectrum`, with no parameters, and its series
+  `gradient_spectrum` (`SAMPLES`, coordinate unit `"Hz"`). Its arrays are
+  `value` (the RSS), `x`, `y` and `z`.
+- The values are in Hz/m/√Hz, with no gamma. To get mT/m/√Hz for a gamma γ in
+  Hz/T, multiply each value by `1e3 / γ`. The module has no resonance bands,
+  unlike the module of pulseq-reports. The bands are data of the target.
+
+### Changed
+
+- `scipy` is a runtime dependency. It was a dev dependency. pypulseq installs
+  it already, so no new package comes in.
+
 ## 0.1.0rc3 (2026-10-04)
 
 The third release candidate: the coordinate unit of a series

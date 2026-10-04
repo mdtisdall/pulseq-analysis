@@ -1,9 +1,10 @@
 # pulseq-analysis
 
 `pulseq-analysis` gives derived values of a [Pulseq](https://pulseq.github.io/)
-sequence: the block table, the gradient amplitude and slew, and the SAFE PNS
-prediction. An *analysis* takes a sequence and explicit physical parameters,
-and gives a time series or a summary. An analysis does not change the
+sequence: the block table, the gradient amplitude and slew, the SAFE PNS
+prediction and the gradient spectrum. An *analysis* takes a sequence and
+explicit physical parameters, and gives a series (for example in time or in
+frequency) or a summary. An analysis does not change the
 sequence. It has no target profile, no limit, no pass or fail and no finding.
 [pulseq-checks](https://github.com/mdtisdall/pulseq-checks) uses these values
 to check a sequence against the limits of a scanner.
@@ -13,13 +14,15 @@ the modules of pulseq-checks `0.1.0rc2`. The second, `0.1.0rc2`, adds the
 analyses and their registry, and `Series`, the form of a value for JSON.
 The third, `0.1.0rc3`, gives each series a coordinate unit, so that a series
 can be in seconds or in hertz.
+The fourth, `0.1.0rc4`, adds the gradient spectrum and the analysis
+`gradient.spectrum`.
 
 ## Install
 
 With uv, from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc3"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc4"
 ```
 
 The package needs pypulseq 1.5.0.post1 with four commits that are not in a
