@@ -534,6 +534,24 @@ def test_pns_levels_is_a_frozen_dataclass():
     assert isinstance(pns_levels(spin_echo_sequence()), PnsLevels)
 
 
+@pytest.mark.parametrize(
+    "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
+)
+def test_the_arrays_of_the_levels_are_read_only(make_seq):
+    """`level_min` and `level_max` are read-only, also for a sequence without gradients. A
+    conversion to a new array works."""
+    levels = pns_levels(make_seq())
+    for a in (levels.level_min, levels.level_max):
+        assert not a.flags.writeable
+        with pytest.raises(ValueError):
+            a *= 100
+    # A conversion to a new array works, and the level stays as it was.
+    before = levels.level_max.copy()
+    converted = levels.level_max * 100
+    assert converted.flags.writeable
+    np.testing.assert_array_equal(levels.level_max, before)
+
+
 def _assert_levels_equal(a: PnsLevels, b: PnsLevels, *, ignore: tuple[str, ...]) -> None:
     """Every field of `a` and `b` is exactly equal, except the fields named in `ignore`
     (`numpy.array_equal` for the arrays, `==` for the rest)."""

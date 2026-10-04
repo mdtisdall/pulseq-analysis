@@ -374,3 +374,23 @@ def test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds(monkeypatc
     reordered = pns_levels_for(seq, thresholds=(0.5, 1.0))
     assert len(calls) == 3
     assert list(reordered.above) == [0.5, 1.0]
+
+
+def test_pns_levels_for_shares_a_read_only_result():
+    """Two callers of `pns_levels_for` get the same kept result. A change in place of its
+    level by the first caller raises `ValueError`, and the second caller gets the level as
+    it was."""
+    seq = spin_echo_sequence()
+    first = pns_levels_for(seq)
+    before_min, before_max = first.level_min.copy(), first.level_max.copy()
+    # Through a local name: `first.level_max *= 100` would also set the field of the frozen
+    # dataclass.
+    level_max = first.level_max
+    with pytest.raises(ValueError):
+        level_max *= 100
+    with pytest.raises(ValueError):
+        first.level_min[0] = 0.0
+    second = pns_levels_for(seq)
+    assert second is first
+    np.testing.assert_array_equal(second.level_min, before_min)
+    np.testing.assert_array_equal(second.level_max, before_max)

@@ -86,7 +86,8 @@ def pns_levels_for(
     absolute spelling of one file are one hardware, and two `hardware` pairs with the same
     label and the same field values are one hardware (`_hardware_key`). The kept results
     are built again when the number of blocks or the last block id changed, for example
-    after `add_block` (the rule of `seq_index.sequence_index`).
+    after `add_block` (the rule of `seq_index.sequence_index`). The arrays of a result are
+    read-only, because all callers share them.
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")

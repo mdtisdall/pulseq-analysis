@@ -16,13 +16,14 @@ The third, `0.1.0rc3`, gives each series a coordinate unit, so that a series
 can be in seconds or in hertz.
 The fourth, `0.1.0rc4`, adds the gradient spectrum and the analysis
 `gradient.spectrum`.
+The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only.
 
 ## Install
 
 With uv, from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc4"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc5"
 ```
 
 The package needs pypulseq 1.5.0.post1 with four commits that are not in a

@@ -1,6 +1,6 @@
 [project]
 name = "pulseq-analysis"
-version = "0.1.0rc4"
+version = "0.1.0rc5"
 description = "Derived values of a Pulseq sequence: waveforms, PNS and gradient summaries"
 readme = "README.md"
 license = "MIT"

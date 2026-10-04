@@ -628,6 +628,18 @@ the interface; the other tests of this section check individual fields.
 
 **Assumptions:** None.
 
+#### `test_the_arrays_of_the_levels_are_read_only`
+
+**Checks:** `level_min` and `level_max` are read-only, also for a sequence without
+gradients. A conversion to a new array works.
+
+**How:** The test runs for the synthetic spin echo and for a sequence without gradients
+(the two arrays are empty). Each array must have `flags.writeable` off, and a change in
+place (`a *= 100`) must raise `ValueError`. Then `levels.level_max * 100` must give a
+writable array, and `levels.level_max` must not change.
+
+**Assumptions:** None.
+
 #### `test_hardware_with_the_example_struct_gives_the_default_levels`
 
 **Checks:** `pns_levels(seq, hardware=(safe_example_hw(), label))` gives the levels of
@@ -2156,6 +2168,19 @@ the default `(1.0,)`.
 `(0.5, 1.0)`. It checks that the call count is 1, 2, 2, 2, 2 and 3, that the second result
 is not the first, that the repeated results are the same objects as the kept ones, and
 that `list(result.above)` is `[1.0]`, `[1.0, 0.5]` and `[0.5, 1.0]`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_for_shares_a_read_only_result`
+
+**Checks:** Two callers of `pns_levels_for` get the same kept result. A change in place
+of its level by the first caller raises `ValueError`, and the second caller gets the
+level as it was.
+
+**How:** The test calls `pns_levels_for` for the synthetic spin echo and keeps a copy of
+`level_min` and `level_max`. `level_max *= 100` (through a local name, so that the
+statement does not also assign the field of the frozen dataclass) and
+`level_min[0] = 0.0` must each raise `ValueError`. A second call must give the same object, with arrays equal to the copies.
 
 **Assumptions:** None.
 
