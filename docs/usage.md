@@ -270,19 +270,48 @@ It is a frozen dataclass:
 | `name` | A short, stable name, not empty, for example `"pns_total"`. |
 | `kind` | A `SeriesKind` (below). |
 | `unit` | The unit of the values, for example `"1"` (a fraction), `"mT/m"` or `"s"`. |
+| `coord_unit` | The unit of the coordinate (below), not empty, for example `"s"` or `"Hz"`. It has no default. |
 | `arrays` | A dict from a name to a one-dimensional numpy array of a bool, integer, float or complex dtype. All arrays of one series have the same length. |
-| `t0_s`, `step_s` | The time of the first sample or bin, and the time step (finite, above 0). |
-| `end_s` | The end of the last bin. |
+| `coord_start`, `coord_step` | The coordinate of the first sample or bin, and the step of the coordinate (finite, above 0). |
+| `coord_end` | The end of the last bin, in the coordinate. |
 | `meta` | A dict of JSON scalars (`str`, `int`, `float`, `bool` or `None`) by name. A string cannot be `"inf"`, `"-inf"` or `"nan"`. |
+
+The coordinate of a series is the quantity of its horizontal axis, for example
+the time (unit "s") or the frequency (unit "Hz"). `unit` is the unit of the
+values. `coord_unit` is the unit of the coordinate.
 
 `SeriesKind`, and the arrays and fields of each kind:
 
 | Kind | Meaning | Necessary arrays | Fields |
 |---|---|---|---|
-| `SAMPLES` | `value[k]` is at `t0_s + k * step_s`. | `value`, and more of the same length | `t0_s`, `step_s`; `end_s` is `None` |
-| `ENVELOPE` | `min[i]` and `max[i]` are the least and the greatest value in the bin `[t0_s + i * step_s, t0_s + (i + 1) * step_s)`. The last bin stops at `end_s`. | `min`, `max`, and no other | `t0_s`, `step_s`, `end_s` |
-| `POINTS` | `value[k]` is at `time_s[k]`. | `time_s`, `value`, and more of the same length | `t0_s` is 0.0, `step_s` and `end_s` are `None` |
-| `RUNS` | A boolean that is true from `start_s[k]` to `end_s[k]`, and false elsewhere. | `start_s`, `end_s`, and a value of each run | `t0_s` is 0.0, `step_s` and `end_s` are `None` |
+| `SAMPLES` | `value[k]` is at `coord_start + k * coord_step`. | `value`, and more of the same length | `coord_start`, `coord_step`; `coord_end` is `None` |
+| `ENVELOPE` | `min[i]` and `max[i]` are the least and the greatest value in the bin `[coord_start + i * coord_step, coord_start + (i + 1) * coord_step)`. The last bin stops at `coord_end`. | `min`, `max`, and no other | `coord_start`, `coord_step`, `coord_end` |
+| `POINTS` | `value[k]` is at `coord[k]`. | `coord`, `value`, and more of the same length | `coord_start` is 0.0, `coord_step` and `coord_end` are `None` |
+| `RUNS` | A boolean that is true from `start[k]` to `end[k]`, and false elsewhere. | `start`, `end`, and a value of each run | `coord_start` is 0.0, `coord_step` and `coord_end` are `None` |
+
+One `Series` can hold a time series, a spectrum or a profile along a position.
+The kinds describe the shape of the data. They do not depend on the quantity
+of the coordinate:
+
+| Data | Kind | `coord_unit` |
+|---|---|---|
+| The SAFE PNS level | `ENVELOPE` | `"s"` |
+| The runs above a PNS threshold | `RUNS` | `"s"` |
+| A gradient spectrum | `SAMPLES` | `"Hz"` |
+| The frequency ranges where a spectrum is at or above a level | `RUNS` | `"Hz"` |
+| The peaks of a spectrum | `POINTS` | `"Hz"` |
+| A 1D RF profile along a position | `SAMPLES` | `"m"` |
+| A 1D RF profile along the frequency offset | `SAMPLES` | `"Hz"` |
+
+The analyses of this package give only the PNS series
+([section 6](#6-analyses-the-analyses-and-their-registry)). The other rows
+are examples.
+
+`coord_unit` uses the SI symbol. No code checks it against a list of units.
+A series has one coordinate, so it cannot hold a map on two coordinates. The
+unit gives the quantity of the coordinate (`"s"` is the time, `"Hz"` is the
+frequency, `"m"` is a position). When the unit does not give all of it, for
+example which position, the analysis puts it in `meta`.
 
 A `Series` raises `TypeError` for a value of a wrong type and `ValueError` for
 a wrong value. It keeps its own dicts and a read-only copy of each array, in
@@ -291,9 +320,9 @@ it. `==` compares the fields, the array names in their order, and each array
 with its dtype and `np.array_equal(..., equal_nan=True)`. A NaN equals a NaN.
 A `Series` is not hashable.
 
-`Series.to_obj()` gives a dict with the keys `name`, `kind`, `unit`, `t0_s`,
-`step_s`, `end_s`, `meta` and `arrays`, which `json.dumps(obj,
-allow_nan=False)` writes. A float field or a float of `meta` that is not
+`Series.to_obj()` gives a dict with the keys `name`, `kind`, `unit`,
+`coord_unit`, `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`,
+which `json.dumps(obj, allow_nan=False)` writes. A float field or a float of `meta` that is not
 finite is the string `"inf"`, `"-inf"` or `"nan"`. `Series.from_obj(obj)` is
 the inverse, and raises `ValueError` for a bad object.
 
@@ -343,17 +372,18 @@ analyses use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 `to_series` of `pns.safe.levels` gives `()` for a sequence with no gradient
 event (`NO_GRADIENTS`). Else it gives:
 
-| Name | Kind | Unit | Arrays | `meta` |
-|---|---|---|---|---|
-| `pns_total` | `ENVELOPE` | `"1"` | `min`, `max`: `level_min` and `level_max` (float32) | `hardware`, `asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y`, `axis_peaks_z` |
-| `pns_above_<t>`, one for each threshold in the order of `above` | `RUNS` | `"1"` | `start_s`, `end_s`, `num_samples` (int64), `peak`, `peak_time_s` (float64): one entry for each `PnsInterval` | `threshold` |
+| Name | Kind | Unit | `coord_unit` | Arrays | `meta` |
+|---|---|---|---|---|---|
+| `pns_total` | `ENVELOPE` | `"1"` | `"s"` | `min`, `max`: `level_min` and `level_max` (float32) | `hardware`, `asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y`, `axis_peaks_z` |
+| `pns_above_<t>`, one for each threshold in the order of `above` | `RUNS` | `"1"` | `"s"` | `start`, `end`, `num_samples` (int64), `peak`, `peak_time_s` (float64): one entry for each `PnsInterval` | `threshold` |
 
 `<t>` is the threshold as `f"{t:g}"`, for example `pns_above_1` or
 `pns_above_0.8`. Two thresholds with the same text (for example 1.0000001 and
-1.0000002) raise `ValueError`. In `pns_total`, `t0_s` is 0, `step_s` is
-`bin_samples * dt_s` and `end_s` is `num_samples * dt_s`. Sample `k` is at
-`(k + 0.5) * dt_s`, and `start_s` and `end_s` of a run are the times of its
-first and last sample.
+1.0000002) raise `ValueError`. In `pns_total`, `coord_start` is 0, `coord_step`
+is `bin_samples * dt_s` and `coord_end` is `num_samples * dt_s`. Sample `k` is
+at `(k + 0.5) * dt_s`, and `start` and `end` of a run are the times of its
+first and last sample. `peak_time_s` and the `meta` keys `dt_s` and
+`peak_time_s` are times in seconds.
 
 To use an analysis by its ID:
 

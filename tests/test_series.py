@@ -23,8 +23,9 @@ def _samples(**overrides) -> Series:
         "name": "g",
         "kind": SeriesKind.SAMPLES,
         "unit": "mT/m",
+        "coord_unit": "s",
         "arrays": {"value": np.arange(4, dtype=np.float32)},
-        "step_s": 1e-5,
+        "coord_step": 1e-5,
     }
     fields.update(overrides)
     return Series(**fields)
@@ -35,13 +36,14 @@ def _envelope() -> Series:
         name="pns_total",
         kind=SeriesKind.ENVELOPE,
         unit="1",
+        coord_unit="s",
         arrays={
             "min": np.array([0.0, 0.1, 0.2], dtype=np.float32),
             "max": np.array([0.5, 0.6, 0.7], dtype=np.float32),
         },
-        t0_s=0.0,
-        step_s=0.006,
-        end_s=0.0171,
+        coord_start=0.0,
+        coord_step=0.006,
+        coord_end=0.0171,
         meta={"hardware": "example", "dt_s": 1e-5, "num_samples": 1710, "on_raster": True},
     )
 
@@ -51,8 +53,9 @@ def _points() -> Series:
         name="gx_max",
         kind=SeriesKind.POINTS,
         unit="mT/m",
+        coord_unit="s",
         arrays={
-            "time_s": np.array([0.0, 0.001, 0.0035]),
+            "coord": np.array([0.0, 0.001, 0.0035]),
             "value": np.array([1.0, -2.0, 3.0]),
             "block": np.array([1, 2, 3], dtype=np.uint32),
         },
@@ -65,9 +68,10 @@ def _runs() -> Series:
         name="pns_above_1",
         kind=SeriesKind.RUNS,
         unit="1",
+        coord_unit="s",
         arrays={
-            "start_s": np.array([0.001, 0.01]),
-            "end_s": np.array([0.002, 0.0125]),
+            "start": np.array([0.001, 0.01]),
+            "end": np.array([0.002, 0.0125]),
             "num_samples": np.array([100, 250], dtype=np.int64),
         },
         meta={"threshold": 1.0},
@@ -83,11 +87,11 @@ _ONE_OF_EACH_KIND = (
 
 
 def _used_fields(kind: SeriesKind) -> dict:
-    """The fields `step_s` and `end_s` that `kind` needs, with valid values."""
+    """The fields `coord_step` and `coord_end` that `kind` needs, with valid values."""
     if kind is SeriesKind.SAMPLES:
-        return {"step_s": 1.0}
+        return {"coord_step": 1.0}
     if kind is SeriesKind.ENVELOPE:
-        return {"step_s": 1.0, "end_s": 1.0}
+        return {"coord_step": 1.0, "coord_end": 1.0}
     return {}
 
 
@@ -103,19 +107,22 @@ def _round_trip(s: Series) -> Series:
         pytest.param({"name": ""}, ValueError, id="name-empty"),
         pytest.param({"kind": "samples"}, TypeError, id="kind-not-a-SeriesKind"),
         pytest.param({"unit": None}, TypeError, id="unit-not-a-string"),
-        pytest.param({"step_s": None}, ValueError, id="step-missing"),
-        pytest.param({"step_s": 0.0}, ValueError, id="step-zero"),
-        pytest.param({"step_s": -1e-5}, ValueError, id="step-negative"),
-        pytest.param({"step_s": float("inf")}, ValueError, id="step-infinite"),
-        pytest.param({"step_s": float("nan")}, ValueError, id="step-nan"),
-        pytest.param({"step_s": "1e-5"}, TypeError, id="step-not-a-number"),
-        pytest.param({"step_s": True}, TypeError, id="step-a-bool"),
-        pytest.param({"t0_s": "0"}, TypeError, id="t0-not-a-number"),
-        pytest.param({"t0_s": None}, TypeError, id="t0-none"),
+        pytest.param({"coord_unit": None}, TypeError, id="coord-unit-not-a-string"),
+        pytest.param({"coord_unit": ""}, ValueError, id="coord-unit-empty"),
+        pytest.param({"coord_step": None}, ValueError, id="coord-step-missing"),
+        pytest.param({"coord_step": 0.0}, ValueError, id="coord-step-zero"),
+        pytest.param({"coord_step": -1e-5}, ValueError, id="coord-step-negative"),
+        pytest.param({"coord_step": float("inf")}, ValueError, id="coord-step-infinite"),
+        pytest.param({"coord_step": float("nan")}, ValueError, id="coord-step-nan"),
+        pytest.param({"coord_step": "1e-5"}, TypeError, id="coord-step-not-a-number"),
+        pytest.param({"coord_step": True}, TypeError, id="coord-step-a-bool"),
+        pytest.param({"coord_start": "0"}, TypeError, id="coord-start-not-a-number"),
+        pytest.param({"coord_start": None}, TypeError, id="coord-start-none"),
     ],
 )
 def test_series_refuses_a_bad_field(overrides, error):
-    """Each bad name, kind, unit, `t0_s` or `step_s` raises `TypeError` or `ValueError`."""
+    """Each bad name, kind, unit, `coord_unit`, `coord_start` or `coord_step` raises
+    `TypeError` or `ValueError`."""
     with pytest.raises(error):
         _samples(**overrides)
 
@@ -123,70 +130,74 @@ def test_series_refuses_a_bad_field(overrides, error):
 @pytest.mark.parametrize(
     ("kind", "arrays", "overrides"),
     [
-        pytest.param(SeriesKind.SAMPLES, {"value": np.zeros(3)}, {"end_s": 1.0}, id="samples-end"),
         pytest.param(
-            SeriesKind.POINTS,
-            {"time_s": np.zeros(3), "value": np.zeros(3)},
-            {"t0_s": 1.0},
-            id="points-t0",
+            SeriesKind.SAMPLES, {"value": np.zeros(3)}, {"coord_end": 1.0}, id="samples-coord-end"
         ),
         pytest.param(
             SeriesKind.POINTS,
-            {"time_s": np.zeros(3), "value": np.zeros(3)},
-            {"t0_s": float("nan")},
-            id="points-t0-nan",
+            {"coord": np.zeros(3), "value": np.zeros(3)},
+            {"coord_start": 1.0},
+            id="points-coord-start",
         ),
         pytest.param(
             SeriesKind.POINTS,
-            {"time_s": np.zeros(3), "value": np.zeros(3)},
-            {"step_s": 1.0},
-            id="points-step",
+            {"coord": np.zeros(3), "value": np.zeros(3)},
+            {"coord_start": float("nan")},
+            id="points-coord-start-nan",
         ),
         pytest.param(
             SeriesKind.POINTS,
-            {"time_s": np.zeros(3), "value": np.zeros(3)},
-            {"end_s": 1.0},
-            id="points-end",
+            {"coord": np.zeros(3), "value": np.zeros(3)},
+            {"coord_step": 1.0},
+            id="points-coord-step",
+        ),
+        pytest.param(
+            SeriesKind.POINTS,
+            {"coord": np.zeros(3), "value": np.zeros(3)},
+            {"coord_end": 1.0},
+            id="points-coord-end",
         ),
         pytest.param(
             SeriesKind.RUNS,
-            {"start_s": np.zeros(3), "end_s": np.zeros(3)},
-            {"t0_s": 1.0},
-            id="runs-t0",
+            {"start": np.zeros(3), "end": np.zeros(3)},
+            {"coord_start": 1.0},
+            id="runs-coord-start",
         ),
         pytest.param(
             SeriesKind.RUNS,
-            {"start_s": np.zeros(3), "end_s": np.zeros(3)},
-            {"step_s": 1.0},
-            id="runs-step",
+            {"start": np.zeros(3), "end": np.zeros(3)},
+            {"coord_step": 1.0},
+            id="runs-coord-step",
         ),
         pytest.param(
             SeriesKind.RUNS,
-            {"start_s": np.zeros(3), "end_s": np.zeros(3)},
-            {"end_s": 1.0},
-            id="runs-end",
+            {"start": np.zeros(3), "end": np.zeros(3)},
+            {"coord_end": 1.0},
+            id="runs-coord-end",
         ),
     ],
 )
 def test_series_refuses_a_field_that_the_kind_does_not_use(kind, arrays, overrides):
-    """A SAMPLES series with `end_s`, and a POINTS or RUNS series with `t0_s` other than 0,
-    `step_s` or `end_s`, raise `ValueError`. The series with the defaults is valid."""
-    Series(name="s", kind=kind, unit="1", arrays=arrays, **_used_fields(kind))
+    """A SAMPLES series with `coord_end`, and a POINTS or RUNS series with `coord_start` other
+    than 0, `coord_step` or `coord_end`, raise `ValueError`. The series with the defaults is
+    valid."""
+    Series(name="s", kind=kind, unit="1", coord_unit="s", arrays=arrays, **_used_fields(kind))
     fields = _used_fields(kind) | overrides
     with pytest.raises(ValueError, match="does not use"):
-        Series(name="s", kind=kind, unit="1", arrays=arrays, **fields)
+        Series(name="s", kind=kind, unit="1", coord_unit="s", arrays=arrays, **fields)
 
 
 def test_envelope_refuses_a_missing_end():
-    """An ENVELOPE series without `end_s` raises `ValueError`."""
+    """An ENVELOPE series without `coord_end` raises `ValueError`."""
     s = _envelope()
-    with pytest.raises(ValueError, match="end_s"):
+    with pytest.raises(ValueError, match="coord_end"):
         Series(
             name=s.name,
             kind=s.kind,
             unit=s.unit,
+            coord_unit=s.coord_unit,
             arrays=s.arrays,
-            step_s=s.step_s,
+            coord_step=s.coord_step,
         )
 
 
@@ -202,10 +213,10 @@ def test_envelope_refuses_a_missing_end():
             ValueError,
             id="envelope-extra-array",
         ),
-        pytest.param(SeriesKind.POINTS, {"value": np.zeros(3)}, ValueError, id="points-no-time"),
-        pytest.param(SeriesKind.POINTS, {"time_s": np.zeros(3)}, ValueError, id="points-no-value"),
-        pytest.param(SeriesKind.RUNS, {"start_s": np.zeros(3)}, ValueError, id="runs-no-end"),
-        pytest.param(SeriesKind.RUNS, {"end_s": np.zeros(3)}, ValueError, id="runs-no-start"),
+        pytest.param(SeriesKind.POINTS, {"value": np.zeros(3)}, ValueError, id="points-no-coord"),
+        pytest.param(SeriesKind.POINTS, {"coord": np.zeros(3)}, ValueError, id="points-no-value"),
+        pytest.param(SeriesKind.RUNS, {"start": np.zeros(3)}, ValueError, id="runs-no-end"),
+        pytest.param(SeriesKind.RUNS, {"end": np.zeros(3)}, ValueError, id="runs-no-start"),
         pytest.param(SeriesKind.SAMPLES, [np.zeros(3)], TypeError, id="arrays-not-a-mapping"),
         pytest.param(SeriesKind.SAMPLES, {1: np.zeros(3)}, TypeError, id="key-not-a-string"),
         pytest.param(SeriesKind.SAMPLES, {"value": [1.0, 2.0]}, TypeError, id="list-not-an-array"),
@@ -242,7 +253,7 @@ def test_envelope_refuses_a_missing_end():
         ),
         pytest.param(
             SeriesKind.RUNS,
-            {"start_s": np.zeros(3), "end_s": np.zeros(2)},
+            {"start": np.zeros(3), "end": np.zeros(2)},
             ValueError,
             id="runs-lengths-differ",
         ),
@@ -253,7 +264,7 @@ def test_series_refuses_bad_arrays(kind, arrays, error):
     one-dimensional numpy array of a numeric or bool dtype, and pair of arrays of two lengths
     raises `TypeError` or `ValueError`."""
     with pytest.raises(error):
-        Series(name="s", kind=kind, unit="1", arrays=arrays, **_used_fields(kind))
+        Series(name="s", kind=kind, unit="1", coord_unit="s", arrays=arrays, **_used_fields(kind))
 
 
 @pytest.mark.parametrize(
@@ -320,8 +331,8 @@ def test_series_equal_treats_nan_as_equal():
     """Two series with NaN in an array, in a float field and in `meta` are equal, and a
     series equals itself."""
     arrays = {"value": np.array([1.0, np.nan])}
-    one = _samples(arrays=arrays, t0_s=float("nan"), meta={"m": float("nan")})
-    two = _samples(arrays=dict(arrays), t0_s=float("nan"), meta={"m": float("nan")})
+    one = _samples(arrays=arrays, coord_start=float("nan"), meta={"m": float("nan")})
+    two = _samples(arrays=dict(arrays), coord_start=float("nan"), meta={"m": float("nan")})
     same = one
     assert one == same
     assert one == two
@@ -347,16 +358,18 @@ def test_series_equal_treats_nan_as_equal():
         ),
         pytest.param(lambda: _samples(name="h"), id="name"),
         pytest.param(lambda: _samples(unit="T/m"), id="unit"),
-        pytest.param(lambda: _samples(t0_s=1.0), id="t0"),
-        pytest.param(lambda: _samples(step_s=2e-5), id="step"),
+        pytest.param(lambda: _samples(coord_unit="Hz"), id="coord-unit"),
+        pytest.param(lambda: _samples(coord_start=1.0), id="coord-start"),
+        pytest.param(lambda: _samples(coord_step=2e-5), id="coord-step"),
         pytest.param(lambda: _samples(meta={"a": 1}), id="meta"),
         pytest.param(
             lambda: Series(
                 name="g",
                 kind=SeriesKind.POINTS,
                 unit="mT/m",
+                coord_unit="s",
                 arrays={
-                    "time_s": np.zeros(4, dtype=np.float32),
+                    "coord": np.zeros(4, dtype=np.float32),
                     "value": np.arange(4, dtype=np.float32),
                 },
             ),
@@ -366,16 +379,16 @@ def test_series_equal_treats_nan_as_equal():
 )
 def test_series_not_equal_for_a_different_field_or_array(other):
     """A series is not equal to one that differs in a dtype, a length, a value, a name, a
-    unit, `t0_s`, `step_s`, `meta` or the kind, to NaN against a number, or to a value that is
-    not a series."""
+    unit, `coord_unit`, `coord_start`, `coord_step`, `meta` or the kind, to NaN against a
+    number, or to a value that is not a series."""
     s = _samples()
     assert s != other()
     assert s != "g"
 
 
 def test_envelope_series_not_equal_for_a_different_end():
-    """Two ENVELOPE series that differ only in `end_s` are not equal."""
-    assert _envelope() != replace(_envelope(), end_s=0.02)
+    """Two ENVELOPE series that differ only in `coord_end` are not equal."""
+    assert _envelope() != replace(_envelope(), coord_end=0.02)
 
 
 def test_series_equality_compares_the_order_of_the_arrays():
@@ -409,13 +422,66 @@ def test_series_round_trip_for_each_kind(make):
     assert back.to_obj() == s.to_obj()
 
 
+def test_series_with_a_coordinate_other_than_time():
+    """A spectrum, the frequency ranges where it is above a level, its peaks and a profile
+    along a position round trip, and `to_obj` keeps `coord_unit`. The data are synthetic: a spectrum or a profile
+    uses the same kinds as a time series."""
+    spectrum = Series(
+        name="spectrum",
+        kind=SeriesKind.SAMPLES,
+        unit="mT/m/√Hz",
+        coord_unit="Hz",
+        arrays={name: np.linspace(0.0, 1.0, 5) for name in ("value", "x", "y", "z")},
+        coord_start=0.0,
+        coord_step=500.0,
+    )
+    above = Series(
+        name="spectrum_above",
+        kind=SeriesKind.RUNS,
+        unit="1",
+        coord_unit="Hz",
+        arrays={"start": np.array([540.0, 1030.0]), "end": np.array([640.0, 1250.0])},
+    )
+    peaks = Series(
+        name="peaks",
+        kind=SeriesKind.POINTS,
+        unit="mT/m/√Hz",
+        coord_unit="Hz",
+        arrays={
+            "coord": np.array([590.0, 1140.0]),
+            "value": np.array([0.2, 0.7]),
+            "relative": np.array([0.3, 1.0]),
+        },
+    )
+    profile = Series(
+        name="profile",
+        kind=SeriesKind.SAMPLES,
+        unit="1",
+        coord_unit="m",
+        arrays={
+            "value": np.linspace(0.0, 1.0, 5),
+            "phase": np.array([np.nan, 0.5, 1.0, 1.5, np.nan]),
+            "a": np.linspace(0.0, 1.0, 5) * (1.0 + 0.5j),
+        },
+        coord_start=-0.01,
+        coord_step=0.005,
+        meta={"position": "select"},
+    )
+    for s, unit in ((spectrum, "Hz"), (above, "Hz"), (peaks, "Hz"), (profile, "m")):
+        assert s.coord_unit == unit
+        assert s.to_obj()["coord_unit"] == unit
+        assert _round_trip(s) == s
+    assert profile.arrays["a"].dtype == np.complex128
+    assert _round_trip(profile).coord_start == -0.01
+
+
 def test_series_round_trip_of_two_million_float32_values():
     """A SAMPLES series of 2 x 10^6 float32 values, with a second array of int16 values,
     gives an equal series after the round trip, and the arrays keep their dtype."""
     rng = np.random.default_rng(0)
     value = rng.standard_normal(2_000_000).astype(np.float32)
     count = rng.integers(-1000, 1000, size=2_000_000, dtype=np.int16)
-    s = _samples(arrays={"value": value, "count": count}, step_s=1e-5)
+    s = _samples(arrays={"value": value, "count": count}, coord_step=1e-5)
     back = _round_trip(s)
     assert back == s
     assert back.arrays["value"].dtype == np.float32
@@ -424,46 +490,59 @@ def test_series_round_trip_of_two_million_float32_values():
 
 
 def test_series_round_trip_of_values_that_are_not_finite():
-    """A series with infinity and NaN in an array, in `t0_s` and `end_s`, and in `meta`
-    gives an equal series after the round trip, and `json.dumps(allow_nan=False)` accepts
-    the object."""
+    """A series with infinity and NaN in an array, in `coord_start` and `coord_end`, and in
+    `meta` gives an equal series after the round trip, and `json.dumps(allow_nan=False)`
+    accepts the object."""
     s = Series(
         name="x",
         kind=SeriesKind.ENVELOPE,
         unit="1",
+        coord_unit="s",
         arrays={"min": _NON_FINITE, "max": _NON_FINITE[::-1]},
-        t0_s=float("-inf"),
-        step_s=0.5,
-        end_s=float("nan"),
+        coord_start=float("-inf"),
+        coord_step=0.5,
+        coord_end=float("nan"),
         meta={"a": float("inf"), "b": float("-inf"), "c": float("nan"), "d": 1.5, "e": "nan?"},
     )
     obj = s.to_obj()
     json.dumps(obj, allow_nan=False)
-    assert (obj["t0_s"], obj["end_s"]) == ("-inf", "nan")
+    assert (obj["coord_start"], obj["coord_end"]) == ("-inf", "nan")
     assert obj["meta"] == {"a": "inf", "b": "-inf", "c": "nan", "d": 1.5, "e": "nan?"}
     back = _round_trip(s)
     assert back == s
-    assert np.isinf(back.t0_s)
-    assert np.isnan(back.end_s)
+    assert np.isinf(back.coord_start)
+    assert np.isnan(back.coord_end)
     assert back.meta["a"] == float("inf")
     assert np.isnan(back.meta["c"])
 
 
 def test_to_obj_keys_and_types():
-    """`to_obj` has the keys `name`, `kind`, `unit`, `t0_s`, `step_s`, `end_s`, `meta` and
-    `arrays` in this order. `kind` is the string value, an int and a bool of `meta` stay an
-    int and a bool, a float stays a float, and `arrays` has the order of the series."""
+    """`to_obj` has the keys `name`, `kind`, `unit`, `coord_unit`, `coord_start`,
+    `coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the string value,
+    `coord_unit` is a string, an int and a bool of `meta` stay an int and a bool, a float
+    stays a float, and `arrays` has the order of the series."""
     obj = _envelope().to_obj()
-    assert list(obj) == ["name", "kind", "unit", "t0_s", "step_s", "end_s", "meta", "arrays"]
+    assert list(obj) == [
+        "name",
+        "kind",
+        "unit",
+        "coord_unit",
+        "coord_start",
+        "coord_step",
+        "coord_end",
+        "meta",
+        "arrays",
+    ]
     assert obj["kind"] == "envelope"
-    assert obj["step_s"] == 0.006
+    assert obj["coord_unit"] == "s"
+    assert obj["coord_step"] == 0.006
     assert type(obj["meta"]["num_samples"]) is int
     assert type(obj["meta"]["on_raster"]) is bool
     assert type(obj["meta"]["dt_s"]) is float
     assert list(obj["arrays"]) == ["min", "max"]
     assert list(obj["arrays"]["min"]) == ["dtype", "length", "data"]
-    # A field that a kind does not use has its default: null for `step_s`.
-    assert _runs().to_obj()["step_s"] is None
+    # A field that a kind does not use has its default: null for `coord_step`.
+    assert _runs().to_obj()["coord_step"] is None
     text = json.dumps(obj, allow_nan=False)
     back = json.loads(text)["meta"]
     assert type(back["num_samples"]) is int
@@ -486,6 +565,15 @@ def _without(key) -> dict:
     return obj
 
 
+def _rc2_obj() -> dict:
+    """The object of an rc2 series: no `coord_unit`, and the rc2 keys `t0_s`, `step_s` and
+    `end_s` of the three coordinate fields, with the same values."""
+    obj = _without("coord_unit")
+    for new, old in (("coord_start", "t0_s"), ("coord_step", "step_s"), ("coord_end", "end_s")):
+        obj[old] = obj.pop(new)
+    return obj
+
+
 @pytest.mark.parametrize(
     "obj",
     [
@@ -498,12 +586,16 @@ def _without(key) -> dict:
         pytest.param(_with("name", ""), id="empty-name"),
         pytest.param(_with("name", 3), id="name-not-a-string"),
         pytest.param(_with("unit", 3), id="unit-not-a-string"),
-        pytest.param(_with("step_s", 0.0), id="step-zero"),
-        pytest.param(_with("step_s", "fast"), id="step-a-string"),
-        pytest.param(_with("step_s", None), id="step-null"),
-        pytest.param(_with("end_s", None), id="end-null"),
-        pytest.param(_with("t0_s", None), id="t0-null"),
-        pytest.param(_with("t0_s", True), id="t0-a-bool"),
+        pytest.param(_with("coord_unit", None), id="coord-unit-null"),
+        pytest.param(_with("coord_unit", 3), id="coord-unit-a-number"),
+        pytest.param(_without("coord_unit"), id="missing-coord-unit"),
+        pytest.param(_rc2_obj(), id="rc2-object"),
+        pytest.param(_with("coord_step", 0.0), id="coord-step-zero"),
+        pytest.param(_with("coord_step", "fast"), id="coord-step-a-string"),
+        pytest.param(_with("coord_step", None), id="coord-step-null"),
+        pytest.param(_with("coord_end", None), id="coord-end-null"),
+        pytest.param(_with("coord_start", None), id="coord-start-null"),
+        pytest.param(_with("coord_start", True), id="coord-start-a-bool"),
         pytest.param(_with("meta", [1]), id="meta-not-an-object"),
         pytest.param(_with("meta", {"a": [1]}), id="meta-value-a-list"),
         pytest.param(_with("arrays", []), id="arrays-not-an-object"),
@@ -513,8 +605,8 @@ def _without(key) -> dict:
 )
 def test_from_obj_refuses(obj):
     """`from_obj` raises `ValueError`, and no other error, for an object that is not a dict,
-    an unknown key, a missing key, an unknown kind, a bad value of any field, and a bad
-    array."""
+    an unknown key, a missing key, an object of rc2, an unknown kind, a bad value of any
+    field, and a bad array."""
     with pytest.raises(ValueError):
         Series.from_obj(obj)
 

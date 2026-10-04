@@ -255,9 +255,10 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert total.arrays["max"].dtype == np.float32
     assert np.array_equal(total.arrays["min"], levels.level_min)
     assert np.array_equal(total.arrays["max"], levels.level_max)
-    assert total.t0_s == 0.0
-    assert total.step_s == levels.bin_samples * levels.dt_s
-    assert total.end_s == levels.num_samples * levels.dt_s
+    assert total.coord_unit == "s"
+    assert total.coord_start == 0.0
+    assert total.coord_step == levels.bin_samples * levels.dt_s
+    assert total.coord_end == levels.num_samples * levels.dt_s
     assert total.meta == {
         "hardware": "SCALED",
         "asc_file": None,
@@ -275,11 +276,18 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert above.name == "pns_above_1"
     assert above.kind is SeriesKind.RUNS
     assert above.unit == "1"
-    assert list(above.arrays) == ["start_s", "end_s", "num_samples", "peak", "peak_time_s"]
+    assert above.coord_unit == "s"
+    assert list(above.arrays) == ["start", "end", "num_samples", "peak", "peak_time_s"]
     assert above.arrays["num_samples"].dtype == np.int64
-    for name in ("start_s", "end_s", "peak", "peak_time_s"):
+    expected = {
+        "start": [i.start_s for i in intervals],
+        "end": [i.end_s for i in intervals],
+        "peak": [i.peak for i in intervals],
+        "peak_time_s": [i.peak_time_s for i in intervals],
+    }
+    for name, values in expected.items():
         assert above.arrays[name].dtype == np.float64
-        assert above.arrays[name].tolist() == [getattr(i, name) for i in intervals]
+        assert above.arrays[name].tolist() == values
     assert above.arrays["num_samples"].tolist() == [i.num_samples for i in intervals]
     assert above.meta == {"threshold": 1.0}
 
@@ -305,8 +313,9 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     assert levels.above[1.0] != levels.above[0.5]
     for s, threshold in zip(series[1:], (1.0, 0.5), strict=True):
         assert s.meta == {"threshold": threshold}
-        assert s.arrays["start_s"].tolist() == [i.start_s for i in levels.above[threshold]]
-        assert s.arrays["end_s"].tolist() == [i.end_s for i in levels.above[threshold]]
+        assert s.coord_unit == "s"
+        assert s.arrays["start"].tolist() == [i.start_s for i in levels.above[threshold]]
+        assert s.arrays["end"].tolist() == [i.end_s for i in levels.above[threshold]]
         assert s.arrays["peak"].tolist() == [i.peak for i in levels.above[threshold]]
 
     swapped = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds=(0.5, 1.0))

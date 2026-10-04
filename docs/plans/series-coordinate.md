@@ -10,7 +10,7 @@ Status: draft, not approved. Written on 2026-10-04.
 In `0.1.0rc2`, each kind of `Series` puts its values on a time axis. The
 fields `t0_s`, `step_s` and `end_s`, the `POINTS` array `time_s` and the
 `RUNS` arrays `start_s` and `end_s` are in seconds. Thus a series cannot
-hold a spectrum or a band of frequencies.
+hold a spectrum or a profile along a position.
 
 This plan gives each series a *coordinate* with its own unit. The
 coordinate is the quantity of the horizontal axis of the series: the time
@@ -23,16 +23,17 @@ the shape does not depend on the quantity of the coordinate:
 | The SAFE PNS level (now) | `ENVELOPE` | `"s"` |
 | The runs above a PNS threshold (now) | `RUNS` | `"s"` |
 | A gradient spectrum (later) | `SAMPLES` | `"Hz"` |
-| The acoustic resonance bands (later) | `RUNS` | `"Hz"` |
-| The peak of each resonance band (later) | `POINTS` | `"Hz"` |
+| The frequency ranges where a spectrum is at or above a level (later) | `RUNS` | `"Hz"` |
+| The peaks of a spectrum (later) | `POINTS` | `"Hz"` |
 | A 1D RF profile along a position (later) | `SAMPLES` | `"m"` |
 | A 1D RF profile along the frequency offset (later) | `SAMPLES` | `"Hz"` |
 
 The rows "later" are not part of this plan. They are the reason for it:
-the move of `grad_spectrum` from pulseq-reports, an acoustic check in
-pulseq-checks, and the resonance bands of each target in the spectrum card
-of pulseq-reports need a series in hertz. Section 1.2 shows that the data of
-pulseq-reports fit the new form.
+the move of `grad_spectrum` from pulseq-reports needs a series in hertz.
+An acoustic check in pulseq-checks then compares that spectrum with the
+resonance bands of its target. The bands are data of the target, not of
+the sequence, so they are not a series of this package (L11). Section 1.2
+shows that the data of pulseq-reports fit the new form.
 
 This plan gives the work in this repository:
 
@@ -67,8 +68,8 @@ gives the names of its series.
 | Value (pulseq-reports) | Kind, `coord_unit` | Coordinate | Arrays, `unit` |
 |---|---|---|---|
 | `GradientSpectrum.rss` and `.axes` (one coordinate for the four spectra) | `SAMPLES`, `"Hz"` | `coord_start` 0.0, `coord_step` `frequency_hz[1]` | `value` (RSS), `x`, `y`, `z`, unit `"mT/m/√Hz"` |
-| The resonances `(frequency_hz, bandwidth_hz)` of a target | `RUNS`, `"Hz"` | `start` = f − bw/2, `end` = f + bw/2 | `frequency_hz`, `bandwidth_hz` |
-| `GradientSpectrum.band_peaks` | `POINTS`, `"Hz"` | `coord` = `BandPeak.frequency_hz` | `value` (`peak`), `relative`, `low_hz`, `high_hz` |
+| The resonances `(frequency_hz, bandwidth_hz)` of a target | none | — | Data of the target, not a measurement of the sequence (L11). A card reads them from `TargetProfile.acoustic_resonances`. |
+| `GradientSpectrum.band_peaks` | none | — | A comparison of the spectrum with data of the target (L11). The acoustic check of pulseq-checks makes it from the spectrum series, as a finding. |
 | `Profile` of the view `"profile"`, a position axis (`x`, `y`, `z`, `select`) | `SAMPLES`, `"m"` | `coord_start` `lo`, `coord_step` `(hi - lo) / (n - 1)` | `value` (for example `mxy_abs`), `mz`, `beta_sq`, the echo phase (NaN where \|Mxy\| is small), or the complex `a` and `b` |
 | `Profile` of the view `"profile"`, the axis `df` | `SAMPLES`, `"Hz"` | as the row above, and `coord_start` can be below 0 | as the row above |
 | `widths`, `CombinedProfile.numbers`, `PulseSummary` | none | — | Numbers, not series. They go in `meta`, or in the value of the analysis. |
@@ -149,7 +150,8 @@ which is not this rc3). pulseq-reports `origin/main` is at `cffad7c`.
    of pulseq-reports, section 4.4) gives the card `gradient-spectrum` "the
    bands of each target, in the color of the target", and section 4.5 lists
    the move of `grad_spectrum` to pulseq-analysis as later work. Its
-   principle 1 says that a mark against a limit comes from a check result
+   section 1 says that a card reads the scanner context (for example the
+   acoustic resonances) from the target profile. Its principle 1 says that a mark against a limit comes from a check result
    or from an analysis result.
 10. **The spectrum card of pulseq-reports.** `cards/spectrum.py` gives the
     four spectra (`x`, `y`, `z`, RSS) as lanes of points `[f, value]` on one
@@ -196,6 +198,7 @@ The approval of this plan approves them.
 | L8 | The tests of `test_series.py` keep their names. Their `pytest.param` IDs change where they name a field (for example `t0-not-a-number` becomes `coord-start-not-a-number`). | `TESTS.md` names the tests, not the IDs. |
 | L9 | The tag is an annotated tag on the merge commit of the release PR. The executing agent shows the command, and pushes the tag only after the user approves. | Decision L9 of `docs/plans/implementation.md`. |
 | L10 | This plan does not move `grad_spectrum` or `rf_profiles`, and adds no analysis. The series forms of section 1.2 are not an interface. | One concern for each branch. The move needs its own plan (fact 9). |
+| L11 | A series of this package measures the sequence. It does not hold data of a target (for example the acoustic resonance bands), or a comparison of the sequence with data of a target (for example the peak of the spectrum in each band). When `grad_spectrum` moves here, its `resonances` argument and `band_peaks` go to the acoustic check of pulseq-checks. A parameter that is not data of a target (for example a level, as the PNS thresholds) is valid. | `README.md`: an analysis has no target profile, no limit, no pass or fail and no finding. (Added on 2026-10-04, after the plan merged.) |
 
 ## 4. How to execute this plan
 
@@ -328,10 +331,12 @@ New test:
   - a `SAMPLES` spectrum, `coord_unit="Hz"`, `coord_start` 0.0,
     `coord_step` 500.0, `unit` `"mT/m/√Hz"`, with the float64 arrays
     `value`, `x`, `y` and `z` of length 5.
-  - a `RUNS` series of two bands, `coord_unit="Hz"`: `start`
-    `[540.0, 1030.0]`, `end` `[640.0, 1250.0]`.
-  - a `POINTS` series of the peak in each band, `coord_unit="Hz"`: `coord`
-    `[590.0, 1140.0]`, `value` `[0.2, 0.7]`, `relative` `[0.3, 1.0]`.
+  - a `RUNS` series of the two frequency ranges where the spectrum is above
+    a level, `coord_unit="Hz"`: `start` `[540.0, 1030.0]`, `end`
+    `[640.0, 1250.0]`.
+  - a `POINTS` series of the peaks of the spectrum, `coord_unit="Hz"`:
+    `coord` `[590.0, 1140.0]`, `value` `[0.2, 0.7]`, `relative`
+    `[0.3, 1.0]`.
   - a `SAMPLES` RF profile, `coord_unit="m"`, `coord_start` -0.01,
     `coord_step` 0.005, `unit` `"1"`, with the arrays `value` (float64),
     `phase` (float64, with NaN) and `a` (complex128) of length 5, and `meta`
@@ -474,9 +479,12 @@ in pulseq-reports now (fact 9).
 1. When the spectrum card reads series from a result matrix, `coord_unit`
    gives the label of the x axis (`"Hz"`: "Frequency (Hz)"). The card can
    also keep its own label, because it knows its data (U6).
-2. A `RUNS` series in Hz gives the `bands` of `PulseqReport.laneChart`
-   directly: `[start[k], end[k]]` for each `k`. These are the "bands of each
-   target" of section 4.4 of its plan.
+2. The resonance bands of each target (section 4.4 of its plan) do not come
+   from a series (L11). The card reads them from
+   `TargetProfile.acoustic_resonances` and gives them to
+   `PulseqReport.laneChart` as `bands`, as its plan says. A `RUNS` series in
+   Hz of a measurement (for example the ranges where the spectrum is above a
+   level) can also go to `bands`: `[start[k], end[k]]` for each `k`.
 3. A `SAMPLES` series gives the frequency of value `k` as
    `coord_start + k * coord_step`. For the spectrum, this is the frequency
    of `grad_spectrum`, bit for bit (section 1.2, note 1).
