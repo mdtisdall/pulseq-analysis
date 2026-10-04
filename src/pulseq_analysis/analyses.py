@@ -67,7 +67,7 @@ class AnalysisSpec:
     params: tuple[str, ...]  # the names of the keyword arguments of compute
     rasters: tuple[str, ...]  # the rasters of the sequence that it uses
     cost: str = "slow"  # "fast" or "slow"
-    series: str | None = None  # what to_series gives: names, kinds, units, times
+    series: str | None = None  # what to_series gives: names, kinds, units, coordinates
 
 
 class Analysis(Protocol):
@@ -205,14 +205,16 @@ class _PnsSafeLevels:
         series=(
             "A sequence with no gradient event gives (). Else: "
             '`pns_total`, ENVELOPE, unit "1", arrays `min` and `max` (float32: `level_min` '
-            "and `level_max`), `t0_s` 0, `step_s` `bin_samples * dt_s`, `end_s` "
-            "`num_samples * dt_s`, `meta` `hardware`, `asc_file`, `dt_s`, `bin_samples`, "
-            "`num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y` and "
-            "`axis_peaks_z`. And one series for each threshold, in the order of "
+            'and `level_max`), `coord_unit` "s", `coord_start` 0, `coord_step` '
+            "`bin_samples * dt_s`, `coord_end` `num_samples * dt_s`, `meta` `hardware`, "
+            "`asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, "
+            "`axis_peaks_x`, `axis_peaks_y` and `axis_peaks_z`. And one series for each "
+            "threshold, in the order of "
             '`thresholds`: `pns_above_<t>`, with `<t>` the threshold as `f"{t:g}"` (for '
-            'example `pns_above_1`, `pns_above_0.8`), RUNS, unit "1", arrays `start_s`, '
-            "`end_s`, `num_samples` (int64), `peak` and `peak_time_s` (float64), one entry "
-            "for each run (the times of its first and last sample), `meta` `threshold`. "
+            'example `pns_above_1`, `pns_above_0.8`), RUNS, unit "1", `coord_unit` "s", '
+            "arrays `start`, `end`, `num_samples` (int64), `peak` and `peak_time_s` "
+            "(float64), one entry for each run (the times of its first and last sample), "
+            "`meta` `threshold`. "
             "Two thresholds with the same text of `:g` (for example 1.0000001 and "
             "1.0000002) raise `ValueError` in `to_series`."
         ),
@@ -249,9 +251,10 @@ class _PnsSafeLevels:
             kind=SeriesKind.ENVELOPE,
             unit="1",
             arrays={"min": value.level_min, "max": value.level_max},
-            t0_s=0.0,
-            step_s=value.bin_samples * value.dt_s,
-            end_s=value.num_samples * value.dt_s,
+            coord_unit="s",
+            coord_start=0.0,
+            coord_step=value.bin_samples * value.dt_s,
+            coord_end=value.num_samples * value.dt_s,
             meta={
                 "hardware": value.hardware,
                 "asc_file": value.asc_file,
@@ -272,9 +275,10 @@ class _PnsSafeLevels:
                     name=name,
                     kind=SeriesKind.RUNS,
                     unit="1",
+                    coord_unit="s",
                     arrays={
-                        "start_s": np.array([i.start_s for i in intervals], dtype=np.float64),
-                        "end_s": np.array([i.end_s for i in intervals], dtype=np.float64),
+                        "start": np.array([i.start_s for i in intervals], dtype=np.float64),
+                        "end": np.array([i.end_s for i in intervals], dtype=np.float64),
                         "num_samples": np.array([i.num_samples for i in intervals], dtype=np.int64),
                         "peak": np.array([i.peak for i in intervals], dtype=np.float64),
                         "peak_time_s": np.array(

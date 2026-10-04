@@ -1,13 +1,15 @@
 """`Series`: the JSON-ready form of an analysis value (design section 4.2).
 
 A series is a named set of one-dimensional numpy arrays with a kind that says what the
-arrays mean:
+arrays mean. The coordinate of a series is the quantity of its horizontal axis, for example
+the time (unit "s") or the frequency (unit "Hz"). `coord_unit` is the unit of the coordinate.
 
-- `SAMPLES`: `value[k]` is at the time `t0_s + k * step_s`.
+- `SAMPLES`: `value[k]` is at the coordinate `coord_start + k * coord_step`.
 - `ENVELOPE`: `min[i]` and `max[i]` are the least and the greatest value in the bin
-  `[t0_s + i * step_s, t0_s + (i + 1) * step_s)`. The last bin stops at `end_s`.
-- `POINTS`: `value[k]` is at the time `time_s[k]`. The times need not be regular.
-- `RUNS`: a boolean that is true from `start_s[k]` to `end_s[k]`, and false elsewhere.
+  `[coord_start + i * coord_step, coord_start + (i + 1) * coord_step)`. The last bin stops
+  at `coord_end`.
+- `POINTS`: `value[k]` is at the coordinate `coord[k]`. The coordinates need not be regular.
+- `RUNS`: a boolean that is true from `start[k]` to `end[k]`, and false elsewhere.
 
 `Series.to_obj` gives a dict that `json.dumps(obj, allow_nan=False)` writes, and
 `Series.from_obj` reads it back. Each array is one dict `{"dtype", "length", "data"}`
@@ -47,11 +49,12 @@ _ARRAY_KEYS = ("dtype", "length", "data")
 
 
 class SeriesKind(Enum):
-    SAMPLES = "samples"  # value[k] at t0_s + k * step_s
-    ENVELOPE = "envelope"  # min[i] and max[i] of the bin [t0_s + i*step_s, t0_s + (i+1)*step_s);
-    # the last bin stops at end_s
-    POINTS = "points"  # value[k] at time_s[k] (not regular, for example one for each block)
-    RUNS = "runs"  # a boolean that is true from start_s[k] to end_s[k], else false
+    SAMPLES = "samples"  # value[k] at coord_start + k * coord_step
+    ENVELOPE = "envelope"  # min[i] and max[i] of the bin
+    # [coord_start + i * coord_step, coord_start + (i + 1) * coord_step);
+    # the last bin stops at coord_end
+    POINTS = "points"  # value[k] at coord[k] (not regular, for example one for each block)
+    RUNS = "runs"  # a boolean that is true from start[k] to end[k], else false
 
 
 # The arrays that each kind must have. `SAMPLES`, `POINTS` and `RUNS` can have more
@@ -59,8 +62,8 @@ class SeriesKind(Enum):
 _NECESSARY = {
     SeriesKind.SAMPLES: ("value",),
     SeriesKind.ENVELOPE: ("min", "max"),
-    SeriesKind.POINTS: ("time_s", "value"),
-    SeriesKind.RUNS: ("start_s", "end_s"),
+    SeriesKind.POINTS: ("coord", "value"),
+    SeriesKind.RUNS: ("start", "end"),
 }
 
 
@@ -120,22 +123,27 @@ def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
 class Series:
     """One named series of an analysis value (design section 4.2).
 
+    The coordinate of a series is the quantity of its horizontal axis, for example the time
+    (unit "s") or the frequency (unit "Hz").
+
     `name` is a short, stable name, as `Finding.code` is: for example "pns_total". `unit` is
-    the unit of the values, for example "1" (a fraction), "mT/m" or "s". `arrays` maps a
-    name to a one-dimensional numpy array of a bool, integer, float or complex dtype. All
-    arrays of one series have the same length. The kind says which arrays are necessary:
+    the unit of the values, for example "1" (a fraction), "mT/m" or "s". `coord_unit` is the
+    unit of the coordinate, and it is not empty. `arrays` maps a name to a one-dimensional
+    numpy array of a bool, integer, float or complex dtype. All arrays of one series have the
+    same length. The kind says which arrays are necessary:
 
     - `SAMPLES`: `value`, and more arrays of the same length (for example one for each
       gradient axis).
     - `ENVELOPE`: `min` and `max`, and no other array.
-    - `POINTS`: `time_s` and `value`, and more arrays of the same length.
-    - `RUNS`: `start_s` and `end_s`, and more arrays of the same length (a value of each run).
+    - `POINTS`: `coord` and `value`, and more arrays of the same length.
+    - `RUNS`: `start` and `end`, and more arrays of the same length (a value of each run).
 
-    The other arrays can be in any order. `t0_s` and `step_s` (above 0, finite) give the
-    time of a sample or of a bin, and `end_s` gives the end of the last bin. `SAMPLES` and
-    `ENVELOPE` need `step_s`, and `ENVELOPE` needs `end_s`. A field that the kind does not
-    use must have its default: `end_s` None for `SAMPLES`, and `t0_s` 0.0 with `step_s` and
-    `end_s` None for `POINTS` and `RUNS`. So each kind has one form.
+    The other arrays can be in any order. `coord_start` and `coord_step` (above 0, finite)
+    give the coordinate of a sample or of a bin, and `coord_end` gives the end of the last
+    bin. `SAMPLES` and `ENVELOPE` need `coord_step`, and `ENVELOPE` needs `coord_end`. A field
+    that the kind does not use must have its default: `coord_end` None for `SAMPLES`, and
+    `coord_start` 0.0 with `coord_step` and `coord_end` None for `POINTS` and `RUNS`. So each
+    kind has one form.
 
     `meta` holds the values of the series by name, for a machine: only JSON
     scalars. A string value of `meta` cannot be "inf", "-inf" or "nan", because the JSON form
@@ -146,7 +154,7 @@ class Series:
     value. It keeps a new dict for `arrays` and one for `meta`, so a change to the caller's
     dict does not change the series. It keeps a copy of each array, in native byte order, and
     the copy is read-only. The caller's own array stays writable, and a change to it does not
-    change the series. An int in `t0_s`, `step_s` or `end_s` becomes a float.
+    change the series. An int in `coord_start`, `coord_step` or `coord_end` becomes a float.
 
     `==` is true when the fields are the same, the array names are the same and in the same
     order, and each pair of arrays has the same dtype and is equal by
@@ -157,10 +165,11 @@ class Series:
     name: str
     kind: SeriesKind
     unit: str
+    coord_unit: str
     arrays: Mapping[str, np.ndarray]
-    t0_s: float = 0.0  # SAMPLES and ENVELOPE
-    step_s: float | None = None  # SAMPLES and ENVELOPE
-    end_s: float | None = None  # ENVELOPE
+    coord_start: float = 0.0  # SAMPLES and ENVELOPE
+    coord_step: float | None = None  # SAMPLES and ENVELOPE
+    coord_end: float | None = None  # ENVELOPE
     meta: Mapping[str, str | int | float | bool | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -172,6 +181,10 @@ class Series:
             raise TypeError(f"the kind of a series must be a SeriesKind, not {self.kind!r}")
         if not isinstance(self.unit, str):
             raise TypeError(f"the unit of a series must be a string, not {self.unit!r}")
+        if not isinstance(self.coord_unit, str):
+            raise TypeError(f"the coord_unit of a series must be a string, not {self.coord_unit!r}")
+        if not self.coord_unit:
+            raise ValueError("the coord_unit of a series must not be empty")
         if not isinstance(self.arrays, Mapping):
             raise TypeError(f"the arrays of a series must be a mapping, not {self.arrays!r}")
         for key, a in self.arrays.items():
@@ -192,24 +205,34 @@ class Series:
         if len(set(lengths.values())) > 1:
             raise ValueError(f"the arrays of a series must have one length, not {lengths}")
 
-        t0_s = _real(self.t0_s, "t0_s of a series")
-        step_s = None if self.step_s is None else _real(self.step_s, "step_s of a series")
-        end_s = None if self.end_s is None else _real(self.end_s, "end_s of a series")
+        coord_start = _real(self.coord_start, "coord_start of a series")
+        coord_step = (
+            None if self.coord_step is None else _real(self.coord_step, "coord_step of a series")
+        )
+        coord_end = (
+            None if self.coord_end is None else _real(self.coord_end, "coord_end of a series")
+        )
         needs_step = self.kind in (SeriesKind.SAMPLES, SeriesKind.ENVELOPE)
-        if step_s is None and needs_step:
-            raise ValueError(f"a {self.kind.value} series needs step_s")
-        if step_s is not None and not (math.isfinite(step_s) and step_s > 0):
-            raise ValueError(f"step_s of a series must be finite and above 0, not {step_s!r}")
-        if end_s is None and self.kind is SeriesKind.ENVELOPE:
-            raise ValueError("an envelope series needs end_s")
-        if self.kind is not SeriesKind.ENVELOPE and end_s is not None:
-            raise ValueError(f"a {self.kind.value} series does not use end_s, so it must be None")
+        if coord_step is None and needs_step:
+            raise ValueError(f"a {self.kind.value} series needs coord_step")
+        if coord_step is not None and not (math.isfinite(coord_step) and coord_step > 0):
+            raise ValueError(
+                f"coord_step of a series must be finite and above 0, not {coord_step!r}"
+            )
+        if coord_end is None and self.kind is SeriesKind.ENVELOPE:
+            raise ValueError("an envelope series needs coord_end")
+        if self.kind is not SeriesKind.ENVELOPE and coord_end is not None:
+            raise ValueError(
+                f"a {self.kind.value} series does not use coord_end, so it must be None"
+            )
         if not needs_step:
-            if t0_s != 0.0:
-                raise ValueError(f"a {self.kind.value} series does not use t0_s, so it must be 0")
-            if step_s is not None:
+            if coord_start != 0.0:
                 raise ValueError(
-                    f"a {self.kind.value} series does not use step_s, so it must be None"
+                    f"a {self.kind.value} series does not use coord_start, so it must be 0"
+                )
+            if coord_step is not None:
+                raise ValueError(
+                    f"a {self.kind.value} series does not use coord_step, so it must be None"
                 )
 
         meta = _plain_meta(self.meta)
@@ -222,20 +245,25 @@ class Series:
             copy.flags.writeable = False
             arrays[key] = copy
         object.__setattr__(self, "arrays", arrays)
-        object.__setattr__(self, "t0_s", t0_s)
-        object.__setattr__(self, "step_s", step_s)
-        object.__setattr__(self, "end_s", end_s)
+        object.__setattr__(self, "coord_start", coord_start)
+        object.__setattr__(self, "coord_step", coord_step)
+        object.__setattr__(self, "coord_end", coord_end)
         object.__setattr__(self, "meta", meta)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Series):
             return NotImplemented
-        if (self.name, self.kind, self.unit) != (other.name, other.kind, other.unit):
+        if (self.name, self.kind, self.unit, self.coord_unit) != (
+            other.name,
+            other.kind,
+            other.unit,
+            other.coord_unit,
+        ):
             return False
         if not (
-            _same_value(self.t0_s, other.t0_s)
-            and _same_value(self.step_s, other.step_s)
-            and _same_value(self.end_s, other.end_s)
+            _same_value(self.coord_start, other.coord_start)
+            and _same_value(self.coord_step, other.coord_step)
+            and _same_value(self.coord_end, other.coord_end)
         ):
             return False
         if self.meta.keys() != other.meta.keys():
@@ -252,18 +280,20 @@ class Series:
     __hash__ = None  # type: ignore[assignment]
 
     def to_obj(self) -> dict[str, Any]:
-        """A dict of JSON values, with the keys `name`, `kind`, `unit`, `t0_s`, `step_s`,
-        `end_s`, `meta` and `arrays`, in this order. `kind` is the value of the `SeriesKind`.
-        `arrays` maps each name to `encode_array`, in the order of `arrays`. A float field or
-        a float of `meta` that is not finite is a string (module docstring). An int stays an
-        int and a bool stays a bool. `json.dumps(obj, allow_nan=False)` writes the dict."""
+        """A dict of JSON values, with the keys `name`, `kind`, `unit`, `coord_unit`,
+        `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`, in this order. `kind`
+        is the value of the `SeriesKind`. `arrays` maps each name to `encode_array`, in the
+        order of `arrays`. A float field or a float of `meta` that is not finite is a string
+        (module docstring). An int stays an int and a bool stays a bool.
+        `json.dumps(obj, allow_nan=False)` writes the dict."""
         return {
             "name": self.name,
             "kind": self.kind.value,
             "unit": self.unit,
-            "t0_s": _float_to_json(self.t0_s),
-            "step_s": _float_to_json(self.step_s),
-            "end_s": _float_to_json(self.end_s),
+            "coord_unit": self.coord_unit,
+            "coord_start": _float_to_json(self.coord_start),
+            "coord_step": _float_to_json(self.coord_step),
+            "coord_end": _float_to_json(self.coord_end),
             "meta": {
                 k: _float_to_json(v) if isinstance(v, float) else v for k, v in self.meta.items()
             },
@@ -294,10 +324,11 @@ class Series:
                 name=obj["name"],
                 kind=kind,
                 unit=obj["unit"],
+                coord_unit=obj["coord_unit"],
                 arrays={key: decode_array(d) for key, d in arrays.items()},
-                t0_s=_float_from_json(obj["t0_s"], '"t0_s"'),
-                step_s=_float_from_json(obj["step_s"], '"step_s"'),
-                end_s=_float_from_json(obj["end_s"], '"end_s"'),
+                coord_start=_float_from_json(obj["coord_start"], '"coord_start"'),
+                coord_step=_float_from_json(obj["coord_step"], '"coord_step"'),
+                coord_end=_float_from_json(obj["coord_end"], '"coord_end"'),
                 meta=meta,
             )
         except TypeError as exc:
@@ -306,7 +337,17 @@ class Series:
             raise ValueError(f"a bad series: {exc}") from exc
 
 
-_SERIES_KEYS = ("name", "kind", "unit", "t0_s", "step_s", "end_s", "meta", "arrays")
+_SERIES_KEYS = (
+    "name",
+    "kind",
+    "unit",
+    "coord_unit",
+    "coord_start",
+    "coord_step",
+    "coord_end",
+    "meta",
+    "arrays",
+)
 
 
 def encode_array(a: np.ndarray) -> dict[str, Any]:

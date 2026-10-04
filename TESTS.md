@@ -2161,11 +2161,11 @@ that `list(result.above)` is `[1.0]`, `[1.0, 0.5]` and `[0.5, 1.0]`.
 ### 2.8 Series (`test_series.py`)
 
 `test_series.py` tests `series.py`: `Series`, the JSON-ready form of an analysis value
-(design section 4.2), with its four kinds (`SAMPLES`, `ENVELOPE`, `POINTS` and `RUNS`),
-and `encode_array` and `decode_array`, which write one numpy array as
-`{"dtype", "length", "data"}`. The encoding is the one of `encode_tables` of
-pulseq-reports (commit `a322517`): the little-endian bytes of the array, gzipped and
-base64-encoded.
+(design section 4.2, with the names of `docs/plans/series-coordinate.md`), with its four
+kinds (`SAMPLES`, `ENVELOPE`, `POINTS` and `RUNS`), and `encode_array` and `decode_array`,
+which write one numpy array as `{"dtype", "length", "data"}`. The encoding is the one of
+`encode_tables` of pulseq-reports (commit `a322517`): the little-endian bytes of the array,
+gzipped and base64-encoded.
 
 The tests build small series by hand, with no sequence and no pypulseq. The round trip
 of a series is `Series.from_obj(json.loads(json.dumps(s.to_obj(), allow_nan=False)))`,
@@ -2182,9 +2182,10 @@ the path that a report takes.
 #### `test_series_refuses_a_bad_field`
 
 **Checks:** A series with a name that is not a string or is empty, a kind that is not a
-`SeriesKind`, a unit that is not a string, a `step_s` that is missing, zero, negative,
-infinite, NaN, a string or a bool, or a `t0_s` that is not a number, raises `TypeError`
-(a wrong type) or `ValueError` (a wrong value).
+`SeriesKind`, a unit that is not a string, a `coord_unit` that is not a string (IDs
+`coord-unit-not-a-string`) or is empty (`coord-unit-empty`), a `coord_step` that is missing,
+zero, negative, infinite, NaN, a string or a bool, or a `coord_start` that is not a number,
+raises `TypeError` (a wrong type) or `ValueError` (a wrong value).
 
 **How:** Parametrized. Each case changes one field of a valid SAMPLES series and checks
 that the constructor raises the named error.
@@ -2193,9 +2194,9 @@ that the constructor raises the named error.
 
 #### `test_series_refuses_a_field_that_the_kind_does_not_use`
 
-**Checks:** A SAMPLES series with `end_s`, and a POINTS or RUNS series with a `t0_s` other
-than 0 (also NaN), a `step_s` or an `end_s`, raises `ValueError`, so that each kind has one
-form. The same series with the defaults is valid.
+**Checks:** A SAMPLES series with `coord_end`, and a POINTS or RUNS series with a
+`coord_start` other than 0 (also NaN), a `coord_step` or a `coord_end`, raises
+`ValueError`, so that each kind has one form. The same series with the defaults is valid.
 
 **How:** Parametrized. Each case first builds a valid series of the kind with its necessary
 fields only, then sets one field that the kind does not use and checks for `ValueError`
@@ -2205,10 +2206,10 @@ whose message says that the series "does not use" the field.
 
 #### `test_envelope_refuses_a_missing_end`
 
-**Checks:** An ENVELOPE series without `end_s` raises `ValueError`.
+**Checks:** An ENVELOPE series without `coord_end` raises `ValueError`.
 
-**How:** The test builds the arguments of a valid ENVELOPE series, leaves out `end_s`,
-and checks the error and that its message names `end_s`.
+**How:** The test builds the arguments of a valid ENVELOPE series, leaves out `coord_end`,
+and checks the error and that its message names `coord_end`.
 
 **Assumptions:** None.
 
@@ -2220,8 +2221,8 @@ or has a key that is not a string, when an array is not a numpy array, is zero-d
 or two-dimensional, or has a string, object or datetime dtype, and when two arrays have
 two lengths (for SAMPLES, ENVELOPE and RUNS).
 
-**How:** Parametrized. Each case builds a series of one kind with the bad `arrays`
-(with the valid `step_s` and `end_s` that the kind uses) and checks for `TypeError` or
+**How:** Parametrized. Each case builds a series of one kind with the bad `arrays` (with
+the valid `coord_step` and `coord_end` that the kind uses) and checks for `TypeError` or
 `ValueError`, as the wrong type or the wrong value.
 
 **Assumptions:** The test does not try each necessary array of each kind with a bad
@@ -2279,8 +2280,8 @@ is `>f4`, and the first check is the same, but it does not test a change of byte
 
 #### `test_series_equal_treats_nan_as_equal`
 
-**Checks:** Two series with NaN in an array, in `t0_s` and in a `meta` value are equal, a
-series equals itself, and `!=` is false for them.
+**Checks:** Two series with NaN in an array, in `coord_start` and in a `meta` value are
+equal, a series equals itself, and `!=` is false for them.
 
 **How:** The test builds two series from equal data with a NaN in each of the three
 places and checks `==` and `!=`.
@@ -2290,8 +2291,9 @@ places and checks `==` and `!=`.
 #### `test_series_not_equal_for_a_different_field_or_array`
 
 **Checks:** A series is not equal to a series with another array dtype, another array
-length, another value, NaN in place of a number, another name, unit, `t0_s`, `step_s`,
-`meta` or kind, and not equal to a value that is not a series.
+length, another value, NaN in place of a number, another name, unit, `coord_unit` (ID
+`coord-unit`, "Hz" in place of "s"), `coord_start`, `coord_step`, `meta` or kind, and not
+equal to a value that is not a series.
 
 **How:** Parametrized. Each case builds one series that differs from a base SAMPLES series
 in one thing, and checks `!=`. The test also checks `!=` of the base series and a string.
@@ -2300,11 +2302,11 @@ in one thing, and checks `!=`. The test also checks `!=` of the base series and 
 
 #### `test_envelope_series_not_equal_for_a_different_end`
 
-**Checks:** Two ENVELOPE series that differ only in `end_s` are not equal.
+**Checks:** Two ENVELOPE series that differ only in `coord_end` are not equal.
 
 **How:** The test builds an ENVELOPE series, copies it with `dataclasses.replace` and
-another `end_s`, and checks `!=`. A SAMPLES series cannot have `end_s`, so the case is not
-in the parametrized test above.
+another `coord_end`, and checks `!=`. A SAMPLES series cannot have `coord_end`, so the case
+is not in the parametrized test above.
 
 **Assumptions:** None.
 
@@ -2360,45 +2362,66 @@ limit. The test has no time limit.
 
 #### `test_series_round_trip_of_values_that_are_not_finite`
 
-**Checks:** Infinity and NaN in an array, in `t0_s` and `end_s`, and in `meta` survive the
-round trip, `to_obj` writes the floats of the fields and of `meta` as "inf", "-inf" and
-"nan", and `json.dumps(allow_nan=False)` accepts the object.
+**Checks:** Infinity and NaN in an array, in `coord_start` and `coord_end`, and in `meta`
+survive the round trip, `to_obj` writes the floats of the fields and of `meta` as "inf",
+"-inf" and "nan", and `json.dumps(allow_nan=False)` accepts the object.
 
 **How:** The test builds an ENVELOPE series with the four kinds of value in the arrays,
-`t0_s` of -infinity, `end_s` of NaN, and `meta` with infinity, -infinity, NaN, a finite
-float and the string "nan?" (a string that is not one of the three). It checks the strings
-in `to_obj`, that `json.dumps` accepts the object, that the round trip is equal, and that the
-non-finite values are floats again.
+`coord_start` of -infinity, `coord_end` of NaN, and `meta` with infinity, -infinity, NaN,
+a finite float and the string "nan?" (a string that is not one of the three). It checks
+the strings in `to_obj`, that `json.dumps` accepts the object, that the round trip is
+equal, and that the non-finite values are floats again.
 
 **Assumptions:** None.
 
 #### `test_to_obj_keys_and_types`
 
-**Checks:** `to_obj` has the keys `name`, `kind`, `unit`, `t0_s`, `step_s`, `end_s`, `meta`
-and `arrays` in this order. `kind` is the string value. A `meta` int stays an int, a bool
-stays a bool and a float stays a float, also after `json.dumps` and `json.loads`. `arrays`
-has the arrays in their order, each as `dtype`, `length` and `data`. A `step_s` that the kind
+**Checks:** `to_obj` has the keys `name`, `kind`, `unit`, `coord_unit`, `coord_start`,
+`coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the string value,
+and `coord_unit` is the string of the series. A `meta` int stays an int, a bool stays a
+bool and a float stays a float, also after `json.dumps` and `json.loads`. `arrays` has the
+arrays in their order, each as `dtype`, `length` and `data`. A `coord_step` that the kind
 does not use is null.
 
 **How:** The test calls `to_obj` on an ENVELOPE and on a RUNS series and checks the keys,
-their order, the types of the `meta` values, and the null `step_s` of the RUNS series.
+their order, `coord_unit`, the types of the `meta` values, and the null `coord_step` of the
+RUNS series.
 
 **Assumptions:** None.
 
 #### `test_from_obj_refuses`
 
 **Checks:** `from_obj` raises `ValueError` (and no other error) for an object that is not
-a dict, an unknown key, a missing key, an unknown kind or a kind that is not a string, an
-empty name, a name or unit that is not a string, a `step_s` that is zero, a string or null,
-a null `end_s` or `t0_s`, a `t0_s` that is a bool, a `meta` or `arrays` that is not an
-object, a `meta` value that is a list, and an array that is not an object or an object
-with no arrays.
+a dict, an unknown key, a missing key (also `coord_unit`, ID `missing-coord-unit`), an
+object of rc2 (ID `rc2-object`), an unknown kind or a kind that is not a string, an empty
+name, a name or unit that is not a string, a `coord_unit` that is null or a number (IDs
+`coord-unit-null` and `coord-unit-a-number`), a `coord_step` that is zero, a string or
+null, a null `coord_end` or `coord_start`, a `coord_start` that is a bool, a `meta` or
+`arrays` that is not an object, a `meta` value that is a list, and an array that is not an
+object or an object with no arrays.
 
 **How:** Parametrized. Each case changes or removes one key of the `to_obj` of a valid
-ENVELOPE series and checks for `ValueError`. The `TypeError` of the series is a
-`ValueError` here, so a caller catches one type.
+ENVELOPE series and checks for `ValueError`. The case `rc2-object` has no `coord_unit` and
+the rc2 keys of the three coordinate fields, with their values, so it also has unknown
+keys. The `TypeError` of the series is a `ValueError` here, so a caller catches one type.
 
 **Assumptions:** None.
+
+#### `test_series_with_a_coordinate_other_than_time`
+
+**Checks:** A spectrum (SAMPLES, `coord_unit` "Hz"), the two frequency ranges where it is
+above a level (RUNS, "Hz"), its peaks (POINTS, "Hz") and a profile along a position
+(SAMPLES, "m", with a NaN and a complex array) each give an equal series after the round
+trip, and `to_obj` keeps `coord_unit`.
+
+**How:** The test builds the four series from synthetic data, in the forms of section 1.2 of
+`docs/plans/series-coordinate.md`. For each one it checks `coord_unit`, the `coord_unit` of
+`to_obj`, and that the round trip through strict JSON text is equal. It also checks that the
+`a` array of the profile is `complex128` and that its `coord_start` survives.
+
+**Assumptions:** The data are synthetic. They are not the output of a spectrum or a
+profile of pulseq-reports, which the tests do not import. A spectrum or a profile uses the
+same kinds as a time series.
 
 #### `test_encode_array_gives_the_same_text_each_time`
 
@@ -2578,11 +2601,13 @@ each array one by one.
 
 **Checks:** For a sequence with more than one run above 1, `to_series` gives `pns_total`, an
 ENVELOPE of unit "1" with the arrays `min` and `max` (float32) equal to `level_min` and
-`level_max`, `t0_s` 0, `step_s` `bin_samples * dt_s`, `end_s` `num_samples * dt_s`, and the
+`level_max`, `coord_unit` "s", `coord_start` 0, `coord_step` `bin_samples * dt_s`,
+`coord_end` `num_samples * dt_s`, and the
 `meta` of design 4.4 (`hardware`, `asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`,
 `peak_time_s` and the three `axis_peaks_*`). It gives `pns_above_1`, a RUNS series of unit "1"
-with the arrays `start_s`, `end_s`, `num_samples` (int64), `peak` and `peak_time_s` (float64),
-in this order, with one entry for each interval of `above[1.0]` and the `meta`
+and `coord_unit` "s", with the arrays `start`, `end`, `num_samples` (int64), `peak` and `peak_time_s` (float64),
+in this order, with one entry for each interval of `above[1.0]` (`start` and `end` are
+`start_s` and `end_s` of the interval) and the `meta`
 `{"threshold": 1.0}`. For a `PnsLevels` of a gradient `.asc` file, `meta["hardware"]` is the
 name in the file and `meta["asc_file"]` is the file name.
 
@@ -2597,9 +2622,9 @@ field is compared by itself.
 #### `test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds`
 
 **Checks:** With `thresholds=(1.0, 0.5)`, `to_series` gives `pns_total`, `pns_above_1` and
-`pns_above_0.5`, in this order, of the kinds ENVELOPE, RUNS and RUNS, and the `start_s`,
-`end_s` and `peak` of each RUNS series are those of `above` of its threshold, which are not
-empty and not equal. With `(0.5, 1.0)`, the two RUNS series are in the other order.
+`pns_above_0.5`, in this order, of the kinds ENVELOPE, RUNS and RUNS, and the `coord_unit` of each RUNS series is "s".
+The `start`, `end` and `peak` of each RUNS series are those of `above` of its threshold
+(`start_s`, `end_s` and `peak` of the intervals), which are not empty and not equal. With `(0.5, 1.0)`, the two RUNS series are in the other order.
 
 **How:** The test calls `compute` with the hardware for the peak 1.5, and compares the names,
 the kinds, the `meta` and the arrays with `levels.above`.
