@@ -50,3 +50,5 @@ it, the model uses pypulseq's example hardware, which is not a real scanner.
 - [`TESTS.md`](TESTS.md): each check that CI runs.
 - [`docs/plans/implementation.md`](docs/plans/implementation.md): the
   implementation plan.
+- [`docs/plans/series-coordinate.md`](docs/plans/series-coordinate.md): the
+  plan of the coordinate unit of a series (`0.1.0rc3`).
