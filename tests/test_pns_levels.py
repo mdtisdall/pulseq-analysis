@@ -75,14 +75,14 @@ _SEQUENCES = {
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
 def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     """The peak, the peak time and the axis peaks of `pns_levels` (example hardware)
-    equal `seq.calculate_pns` of the pinned fork within a relative 1e-6 of the peak
-    (`docs/plans/diagram-lanes.md`, section 3.5, item 2). `pns_levels` gives Hz/T, so
-    each of its values is divided by `seq.system.gamma` first, as the rule of
-    `docs/usage.md` section 8 says: this also tests that conversion.
+    equal `seq.calculate_pns` of the pinned fork within a relative 1e-6 of the peak.
+    `pns_levels` gives Hz/T, so each of its values is divided by `seq.system.gamma`
+    first, as the rule of `docs/usage.md` section 8 says: this also tests that
+    conversion.
 
     The two are not exactly equal: `calc_pns` samples `seq.get_gradients()` at the
     file times `(k + 0.5) * dt`, which drift off the ideal raster grid by float
-    rounding of the block start time sums (section 2.3, item 1 of the plan), while
+    rounding of the block start time sums, while
     `pns_levels` samples each block at its own local raster times `(j + 0.5) * dt`
     (`GradientSampler.block_samples`), with no such drift. Both then run the same
     `_safe_gwf_to_pns_chunk`, so the whole difference is that drift.
@@ -272,11 +272,11 @@ def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
 
 def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     """The stored level and the summary do not depend on the chunk size: the fork's
-    chunk function is exact for any chunk size (`docs/plans/diagram-lanes.md`, section
-    2.6, item 2), so a difference would be an error of this library's own binning, not
-    of the fork. The test sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`, and
-    `pns_levels` rounds the chunk up to a whole number of bins: 1 gives a chunk of 1 bin,
-    `bin_samples + 1` gives 2, and `7 * bin_samples - 1` gives 7."""
+    chunk function is exact for any chunk size, so a difference would be an error of
+    this library's own binning, not of the fork. The test sets `CHUNK_SAMPLES` of
+    `pulseq_analysis.pns_levels`, and `pns_levels` rounds the chunk up to a whole number
+    of bins: 1 gives a chunk of 1 bin, `bin_samples + 1` gives 2, and
+    `7 * bin_samples - 1` gives 7."""
     seq = gre_sequence(num_trs=20)
     reference = pns_levels(seq, hardware=EXAMPLE_HW)
     bin_samples = reference.bin_samples

@@ -371,8 +371,8 @@ def test_vector_peak_of_g_compares_different_triples_across_blocks():
 
 # ---- Junction steps ----
 #
-# `add_block` checks the step at every block junction against `max_slew * grad_raster_time`
-# (`docs/notes/slew-definitions.md`, section 1.1). The gradient limits card (pulseq-reports) now reports that
+# `add_block` checks the step at every block junction against
+# `max_slew * grad_raster_time`. The gradient limits card (pulseq-reports) now reports that
 # step, divided by `grad_raster_time`, as part of the axis's slew, whenever it is the largest
 # value found (segment or junction). These sequences are built so that the junction step is
 # larger than every segment's own slope, so the tests show the junction is really included.
@@ -383,10 +383,9 @@ _MAX_STEP = SYSTEM.max_slew * _RASTER  # the largest step add_block accepts
 
 def test_junction_step_between_extended_trapezoids_is_reported_as_the_slew():
     """A step at the junction between two extended trapezoids, within the tolerance that
-    `add_block` accepts (`max_slew * grad_raster_time`, section 1.1 of
-    `docs/notes/slew-definitions.md`) and larger than any segment's own slope: the
-    reported slew is the step divided by `grad_raster_time`, credited to the block after
-    the junction, and its time is the junction (0.2 ms)."""
+    `add_block` accepts (`max_slew * grad_raster_time`) and larger than any segment's own
+    slope: the reported slew is the step divided by `grad_raster_time`, credited to the
+    block after the junction, and its time is the junction (0.2 ms)."""
     step = 0.9 * _MAX_STEP
     seq = _junction_sequence()
     _block_a_id, block_b_id = seq.block_events

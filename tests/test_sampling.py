@@ -235,8 +235,7 @@ def test_triangle_trapezoid_matches_pypulseq():
 
 
 def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient():
-    """B4 (docs/plans/review-bugs.md, section 4.4, test 2): `sample` for a file with an
-    oversampled arbitrary gradient (section 2.5 of the plan) against a reference built
+    """`sample` for a file with an oversampled arbitrary gradient against a reference built
     from the added events (the objects that `make_*` returns, before `add_block`), not
     from `get_block` and not from `seq.get_gradients()`: `get_gradients()` itself leaves
     out the first and the last point of an oversampled gradient (draft 03 of
@@ -247,7 +246,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     as twice the value `make_arbitrary_grad` set, and the sampler error was about 40 % of
     the peak.
 
-    The sequence (section 9.4 of the plan): an oversampled ramp of 21 samples at 50 % of
+    The sequence: an oversampled ramp of 21 samples at 50 % of
     `max_slew` over half a raster (`make_arbitrary_grad(oversampling=True)` checks the
     slew rate 4 times too leniently, pypulseq issue #421, so the waveform is kept within
     the real `max_slew` by itself), ending at a value that is not 0; an extended
@@ -357,15 +356,13 @@ def test_invalid_axis_name_raises_value_error():
 )
 def test_block_samples_matches_sample_at_file_raster_times(seq):
     """`block_samples` over all blocks agrees with `sample` at the file times
-    `(k + 0.5) * dt`, within 1e-9 of the largest |g| of the axis (docs/plans/
-    diagram-lanes.md, phase 2, task 2.0, item 1).
+    `(k + 0.5) * dt`, within 1e-9 of the largest |g| of the axis.
 
     The two are not exactly equal: `block_samples` computes each block's samples from
     its own local raster grid `(j + 0.5) * dt`, with no accumulated float error, while
     `sample` reads the waveform at the block's actual start time, the sequential sum of
     the durations before it, which drifts off the ideal `k * dt` raster grid by float
-    rounding (docs/plans/diagram-lanes.md, section 2.3, item 1). The difference is that
-    drift only.
+    rounding. The difference is that drift only.
     """
     dt = SYSTEM.grad_raster_time
     index = sequence_index(seq)
