@@ -1,10 +1,13 @@
 """Time of `pns_levels` on a large synthetic sequence (plan decision D3).
 
 Builds `build_repeating` of `tests/scale_sequences.py` with about 10^6 blocks, and times
-`pns_levels.pns_levels(seq)` with pypulseq's example hardware, `--repeat` times in this
-process. The result is the minimum time. With `--thresholds-hz-per-t T [T ...]` (in Hz/T)
-the call is `pns_levels(seq, thresholds_hz_per_t=(T, ...))`, and without it the default of
-`pns_levels` is used (no threshold). The peak is in Hz/T. Run it in the devShell:
+`pns_levels.pns_levels(seq, hardware=...)` with pypulseq's example hardware, which is not a
+real scanner (`pns_levels` has no default hardware, so the script gives
+`(safe_example_hw(), "pypulseq example hardware (not a real scanner)")`), `--repeat`
+times in this process. The result is the minimum time. With
+`--thresholds-hz-per-t T [T ...]` (in Hz/T) the call also has
+`thresholds_hz_per_t=(T, ...)`, and without it the default of `pns_levels` is used (no
+threshold). The peak is in Hz/T. Run it in the devShell:
 
     nix develop --command uv run python scripts/time_pns_levels.py [--blocks N] \
 [--repeat R] [--thresholds-hz-per-t T [T ...]] [--json OUT]
@@ -79,6 +82,7 @@ def main() -> None:
     if args.repeat < 1:
         parser.error("--repeat must be at least 1")
 
+    from pypulseq.utils.safe_pns_prediction import safe_example_hw
     from scale_sequences import TR_BLOCKS, build_repeating
 
     from pulseq_analysis.pns_levels import _validated_thresholds, pns_levels
@@ -99,14 +103,17 @@ def main() -> None:
     build_s = time.perf_counter() - start
     print(f"build {build_s:.1f} s (not part of the result)")
 
+    hardware = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
     seconds = []
     for i in range(args.repeat):
         print(f"run {i + 1} of {args.repeat}", file=sys.stderr)
         start = time.perf_counter()
         if args.thresholds_hz_per_t is None:
-            levels = pns_levels(seq)
+            levels = pns_levels(seq, hardware=hardware)
         else:
-            levels = pns_levels(seq, thresholds_hz_per_t=tuple(args.thresholds_hz_per_t))
+            levels = pns_levels(
+                seq, hardware=hardware, thresholds_hz_per_t=tuple(args.thresholds_hz_per_t)
+            )
         seconds.append(time.perf_counter() - start)
 
     info = machine()

@@ -40,19 +40,24 @@ The SAFE PNS peak of a `.seq` file:
 ```python
 import pypulseq as pp
 
+from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.pns import pns_levels_for
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
 seq = pp.Sequence()
 seq.read("sequence.seq")
-levels = pns_levels_for(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
+hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
+levels = pns_levels_for(seq, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)
 print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```
 
-`gradient_asc` is the Siemens gradient `.asc` file of the scanner. Without
-it, the model uses pypulseq's example hardware, which is not a real scanner.
+The hardware is necessary: the model has no default. It is a pair of the
+SAFE parameters and a name. `hardware_from_asc` reads the Siemens gradient
+`.asc` file of the scanner. For pypulseq's example hardware, which is not a
+real scanner, pass `hardware=(safe_example_hw(), "a label")`
+(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`).
 The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
 fraction of the stimulation limit.
 [`docs/usage.md`](docs/usage.md) gives the other values and modules.

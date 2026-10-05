@@ -8,8 +8,10 @@ and the level of one sequence runs the model one time.
 
 The model needs the scanner's gradient hardware parameters, which Siemens keeps in the
 gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software). The
-files are confidential, so this library does not include any. Without them, the
-prediction uses pypulseq's example hardware, which is not a real scanner.
+files are confidential, so this library does not include any. The hardware is necessary,
+and is the vendor-neutral pair `(struct, label)`: the package has no default. A caller makes
+the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
+hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
 
 A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of gamma.
 Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fraction (1 is
@@ -17,21 +19,23 @@ Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fract
 """
 
 import weakref
-from pathlib import Path
 from types import SimpleNamespace
 
 import pypulseq as pp
 
 from ._kept import _Entry, kept_results
-from .pns_levels import SAFE_FIELDS, PnsLevels, _validated_thresholds, pns_levels
+from .pns_levels import (
+    SAFE_FIELDS,
+    PnsLevels,
+    _require_hardware,
+    _validated_thresholds,
+    pns_levels,
+)
 
 # For each sequence object: the kept results (`_kept.kept_results`), which hold one
-# `PnsLevels` for each pair of a hardware and the thresholds. The hardware is `None` (the
-# example hardware), the resolved path of the gradient .asc file, or the tuple of
-# `_hardware_key` (a tuple is never equal to a path or to `None`). The thresholds are the
-# tuple of `float(t)`.
+# `PnsLevels` for each pair of a hardware and the thresholds. The hardware is the tuple of
+# `_hardware_key`. The thresholds are the tuple of `float(t)`.
 _Hardware = tuple[SimpleNamespace, str]
-_HardwareKey = str | None | tuple
 _LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
@@ -49,44 +53,39 @@ def _hardware_key(hardware: _Hardware) -> tuple:
 def pns_levels_for(
     seq: pp.Sequence,
     *,
-    gradient_asc: str | Path | None = None,
-    hardware: _Hardware | None = None,
+    hardware: _Hardware,
     thresholds_hz_per_t: tuple[float, ...] = (),
 ) -> PnsLevels:
-    """The `PnsLevels` of `seq` with the hardware of the gradient .asc file `gradient_asc`,
-    with `hardware` (a pair of a SAFE hardware struct and its label), or with pypulseq's
-    example hardware when both are None (`pns_levels.pns_levels`, which has the rules of
-    the arguments: both together raise ValueError), and with `thresholds_hz_per_t` (in Hz/T,
-    the same rules and the same default, `()`; a refused value raises ValueError before the
-    sequence is read).
+    """The `PnsLevels` of `seq` with `hardware` (a pair of a SAFE hardware struct and its
+    label; `asc.hardware_from_asc` makes one from a Siemens gradient .asc file) and with
+    `thresholds_hz_per_t` (in Hz/T, the same rules and the same default, `()`; a refused
+    value raises ValueError before the sequence is read). `hardware` is necessary
+    (`pns_levels.pns_levels` has the rules of the arguments): a call without it, or with a
+    value that is not a pair, raises TypeError, before the sequence is read and before the
+    kept results are read.
 
     The result is kept for the sequence object, the hardware and the thresholds, so that a
     caller that needs the levels of one sequence for one hardware and one tuple of
     thresholds more than once runs the SAFE model one time
     for each pair. The same thresholds in another order, or other thresholds, are another
-    result (the order of the keys of `PnsLevels.above`). A relative and an
-    absolute spelling of one file are one hardware, and two `hardware` pairs with the same
-    label and the same field values are one hardware (`_hardware_key`). The kept results
+    result (the order of the keys of `PnsLevels.above`). Two `hardware` pairs with the same
+    label and the same field values are one hardware (`_hardware_key`), so the pairs
+    that `asc.hardware_from_asc` makes from one file, whatever the spelling of its path,
+    give one result. The kept results
     are built again after `add_block`, after a new read of a file into the object, and
     after a change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in
     place is not seen (`seq_index.sequence_index`). The arrays of a result are read-only,
     because all callers share them.
     """
-    if gradient_asc is not None and hardware is not None:
-        raise ValueError("give gradient_asc or hardware, not both")
+    _require_hardware(hardware)
     threshold_keys = _validated_thresholds(thresholds_hz_per_t)
-    key: _HardwareKey
-    if hardware is not None:
-        key = _hardware_key(hardware)
-    else:
-        key = None if gradient_asc is None else str(Path(gradient_asc).resolve())
+    key = _hardware_key(hardware)
 
     by_key = kept_results(_LEVELS_CACHE, seq)
     kept_key = (key, threshold_keys)
     if kept_key not in by_key:
         by_key[kept_key] = pns_levels(
             seq,
-            gradient_asc=gradient_asc,
             hardware=hardware,
             thresholds_hz_per_t=thresholds_hz_per_t,
         )

@@ -25,7 +25,6 @@ a drawing tool that samples one block with the same rule gets the same values.
 
 import math
 from dataclasses import dataclass
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -34,11 +33,9 @@ import pypulseq as pp
 # The chunk function of the pypulseq fork (TODO.md, "Move from the pypulseq fork to a
 # pypulseq release"). The fork keeps it private, so that the proposal to upstream
 # pypulseq adds no public name. This is the only module that imports it.
-from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk, safe_example_hw
-from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
+from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 
 from ._equality import fields_equal
-from .asc import EXAMPLE_HARDWARE, hardware_name, read_gradient_asc
 from .extensions import refuse_rotations
 from .sampling import GradientSampler, raster_block_lengths
 from .seq_index import sequence_index
@@ -107,10 +104,7 @@ class PnsLevels:
     """
 
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
-    hardware: str  # the hardware name in the .asc file, asc.EXAMPLE_HARDWARE, or the label
-    # of the `hardware` argument of `pns_levels`
-    asc_file: str | None  # the .asc file name, or None without one (example hardware or
-    # `hardware` argument)
+    hardware: str  # the label of the `hardware` pair
     hw: dict[str, dict[str, float]]  # "x", "y", "z": tau1, tau2, tau3, a1, a2, a3,
     # stim_limit, g_scale, as pypulseq's hardware namespace has them
     dt_s: float  # the gradient raster
@@ -143,23 +137,36 @@ def bin_samples_for(num_samples: int, dt: float) -> int:
     return max(finest, coarsest_for_size, 1)
 
 
+def _require_hardware(hardware: object) -> None:
+    """Raise TypeError unless `hardware` is a tuple of two items whose second item is a
+    `str`. `pns_levels` and `pns.pns_levels_for` call it before they read the sequence. It
+    does not check the fields of the struct."""
+    if not (isinstance(hardware, tuple) and len(hardware) == 2 and isinstance(hardware[1], str)):
+        raise TypeError(
+            "hardware must be a tuple (struct, label): a SAFE hardware struct in the form of "
+            "pypulseq's asc_to_hw, and its name as a str. For a Siemens gradient .asc file, "
+            "give hardware=asc.hardware_from_asc(path); for pypulseq's example hardware (not "
+            'a real scanner), give hardware=(safe_example_hw(), "<a label>")'
+        )
+
+
 def pns_levels(
     seq: pp.Sequence,
     *,
-    gradient_asc: str | Path | None = None,
-    hardware: tuple[SimpleNamespace, str] | None = None,
+    hardware: tuple[SimpleNamespace, str],
     thresholds_hz_per_t: tuple[float, ...] = (),
 ) -> PnsLevels:
-    """The stored level and the summary of the SAFE PNS total of `seq`, with the hardware
-    of the gradient .asc file `gradient_asc`, with `hardware`, or with pypulseq's example
-    hardware when both are None (`asc.read_gradient_asc`, `asc.hardware_name` and
-    `asc.EXAMPLE_HARDWARE` choose the name and the file of the first and the last).
+    """The stored level and the summary of the SAFE PNS total of `seq`, with `hardware`.
 
-    `hardware` is a pair `(struct, label)`: `struct` is a SAFE hardware struct in the form
-    of pypulseq's `asc_to_hw` (a `SimpleNamespace` with `.x`, `.y` and `.z`, each with
-    `tau1` to `tau3`, `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), and `label`
-    is the string that `PnsLevels.hardware` gives. `PnsLevels.asc_file` is then None.
-    `gradient_asc` and `hardware` together raise ValueError.
+    `hardware` is necessary: the package has no default hardware. It is a pair
+    `(struct, label)`: `struct` is a SAFE hardware struct in the form of pypulseq's
+    `asc_to_hw` (a `SimpleNamespace` with `.x`, `.y` and `.z`, each with `tau1` to `tau3`,
+    `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), and `label` is the string that
+    `PnsLevels.hardware` gives. `asc.hardware_from_asc(path)` makes the pair from a Siemens
+    gradient .asc file. For pypulseq's example hardware, which is not a real scanner, give
+    `hardware=(safe_example_hw(), "<a label>")`. Anything that is not a tuple of two items
+    with a `str` second item raises TypeError, before the sequence is read; the call
+    without `hardware` raises Python's own TypeError.
 
     `thresholds_hz_per_t` is a tuple of the totals, in Hz/T, whose intervals
     `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
@@ -215,25 +222,16 @@ def pns_levels(
     interval; it does not grow with the length of a block. The arrays of the result are
     read-only.
 
-    Raises ValueError when both `gradient_asc` and `hardware` are given or
-    `thresholds_hz_per_t` is refused, and NotImplementedError for a sequence with the rotation extension
+    Raises TypeError when `hardware` is not a pair, ValueError when `thresholds_hz_per_t`
+    is refused, and NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
-    if gradient_asc is not None and hardware is not None:
-        raise ValueError("give gradient_asc or hardware, not both")
+    _require_hardware(hardware)
     keys = _validated_thresholds(thresholds_hz_per_t)
     refuse_rotations(seq)
     dt = seq.grad_raster_time
 
-    if hardware is not None:
-        hw_ns, hardware_label = hardware
-        asc_file = None
-    elif gradient_asc is None:
-        hw_ns, hardware_label, asc_file = safe_example_hw(), EXAMPLE_HARDWARE, None
-    else:
-        asc = read_gradient_asc(gradient_asc)
-        hw_ns = asc_to_hw(asc)
-        hardware_label, asc_file = hardware_name(asc), Path(gradient_asc).name
+    hw_ns, hardware_label = hardware
     hw = _hw_to_dict(hw_ns)
 
     index = sequence_index(seq)
@@ -245,7 +243,6 @@ def pns_levels(
             PnsLevels(
                 reason=NO_GRADIENTS,
                 hardware=hardware_label,
-                asc_file=asc_file,
                 hw=hw,
                 dt_s=dt,
                 num_samples=0,
@@ -327,7 +324,6 @@ def pns_levels(
         PnsLevels(
             reason=None,
             hardware=hardware_label,
-            asc_file=asc_file,
             hw=hw,
             dt_s=dt,
             num_samples=num_samples,

@@ -144,6 +144,7 @@ The user made U1 to U7 on 2026-10-04.
 | U5 | The bin of the PNS level | The argument `bin_s`, in seconds, with a default that gives the bins of `0.1.0rc5`. `MAX_BINS` still limits the memory. | (a) `bin_s` with no default. (b) `max_bins`. |
 | U6 | The report helpers | Remove them from this package. pulseq-reports takes them over. | Keep them. |
 | U7 | The callers | This plan gives the facts for pulseq-checks and pulseq-reports (section 8). Each repository does its own work. | This repository only. |
+| U8 | The form of the PNS hardware (made on 2026-10-05, during task 2.3) | Only the vendor-neutral pair `(struct, label)`, in the argument `hardware`, which is necessary. The package does not take a Siemens `.asc` path in its PNS interface: `gradient_asc` and `PnsLevels.asc_file` go away. The optional helper `asc.hardware_from_asc(path)` makes the pair from a Siemens gradient `.asc` file. | (a) `gradient_asc` and `hardware`, exactly one necessary (the first version of task 2.3, PR #27 before this decision). (b) No `.asc` reader in the package at all. |
 
 ### 3.2 Decisions of this plan
 
@@ -158,7 +159,7 @@ The approval of this plan approves them.
 | L4 | `GradientSampler.block_samples` gets the keyword arguments `skip=0` and `count=None`. Its result is `full[skip : skip + count]`, where `full` is the result of `0.1.0rc5`, bit for bit, but it does not make the samples outside that range. The kept samples of an event stop at the last point of the event. The samples after it are 0. | Review 2.1. Bit-for-bit equality keeps the results of `pns_levels` the same. |
 | L5 | Task 1.6 starts with a measurement. The change merges only when the tests pass with their tolerances unchanged, and the peak memory of `gradient_spectrum` falls by 30 % or more, or its time by 20 % or more. Otherwise the task stops, and task 2.6 writes the result in the review. | The FFT makes all the bins, so the gain can be small. |
 | L6 | `_range_result` and `_block_vector_peaks` use one helper for the distinct triples of events, with the two-step key of `_block_vector_peaks`. | Review 1.3 and 4. |
-| L7 | `pns_levels` and `pns_levels_for` need exactly one of `gradient_asc` and `hardware`. Neither or both raise `ValueError`, before the sequence is read. `asc.EXAMPLE_HARDWARE` goes away. The analysis `pns.safe.levels` gets the parameter `gradient_asc`. | U4. Review 6.5: every entry point has the same hardware arguments. The rule "both raise `ValueError`" exists, and "neither" follows it. |
+| L7 | (Changed by U8.) `pns_levels`, `pns_levels_for` and the analysis `pns.safe.levels` take the hardware only as the keyword argument `hardware`, with no default: a call without it raises Python's `TypeError`. A `hardware` that is not a pair with a `str` label raises `TypeError` before the sequence is read. `gradient_asc`, `PnsLevels.asc_file`, the `meta` key `asc_file` of the series `pns_total` and `asc.EXAMPLE_HARDWARE` go away. `asc.hardware_from_asc(path)` gives the pair of a Siemens gradient `.asc` file. | U4 and U8. Review 6.5: every entry point has the same hardware argument. A required keyword is the rule of Python for a necessary argument. |
 | L8 | `pns_levels.BIN_S = 10.0 / 1624` (about 6.16 ms). `bin_samples_for(num_samples, dt, bin_s=BIN_S)` is `max(floor(bin_s / dt), ceil(num_samples / MAX_BINS), 1)`. `EXACT_MAX_S` and `DISPLAY_BINS` go away. `PnsLevels` gets no new field: `bin_samples * dt_s` gives the bin. | U5. `10.0 / 1624` is the float of `EXACT_MAX_S / (2 * DISPLAY_BINS)`, so the default bins are those of `0.1.0rc5`, bit for bit. |
 | L9 | `_equality.FrozenDict` is a subclass of `dict` whose methods that change it raise `TypeError`. It can be pickled and copied with `copy.deepcopy`. Each dict of a result that the package makes is a `FrozenDict`. `values_equal` compares a `FrozenDict` and a `dict` as two dicts (the type rule does not separate them). | Review 6.7. A subclass of `dict` keeps `isinstance(x, dict)`, the interface that the docstring of `PnsLevels` names, and `json.dumps` (pulseq-reports puts `levels.hw` into JSON, section 8.2). `MappingProxyType` cannot be pickled. pulseq-checks makes a `PnsLevels` with `dataclasses.replace` and a plain dict (section 8.1), and compares results with `==`. |
 | L10 | `SequenceIndex` and `BlockGradientValues` compare by value (`_equality.fields_equal`) and are not hashable. The arrays of `BlockGradientValues` are read-only. | Review 6.7. The rule of `PnsLevels` and `GradientSpectrum`. |
@@ -323,24 +324,27 @@ the larger of the largest segment slew and the largest junction step."
 
 ### 5.5 The PNS hardware (task 2.3)
 
+U8 and L7 give this design. It replaces the first version of task 2.3 (exactly one of
+`gradient_asc` and `hardware`).
+
 ```python
-pns_levels(seq, *, gradient_asc=None, hardware=None, thresholds_hz_per_t=())
-pns_levels_for(seq, *, gradient_asc=None, hardware=None, thresholds_hz_per_t=())
-PNS_SAFE_LEVELS.compute(seq, *, gradient_asc=None, hardware=None, thresholds_hz_per_t=())
+pns_levels(seq, *, hardware, thresholds_hz_per_t=())
+pns_levels_for(seq, *, hardware, thresholds_hz_per_t=())
+PNS_SAFE_LEVELS.compute(seq, *, hardware, thresholds_hz_per_t=())
+asc.hardware_from_asc(path) -> tuple[SimpleNamespace, str]
 ```
 
-The signatures do not change, but exactly one of `gradient_asc` and
-`hardware` is necessary (L7). The message of the `ValueError` of "neither"
-tells the caller how to use pypulseq's example hardware:
+- `hardware` is the pair `(struct, label)`: a SAFE hardware struct in the form of
+  pypulseq's `asc_to_hw`, and its name. It is necessary, with no default.
+- `asc.hardware_from_asc(path)` is `(asc_to_hw(asc), hardware_name(asc))` of
+  `asc = read_gradient_asc(path)`. Two calls for one file (a relative and an absolute
+  path, for example) give the same label and values, so one kept result.
+- For pypulseq's example hardware, which is not a real scanner, a caller gives
+  `hardware=(safe_example_hw(), "<a label>")`. The documents and the `TypeError` of a
+  bad `hardware` say so.
+- `spec.params` of `pns.safe.levels` becomes `("hardware", "thresholds_hz_per_t")`.
 
-```
-give gradient_asc or hardware; for pypulseq's example hardware (not a real
-scanner), give hardware=(safe_example_hw(), "<a label>")
-```
-
-`spec.params` of `pns.safe.levels` becomes
-`("gradient_asc", "hardware", "thresholds_hz_per_t")`. The tests get one
-constant in `tests/synthetic.py`:
+The tests get one constant in `tests/synthetic.py`:
 
 ```python
 # pypulseq's example SAFE hardware, which is not a real scanner. The package has no
@@ -362,7 +366,7 @@ of one sample. `spec.params` of `pns.safe.levels` gets `"bin_s"`. The key of
 
 | Name | Where a caller finds it after `0.1.0rc6` |
 |---|---|
-| `pns.pns_prediction`, `pns.PnsPrediction` | The same fields of `pns_levels_for(...)`: `reason`, `hardware`, `asc_file`, `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t`. |
+| `pns.pns_prediction`, `pns.PnsPrediction` | The same fields of `pns_levels_for(...)`: `reason`, `hardware`, `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t` (`asc_file` goes away with U8). |
 | `pns.peak_tr_window` | pulseq-reports (section 8.2). |
 | `seq_utils.hold_samples` | pulseq-reports (section 8.2). |
 | `pns_levels.PNS_LIMIT` | pulseq-checks: the limit of a fraction is 1, so the limit in Hz/T is `abs(gamma)`. |
@@ -628,7 +632,11 @@ Checks of X:
 
 ### 6.10 Task 2.3: explicit PNS hardware (wave 5)
 
-Branch `feature/explicit-pns-hardware`. Two workers at the same time:
+Branch `feature/explicit-pns-hardware`. The text below is the first version of the
+task. After U8, the same two workers, with the same files, made the design of section
+5.5 on the same branch: `gradient_asc` goes away, and the tests give
+`hardware=hardware_from_asc(path)` where they gave `gradient_asc=path`. Two workers at
+the same time:
 
 - **A (H).** Owns `pns_levels.py`, `pns.py`, `asc.py`, `analyses.py` (only
   `_PnsSafeLevels` and its line of the module docstring),
@@ -787,10 +795,13 @@ entries, `docs/plans/`, `docs/reviews/`) do not change.
    The tests `tests/test_bindings.py` lines 8, 91 and 108,
    `tests/test_check_pns.py` lines 9 and 97, `tests/test_run.py` lines 10
    and 803, and `docs/usage.md` lines 851 to 865, 1350 and 1354.
-4. **The hardware** (section 5.5). The binding gives `hardware=` already
+4. **The hardware** (section 5.5, U8). The binding gives `hardware=` already
    (`bindings.py` lines 73 to 77). `tests/test_safe_model.py` line 118 calls
    `pns_levels(seq)` with no hardware: it gives
-   `hardware=(safe_example_hw(), <label>)`.
+   `hardware=(safe_example_hw(), <label>)`. The `meta` of the series
+   `pns_total` has no key `asc_file` any more, and `PnsLevels` has no field
+   `asc_file`: the JSON example of `docs/usage.md` (lines 1009 to 1057)
+   changes with it.
 5. **The bin size** (section 5.6). The default does not change, so
    `docs/usage.md` lines 1049, 1055 and 1132 (615 samples, 6.15 ms) stay
    true. The binding can give `bin_s`.
@@ -826,7 +837,7 @@ the same time.
      and `tests/test_pns_card.py` lines 139 and 154. Copy the function of
      `pulseq_analysis/pns.py` at `v0.1.0rc5` (lines 145 to 160).
    - `pns_prediction`: `cards/pns.py` lines 35 and 144 read the summary.
-     Use `pns_levels_for(seq, gradient_asc=...)` and its fields
+     Use `pns_levels_for(seq, hardware=hardware_from_asc(...))` and its fields
      `peak_hz_per_t`, `peak_time_s` and `axis_peaks_hz_per_t`. The
      monkeypatch targets of `tests/conftest.py` lines 79, 88 and 89 and the
      tests of `tests/test_pns_card.py` change with it.
@@ -845,12 +856,15 @@ the same time.
    `GradientLimits.reason` into the HTML, and
    `tests/test_gradient_limits_card.py` line 238 expects
    "no gradient events in the sequence.". The new text is "no gradients."
-4. **The hardware** (section 5.5). `cards/diagram.py` line 104 and the PNS
-   card give `gradient_asc=` already. `tests/test_pns_lanes_golden.py`
-   line 165 calls `pns_levels(seq)` with no hardware: it gives
-   `hardware=(safe_example_hw(), <label>)`. `cards/diagram.py` line 57 says
-   "example" when `asc_file is None`; with a `hardware` pair, `asc_file` is
-   also `None`.
+4. **The hardware** (section 5.5, U8). `cards/diagram.py` line 104 and the
+   PNS card give `gradient_asc=`, which goes away: they give
+   `hardware=hardware_from_asc(gradient_asc)`. `tests/test_diagram_card.py`
+   line 243 and `tests/test_pns_card.py` change the same way.
+   `tests/test_pns_lanes_golden.py` line 165 calls `pns_levels(seq)` with no
+   hardware: it gives `hardware=(safe_example_hw(), <label>)`.
+   `cards/diagram.py` line 57 says "example" when `asc_file is None`:
+   `PnsLevels.asc_file` goes away, so the card keeps this fact itself (it
+   knows whether it was given a file).
 5. **The bin size** (section 5.6). `assets/pns_lanes.js` line 56
    (`EXACT_MAX_S = 10.0`) and `assets/lane_chart.js` lines 13 and 14 (a
    plot of 812 columns) are the geometry that the default `BIN_S` comes

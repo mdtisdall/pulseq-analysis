@@ -25,8 +25,9 @@ The analyses of this package:
   series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
-- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` and
-  `thresholds_hz_per_t`, and the series of the level and of the runs above each threshold.
+- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` (necessary:
+  a pair of a SAFE hardware struct and its name) and `thresholds_hz_per_t`, and the series
+  of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
   parameters, and the series of the spectrum.
 
@@ -201,9 +202,12 @@ class _PnsSafeLevels:
             "maximum total of each bin of `bin_samples` samples (float32, each total of a "
             "bin is in its range), and, for each threshold, the runs of consecutive samples "
             "at or above it, in time order. The tuple of a threshold is not empty if and "
-            "only if the peak is at or above it. `hardware` is a pair of a SAFE hardware "
-            "struct and its name, or None for the example hardware of pypulseq, which is "
-            "not a real scanner. "
+            "only if the peak is at or above it. The hardware is necessary: `hardware` is a pair of a "
+            "SAFE hardware struct and its name (`asc.hardware_from_asc(path)` makes one from "
+            "a Siemens gradient .asc file). There is no default hardware; for "
+            "pypulseq's example hardware, which is not a real scanner, give "
+            '`hardware=(safe_example_hw(), "<a label>")`. A value that is not such a pair '
+            "raises `TypeError`. "
             "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
             "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
             "default is `()`: no runs. A sequence with no gradient event has no "
@@ -219,7 +223,7 @@ class _PnsSafeLevels:
             '`pns_total`, ENVELOPE, unit "Hz/T", arrays `min` and `max` (float32: '
             '`level_min_hz_per_t` and `level_max_hz_per_t`), `coord_unit` "s", '
             "`coord_start` 0, `coord_step` `bin_samples * dt_s`, `coord_end` "
-            "`num_samples * dt_s`, `meta` `hardware`, `asc_file`, `dt_s`, `bin_samples`, "
+            "`num_samples * dt_s`, `meta` `hardware`, `dt_s`, `bin_samples`, "
             "`num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y` and "
             "`axis_peaks_z`. And one series for each threshold, in the order of "
             "`thresholds_hz_per_t`: `pns_above_<k>`, with `<k>` the position of the "
@@ -236,12 +240,18 @@ class _PnsSafeLevels:
         self,
         seq: pp.Sequence,
         *,
-        hardware: tuple[SimpleNamespace, str] | None = None,
+        hardware: tuple[SimpleNamespace, str],
         thresholds_hz_per_t: tuple[float, ...] = (),
     ) -> PnsLevels:
-        """`pns.pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)`:
-        the kept result for the sequence object, the hardware and the thresholds."""
-        return pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)
+        """`pns.pns_levels_for(seq, hardware=hardware,
+        thresholds_hz_per_t=thresholds_hz_per_t)`: the kept result for the sequence object,
+        the hardware and the thresholds. `hardware` is necessary; a call without it, or
+        with a value that is not a pair, raises TypeError before the sequence is read."""
+        return pns_levels_for(
+            seq,
+            hardware=hardware,
+            thresholds_hz_per_t=thresholds_hz_per_t,
+        )
 
     def to_series(self, value: PnsLevels) -> tuple[Series, ...]:
         """The series of `spec.series`: the level of `value` (`pns_total`) and the runs
@@ -262,7 +272,6 @@ class _PnsSafeLevels:
             coord_end=value.num_samples * value.dt_s,
             meta={
                 "hardware": value.hardware,
-                "asc_file": value.asc_file,
                 "dt_s": value.dt_s,
                 "bin_samples": value.bin_samples,
                 "num_samples": value.num_samples,

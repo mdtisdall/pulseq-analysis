@@ -7,6 +7,7 @@ analysis of the package, `compute`, and `to_series` of `pns.safe.levels` (design
 import importlib.metadata
 import inspect
 import json
+import re
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,6 +15,7 @@ import pytest
 from asserts import assert_block_values_equal
 from pns_hardware import hardware_for_peak
 from synthetic import (
+    EXAMPLE_HW,
     GAMMA_1H,
     empty_sequence,
     gre_sequence,
@@ -31,6 +33,7 @@ from pulseq_analysis.analyses import (
     RegistryError,
     registry,
 )
+from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.grad_spectrum import (
     FFT_WINDOW_S,
@@ -52,7 +55,13 @@ _SPECS = [
     (SEQ_INDEX, "seq.index", (), (), "fast"),
     (GRADIENT_PEAKS, "gradient.peaks", (), _RASTERS, "fast"),
     (GRADIENT_BLOCKS, "gradient.blocks", (), _RASTERS, "fast"),
-    (PNS_SAFE_LEVELS, "pns.safe.levels", ("hardware", "thresholds_hz_per_t"), _RASTERS, "slow"),
+    (
+        PNS_SAFE_LEVELS,
+        "pns.safe.levels",
+        ("hardware", "thresholds_hz_per_t"),
+        _RASTERS,
+        "slow",
+    ),
     (GRADIENT_SPECTRUM, "gradient.spectrum", (), _RASTERS, "slow"),
 ]
 
@@ -194,7 +203,10 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
         (SEQ_INDEX, {}),
         (GRADIENT_PEAKS, {}),
         (GRADIENT_BLOCKS, {}),
-        (PNS_SAFE_LEVELS, {"hardware": None, "thresholds_hz_per_t": ()}),
+        (
+            PNS_SAFE_LEVELS,
+            {"hardware": inspect.Parameter.empty, "thresholds_hz_per_t": ()},
+        ),
         (GRADIENT_SPECTRUM, {}),
     ],
     ids=["seq.index", "gradient.peaks", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
@@ -216,7 +228,8 @@ def test_params_name_the_keyword_only_parameters_of_compute(analysis, defaults):
 
 def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
     """`compute` of each analysis gives the value of the function that it calls, with the
-    default arguments and with others: the same object for `seq.index`, `pns.safe.levels` and
+    default arguments (for `pns.safe.levels`, with `EXAMPLE_HW` as the necessary hardware)
+    and with others: the same object for `seq.index`, `pns.safe.levels` and
     `gradient.spectrum` (all keep their result for the sequence object), an equal value for
     the gradient analyses (which have no other arguments)."""
     seq = gre_sequence(num_trs=4)
@@ -227,13 +240,56 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
     got = GRADIENT_BLOCKS.compute(seq)
     expected = block_gradient_values(seq)
     assert_block_values_equal(got, expected)
-    assert PNS_SAFE_LEVELS.compute(seq) is pns_levels_for(seq)
+    assert PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW) is pns_levels_for(
+        seq, hardware=EXAMPLE_HW
+    )
     thresholds = (_LIMIT, 0.5 * _LIMIT)
     assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=thresholds) is (
         pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
     )
     assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware) is pns_levels_for(seq, hardware=hardware)
     assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum_for(seq)
+
+
+def test_compute_of_pns_safe_levels_with_a_hardware_from_asc_gives_the_kept_result(
+    write_gradient_asc,
+):
+    """`PNS_SAFE_LEVELS.compute(seq, hardware=hardware_from_asc(path))` is the object (`is`)
+    that `pns_levels_for(seq, hardware=hardware_from_asc(path))` gives for the same file,
+    with and without thresholds: two calls of `hardware_from_asc` on one file give one
+    key."""
+    seq = gre_sequence(num_trs=4)
+    path = write_gradient_asc(name="MP_GPA_KEPT")
+
+    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware_from_asc(path))
+
+    assert levels is pns_levels_for(seq, hardware=hardware_from_asc(path))
+    assert levels.hardware == "MP_GPA_KEPT"
+    thresholds = (_LIMIT,)
+    assert PNS_SAFE_LEVELS.compute(
+        seq, hardware=hardware_from_asc(path), thresholds_hz_per_t=thresholds
+    ) is pns_levels_for(seq, hardware=hardware_from_asc(path), thresholds_hz_per_t=thresholds)
+
+
+def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read():
+    """`PNS_SAFE_LEVELS.compute(seq)` without `hardware` raises Python's own `TypeError`
+    (a required keyword-only argument), and a `hardware` that is not a pair raises
+    `TypeError` with the message that says how to make one. Both do so for an object that
+    raises when the code reads any attribute of it, so the check comes before the sequence
+    is read, also with thresholds."""
+
+    class Unreadable:
+        def __getattr__(self, name):
+            raise AssertionError(f"the sequence was read: {name}")
+
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'hardware'"):
+        PNS_SAFE_LEVELS.compute(Unreadable())
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'hardware'"):
+        PNS_SAFE_LEVELS.compute(Unreadable(), thresholds_hz_per_t=(_LIMIT,))
+    struct = EXAMPLE_HW[0]
+    for bad in (None, struct, (struct,), (struct, 3), [struct, "label"], (struct, "label", 1)):
+        with pytest.raises(TypeError, match=re.escape("asc.hardware_from_asc(path)")):
+            PNS_SAFE_LEVELS.compute(Unreadable(), hardware=bad)
 
 
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):
@@ -263,7 +319,6 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert total.coord_end == levels.num_samples * levels.dt_s
     assert total.meta == {
         "hardware": "SCALED",
-        "asc_file": None,
         "dt_s": levels.dt_s,
         "bin_samples": levels.bin_samples,
         "num_samples": levels.num_samples,
@@ -294,9 +349,8 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert above.meta == {"threshold": _LIMIT}
 
     path = write_gradient_asc(name="MP_GPA_SERIES")
-    from_file = PNS_SAFE_LEVELS.to_series(pns_levels(seq, gradient_asc=path))[0]
+    from_file = PNS_SAFE_LEVELS.to_series(pns_levels(seq, hardware=hardware_from_asc(path)))[0]
     assert from_file.meta["hardware"] == "MP_GPA_SERIES"
-    assert from_file.meta["asc_file"] == path.name
 
 
 def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
@@ -351,7 +405,7 @@ def test_to_series_gives_nothing_for_a_sequence_without_gradients():
     seq = empty_sequence()
 
     for thresholds in ((), (_LIMIT,), (_LIMIT, 0.5 * _LIMIT)):
-        levels = PNS_SAFE_LEVELS.compute(seq, thresholds_hz_per_t=thresholds)
+        levels = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
         assert levels.reason is not None
         assert PNS_SAFE_LEVELS.to_series(levels) == ()
 

@@ -6,10 +6,15 @@ import math
 import numpy as np
 import pypulseq as pp
 from pypulseq.event_lib import EventLibrary
+from pypulseq.utils.safe_pns_prediction import safe_example_hw
 
 # The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
 # gamma: the tests use this value to convert its values to tesla.
 GAMMA_1H = 42.576e6
+
+# pypulseq's example SAFE hardware, which is not a real scanner. The package has no
+# default hardware: the tests give this pair.
+EXAMPLE_HW = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
 
 SYSTEM = pp.Opts(
     max_grad=28,

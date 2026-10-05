@@ -1,14 +1,16 @@
-"""The gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software)
-that the SAFE PNS model reads its hardware parameters from: `read_gradient_asc` and
-`hardware_name`, and the name of pypulseq's example hardware, which is used without a
-file (`pns_levels.pns_levels`)."""
+"""The optional reader of a Siemens gradient system .asc file (MP_GPA_*.asc, or
+MP_GradSys_*.asc on newer software) into the vendor-neutral hardware pair that the SAFE PNS
+functions take: `hardware_from_asc` makes the pair `(struct, label)` for `hardware=`, and
+`read_gradient_asc` and `hardware_name` are the parts that it uses. The PNS functions take
+only the pair, never a file path."""
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
+from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from pypulseq.utils.siemens.readasc import readasc
 
-EXAMPLE_HARDWARE = "pypulseq example hardware (not a real scanner)"
 # A line that includes another .asc file, for example the _GSWD_SAFETY.asc file with the
 # SAFE PNS parameters.
 INCLUDE_LINE = re.compile(r'^\s*\$INCLUDE\s+"?([^"\s]+)"?\s*$')
@@ -31,6 +33,16 @@ def read_gradient_asc(path: str | Path) -> dict:
                 )
             _merge(asc, read_gradient_asc(included))
     return asc
+
+
+def hardware_from_asc(path: str | Path) -> tuple[SimpleNamespace, str]:
+    """The `hardware` pair of the .asc file `path`, for `pns_levels(seq, hardware=...)` and
+    `pns.pns_levels_for(seq, hardware=...)`: `(asc_to_hw(asc), hardware_name(asc))`, where
+    `asc` is `read_gradient_asc(path)` (with its `$INCLUDE` rule). The label is the
+    component name in the file, so a pair has no path in it: two spellings of the path of
+    one file give equal pairs."""
+    asc = read_gradient_asc(path)
+    return asc_to_hw(asc), hardware_name(asc)
 
 
 def _merge(into: dict, fields: dict) -> None:
