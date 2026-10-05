@@ -1,6 +1,7 @@
 import copy
 import inspect
 import math
+import pickle
 
 import numpy as np
 import pypulseq as pp
@@ -220,6 +221,24 @@ def test_the_arrays_of_a_spectrum_are_read_only(make_seq, num_arrays):
     converted = s.rss * 1e3 / GAMMA_1H
     assert converted.flags.writeable
     np.testing.assert_array_equal(s.rss, before)
+
+
+def test_spectra_compare_by_value():
+    """`==` compares the fields of two spectra by value, not the objects, and a
+    `GradientSpectrum` is not hashable."""
+    s = grad_spectrum.gradient_spectrum(spin_echo_sequence())
+    other = grad_spectrum.gradient_spectrum(spin_echo_sequence())
+    assert other is not s
+    assert other == s
+    assert pickle.loads(pickle.dumps(s)) == s
+    assert grad_spectrum.gradient_spectrum(empty_sequence()) == grad_spectrum.gradient_spectrum(
+        empty_sequence()
+    )
+    assert grad_spectrum.gradient_spectrum(spin_echo_sequence(), window_s=0.1) != s
+    assert grad_spectrum.gradient_spectrum(empty_sequence()) != s
+    assert s != "spectrum"
+    with pytest.raises(TypeError):
+        hash(s)
 
 
 def test_the_defaults_are_those_of_pypulseq():

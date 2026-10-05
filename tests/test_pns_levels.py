@@ -2,6 +2,7 @@ import copy
 import dataclasses
 import itertools
 import math
+import pickle
 from types import SimpleNamespace
 
 import numpy as np
@@ -581,6 +582,29 @@ def test_the_arrays_of_the_levels_are_read_only(make_seq):
     converted = levels.level_max_hz_per_t * 100
     assert converted.flags.writeable
     np.testing.assert_array_equal(levels.level_max_hz_per_t, before)
+
+
+def test_levels_compare_by_value():
+    """`==` compares the fields of two results by value, also with more than one bin (where
+    the `__eq__` of `dataclasses` raises), and a `PnsLevels` is not hashable."""
+    thresholds = (_LIMIT, 0.5 * _LIMIT)
+    levels = pns_levels(gre_sequence(num_trs=4), thresholds_hz_per_t=thresholds)
+    assert levels.level_min_hz_per_t.size > 1
+    other = pns_levels(gre_sequence(num_trs=4), thresholds_hz_per_t=thresholds)
+    assert other is not levels
+    assert other == levels
+    assert pickle.loads(pickle.dumps(levels)) == levels
+    assert copy.deepcopy(levels) == levels
+
+    changed = levels.level_max_hz_per_t.copy()
+    changed[1] = np.nextafter(changed[1], np.float32(np.inf))
+    assert dataclasses.replace(levels, level_max_hz_per_t=changed) != levels
+    reordered = pns_levels(gre_sequence(num_trs=4), thresholds_hz_per_t=thresholds[::-1])
+    assert reordered.above == levels.above  # a dict ignores the order of its keys
+    assert reordered != levels  # the order of `above` counts
+    assert levels != "levels"
+    with pytest.raises(TypeError):
+        hash(levels)
 
 
 def _assert_levels_equal(a: PnsLevels, b: PnsLevels, *, ignore: tuple[str, ...]) -> None:

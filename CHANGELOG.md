@@ -9,8 +9,9 @@ The fifth release candidate: values with no gamma
 (`docs/plans/gamma-free-units.md`), and read-only arrays in `PnsLevels`, an
 item of section 9 of `docs/plans/gradient-spectrum.md`. `pns_levels_for` gives
 its kept result to each caller, as `gradient_spectrum_for` does (decision L12
-of that plan). No value of the package uses a gamma now. Section 8 of
-`docs/usage.md` gives the conversion.
+of that plan). `PnsLevels` and `GradientSpectrum` compare by value. No value
+of the package uses a gamma now. Section 8 of `docs/usage.md` gives the
+conversion.
 
 ### Changed
 
@@ -84,6 +85,13 @@ of that plan). No value of the package uses a gamma now. Section 8 of
 - The documents say that a caller must not change the dicts `hw`,
   `axis_peaks_hz_per_t` and `above`. Before, they said this only for `above`.
   The dicts stay plain dicts.
+- **Equality.** `PnsLevels` and `GradientSpectrum` compare by value, as
+  `Series` does. `==` compares each field: an array by its dtype, its shape
+  and its values (a NaN equals a NaN, and the read-only flag does not count),
+  and a dict with its keys in order. Before, `==` of two `PnsLevels` raised
+  `ValueError` when the level had more than one bin, and `==` of two
+  `GradientSpectrum` objects was true only for one object. Neither is
+  hashable: before, a `GradientSpectrum` was hashable by identity.
 - Each specification version stays 1 (decision L3 of the plan). In the
   release candidates, an incompatible change edits version 1.
 

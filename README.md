@@ -16,8 +16,9 @@ The third, `0.1.0rc3`, gives each series a coordinate unit, so that a series
 can be in seconds or in hertz.
 The fourth, `0.1.0rc4`, adds the gradient spectrum and the analysis
 `gradient.spectrum`.
-The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only, and gives
-each value with no gamma, in the units of pypulseq.
+The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only, compares
+a `PnsLevels` and a `GradientSpectrum` by value, and gives each value with no
+gamma, in the units of pypulseq.
 
 ## Install
 

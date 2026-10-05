@@ -695,6 +695,28 @@ give a writable array, and `levels.level_max_hz_per_t` must not change.
 
 **Assumptions:** None.
 
+#### `test_levels_compare_by_value`
+
+**Checks:** `==` compares two `PnsLevels` by the values of their fields, also with more
+than one bin, where the `__eq__` of `dataclasses` raises `ValueError`. A `PnsLevels` is
+not hashable.
+
+**How:** The test calls `pns_levels` on a GRE sequence of 4 TRs with two thresholds
+(the stimulation limit and half of it), and asserts that the level has more than one bin.
+A second call must give another object that is equal. A `pickle` round trip and
+`copy.deepcopy` must give equal objects (the copies are writable, and the flag does not
+count). These must not be equal:
+
+- the result with one bin of `level_max_hz_per_t` moved up by one float32 step
+  (`dataclasses.replace`);
+- the result with the thresholds in the other order: its `above` is equal as a dict, but
+  the order of its keys differs;
+- a string.
+
+`hash` must raise `TypeError`.
+
+**Assumptions:** None.
+
 #### `test_hardware_with_the_example_struct_gives_the_default_levels`
 
 **Checks:** `pns_levels(seq, hardware=(safe_example_hw(), label))` gives the levels of
@@ -3094,6 +3116,19 @@ and `s.rss` must not change.
 
 **Assumptions:** None.
 
+#### `test_spectra_compare_by_value`
+
+**Checks:** `==` compares two `GradientSpectrum` objects by the values of their fields,
+not by identity. A `GradientSpectrum` is not hashable.
+
+**How:** Two `gradient_spectrum` calls on the synthetic spin echo must give two objects
+that are equal, and a `pickle` round trip must give an equal object. Two calls on a
+sequence without gradients must give equal objects. The spectrum with `window_s=0.1`, the
+spectrum of a sequence without gradients, and a string must not equal the spin echo
+spectrum. `hash` must raise `TypeError`.
+
+**Assumptions:** None.
+
 #### `test_the_defaults_are_those_of_pypulseq`
 
 **Checks:** A call with the three arguments at the defaults of pypulseq's
@@ -3165,5 +3200,47 @@ with no arguments, and then with `max_frequency_hz=1000.0`. The two objects
 must be different, and the second has no frequency above 1000 Hz. A call with
 no arguments again must give the first object. A call with
 `max_frequency_hz=1000` (an integer) must give the second object.
+
+**Assumptions:** None.
+
+### 2.11 Value equality (`test_equality.py`)
+
+`test_equality.py` tests `_equality.py`: `values_equal`, the rules by which two values
+are equal, and `fields_equal`, the `__eq__` of `PnsLevels` and `GradientSpectrum`. The
+tests use small values and two dataclasses of the test file, not results of the package.
+Sections 2.2 and 2.10 test the `==` of the results.
+
+#### `test_values_equal`
+
+**Checks:** `values_equal` follows the rules of the module docstring of `_equality`, in
+both orders of its arguments.
+
+**How:** One case for each rule, with the expected result:
+
+- arrays: the same values (equal); another dtype, another shape, another value (not
+  equal); NaN at the same place (equal); int, bool and empty arrays (equal); a read-only
+  and a writable array with the same values (equal); an array and a list, an array and a
+  float (not equal).
+- dicts: the same keys and values (equal); the same items in another order (not equal);
+  another key (not equal); nested dicts with an array (equal, and not equal when the
+  array differs).
+- tuples: the same elements (equal); another length, a tuple and a list (not equal).
+- dataclasses in a tuple: the same fields (equal); another field (not equal); a NaN field
+  (equal).
+- scalars: NaN and NaN (equal); `1` and `1.0`, `True` and `1`, `None` and `0.0` (not
+  equal); `None` and `None`, two equal strings (equal).
+
+**Assumptions:** None.
+
+#### `test_fields_equal_as_the_eq_of_a_dataclass`
+
+**Checks:** A dataclass with `__eq__ = fields_equal` compares its fields by value, is not
+equal to an object of another class, and is not hashable.
+
+**How:** A frozen dataclass of the test file with an array and a dict, with
+`eq=False`, `__eq__ = fields_equal` and `__hash__ = None`. Two objects with the same
+values must be equal. An object with another array value or another dict value must not
+be equal. An object must not equal a string, and `fields_equal(a, "a")` must be
+`NotImplemented`. `hash` must raise `TypeError`.
 
 **Assumptions:** None.
