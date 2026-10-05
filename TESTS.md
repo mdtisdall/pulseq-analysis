@@ -32,7 +32,7 @@ Contents:
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
    the PNS levels, and the gradient limits); the series; the analyses and their registry;
-   the gradient spectrum
+   the gradient spectrum; the kept results
 
 ---
 
@@ -3355,3 +3355,101 @@ be equal. An object must not equal a string, and `fields_equal(a, "a")` must be
 `NotImplemented`. `hash` must raise `TypeError`.
 
 **Assumptions:** None.
+
+### 2.12 Kept results (`test_kept.py`)
+
+`test_kept.py` tests `_kept.py`, the rule that says when the kept results of a sequence
+object are old, through `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`.
+The tests use small sequences that they write with pypulseq or that
+`tests/synthetic.py` builds.
+
+#### `test_a_second_read_into_one_object_gives_the_values_of_a_new_object`
+
+**Checks:** After a second file is read into one `Sequence`, the four measurements give
+the values of that file, not the kept values of the first file.
+
+**How:** The test writes two files with pypulseq. Both have 6 blocks. File A has three
+times an x trapezoid and a delay of 15 ms. File B has three times a y trapezoid of
+another area and a delay of 22 ms. The test reads A into an object, and calls
+`sequence_index`, `pns_levels_for` (with pypulseq's example hardware), `gradient_spectrum_for`
+and `gradient_limits`. It then reads B into the same object, and reads B into a new
+object. The index of the new object must have another `end_s` than the index of A. For the
+object that read both files, the index must have the same values as the index of the new
+object (each array with `array_equal`), and the levels, the spectrum and the limits must
+be equal (`==`) to those of the new object and not equal to those of A.
+
+**Assumptions:**
+
+- A and B are different in the values that the four results hold, so a kept result of A
+  is not equal to the result of B.
+- `GradientLimits`, `PnsLevels` and `GradientSpectrum` compare by value.
+
+#### `test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_a_change`
+
+**Checks:** `pns_levels_for` keeps its result until a block is added, and then makes it
+again.
+
+**How:** For the synthetic spin echo, two calls with the same arguments must give one
+object. The test then adds a z trapezoid with `add_block`. The next call must give a new
+object, a second call must give that object again, and the new result must be equal to
+the result for a second sequence built with the same blocks.
+
+**Assumptions:** None.
+
+#### `test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result`
+
+**Checks:** `pns_levels_for` has one kept result for the relative and the absolute
+spelling of one gradient `.asc` file.
+
+**How:** The test writes an `.asc` file, and changes the working directory to its
+directory. For each order of the two spellings, on a new sequence, the call with the first
+spelling and the call with the second spelling must give one object.
+
+**Assumptions:**
+
+- The file is not changed or replaced between the calls.
+
+#### `test_a_change_of_the_last_block_id_with_the_same_number_of_blocks_gives_a_new_index`
+
+**Checks:** `sequence_index` makes the index again when the last block ID changes and the
+number of blocks does not.
+
+**How:** For the synthetic spin echo, two calls must give one object. The test then moves
+the first entry of `seq.block_events` and of `seq.block_durations` to a new key, the
+largest ID plus 1. The number of blocks is the same. The next call must give a new object,
+with the same number of blocks, and with the block IDs of the old index without the first,
+then the new ID.
+
+**Assumptions:**
+
+- `seq.block_events` and `seq.block_durations` are dicts that keep their order, as in the
+  pinned pypulseq fork.
+
+#### `test_a_change_of_the_gradient_raster_time_gives_a_new_index_and_new_levels`
+
+**Checks:** A change of `seq.grad_raster_time` makes the three kept results again.
+
+**How:** For the synthetic spin echo, the test calls `sequence_index`, `pns_levels_for`
+and `gradient_spectrum_for`, and calls each again: each must give the same object. It
+then halves `seq.grad_raster_time`. Each of the three must give a new object, and a call
+again must give that new object.
+
+**Assumptions:**
+
+- The functions can run with a gradient raster time that is not the raster of the
+  blocks. The test does not check the values of the new results.
+
+#### `test_a_kept_result_does_not_keep_the_sequence_alive`
+
+**Checks:** The kept results of `sequence_index`, `pns_levels_for` and
+`gradient_spectrum_for` do not keep a reference to the sequence, so the sequence can be
+collected.
+
+**How:** For each function, the test calls it for the synthetic spin echo, keeps a
+`weakref` to the sequence and the result, deletes the sequence and runs `gc.collect()`.
+The `weakref` must be dead.
+
+**Assumptions:**
+
+- CPython collects the sequence at once, or in the `gc.collect()` call. The test does not
+  cover another Python.
