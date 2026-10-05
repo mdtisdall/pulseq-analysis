@@ -16,7 +16,7 @@ dependencies = [
 # ID of the analysis.
 [project.entry-points."pulseq_analysis.analyses"]
 "seq.index" = "pulseq_analysis.analyses:SEQ_INDEX"
-"gradient.limits" = "pulseq_analysis.analyses:GRADIENT_LIMITS"
+"gradient.peaks" = "pulseq_analysis.analyses:GRADIENT_PEAKS"
 "gradient.blocks" = "pulseq_analysis.analyses:GRADIENT_BLOCKS"
 "pns.safe.levels" = "pulseq_analysis.analyses:PNS_SAFE_LEVELS"
 "gradient.spectrum" = "pulseq_analysis.analyses:GRADIENT_SPECTRUM"

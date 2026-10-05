@@ -1,21 +1,20 @@
-"""How near a sequence's gradients get to the hardware limits.
+"""The peak amplitude, the peak slew rate and the RMS amplitude of a sequence's gradients.
 
 Each gradient event is piecewise linear between the points that `seq_utils.gradient_points`
-gives, as the Pulseq specification treats it. This module computes, for each logical axis
-(x, y, z) and for the three-axis vector, the peak amplitude, the peak slew rate, and the RMS
-amplitude over a time range. It does not compare them with limits: a caller that has the
-hardware limits compares the values with them.
+gives, as the Pulseq specification treats it. This module computes these values for each
+logical axis (x, y, z) and for the three-axis vector, over a time range. It does not compare
+them with limits: a caller that has the hardware limits compares the values with them.
 
 The axes are the logical sequence axes, not the physical gradient axes of a scanner. The
 scanner rotates the logical axes onto the physical ones for the prescribed orientation, so on
 an oblique slice one physical axis can see amplitude up to the vector peak,
-`GradientLimits.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
+`GradientPeaks.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
 
 This computes the per-event values one time for each unique gradient event
 (`seq_index.grad_events`, which reads one block with `get_block` for each unique event),
 then combines them over the blocks of `seq_index.sequence_index` with numpy, instead of
 reading every block with `get_block`. Thus its cost grows with the number of unique events
-and the number of blocks, but it makes no pypulseq call for each block. `gradient_limits`
+and the number of blocks, but it makes no pypulseq call for each block. `gradient_peaks`
 also reads the blocks that a window edge cuts.
 
 The peak slew rate is the largest of two kinds of value: the slope of each straight segment
@@ -30,8 +29,8 @@ scanner, so it is a slew like the slope of a segment. A junction step is legal i
 have its largest slew there.
 
 `block_gradient_values` gives the same measurements for each block of the whole file, in play
-order, instead of the one largest value for each axis that `gradient_limits` gives. It is for a
-caller that needs each place where a value is above a limit. `gradient_limits` does not call it.
+order, instead of the one largest value for each axis that `gradient_peaks` gives. It is for a
+caller that needs each place where a value is above a limit. `gradient_peaks` does not call it.
 """
 
 import math
@@ -50,7 +49,7 @@ _AXES = ("x", "y", "z")
 
 @dataclass(frozen=True)
 class AxisResult:
-    """The gradient limit numbers for one logical axis, over a time range.
+    """The peak values for one logical axis, over a time range.
 
     `peak_block` and `slew_block` are the block ID (`seq_index.SequenceIndex.block_id`)
     where the peak amplitude, respectively the peak slew, was found. For the slew, this is
@@ -62,7 +61,7 @@ class AxisResult:
     value, the credited block is the first of them in play order, and the time is the first
     time in that block where the value is reached (a junction step is before every segment
     of its block). A largest value of 0 credits no block (None) and has the time 0.0.
-    `rms_hz_per_m` is the RMS amplitude over the range that `GradientLimits.range_s` gives,
+    `rms_hz_per_m` is the RMS amplitude over the range that `GradientPeaks.range_s` gives,
     not over the whole sequence when a window is used.
     """
 
@@ -76,8 +75,8 @@ class AxisResult:
 
 
 @dataclass(frozen=True)
-class GradientLimits:
-    """The result of `gradient_limits`.
+class GradientPeaks:
+    """The result of `gradient_peaks`.
 
     `reason` is None when the range has at least one gradient event on some axis. Otherwise it
     is a short human-readable string, for example "no gradient events in the sequence", and
@@ -132,9 +131,11 @@ class BlockGradientValues:
     `vector_peak_time_s` the first time in the block where it is reached (0 and `start_s` for
     a block without gradients).
 
-    The maximum of each of these over the blocks is the value that `gradient_limits` gives for
-    the whole file. The first block with that value is its credited block, and for the slew
-    the junction step of a block comes before the segments of that block.
+    The maximum of each amplitude array over the blocks is the value that `gradient_peaks`
+    gives for the whole file. Its slew is the larger of the maximum of `slew_hz_per_m_per_s`
+    and the maximum of `junction_hz_per_m_per_s`. The first block with that value is its
+    credited block, and for the slew the junction step of a block comes before the segments
+    of that block.
     """
 
     block_id: np.ndarray
@@ -221,7 +222,7 @@ def _polyline_values(t: np.ndarray, amp: np.ndarray) -> _PolylineValues:
 
 @dataclass
 class _EventData:
-    """The per-unique-gradient-event values that `gradient_limits` needs, indexed by the dense
+    """The per-unique-gradient-event values that `gradient_peaks` needs, indexed by the dense
     event index minus 1 (`seq_index.SequenceIndex.gx`/`gy`/`gz`, 0 = no event). All amplitudes
     are in Hz/m, slew in Hz/m/s, and times in seconds from the start of the block that plays the
     event (`seq_utils.gradient_points(g, 0.0)`: the event's own delay is included, the block's
@@ -418,7 +419,7 @@ def _range_result(
     `seq_index.SequenceIndex.start_s` gives (blocks are in time order, so the "fully inside"
     blocks are one contiguous run). The few blocks that a range edge cuts (at most two: a
     block of zero duration at a range edge is skipped) are read with `get_block` and clipped
-    exactly as the oracle (`tests/oracles/grad_limits.py`) clips every block. Passing
+    exactly as the oracle (`tests/oracles/grad_peaks.py`) clips every block. Passing
     `lo=0.0, hi=index.end_s` (`window=None`) makes every block of non-zero duration fully
     inside (a block of zero duration at 0 or at the end is skipped, and it has no gradient), so
     this same code computes the whole-file result too.
@@ -598,9 +599,7 @@ def _range_result(
     return axes, vector_peak_hz, vector_peak_time, vector_peak_block, has_event_any
 
 
-def gradient_limits(
-    seq: pp.Sequence, *, window: tuple[float, float] | None = None
-) -> GradientLimits:
+def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = None) -> GradientPeaks:
     """The peak amplitude, the peak slew rate and the RMS amplitude of `seq`'s
     gradients, on each logical axis and as a three-axis vector.
 
@@ -610,7 +609,7 @@ def gradient_limits(
     (`0.0 <= start_s` and `end_s <= total_duration`, each within `TIME_TOLERANCE`),
     or this function raises `ValueError`. A gradient piece that crosses a range edge
     is cut at the edge, with the amplitude at the edge found by linear interpolation.
-    With `window` given, `GradientLimits.whole_rms_hz_per_m` also gives each axis's RMS
+    With `window` given, `GradientPeaks.whole_rms_hz_per_m` also gives each axis's RMS
     over the whole sequence, computed in this same call.
 
     The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
@@ -661,7 +660,7 @@ def gradient_limits(
     else:
         reason = "no gradient events in the sequence"
 
-    return GradientLimits(
+    return GradientPeaks(
         reason=reason,
         range_s=range_s,
         axes=axes,
@@ -699,12 +698,12 @@ def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarra
 def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     """The gradient values of each block of `seq`, in play order (`BlockGradientValues`).
 
-    These are the values that `gradient_limits` takes the largest of for the whole file, kept
+    These are the values that `gradient_peaks` takes the largest of for the whole file, kept
     for each block: the peak amplitude and the peak slew of the block's event on each logical
     axis, the junction step at the start of the block, and the peak of the three-axis vector.
     The slope and the junction step follow the rules of the module docstring.
 
-    The values are in Hz/m and Hz/m/s, with no gamma, as for `gradient_limits`.
+    The values are in Hz/m and Hz/m/s, with no gamma, as for `gradient_peaks`.
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
     `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the

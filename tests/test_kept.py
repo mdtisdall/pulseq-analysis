@@ -12,7 +12,7 @@ import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import SYSTEM, WIDTH, spin_echo_sequence
 
-from pulseq_analysis.grad_limits import gradient_limits
+from pulseq_analysis.grad_peaks import gradient_peaks
 from pulseq_analysis.grad_spectrum import gradient_spectrum_for
 from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.seq_index import sequence_index
@@ -59,14 +59,14 @@ def _assert_index_equal(a, b):
 def test_a_second_read_into_one_object_gives_the_values_of_a_new_object(tmp_path):
     """File A and file B have the same number of blocks, different gradients and different
     durations. After the results for A are made, B is read into the same `Sequence`:
-    `sequence_index`, `gradient_limits`, `pns_levels_for` and `gradient_spectrum_for` give
+    `sequence_index`, `gradient_peaks`, `pns_levels_for` and `gradient_spectrum_for` give
     the values of a new object that read B only, and not the kept values of A."""
     path_a, path_b = _file_a(tmp_path), _file_b(tmp_path)
     reused = _read(path_a)
     index_a = sequence_index(reused)
     levels_a = pns_levels_for(reused, hardware=_HARDWARE)
     spectrum_a = gradient_spectrum_for(reused)
-    limits_a = gradient_limits(reused)
+    limits_a = gradient_peaks(reused)
     reused.read(str(path_b))
     fresh = _read(path_b)
     assert len(reused.block_events) == len(fresh.block_events) == len(index_a.block_id)
@@ -80,8 +80,8 @@ def test_a_second_read_into_one_object_gives_the_values_of_a_new_object(tmp_path
     spectrum = gradient_spectrum_for(reused)
     assert spectrum == gradient_spectrum_for(fresh)
     assert spectrum != spectrum_a
-    limits = gradient_limits(reused)
-    assert limits == gradient_limits(fresh)
+    limits = gradient_peaks(reused)
+    assert limits == gradient_peaks(fresh)
     assert limits != limits_a
 
 

@@ -9,7 +9,7 @@ the peak amplitude and the peak slew rate with the hardware limits.
 The axes are the logical sequence axes, not the physical gradient axes of a scanner.
 The scanner rotates the logical axes onto the physical ones for the prescribed
 orientation, so on an oblique slice one physical axis can see amplitude up to the
-vector peak, `GradientLimits.vector_peak_mt_per_m`, even when no single logical axis
+vector peak, `GradientPeaks.vector_peak_mt_per_m`, even when no single logical axis
 is near the limit.
 
 Oracle: the implementation before phase 4 of docs/plans/cards-at-scale.md. Do not
@@ -60,11 +60,11 @@ class HardwareLimits:
 
 @dataclass(frozen=True)
 class AxisResult:
-    """The gradient limit numbers for one logical axis, over a time range.
+    """The peak values for one logical axis, over a time range.
 
     `peak_block` and `slew_block` are the block ID (`oracles.blocks.BlockTiming.block_id`)
     where the peak amplitude, respectively the peak slew, was found. `rms_mt_per_m` is
-    the RMS amplitude over the range that `GradientLimits.range_s` gives, not over the
+    the RMS amplitude over the range that `GradientPeaks.range_s` gives, not over the
     whole sequence when a window is used.
     """
 
@@ -77,8 +77,8 @@ class AxisResult:
 
 
 @dataclass(frozen=True)
-class GradientLimits:
-    """The result of `gradient_limits`.
+class GradientPeaks:
+    """The result of `gradient_peaks`.
 
     `reason` is None when the range has at least one gradient event on some axis.
     Otherwise it is a short human-readable string, for example "no gradient events in
@@ -203,11 +203,11 @@ def _vector_peak_in_block(
     return float(times[i]), float(magnitude[i])
 
 
-def gradient_limits(
+def gradient_peaks(
     seq: pp.Sequence,
     window: tuple[float, float] | None = None,
     limits: HardwareLimits | None = None,
-) -> GradientLimits:
+) -> GradientPeaks:
     """The peak amplitude, the peak slew rate and the RMS amplitude of `seq`'s
     gradients, on each logical axis and as a three-axis vector, compared with
     `limits`.
@@ -281,10 +281,10 @@ def gradient_limits(
             else "no gradient events in the sequence"
         )
         axes = {axis: AxisResult(0.0, 0.0, None, 0.0, None, 0.0) for axis in _AXES}
-        return GradientLimits(reason, range_s, axes, 0.0, 0.0, limits)
+        return GradientPeaks(reason, range_s, axes, 0.0, 0.0, limits)
 
     axes = {axis: axis_state[axis].result(range_length) for axis in _AXES}
-    return GradientLimits(
+    return GradientPeaks(
         reason=None,
         range_s=range_s,
         axes=axes,

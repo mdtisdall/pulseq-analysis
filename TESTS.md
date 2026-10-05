@@ -31,7 +31,7 @@ Contents:
 1. [Static checks](#1-static-checks)
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
-   the PNS levels, and the gradient limits); the series; the analyses and their registry;
+   the PNS levels, and the gradient peaks); the series; the analyses and their registry;
    the gradient spectrum; the kept results
 
 ---
@@ -712,7 +712,7 @@ each axis. `pns_levels(spin_echo_sequence(), path)`'s `hardware`, `asc_file` and
 #### `test_pns_levels_refuses_rotations`
 
 **Checks:** `pns_levels` raises `NotImplementedError` for a sequence with a
-rotation library, as `gradient_limits` does.
+rotation library, as `gradient_peaks` does.
 
 **How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
 `with_rotation_library` helper of `tests/synthetic.py`), inside
@@ -861,7 +861,7 @@ and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two re
 ### 2.3 Sequence extensions (`test_extensions.py`)
 
 `test_extensions.py` tests `extensions.refuse_rotations`, the guard that
-`cards/spectrum.py`, `cards/pns.py` and `cards/gradient_limits.py` call
+`cards/spectrum.py`, `cards/pns.py` and `cards/gradient_limits.py` (of pulseq-reports) call
 before they read any gradient. Task 6.1 of
 `docs/plans/diagram-event-table.md` found that pypulseq 1.5.0.post1 cannot
 make a rotation and that its `Sequence.read` raises `ValueError` for a
@@ -1575,18 +1575,18 @@ dt)`. `raster_block_lengths(index, dt)` must give `on_raster = False` and `n =
 
 **Assumptions:** None.
 
-### 2.6 Gradient limits (`test_grad_limits.py`)
+### 2.6 Gradient peaks (`test_grad_peaks.py`)
 
-`test_grad_limits.py` tests `grad_limits.py`: the peak amplitude, the peak slew
+`test_grad_peaks.py` tests `grad_peaks.py`: the peak amplitude, the peak slew
 rate and the RMS amplitude of a sequence's gradients, on each logical axis and
 as a three-axis vector, over the whole sequence or over a window. Every
 expected value is computed by hand from the parameters of the trapezoid or
-arbitrary gradient that the test builds, not by calling `gradient_limits`
+arbitrary gradient that the test builds, not by calling `gradient_peaks`
 itself for the expected value. The values are in Hz/m and Hz/m/s, the units of pypulseq,
 with no gamma, so the hand-computed values have no conversion. Only the comparisons with the
 oracle convert the values (`GAMMA_1H` from `tests/synthetic.py`).
 
-Since phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports, `grad_limits.py` computes its values from
+Since phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports, `grad_peaks.py` computes its values from
 the per-event values of `seq_index.grad_events` and the columns of `seq_index.sequence_index`,
 instead of reading every block with `get_block`, and its slew also includes the step at each
 block junction (decision 6 of section 2.5 of that plan). The tests below the first group add:
@@ -1596,22 +1596,22 @@ for a value that several blocks and axes share, a window that keeps only part of
 slew, the vector peak of two blocks with different triples of active gradients, the three
 junction-step cases of section 4.6 item 6, a window that starts inside a block after a
 junction step, and comparisons with the oracle
-(`tests/oracles/grad_limits.py`, the implementation from before phase 4).
+(`tests/oracles/grad_peaks.py`, the implementation from before phase 4).
 
 The last group tests `block_gradient_values` (`docs/plans/gradient-pns-findings.md` of
 pulseq-checks, section 3.1): the values of each block, in play order. Its
-main test compares the maxima over the blocks with the whole-file result of `gradient_limits`.
+main test compares the maxima over the blocks with the whole-file result of `gradient_peaks`.
 The other tests check the blocks without an event on an axis, the junction step of each block,
 the arrays, and the refusal of the rotation extension.
 
 #### `test_trapezoid_peak_slew_and_rms_match_hand_computed_values`
 
-**Checks:** For a single x trapezoid, `gradient_limits` gives the peak
+**Checks:** For a single x trapezoid, `gradient_peaks` gives the peak
 amplitude, the peak slew rate and the RMS amplitude that hand computation from
 the trapezoid's own rise time, flat time and amplitude predicts.
 
 **How:** The test builds one block with an x trapezoid of a given amplitude,
-rise time and flat time, and calls `gradient_limits` on it. It computes the
+rise time and flat time, and calls `gradient_peaks` on it. It computes the
 expected peak as the amplitude (Hz/m), the expected slew as the amplitude
 divided by the rise time (Hz/m/s), and the expected RMS from the energy of the
 two ramps (each `amplitude^2 * rise_time / 3`) plus the flat top
@@ -1627,7 +1627,7 @@ trapezoid's own block ID.
 
 #### `test_the_values_do_not_depend_on_the_gamma_of_the_system`
 
-**Checks:** The values of `gradient_limits` (with and without a window) and of
+**Checks:** The values of `gradient_peaks` (with and without a window) and of
 `block_gradient_values` do not depend on `seq.system.gamma`. For one waveform in Hz/m, the
 values of a sequence of `SYSTEM` and of a sequence of a copy of `SYSTEM` with another gamma are
 exactly equal, in every field.
@@ -1636,7 +1636,7 @@ exactly equal, in every field.
 same sequence for each system: an x trapezoid with an explicit amplitude in Hz/m, a y arbitrary
 gradient with an explicit waveform in Hz/m (`first` and `last` 0), and a block with both. It
 checks that the two gammas differ and that the sequence has gradients. It compares the
-`GradientLimits` of the whole sequence and of a window of the first half field by field with
+`GradientPeaks` of the whole sequence and of a window of the first half field by field with
 `==` (the axes, the vector peak, its time and block, and the RMS over the whole file of the
 window result), and each array and each dict entry of the two `BlockGradientValues` with
 `numpy.array_equal`.
@@ -1648,14 +1648,14 @@ follows `test_spectrum_does_not_depend_on_the_gamma_of_the_system` in section 2.
 #### `test_the_values_of_a_negated_waveform_are_equal`
 
 **Checks:** A value is a magnitude, so a sequence with each amplitude times -1 gives exactly
-equal values of `gradient_limits` (with and without a window) and of `block_gradient_values`,
+equal values of `gradient_peaks` (with and without a window) and of `block_gradient_values`,
 in every field. This is why the documents use the magnitude of gamma, which can be negative.
 
 **How:** The test builds the sequence of the test above for `SYSTEM`, one time with the
 amplitude of the trapezoid and the waveform of the arbitrary gradient as they are, and one
 time with each of them times -1 (an exact operation). It checks that the sequence has
 gradients, then compares the results as the test above does: field by field with `==` for
-`GradientLimits`, with `numpy.array_equal` for each array of `BlockGradientValues`.
+`GradientPeaks`, with `numpy.array_equal` for each array of `BlockGradientValues`.
 
 **Assumptions:** The multiplication by -1 of a float is exact, so the two sequences differ only
 in the sign. The test checks that the values are equal for this sequence.
@@ -1666,7 +1666,7 @@ in the sign. The test checks that the values are equal for this sequence.
 vector peak that is the axis peak times the square root of 2.
 
 **How:** The test builds one block with the same trapezoid on x and on y, and
-calls `gradient_limits`. Because Gx equals Gy at every point, `|G|` is
+calls `gradient_peaks`. Because Gx equals Gy at every point, `|G|` is
 `sqrt(2)` times `|Gx|` at every point, and so at the peak. It checks that the
 vector peak equals the x axis peak times `sqrt(2)`, and that the x and y axis
 peaks are equal.
@@ -1695,7 +1695,7 @@ samples.
 
 **How:** The test builds an x arbitrary gradient from an asymmetric sine-lobe
 waveform, whose largest magnitude is not at the shape's first or last sample,
-and calls `gradient_limits`. It computes the expected peak as the largest of
+and calls `gradient_peaks`. It computes the expected peak as the largest of
 `abs(first)`, `abs(last)` and the largest absolute waveform sample, taken from
 the block's own gradient event. It checks that the x axis peak matches (Hz/m).
 
@@ -1713,7 +1713,7 @@ and every numeric field is its zero value: 0.0 for an amplitude, slew or RMS
 field, and None for a block field.
 
 **How:** The test builds a sequence with one delay block and no gradients, and
-calls `gradient_limits`. It checks that `reason` is
+calls `gradient_peaks`. It checks that `reason` is
 "no gradient events in the sequence", that the vector peak and its time are
 0.0, and that every axis's peak, slew and RMS are 0.0 with `peak_block` and
 `slew_block` both None.
@@ -1727,11 +1727,11 @@ calls `gradient_limits`. It checks that `reason` is
 `first`, its waveform samples, and its `last`).
 
 **How:** The test builds an x arbitrary gradient from an asymmetric sine-lobe
-waveform and calls `gradient_limits`. It computes the expected slew from
+waveform and calls `gradient_peaks`. It computes the expected slew from
 `block.gx.first`, `block.gx.waveform`, `block.gx.last` and their own offset
 and shape-duration fields (the same corner points `gradient_offsets` builds),
 as the largest `|diff(amplitude) / diff(time)|`, not by calling
-`gradient_limits` for the expected value. It checks that the x axis slew
+`gradient_peaks` for the expected value. It checks that the x axis slew
 matches.
 
 **Assumptions:** None.
@@ -1742,7 +1742,7 @@ matches.
 `|delta g / delta t|` between its neighbouring control points.
 
 **How:** The test builds an x extended trapezoid from five explicit times and
-amplitudes and calls `gradient_limits`. It computes the expected slew as the
+amplitudes and calls `gradient_peaks`. It computes the expected slew as the
 largest `|diff(amplitudes) / diff(times)|` of the same arrays given to
 `make_extended_trapezoid`. It checks that the x axis slew matches.
 
@@ -1881,9 +1881,9 @@ junction still uses it.
 
 **How:** The test builds an x extended trapezoid ending at 90% of the largest step
 `add_block` accepts, followed by a delay block with no gradient. It calls
-`gradient_limits` with a window from partway into the delay block to its end, and
+`gradient_peaks` with a window from partway into the delay block to its end, and
 checks that `reason` is "no gradient events in the window", the x slew is 0.0, and
-`slew_block` is None. It then calls `gradient_limits` with a window that starts
+`slew_block` is None. It then calls `gradient_peaks` with a window that starts
 exactly at the junction (the end of the trapezoid block) and checks that the x slew
 equals the ending value divided by `grad_raster_time` and is credited to the delay
 block.
@@ -1934,13 +1934,13 @@ is credited for either (`peak_block` and `slew_block` are None).
 
 #### `test_matches_oracle_on_synthetic_sequences`
 
-**Checks:** `gradient_limits` matches the oracle (`tests/oracles/grad_limits.py`, the
+**Checks:** `gradient_peaks` matches the oracle (`tests/oracles/grad_peaks.py`, the
 implementation from before phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports) on the whole file, and
 on a window covering the first half of the sequence, for each of `tests/synthetic.py`'s
 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`).
 
-**How:** For each sequence, the test calls both `gradient_limits` and the oracle's, with no
+**How:** For each sequence, the test calls both `gradient_peaks` and the oracle's, with no
 window and with a window from 0 to half the total duration. The oracle gives mT/m and T/m/s with
 `GAMMA_1H`, so `_assert_matches_oracle` converts the values of this package first: the
 amplitudes, the RMS and the vector peak times `1e3 / GAMMA_1H`, the slews times `1 / GAMMA_1H`
@@ -1948,7 +1948,7 @@ amplitudes, the RMS and the vector peak times `1e3 / GAMMA_1H`, the slews times 
 field (`reason`, `range_s`, each axis's peak, slew and RMS, and the vector peak), within a
 tolerance derived from the sequence (`_rounding_tol`):
 `1e-12 + 4 * eps * duration / shortest segment`, relative to the value or to the limit of the
-same kind (the limit of the oracle result: `gradient_limits` itself has no limits). It checks
+same kind (the limit of the oracle result: `gradient_peaks` itself has no limits). It checks
 only whether a block is credited, not which one, because `gre_sequence` repeats its readout, phase-encode and spoiler events every TR,
 and the oracle's own choice among such a tie can depend on the same rounding.
 
@@ -1965,7 +1965,7 @@ and the oracle's own choice among such a tie can depend on the same rounding.
 **Checks:** 200 random sequences of trapezoids, extended trapezoids and arbitrary gradients on
 random axes, each event built so that it starts and ends at 0 (so every block junction step is
 0, and the result is only the per-event, non-junction part that the tests above cover on their
-own): `gradient_limits` matches the oracle, on the whole file and on a random window, and the
+own): `gradient_peaks` matches the oracle, on the whole file and on a random window, and the
 window's `whole_rms_hz_per_m` (computed in the same call, for the card's "RMS over whole file"
 column) matches the oracle's own whole-file RMS.
 
@@ -1986,9 +1986,9 @@ the same block-attribution exception and the same conversion to the units of the
   explicitly to keep every event zero-ended. This is a fact about pypulseq, not about the
   function under test, and is not itself checked here.
 
-#### `test_gradient_limits_refuses_rotations`
+#### `test_gradient_peaks_refuses_rotations`
 
-**Checks:** `gradient_limits` raises `NotImplementedError` for a sequence with a
+**Checks:** `gradient_peaks` raises `NotImplementedError` for a sequence with a
 rotation library.
 
 **How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
@@ -1997,10 +1997,10 @@ rotation library.
 
 **Assumptions:** None.
 
-#### `test_block_gradient_values_agree_with_gradient_limits_for_the_whole_file`
+#### `test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`
 
 **Checks:** For each of 32 sequences (parametrized), the maxima of `block_gradient_values`
-over the blocks are the whole-file values of `gradient_limits`, with the same block and the
+over the blocks are the whole-file values of `gradient_peaks`, with the same block and the
 same time. For each axis: the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis, and
 the first block in play order with that maximum has the `peak_block` and the `peak_time_s`. The
 maximum over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_per_m_per_s` is
@@ -2008,7 +2008,7 @@ maximum over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_
 start of the block as the time when its junction step has the maximum (the junction is before
 every segment of its block), otherwise the `slew_time_s` of its segment. The maximum of
 `vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result, with the same block and time.
-When the maximum is 0, `gradient_limits` has no block (None).
+When the maximum is 0, `gradient_peaks` has no block (None).
 
 **How:** The sequences are `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`, `build_repeating(50)`
@@ -2016,7 +2016,7 @@ and `build_worst(50)` of `tests/scale_sequences.py`, four junction sequences of 
 step between two extended trapezoids, the same with a segment of the second block that has the
 same slew as the step, a gradient that ends non-zero before a delay, a first block that starts
 non-zero), and 20 random sequences of `_random_gradient_sequence` (seeds 0 to 19). For each
-sequence the test calls `block_gradient_values` and `gradient_limits` and compares them
+sequence the test calls `block_gradient_values` and `gradient_peaks` and compares them
 with `==`, not `pytest.approx`.
 
 **Assumptions:**
@@ -2074,14 +2074,14 @@ hand-computed value (`pytest.approx`) and with 0 (exact).
 #### `test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junction_time`
 
 **Checks:** When the junction step and the first segment of the same block have the same slew,
-and it is the largest of the file, `gradient_limits` credits that block and gives the start of the
+and it is the largest of the file, `gradient_peaks` credits that block and gives the start of the
 block (the junction) as the time, and `block_gradient_values` has equal `junction_hz_per_m_per_s`
 and `slew_hz_per_m_per_s` in that block.
 
 **How:** Block 1 is an x extended trapezoid that ends at `x`. Block 2 starts at `x - step` and
 reaches `x` in one gradient raster, with `step` 0.9 of the largest step that `add_block` accepts.
 The test checks the two slews with `==`, then the `slew_block`, `slew_time_s` and
-`max_slew_hz_per_m_per_s` of `gradient_limits`.
+`max_slew_hz_per_m_per_s` of `gradient_peaks`.
 
 **Assumptions:** The two slews are equal in floating point for these values (the value of both is
 0.9 of the maximum slew of `SYSTEM`). The test checks this with `==`.
@@ -2103,15 +2103,15 @@ float arrays and that `start_s` increases.
 **Checks:** `block_gradient_values` raises `NotImplementedError` for a sequence with a rotation
 library.
 
-**How:** The same as `test_gradient_limits_refuses_rotations`: the `with_rotation_library`
+**How:** The same as `test_gradient_peaks_refuses_rotations`: the `with_rotation_library`
 sequence of `tests/synthetic.py`, inside `pytest.raises(NotImplementedError, match="rotation
 extension")`.
 
 **Assumptions:** None.
 
-#### `test_gradient_limits_refuses_a_window_with_no_start_before_its_end`
+#### `test_gradient_peaks_refuses_a_window_with_no_start_before_its_end`
 
-**Checks:** `gradient_limits` raises `ValueError` for a `window` whose start is not
+**Checks:** `gradient_peaks` raises `ValueError` for a `window` whose start is not
 before its end.
 
 **How:** The synthetic spin echo, with three cases: a start equal to the end, a start
@@ -2120,9 +2120,9 @@ after the end, and a NaN start. Each call is in
 
 **Assumptions:** None.
 
-#### `test_gradient_limits_refuses_a_window_outside_the_sequence`
+#### `test_gradient_peaks_refuses_a_window_outside_the_sequence`
 
-**Checks:** `gradient_limits` raises `ValueError` for a `window` that is outside the
+**Checks:** `gradient_peaks` raises `ValueError` for a `window` that is outside the
 sequence by more than `TIME_TOLERANCE`.
 
 **How:** The synthetic spin echo, with two cases: a start of `-2 * TIME_TOLERANCE`, and
@@ -2131,9 +2131,9 @@ an end of `total_duration + 2 * TIME_TOLERANCE`. Each call is in
 
 **Assumptions:** None.
 
-#### `test_gradient_limits_accepts_a_window_within_the_tolerance_of_the_sequence`
+#### `test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence`
 
-**Checks:** `gradient_limits` accepts a `window` that is outside the sequence by less
+**Checks:** `gradient_peaks` accepts a `window` that is outside the sequence by less
 than `TIME_TOLERANCE`, and `range_s` is the sequence.
 
 **How:** The synthetic spin echo and the window
@@ -2862,7 +2862,7 @@ in the list.
 
 `test_analyses.py` tests `analyses.py`: the entry-point registry of the group
 `pulseq_analysis.analyses`, the specification of each of the five analyses of the package
-(`seq.index`, `gradient.limits`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum`),
+(`seq.index`, `gradient.peaks`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum`),
 `compute`, and `to_series` of `pns.safe.levels` and `gradient.spectrum` (design section 4.4 of
 the plan of pulseq-analysis).
 
@@ -2886,11 +2886,11 @@ uses `spin_echo_sequence()`.
 #### `test_the_registry_has_the_five_analyses_of_the_package`
 
 **Checks:** With the installed entry points, `registry()` has the five IDs
-`gradient.blocks`, `gradient.limits`, `gradient.spectrum`, `pns.safe.levels` and `seq.index`, no other ID, each
+`gradient.blocks`, `gradient.peaks`, `gradient.spectrum`, `pns.safe.levels` and `seq.index`, no other ID, each
 with the object of this package, and each key is the `spec.id` of its analysis.
 
 **How:** The test calls `registry()` and compares the sorted keys, the identity of each value
-with `SEQ_INDEX`, `GRADIENT_LIMITS`, `GRADIENT_BLOCKS`, `PNS_SAFE_LEVELS` and
+with `SEQ_INDEX`, `GRADIENT_PEAKS`, `GRADIENT_BLOCKS`, `PNS_SAFE_LEVELS` and
 `GRADIENT_SPECTRUM`, and each key with `spec.id`.
 
 **Assumptions:** No other installed package gives an analysis (the test environment has only
@@ -2931,7 +2931,7 @@ test makes one fake entry point and checks the message of the error that `regist
 
 **Checks:** The ID, the version 1, `params`, `rasters` and `cost` of each analysis are the
 values of section 8.3 of `docs/plans/implementation.md`. The title and the description are not
-empty. `series` is None for `seq.index`, `gradient.limits` and `gradient.blocks`, and a text
+empty. `series` is None for `seq.index`, `gradient.peaks` and `gradient.blocks`, and a text
 for `pns.safe.levels` and `gradient.spectrum`.
 
 **How:** Parametrized over the five analyses. The test compares each field with the table of
@@ -2945,7 +2945,7 @@ of `series`: they are for a reader.
 **Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
 `spec.params` in order, and their defaults are those of the function that `compute` calls
 (`None` and `()` for `pns.safe.levels`, whose parameters are `hardware` and
-`thresholds_hz_per_t`). `seq.index`, `gradient.limits`,
+`thresholds_hz_per_t`). `seq.index`, `gradient.peaks`,
 `gradient.blocks` and `gradient.spectrum` have no parameter, so no default: there are no gamma
 defaults. A keyword that is not a parameter is a `TypeError`.
 
@@ -2961,11 +2961,11 @@ the same arguments, with the defaults and with others (a hardware with
 `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`). `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
 object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
 result for the sequence object. `gradient.spectrum` has no other arguments. The gradient
-analyses have no arguments after `seq`: `gradient_limits(seq)` and `block_gradient_values(seq)`
+analyses have no arguments after `seq`: `gradient_peaks(seq)` and `block_gradient_values(seq)`
 give an equal value.
 
 **How:** The test builds `gre_sequence(num_trs=4)` and compares `compute` with the function:
-`is` for the kept results, `==` for `GradientLimits`, and `numpy.array_equal` for each array of
+`is` for the kept results, `==` for `GradientPeaks`, and `numpy.array_equal` for each array of
 `BlockGradientValues` (the block IDs, the starts, the vector peak and its time, and for each
 axis the peak, the slew, the junction step and the times of the peak and of the slew).
 
@@ -3073,7 +3073,7 @@ checks that the spectrum is not all zero, so that equal arrays are not empty of 
 
 #### `test_the_other_three_analyses_give_no_series`
 
-**Checks:** `to_series` of `seq.index`, `gradient.limits` and `gradient.blocks` gives `()`,
+**Checks:** `to_series` of `seq.index`, `gradient.peaks` and `gradient.blocks` gives `()`,
 for a sequence with gradients and for one without.
 
 **How:** For `gre_sequence(num_trs=2)` and `empty_sequence()`, the test gives the value of
@@ -3299,7 +3299,7 @@ must contain "rotation extension".
 **Assumptions:**
 
 - pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
-  library by hand, as `test_gradient_limits_refuses_rotations` does.
+  library by hand, as `test_gradient_peaks_refuses_rotations` does.
 
 #### `test_gradient_spectrum_for_keeps_the_result`
 
@@ -3479,7 +3479,7 @@ the values of that file, not the kept values of the first file.
 times an x trapezoid and a delay of 15 ms. File B has three times a y trapezoid of
 another area and a delay of 22 ms. The test reads A into an object, and calls
 `sequence_index`, `pns_levels_for` (with pypulseq's example hardware), `gradient_spectrum_for`
-and `gradient_limits`. It then reads B into the same object, and reads B into a new
+and `gradient_peaks`. It then reads B into the same object, and reads B into a new
 object. The index of the new object must have another `end_s` than the index of A. For the
 object that read both files, the index must have the same values as the index of the new
 object (each array with `array_equal`), and the levels, the spectrum and the limits must
@@ -3489,7 +3489,7 @@ be equal (`==`) to those of the new object and not equal to those of A.
 
 - A and B are different in the values that the four results hold, so a kept result of A
   is not equal to the result of B.
-- `GradientLimits`, `PnsLevels` and `GradientSpectrum` compare by value.
+- `GradientPeaks`, `PnsLevels` and `GradientSpectrum` compare by value.
 
 #### `test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_a_change`
 

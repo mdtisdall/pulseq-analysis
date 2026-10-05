@@ -627,7 +627,7 @@ def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc):
 
 def test_pns_levels_refuses_rotations():
     """`pns_levels` raises `NotImplementedError` for a sequence with a rotation
-    library, as `gradient_limits` does (`extensions.refuse_rotations`)."""
+    library, as `gradient_peaks` does (`extensions.refuse_rotations`)."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
         pns_levels(with_rotation_library())
 
