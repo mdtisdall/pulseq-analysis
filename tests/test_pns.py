@@ -10,7 +10,7 @@ from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import NO_GRADIENTS
+from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
@@ -355,6 +355,66 @@ def test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds(monkeypatc
     reordered = pns_levels_for(seq, thresholds_hz_per_t=thresholds[::-1], hardware=EXAMPLE_HW)
     assert len(calls) == 3
     assert list(reordered.above) == list(thresholds[::-1])
+
+
+def test_pns_levels_for_keeps_one_result_for_each_bin_s(monkeypatch):
+    """`bin_s` is part of the key of a kept result: another `bin_s` runs the model and does
+    not give the result of the default (`BIN_S`); the same `bin_s` again gives the kept
+    result (the same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s`
+    and the equal `float` are one key; and the bins are those of the `bin_s`."""
+    calls = _count_pns_levels_calls(monkeypatch)
+    seq = spin_echo_sequence()
+
+    default = pns_levels_for(seq, hardware=EXAMPLE_HW)
+    assert len(calls) == 1
+    assert pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=BIN_S) is default
+    assert len(calls) == 1
+    six = pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=0.006)
+    assert len(calls) == 2
+    assert six is not default
+    assert six.bin_samples == 600
+    assert default.bin_samples == 615
+    assert pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=0.006) is six
+    assert pns_levels_for(seq, hardware=EXAMPLE_HW) is default
+    assert len(calls) == 2
+    one = pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=1)
+    assert len(calls) == 3
+    assert pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=1.0) is one
+    assert len(calls) == 3
+    with_thresholds = pns_levels_for(
+        seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,), bin_s=0.006
+    )
+    assert with_thresholds is not six  # the thresholds and `bin_s` are both in the key
+    assert len(calls) == 4
+
+
+@pytest.mark.parametrize(
+    ("bin_s", "error"),
+    [
+        pytest.param(True, TypeError, id="bool"),
+        pytest.param("0.006", TypeError, id="string"),
+        pytest.param(None, TypeError, id="none"),
+        pytest.param(float("nan"), ValueError, id="nan"),
+        pytest.param(float("inf"), ValueError, id="inf"),
+        pytest.param(0, ValueError, id="zero"),
+        pytest.param(-0.006, ValueError, id="negative"),
+    ],
+)
+def test_pns_levels_for_refuses_a_bad_bin_s_before_any_work(monkeypatch, bin_s, error):
+    """`pns_levels_for` raises `TypeError` for a `bin_s` that is a `bool` or not a real
+    number and `ValueError` for one that is not finite or not above 0, before the sequence
+    is read and before the kept results are touched: the functions that read the sequence
+    and `kept_results` are replaced by ones that fail, and the error is still the one of
+    `bin_s`."""
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("the sequence or the kept results were read")
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    monkeypatch.setattr(pns, "kept_results", fail)
+    with pytest.raises(error, match="bin_s"):
+        pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
 
 
 def test_pns_levels_for_shares_a_read_only_result():

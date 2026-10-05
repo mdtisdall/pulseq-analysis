@@ -24,6 +24,7 @@ a drawing tool that samples one block with the same rule gets the same values.
 """
 
 import math
+import numbers
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -40,15 +41,13 @@ from .extensions import refuse_rotations
 from .sampling import GradientSampler, raster_block_lengths
 from .seq_index import sequence_index
 
-# The finest bin of the level (`bin_samples_for`): a plot of `EXACT_MAX_S` seconds that is
-# `DISPLAY_BINS` columns wide has at least two bins in each column, so that a plot of
-# that duration or longer can be drawn from the level. A shorter plot needs the samples
-# themselves. The two values are those of the PNS plot of pulseq-reports (a 10 s view,
-# 812 columns wide). They change only the bin size, not the summary or the intervals.
-EXACT_MAX_S = 10.0
-DISPLAY_BINS = 812
+# The default bin of the level, in seconds: about 6.16 ms, the bin of 0.1.0rc5 (615 samples
+# at the 10 us raster). A caller that needs another bin gives `bin_s`. It changes only the
+# bin size, not the summary or the intervals.
+BIN_S = 10.0 / 1624
 # The largest number of bins of the level for one file. It limits the memory of the level
-# to 16 MB (two float32 arrays) for any duration: a longer file gets longer bins.
+# to 16 MB (two float32 arrays) for any duration and any `bin_s`: a longer file gets
+# longer bins.
 MAX_BINS = 2_000_000
 # The fork's chunk size (samples): smaller chunks add time, larger ones add memory. A
 # chunk of `pns_levels` is the whole number of bins nearest at or above it.
@@ -126,15 +125,31 @@ class PnsLevels:
     __hash__ = None  # type: ignore[assignment]
 
 
-def bin_samples_for(num_samples: int, dt: float) -> int:
+def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
     """The number of samples in each bin of the level:
-    `max(floor(EXACT_MAX_S / (2 * DISPLAY_BINS) / dt), ceil(num_samples / MAX_BINS))`, and
-    at least 1. The first term is the finest bin (see `EXACT_MAX_S`), the second keeps the
-    level at `MAX_BINS` bins or fewer. 615 at the 10 us raster for a file of up to
-    1,230,000,000 samples (3.4 hours)."""
-    finest = math.floor(EXACT_MAX_S / (2 * DISPLAY_BINS) / dt)
+    `max(floor(bin_s / dt), ceil(num_samples / MAX_BINS), 1)`. The first term is the bin
+    that the caller asks for (`bin_s`, in seconds, rounded down to whole samples), the
+    second keeps the level at `MAX_BINS` bins or fewer, and the last is the shortest bin,
+    one sample (a `bin_s` shorter than `dt` gives it). With the default `bin_s` (`BIN_S`):
+    615 at the 10 us raster for a file of up to 1,230,000,000 samples (3.4 hours)."""
+    wanted = math.floor(bin_s / dt)
     coarsest_for_size = math.ceil(num_samples / MAX_BINS)
-    return max(finest, coarsest_for_size, 1)
+    return max(wanted, coarsest_for_size, 1)
+
+
+def _validated_bin_s(bin_s: object) -> float:
+    """`bin_s` of `pns_levels` as a `float`. Raises TypeError for a `bool` or a value that
+    is not a real number (`numbers.Real`), and ValueError for a value that is not finite
+    or not above 0. `pns.pns_levels_for` uses it too."""
+    if isinstance(bin_s, bool) or not isinstance(bin_s, numbers.Real):
+        raise TypeError(f"bin_s must be a real number of seconds, not {bin_s!r}")
+    try:
+        key = float(bin_s)
+    except OverflowError:  # an int too large for a float
+        raise ValueError(f"bin_s must be finite, not {bin_s!r}") from None
+    if not math.isfinite(key) or key <= 0:
+        raise ValueError(f"bin_s must be finite and above 0, not {bin_s!r}")
+    return key
 
 
 def _require_hardware(hardware: object) -> None:
@@ -155,6 +170,7 @@ def pns_levels(
     *,
     hardware: tuple[SimpleNamespace, str],
     thresholds_hz_per_t: tuple[float, ...] = (),
+    bin_s: float = BIN_S,
 ) -> PnsLevels:
     """The stored level and the summary of the SAFE PNS total of `seq`, with `hardware`.
 
@@ -176,6 +192,15 @@ def pns_levels(
     ValueError, before the sequence is read. The keys of `PnsLevels.above` are `float(t)`,
     in the order of `thresholds_hz_per_t`.
 
+    `bin_s` is the length of a bin of the level, in seconds. The default is `BIN_S` (about
+    6.16 ms, the bin of 0.1.0rc5). `bin_samples_for` rounds it down to whole samples, to
+    at least one sample (a `bin_s` shorter than `dt` gives bins of one sample), and gives
+    longer bins when the level would have more than `MAX_BINS` bins. It is a `float` or an
+    `int` (any `numbers.Real`, not a `bool`) that is finite and above 0: a `bool` or a value
+    that is not a real number raises TypeError, and a value that is not finite or not above
+    0 raises ValueError, both before the sequence is read. `bin_s` changes only the bins of
+    the level: the summary and the intervals do not depend on it.
+
     The model is `calc_pns` of the pinned fork, on other samples:
 
     1. `dt = seq.grad_raster_time`. The samples are `GradientSampler.block_samples` of
@@ -194,7 +219,7 @@ def pns_levels(
        `sqrt(x^2 + y^2 + z^2)` of them, with the numpy operations of `calc_pns`
        (`np.sqrt((comp ** 2).sum(axis=1))`).
     4. The level: the minimum and the maximum of the total in each bin of
-       `bin_samples_for(num_samples, dt)` samples (the last bin can be shorter), cast
+       `bin_samples_for(num_samples, dt, bin_s)` samples (the last bin can be shorter), cast
        to float32 outward: the minimum rounds down and the maximum rounds up
        (`numpy.nextafter` when the cast value is on the wrong side), so that each
        stored bin holds every total of its samples.
@@ -222,11 +247,13 @@ def pns_levels(
     interval; it does not grow with the length of a block. The arrays of the result are
     read-only.
 
-    Raises TypeError when `hardware` is not a pair, ValueError when `thresholds_hz_per_t`
-    is refused, and NotImplementedError for a sequence with the rotation extension
+    Raises TypeError when `hardware` is not a pair or `bin_s` is a `bool` or not a real
+    number, ValueError when `thresholds_hz_per_t` or `bin_s` is refused, and
+    NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
     _require_hardware(hardware)
+    bin_s = _validated_bin_s(bin_s)
     keys = _validated_thresholds(thresholds_hz_per_t)
     refuse_rotations(seq)
     dt = seq.grad_raster_time
@@ -246,7 +273,7 @@ def pns_levels(
                 hw=hw,
                 dt_s=dt,
                 num_samples=0,
-                bin_samples=bin_samples_for(0, dt),
+                bin_samples=bin_samples_for(0, dt, bin_s),
                 level_min_hz_per_t=empty,
                 level_max_hz_per_t=empty,
                 peak_hz_per_t=0.0,
@@ -274,7 +301,7 @@ def pns_levels(
         def read_range(s0: int, s1: int) -> np.ndarray:
             return _read_sampled_range(sampler, dt, s0, s1)
 
-    bin_samples = bin_samples_for(num_samples, dt)
+    bin_samples = bin_samples_for(num_samples, dt, bin_s)
     chunk_samples = bin_samples * math.ceil(CHUNK_SAMPLES / bin_samples)
 
     num_bins = math.ceil(num_samples / bin_samples)
