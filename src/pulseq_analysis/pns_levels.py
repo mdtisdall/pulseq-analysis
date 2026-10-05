@@ -37,6 +37,7 @@ import pypulseq as pp
 from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk, safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 
+from ._equality import fields_equal
 from .asc import EXAMPLE_HARDWARE, hardware_name, read_gradient_asc
 from .extensions import refuse_rotations
 from .sampling import GradientSampler, raster_block_lengths
@@ -78,7 +79,7 @@ class PnsInterval:
     num_samples: int  # the number of samples of the interval
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class PnsLevels:
     """The result of `pns_levels` (and of `pns.pns_levels_for`) for one sequence and one
     hardware.
@@ -105,6 +106,9 @@ class PnsLevels:
     in its fields: a caller must not change a dict (a `MappingProxyType` would stop that, but
     it cannot be pickled or copied with `copy.deepcopy`, and the dict type is the one of the
     interface).
+
+    `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
+    shape and values, and the dicts with their keys in order. A `PnsLevels` is not hashable.
     """
 
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
@@ -128,6 +132,9 @@ class PnsLevels:
     # total >= that threshold, in time order; the tuple of a threshold is not empty if and
     # only if `peak_hz_per_t >=` that threshold, and then the largest
     # `PnsInterval.peak_hz_per_t` equals `peak_hz_per_t`
+
+    __eq__ = fields_equal
+    __hash__ = None  # type: ignore[assignment]
 
 
 def bin_samples_for(num_samples: int, dt: float) -> int:

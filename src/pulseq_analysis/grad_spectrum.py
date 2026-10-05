@@ -37,6 +37,7 @@ import numpy as np
 import pypulseq as pp
 from scipy.signal import spectrogram
 
+from ._equality import fields_equal
 from .extensions import refuse_rotations
 from .sampling import GradientSampler
 from .seq_index import sequence_index
@@ -53,7 +54,11 @@ NO_GRADIENTS = "no gradients"
 class GradientSpectrum:
     """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, so that
     the callers of `gradient_spectrum_for` can share one result: convert to a new array
-    (`s.rss * 1e3 / abs(gamma)`), not in place."""
+    (`s.rss * 1e3 / abs(gamma)`), not in place.
+
+    `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
+    shape and values, and `axes` with its keys in order. A `GradientSpectrum` is not
+    hashable."""
 
     reason: str | None  # why there is no spectrum, or None
     frequency_hz: np.ndarray  # float64, F: 0 up to max_frequency_hz
@@ -63,6 +68,9 @@ class GradientSpectrum:
     max_frequency_hz: float
     window_s: float
     frequency_oversampling: float
+
+    __eq__ = fields_equal
+    __hash__ = None  # type: ignore[assignment]
 
 
 def _read_only(spectrum: GradientSpectrum) -> GradientSpectrum:

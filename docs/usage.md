@@ -61,6 +61,12 @@ These rules apply to all the modules:
   changed, for example after `add_block`.
   A change that keeps both (a block replaced in place) is not seen: make a new
   sequence object for it. The other functions keep nothing.
+- **Equality.** `PnsLevels`, `GradientSpectrum` and `Series` compare by value:
+  `==` compares each field, an array by its dtype, its shape and its values (a
+  NaN equals a NaN). They are not hashable. `SequenceIndex` and
+  `BlockGradientValues` compare by identity: two objects are equal only when
+  they are one object. The other frozen dataclasses (for example
+  `GradientLimits` and `PnsInterval`) have the `==` of `dataclasses`.
 
 ## 1. `seq_index`: the block table
 
@@ -235,6 +241,12 @@ level_max_percent = levels.level_max_hz_per_t / abs(gamma) * 100  # a new array
 
 The dicts `hw`, `axis_peaks_hz_per_t` and `above` are plain dicts. Do not
 change them.
+
+`==` compares two `PnsLevels` by the values of their fields: the arrays by
+dtype, shape and values, and the dicts with their keys in order. Thus the same
+thresholds in another order give a result that is not equal. The read-only
+flag does not count, so a copy from `pickle` or `copy.deepcopy` equals the
+original. A `PnsLevels` is not hashable.
 
 `PnsInterval`, a frozen dataclass: `start_s` and `end_s` (the times of the
 first and the last sample), `peak_hz_per_t` (the largest total, in Hz/T),
@@ -523,6 +535,10 @@ the number of blocks or the ID of the last block changed, for example after
 for it. All the callers share the kept result. For this reason, each array of
 a `GradientSpectrum` is read-only, also for `NO_GRADIENTS`: a change in place
 raises `ValueError`.
+
+`==` compares two `GradientSpectrum` objects by the values of their fields, as
+for a `PnsLevels` (section 3), not by identity. A `GradientSpectrum` is not
+hashable.
 
 The spectrum is in Hz/m/√Hz, the unit of the gradients of a `.seq` file, with
 no gamma. Thus the spectrum depends only on the sequence. To get the unit with
