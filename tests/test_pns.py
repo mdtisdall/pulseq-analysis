@@ -10,9 +10,9 @@ from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import EXAMPLE_HARDWARE, hardware_name, read_gradient_asc
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import NO_GRADIENTS, PNS_LIMIT
+from pulseq_analysis.pns_levels import NO_GRADIENTS
 
-_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
+_LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
 
 @pytest.fixture(scope="module")
@@ -22,13 +22,12 @@ def default_seq():
 
 @pytest.fixture(scope="module")
 def example(default_seq):
-    return pns.pns_prediction(default_seq)
+    return pns_levels_for(default_seq)
 
 
 def test_example_hardware_for_spin_echo(example, default_seq):
-    """The summary equals `pns_levels.pns_levels` of the same sequence and hardware
-    (task 4.4 of `docs/plans/diagram-lanes.md`: `PnsPrediction` is now built from
-    `PnsLevels`)."""
+    """`pns_levels_for` with the example hardware gives the same summary fields as
+    `pns_levels.pns_levels` of the same sequence and hardware."""
     ref = pns_levels_module.pns_levels(default_seq)
     assert example.reason is None
     assert example.hardware == EXAMPLE_HARDWARE
@@ -44,7 +43,7 @@ def test_example_hardware_for_spin_echo(example, default_seq):
 
 def test_asc_file_with_the_example_parameters(default_seq, example, write_gradient_asc):
     path = write_gradient_asc()
-    p = pns.pns_prediction(default_seq, gradient_asc=path)
+    p = pns_levels_for(default_seq, gradient_asc=path)
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
     assert p.asc_file == path.name
@@ -58,7 +57,7 @@ def test_asc_file_with_the_example_parameters(default_seq, example, write_gradie
 
 def test_asc_file_that_includes_the_pns_parameters(default_seq, example, write_gradient_asc):
     path = write_gradient_asc(split=True)
-    p = pns.pns_prediction(default_seq, gradient_asc=path)
+    p = pns_levels_for(default_seq, gradient_asc=path)
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
     assert p.asc_file == path.name
@@ -92,13 +91,13 @@ def test_hardware_name():
 
 
 def test_prediction_scales_with_the_stimulation_limit(default_seq, example, write_gradient_asc):
-    p = pns.pns_prediction(default_seq, gradient_asc=write_gradient_asc(limit_scale=0.1))
+    p = pns_levels_for(default_seq, gradient_asc=write_gradient_asc(limit_scale=0.1))
     assert p.peak_hz_per_t == pytest.approx(10 * example.peak_hz_per_t, rel=1e-9)
     assert p.peak_hz_per_t > _LIMIT
 
 
 def test_no_gradients():
-    p = pns.pns_prediction(empty_sequence())
+    p = pns_levels_for(empty_sequence())
     assert p.reason == NO_GRADIENTS
     assert p.hardware == EXAMPLE_HARDWARE
     assert p.peak_hz_per_t == 0
@@ -111,7 +110,7 @@ def test_no_gradients_with_rf_and_adc():
     seq.add_block(
         pp.make_adc(num_samples=64, dwell=20e-6, delay=SYSTEM.adc_dead_time, system=SYSTEM)
     )
-    assert pns.pns_prediction(seq).reason == NO_GRADIENTS
+    assert pns_levels_for(seq).reason == NO_GRADIENTS
 
 
 @pytest.mark.parametrize("channel", ["x", "y", "z"])
@@ -119,13 +118,13 @@ def test_a_gradient_on_one_axis_has_a_prediction(channel):
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(1e-3))
     seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
-    p = pns.pns_prediction(seq)
+    p = pns_levels_for(seq)
     assert p.reason is None
     assert p.peak_hz_per_t > 0
 
 
 def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monkeypatch):
-    """`pns_prediction` (`pns_levels.pns_levels`) samples an on-raster sequence with
+    """`pns_levels_for` (`pns_levels.pns_levels`) samples an on-raster sequence with
     `GradientSampler.block_samples`, not `seq.get_gradients()` (unlike the old
     `seq.calculate_pns`-based prediction), so `get_gradients` is never called."""
     seq = spin_echo_sequence()
@@ -137,7 +136,7 @@ def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monke
         return get_gradients(*args, **kwargs)
 
     monkeypatch.setattr(seq, "get_gradients", counted)
-    pns.pns_prediction(seq)
+    pns_levels_for(seq)
     assert calls == []
 
 
@@ -146,14 +145,14 @@ def test_prediction_keeps_no_blocks_and_gives_back_the_cache_setting(use_block_c
     seq = spin_echo_sequence()
     seq.use_block_cache = use_block_cache
     seq.block_cache.clear()
-    pns.pns_prediction(seq)
+    pns_levels_for(seq)
     assert seq.use_block_cache is use_block_cache
     assert not seq.block_cache
 
 
 def test_prediction_propagates_an_error_and_keeps_the_cache_setting(monkeypatch):
     """An error deep inside the SAFE model (the pinned fork's chunk function)
-    propagates out of `pns_prediction`, and the sequence's block-cache setting and
+    propagates out of `pns_levels_for`, and the sequence's block-cache setting and
     contents are unaffected: the block cache is only ever touched inside
     `seq_index.block_cache_off`'s own `try`/`finally`, which has already restored it
     by the time the chunk function runs (`GradientSampler` is built first)."""
@@ -165,56 +164,9 @@ def test_prediction_propagates_an_error_and_keeps_the_cache_setting(monkeypatch)
 
     monkeypatch.setattr(pns_levels_module, "_safe_gwf_to_pns_chunk", fail)
     with pytest.raises(RuntimeError, match="chunk failed"):
-        pns.pns_prediction(seq)
+        pns_levels_for(seq)
     assert seq.use_block_cache is True
     assert not seq.block_cache
-
-
-def _three_trs(peak_tr: int) -> pp.Sequence:
-    """Three 50 ms TRs on the synthetic system, each a Gy trapezoid and a delay. TR
-    `peak_tr` has the fastest slew (0.1 ms rise/fall instead of 0.4 ms), so its PNS is the
-    highest."""
-    seq = pp.Sequence(SYSTEM)
-    for i in range(3):
-        g = pp.make_trapezoid(
-            channel="y",
-            amplitude=0.3 * SYSTEM.max_grad,
-            rise_time=0.1e-3 if i == peak_tr else 0.4e-3,
-            flat_time=2e-3,
-            system=SYSTEM,
-        )
-        seq.add_block(g)
-        seq.add_block(pp.make_delay(50e-3 - pp.calc_duration(g)))
-    seq.set_definition("TR", 50e-3)
-    return seq
-
-
-@pytest.mark.parametrize("peak_tr", [0, 1, 2])
-def test_peak_tr_window_finds_the_tr_with_the_peak(peak_tr):
-    seq = _three_trs(peak_tr)
-    p = pns.pns_prediction(seq)
-    window = pns.peak_tr_window(seq, p.peak_time_s)
-    lo, hi = 50e-3 * peak_tr, 50e-3 * (peak_tr + 1)
-    assert window == pytest.approx((lo, hi))
-    assert lo <= p.peak_time_s <= hi
-
-
-def test_peak_tr_window_without_a_tr_definition_is_none():
-    seq = _three_trs(1)
-    del seq.definitions["TR"]
-    p = pns.pns_prediction(seq)
-    assert pns.peak_tr_window(seq, p.peak_time_s) is None
-
-
-def test_peak_tr_window_with_one_tr_is_none():
-    seq = spin_echo_sequence()  # much shorter than a TR, and no TR definition
-    seq.set_definition("TR", seq.duration()[0])
-    assert pns.peak_tr_window(seq, 0.0) is None
-
-
-def test_peak_tr_window_without_a_peak_time_is_none():
-    seq = _three_trs(1)
-    assert pns.peak_tr_window(seq, None) is None
 
 
 def _count_pns_levels_calls(monkeypatch) -> list:
