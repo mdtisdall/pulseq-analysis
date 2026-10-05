@@ -69,3 +69,5 @@ fraction of the stimulation limit.
   plan of the gradient spectrum analysis (`0.1.0rc4`).
 - [`docs/plans/gamma-free-units.md`](docs/plans/gamma-free-units.md): the
   plan of the values with no gamma (`0.1.0rc5`).
+- [`docs/reviews/2026-10-04-code-review.md`](docs/reviews/2026-10-04-code-review.md):
+  a review of the code at `0.1.0rc5`, with the findings to fix.
