@@ -40,12 +40,12 @@ from pulseq_analysis.grad_spectrum import (
     gradient_spectrum_for,
 )
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import PNS_LIMIT, pns_levels
+from pulseq_analysis.pns_levels import pns_levels
 from pulseq_analysis.seq_index import sequence_index
 from pulseq_analysis.series import Series, SeriesKind
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
-_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
+_LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
 # The specification of each analysis of the package: the ID, `params`, `rasters` and `cost`.
 _SPECS = [

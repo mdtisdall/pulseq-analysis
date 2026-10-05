@@ -60,11 +60,6 @@ NO_GRADIENTS = "no gradients"
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
-# The stimulation limit of the SAFE model, as a fraction: a fraction of 1 is 100 %. A PNS
-# value of this module is the fraction times abs(gamma), in Hz/T, so the limit for a gamma
-# is PNS_LIMIT * abs(gamma). It is not a default: `thresholds_hz_per_t` of `pns_levels` is
-# in Hz/T, and its default is no threshold.
-PNS_LIMIT = 1.0
 
 
 @dataclass(frozen=True)
@@ -168,10 +163,11 @@ def pns_levels(
 
     `thresholds_hz_per_t` is a tuple of the totals, in Hz/T, whose intervals
     `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
-    `f * abs(gamma)` (`PNS_LIMIT * abs(gamma)` is the limit). The default is `()`: no
-    threshold and no interval. Each is a finite `int` or `float` above 0 (not a `bool`), and
-    no two are equal as floats. Else ValueError, before the sequence is read. The keys of
-    `PnsLevels.above` are `float(t)`, in the order of `thresholds_hz_per_t`.
+    `f * abs(gamma)` (the stimulation limit is the fraction 1, so the limit is
+    `abs(gamma)`). The default is `()`: no threshold and no interval. Each is a finite
+    `int` or `float` above 0 (not a `bool`), and no two are equal as floats. Else
+    ValueError, before the sequence is read. The keys of `PnsLevels.above` are `float(t)`,
+    in the order of `thresholds_hz_per_t`.
 
     The model is `calc_pns` of the pinned fork, on other samples:
 
@@ -197,7 +193,7 @@ def pns_levels(
        stored bin holds every total of its samples.
     5. The summary: the peak (float64), the axis peaks, and the peak time: the time
        `(k + 0.5) * dt` of the first sample whose total is at or above
-       `peak * (1 - PEAK_TOLERANCE)`, as `PnsPrediction.peak_time_s`. The peak is
+       `peak * (1 - PEAK_TOLERANCE)`, as `PnsLevels.peak_time_s`. The peak is
        known only at the end, so `pns_levels` keeps the start state of each chunk
        (12 numbers) and the float64 maximum of each chunk, and runs again only the
        first chunk whose maximum reaches `peak * (1 - PEAK_TOLERANCE)`.

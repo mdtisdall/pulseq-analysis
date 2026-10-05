@@ -28,7 +28,6 @@ from pulseq_analysis.pns_levels import (
     CHUNK_SAMPLES,
     NO_GRADIENTS,
     PEAK_TOLERANCE,
-    PNS_LIMIT,
     PnsInterval,
     PnsLevels,
     _cast_outward,
@@ -39,7 +38,7 @@ from pulseq_analysis.pns_levels import (
 from pulseq_analysis.seq_index import sequence_index
 
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
-_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
+_LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
 
 def _hw_dict(hw_ns) -> dict:

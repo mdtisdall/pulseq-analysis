@@ -3,36 +3,12 @@ measurements.
 
 `gradient_offsets` and `gradient_points` give the corner or sample points of a gradient
 event, the points that `grad_limits` and `sampling` join with straight lines.
-`hold_samples` gives the samples of an RF event on a regular raster. It is for a caller
-that measures or draws the RF (pulseq-reports, for example).
 """
-
-from types import SimpleNamespace
 
 import numpy as np
 
 # The tolerance of a comparison of two times. A segment shorter than this has no slope.
 TIME_TOLERANCE = 1e-9  # s
-
-
-def hold_samples(rf: SimpleNamespace, raster: float) -> tuple[np.ndarray, float]:
-    """RF samples (Hz, complex), each held for dt (s).
-
-    A shape with uniform samples that fill shape_dur is used as it is. Other shapes,
-    for example a block pulse with samples at its start and end, are interpolated
-    linearly at the centers of raster intervals.
-    """
-    t = np.asarray(rf.t, dtype=float)
-    signal = np.asarray(rf.signal, dtype=complex)
-    if len(t) > 1:
-        dt = t[1] - t[0]
-        uniform = np.allclose(np.diff(t), dt, rtol=1e-6, atol=TIME_TOLERANCE)
-        if uniform and abs(len(t) * dt - rf.shape_dur) <= TIME_TOLERANCE:
-            return signal, dt
-    n = max(1, round(rf.shape_dur / raster))
-    dt = rf.shape_dur / n
-    centers = (np.arange(n) + 0.5) * dt
-    return np.interp(centers, t, signal.real) + 1j * np.interp(centers, t, signal.imag), dt
 
 
 def gradient_offsets(g) -> tuple[float, np.ndarray, np.ndarray]:

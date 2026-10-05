@@ -219,38 +219,6 @@ limits with the gamma of `SYSTEM`, so the two must be equal.
 
 **Assumptions:** `SYSTEM` leaves `gamma` at the default of pypulseq's `Opts`.
 
-#### `test_hold_samples_keeps_uniform_shapes_unchanged`
-
-**Checks:** An RF shape with uniform samples that fill the pulse duration is
-used as it is.
-
-**How:** The test makes a 3 ms sinc pulse. It checks that the sample times
-are uniform and that the number of samples times the step is the pulse
-duration. It then gets the held samples, and checks that the sample time and
-the sample values are the same as the pulse's own.
-
-**Assumptions:**
-
-- pypulseq's sinc pulse has uniform samples that fill its duration. The test
-  checks that before it tests the helper.
-
-#### `test_hold_samples_interpolates_a_block_pulse`
-
-**Checks:** A block pulse, which has samples only at its start and end, is
-resampled on the RF raster with the correct number of samples, the correct
-duration, and the correct flip angle.
-
-**How:** The test makes a 2 ms, 60° block pulse. It checks that the pulse has
-only two samples, which do not fill the duration. It gets the held samples on
-the RF raster, and checks that the number of samples is the duration divided
-by the raster, that the samples fill the duration, and that the sum of the
-samples times the sample time is 60° as a fraction of a cycle (1/6).
-
-**Assumptions:**
-
-- The flip angle in cycles is the sum of B1 (Hz) × dt, which is correct for a
-  pulse with constant phase.
-
 #### `test_gradient_offsets_trapezoid`
 
 **Checks:** `gradient_offsets` gives the delay and the four corner offsets and
@@ -363,7 +331,8 @@ whose total is at or above each threshold of the `thresholds_hz_per_t` argument
 no threshold); and `bin_samples_for`, which picks the bin size. A PNS value of
 `pns_levels` is in Hz/T: the fraction of the stimulation limit times the magnitude of
 gamma, because the model runs on the Hz/m samples and reads no gamma. The test file
-defines `_LIMIT = PNS_LIMIT * GAMMA_1H`, the stimulation limit for 1H in Hz/T, and gives a
+defines `_LIMIT = GAMMA_1H`, the stimulation limit for 1H in Hz/T (a fraction of 1 times
+`GAMMA_1H`), and gives a
 threshold or a comparison as a fraction times `_LIMIT`. The reference for most tests is
 `seq.calculate_pns` of the pinned fork
 (decision 6 of section 2.2 of the plan: this project does not test pypulseq itself,
@@ -401,7 +370,7 @@ test also tests it.
 `pp.make_extended_trapezoid` blocks on x, the second continuing the first's
 amplitude with no step, so `add_block` accepts the junction). The reference peak,
 peak time (the first sample at or above `peak * (1 - PEAK_TOLERANCE)`, as
-`PnsPrediction.peak_time_s`) and axis peaks come from
+`PnsLevels.peak_time_s`) and axis peaks come from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(seq)`'s fields
 are compared with `pytest.approx`: the
 peak and axis peaks (`peak_hz_per_t` and `axis_peaks_hz_per_t`, each divided by
@@ -2205,29 +2174,24 @@ that the groups are those of `np.unique(..., axis=0)`.
 
 **Assumptions:** int64 arithmetic of numpy wraps around without an error.
 
-### 2.7 PNS prediction (`test_pns.py`)
+### 2.7 The kept PNS levels (`test_pns.py`)
 
-`test_pns.py` tests `pns.py`. `PnsPrediction` is now summary-only (`reason`,
-`hardware`, `asc_file`, `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t`; no `t_s`,
-`norm` or `axes`), built by `pns_prediction` from `pns_levels_for(seq,
-gradient_asc=...)` — the SAFE model itself (`pns_levels.pns_levels`, the pinned
-pypulseq fork's chunked SAFE recursion) has moved there. `pns_levels_for`
-keeps one `PnsLevels` for each (sequence object, hardware, thresholds), the hardware
-being the example hardware, the resolved path of the gradient `.asc`
-file, or a `hardware` pair `(struct, label)` (its key is the label and the 27
-values of the struct, so two pairs with the same label and values are one
-hardware), and the rule of `seq_index.sequence_index` for staleness (all are
-rebuilt when the number of blocks or the last block id changes), so that a page with both the PNS summary card and the
-diagram's PNS lane for one sequence runs the SAFE model once. The thresholds of the key are
-the tuple of `float(t)`, so an `int` threshold and the equal `float` are one key, and the
-default `()` is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit
-times the magnitude of gamma). The test file defines `_LIMIT = PNS_LIMIT * GAMMA_1H`, the
-stimulation limit for 1H in Hz/T.
-`peak_tr_window` is the start and end of the TR that holds the
-prediction's peak, counted from the sequence start in steps of the TR
-definition. Without a gradient `.asc` file, the prediction uses pypulseq's
-example hardware, which is not a real scanner. The tests of `hardware` are the last
-ones of this section.
+`test_pns.py` tests `pns.py`, which holds `pns_levels_for`. It gives the `PnsLevels` of a
+sequence: the summary fields (`reason`, `hardware`, `asc_file`, `peak_hz_per_t`,
+`peak_time_s`, `axis_peaks_hz_per_t`) and the level. The SAFE model itself
+(`pns_levels.pns_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs there.
+`pns_levels_for` keeps one `PnsLevels` for each (sequence object, hardware, thresholds),
+the hardware being the example hardware, the resolved path of the gradient `.asc` file, or
+a `hardware` pair `(struct, label)` (its key is the label and the 27 values of the struct,
+so two pairs with the same label and values are one hardware), so that a caller that needs
+the PNS of one sequence more than once runs the SAFE model once. `_kept.py` says when the
+kept results are made again (section 2.12). The thresholds of the key are the tuple of
+`float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
+is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
+magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
+1H in Hz/T (a fraction of 1 times `GAMMA_1H`). Without a gradient `.asc` file, the result
+uses pypulseq's example hardware, which is not a real scanner. The tests of `hardware`
+are the last ones of this section.
 
 The real `.asc` files are confidential, so the tests write a test `.asc` file
 with the PNS parameters of pypulseq's example hardware, with the
@@ -2238,12 +2202,7 @@ CRLF line ends and the name in `asCOMP[0].tName`, which includes a
 `_GSWD_SAFETY.asc` file with the PNS parameters under `GradPatSup.Phys.PNS`.
 
 Most of the tests use the synthetic spin echo sequence
-(`tests/synthetic.py`'s `spin_echo_sequence`). The `peak_tr_window` tests use
-a three-TR sequence built in this file (`_three_trs`): three 50 ms TRs, each a
-y trapezoid on the synthetic system and a delay, with a TR definition of
-50 ms. One of the three TRs (the "peak TR") has a 0.1 ms rise and fall time,
-against 0.4 ms for the others, so its faster slew rate gives it the highest
-PNS.
+(`tests/synthetic.py`'s `spin_echo_sequence`).
 
 **Assumptions for the whole file:**
 
@@ -2251,16 +2210,15 @@ PNS.
   result or with a scanner.
 - No test uses the parameters of a real scanner. A PNS value for the
   synthetic sequences on the scanner is not tested.
-- A faster slew rate gives a higher PNS prediction. The SAFE model is driven
-  by the slew rate, so this is expected but not calculated in the tests.
 
 #### `test_example_hardware_for_spin_echo`
 
 **Checks:** For the synthetic spin echo sequence on the example hardware, the summary
-equals `pns_levels.pns_levels` of the same sequence and hardware, is below the
-stimulation limit, and is highest on y.
+fields of `pns_levels_for` equal those of `pns_levels.pns_levels` of the same sequence
+and hardware, are below the
+stimulation limit, and are highest on y.
 
-**How:** The test runs the prediction without an `.asc` file (the module-scoped
+**How:** The test calls `pns_levels_for` without an `.asc` file (the module-scoped
 `example` fixture) and, separately, `pns_levels.pns_levels` on the same sequence
 object. It checks that there is no reason, that the hardware is the example hardware,
 and that there is no `.asc` file name. It checks that the axis peaks are keyed x, y and
@@ -2272,18 +2230,18 @@ The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t
 
 - "Below the limit" is for the example hardware only.
 - The crushers (on y) give the synthetic sequence's highest per-axis PNS. This was
-  checked against a direct run of the prediction, not derived by hand.
-- `pns_prediction` and a fresh `pns_levels.pns_levels` call on the same sequence and
+  checked against a direct run of the model, not derived by hand.
+- `pns_levels_for` and a fresh `pns_levels.pns_levels` call on the same sequence and
   hardware give bit-identical numbers (no randomness in the pipeline), so the
   comparison is exact equality, not a tolerance.
 
 #### `test_asc_file_with_the_example_parameters`
 
 **Checks:** An `.asc` file with the example hardware's parameters gives the same
-prediction as the example hardware, and the file's hardware name and file name.
+result as the example hardware, and the file's hardware name and file name.
 
-**How:** The test writes a test `.asc` file with scale factor 1 and runs the
-prediction with it. There must be no reason, the hardware name must be the name in the
+**How:** The test writes a test `.asc` file with scale factor 1 and calls
+`pns_levels_for` with it. There must be no reason, the hardware name must be the name in the
 file, and the file name must be the name of the file. `peak_hz_per_t`, `peak_time_s` and
 each axis of `axis_peaks_hz_per_t` must equal the example hardware's own summary within a
 relative 10⁻⁹.
@@ -2296,11 +2254,11 @@ relative 10⁻⁹.
 #### `test_asc_file_that_includes_the_pns_parameters`
 
 **Checks:** A main `.asc` file that includes the PNS parameters from a second file
-with `$INCLUDE` gives the same prediction as the example hardware, and the hardware
+with `$INCLUDE` gives the same result as the example hardware, and the hardware
 name in `asCOMP[0].tName`.
 
 **How:** The test writes a test `.asc` file with the scanner layout and scale factor
-1, and runs the prediction with the main file. There must be no reason, the hardware
+1, and calls `pns_levels_for` with the main file. There must be no reason, the hardware
 name must be the name in the main file, and the file name must be the name of the main
 file. `peak_hz_per_t`, `peak_time_s` and each axis of `axis_peaks_hz_per_t` must equal the
 example hardware's own summary within a relative 10⁻⁹.
@@ -2351,21 +2309,21 @@ cases and checks the name.
 
 #### `test_prediction_scales_with_the_stimulation_limit`
 
-**Checks:** A stimulation limit 10 times lower gives a prediction 10 times
+**Checks:** A stimulation limit 10 times lower gives a peak 10 times
 higher, above the limit.
 
-**How:** The test writes a test `.asc` file with scale factor 0.1 and runs the
-prediction. The peak must be 10 times the example hardware peak within a
+**How:** The test writes a test `.asc` file with scale factor 0.1 and calls
+`pns_levels_for`. The peak must be 10 times the example hardware peak within a
 relative 10⁻⁹, and more than `_LIMIT`.
 
 **Assumptions:**
 
-- In the SAFE model, the prediction is inversely proportional to the
+- In the SAFE model, the result is inversely proportional to the
   stimulation limit.
 
 #### `test_no_gradients`
 
-**Checks:** A sequence without gradients has no prediction, with the reason
+**Checks:** A sequence without gradients has no PNS result, with the reason
 "no gradients", a peak of 0 and no peak time.
 
 **How:** The test makes the synthetic sequence with only a delay block
@@ -2376,8 +2334,8 @@ name, the peak and the peak time.
 
 #### `test_no_gradients_with_rf_and_adc`
 
-**Checks:** A sequence with RF and ADC events but no gradient events has no
-prediction, with the reason "no gradients".
+**Checks:** A sequence with RF and ADC events but no gradient events has no PNS
+result, with the reason "no gradients".
 
 **How:** The test makes a sequence with a block pulse block and an ADC block,
 and checks the reason.
@@ -2391,7 +2349,7 @@ and checks the reason.
 #### `test_a_gradient_on_one_axis_has_a_prediction`
 
 **Checks:** A sequence with a gradient on one axis only, x, y or z, has a
-prediction.
+PNS result.
 
 **How:** For each axis, the test makes a sequence with a delay block and a
 trapezoid block on that axis. There must be no reason, and the peak must be
@@ -2404,10 +2362,10 @@ more than 0.
 
 #### `test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence`
 
-**Checks:** The prediction never calls `seq.get_gradients()` for an on-raster sequence.
+**Checks:** `pns_levels_for` never calls `seq.get_gradients()` for an on-raster sequence.
 
 **How:** The test replaces `get_gradients` of a synthetic spin echo sequence with a
-wrapper that counts the calls, and runs the prediction. There must be no calls.
+wrapper that counts the calls, and calls `pns_levels_for`. There must be no calls.
 
 **Assumptions:**
 
@@ -2416,32 +2374,32 @@ wrapper that counts the calls, and runs the prediction. There must be no calls.
   was the old, now-removed, implementation, which is why the old test expected exactly
   one call). `test_pns_levels.py` and `test_sampling.py` test `block_samples` and its
   agreement with `sample`/`get_gradients()` directly; this test only checks that the
-  fast path is actually taken from `pns_prediction`.
+  fast path is actually taken from `pns_levels_for`.
 
 #### `test_prediction_keeps_no_blocks_and_gives_back_the_cache_setting`
 
-**Checks:** The prediction does not fill pypulseq's block cache, and the
-cache setting of the sequence is the same after the prediction.
+**Checks:** `pns_levels_for` does not fill pypulseq's block cache, and the
+cache setting of the sequence is the same after the call.
 
 **How:** For `use_block_cache` True and False, the test sets it on a
-synthetic spin echo sequence, empties `seq.block_cache`, and runs the
-prediction. After it, `use_block_cache` must have the same value and
+synthetic spin echo sequence, empties `seq.block_cache`, and calls
+`pns_levels_for`. After it, `use_block_cache` must have the same value and
 `seq.block_cache` must be empty.
 
 **Assumptions:**
 
 - `calculate_pns` reads every block with `get_block`, which keeps each block
   in `seq.block_cache` when `use_block_cache` is True. An empty cache after
-  the prediction shows that the cache was off while it ran.
+  the call shows that the cache was off while it ran.
 
 #### `test_prediction_propagates_an_error_and_keeps_the_cache_setting`
 
-**Checks:** An error deep inside the SAFE model propagates out of `pns_prediction`, and
+**Checks:** An error deep inside the SAFE model propagates out of `pns_levels_for`, and
 the sequence's block-cache setting and contents are unaffected.
 
 **How:** The test sets `use_block_cache` to True on a synthetic spin echo sequence and
 replaces `pns_levels._safe_gwf_to_pns_chunk` (the pinned fork's chunk function) with a
-function that raises `RuntimeError`. The prediction must raise the error,
+function that raises `RuntimeError`. The call must raise the error,
 `use_block_cache` must be True and `seq.block_cache` must be empty afterward.
 
 **Assumptions:**
@@ -2450,54 +2408,8 @@ function that raises `RuntimeError`. The prediction must raise the error,
   `try`/`finally`, which has already restored `use_block_cache` by the time the chunk
   function runs (`GradientSampler` is built, with the block cache off, before the
   chunk loop starts). So this test checks that the error propagates and that nothing
-  else in `pns_levels_for`/`pns_prediction` touches the cache setting outside that
+  else in `pns_levels_for` touches the cache setting outside that
   narrower guarantee, not that the guarantee itself is new.
-
-#### `test_peak_tr_window_finds_the_tr_with_the_peak`
-
-**Checks:** For each position of the peak TR (first, second or third) in the
-three-TR sequence, `peak_tr_window` returns that whole TR, and the
-prediction's peak time is inside it.
-
-**How:** For peak TR k = 0, 1 and 2, the test builds `_three_trs(k)`, runs the
-prediction, and calls `peak_tr_window` with the peak time. The window must be
-50k s to 50(k + 1) ms (converted to seconds), and the peak time must be
-inside it.
-
-**Assumptions:**
-
-- TRs are counted from the start of the sequence, in steps of the TR
-  definition.
-
-#### `test_peak_tr_window_without_a_tr_definition_is_none`
-
-**Checks:** Without a TR definition, `peak_tr_window` returns None.
-
-**How:** The test builds the three-TR sequence, removes its TR definition,
-runs the prediction, and calls `peak_tr_window` with the peak time. The
-result must be None.
-
-**Assumptions:** None.
-
-#### `test_peak_tr_window_with_one_tr_is_none`
-
-**Checks:** When the sequence is not longer than one TR, `peak_tr_window`
-returns None.
-
-**How:** The test takes the synthetic spin echo sequence, whose duration is
-much less than a TR, and sets its TR definition to its own duration exactly.
-`peak_tr_window` with any peak time must return None.
-
-**Assumptions:** None.
-
-#### `test_peak_tr_window_without_a_peak_time_is_none`
-
-**Checks:** With no peak time (`None`), `peak_tr_window` returns None.
-
-**How:** The test builds the three-TR sequence and calls `peak_tr_window`
-with `peak_time_s=None`. The result must be None.
-
-**Assumptions:** None.
 
 #### `test_pns_levels_for_keeps_one_result_for_each_asc_file`
 
@@ -2961,7 +2873,7 @@ the real registry uses the entry points that `uv sync` installs from `pyproject.
 tests of the series use `gre_sequence(num_trs=20)` with the example hardware of pypulseq, with
 the stimulation limit multiplied so that the peak is 1.5 times `_LIMIT`, so that the total is
 above `_LIMIT` in several runs (`hardware_for_peak` of `tests/pns_hardware.py`). `_LIMIT` is
-`PNS_LIMIT * GAMMA_1H`, the stimulation limit for 1H in Hz/T: a PNS value and a threshold are
+`GAMMA_1H`, the stimulation limit for 1H in Hz/T (a fraction of 1 times `GAMMA_1H`): a PNS value and a threshold are
 in Hz/T. The test of the spectrum series
 uses `spin_echo_sequence()`.
 

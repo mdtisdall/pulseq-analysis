@@ -40,15 +40,15 @@ The SAFE PNS peak of a `.seq` file:
 ```python
 import pypulseq as pp
 
-from pulseq_analysis.pns import pns_prediction
+from pulseq_analysis.pns import pns_levels_for
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
 seq = pp.Sequence()
 seq.read("sequence.seq")
-prediction = pns_prediction(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
-fraction = prediction.peak_hz_per_t / abs(gamma)
-print(f"{fraction:.0%} of the stimulation limit at {prediction.peak_time_s:.4f} s")
+levels = pns_levels_for(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
+fraction = levels.peak_hz_per_t / abs(gamma)
+print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```
 
 `gradient_asc` is the Siemens gradient `.asc` file of the scanner. Without

@@ -24,7 +24,7 @@ Contents:
 | `pulseq_analysis.pns` and `pulseq_analysis.pns_levels` | The SAFE PNS prediction. |
 | `pulseq_analysis.grad_spectrum` | The spectrum of the gradients (section 7). |
 | `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. |
-| `pulseq_analysis.seq_utils` | The points of one gradient event, the samples of one RF event, and the constant. |
+| `pulseq_analysis.seq_utils` | The points of one gradient event, and the constant. |
 | `pulseq_analysis.asc` | The read of a Siemens gradient `.asc` file. |
 | `pulseq_analysis.extensions` | The refusal of the Pulseq extensions that the measurements do not support. |
 | `pulseq_analysis.series` | `Series`, the form of a value that can go into JSON, and the encoding of an array. |
@@ -203,8 +203,7 @@ another order are another kept result, because the order of `above` is the
 order of `thresholds_hz_per_t`. `pns_levels.pns_levels` has the same
 arguments, and keeps nothing.
 
-`pns_levels.PNS_LIMIT` is the stimulation limit as a fraction (1.0). In Hz/T,
-the limit is `PNS_LIMIT * abs(gamma)`. `PNS_LIMIT` is not a default.
+The stimulation limit is the fraction 1. In Hz/T, the limit is `abs(gamma)`.
 
 The model runs on the Hz/m samples of the gradients, and reads no gamma. A PNS
 value is in Hz/T: the fraction of the stimulation limit times |γ|. pypulseq's
@@ -224,7 +223,7 @@ the output of the model for that axis, and the total of a sample is
 | `hardware`, `asc_file` | The name of the hardware, and the name of the `.asc` file or `None`. |
 | `hw` | The SAFE parameters of each axis that the model used (a dict from `"x"`, `"y"` and `"z"` to a dict). |
 | `dt_s`, `num_samples` | The time step and the number of samples. |
-| `peak_hz_per_t` | The largest total, in Hz/T. The limit is `pns_levels.PNS_LIMIT * abs(gamma)`. |
+| `peak_hz_per_t` | The largest total, in Hz/T. The limit is `abs(gamma)`. |
 | `peak_time_s` | The time of the first sample whose total is within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. |
 | `axis_peaks_hz_per_t` | A dict from each axis to its largest value, in Hz/T. |
 | `above` | A dict from each threshold (`float(t)`, in the order of `thresholds_hz_per_t`) to a tuple of `PnsInterval`, in time order: each run of consecutive samples whose float64 total is at or above that threshold. A tuple is empty when `peak_hz_per_t` is below its threshold, and otherwise its largest `PnsInterval.peak_hz_per_t` is `peak_hz_per_t`. All thresholds are found in one pass. Without thresholds, `above` is `{}`. |
@@ -264,12 +263,6 @@ struct, in the order of `safe_example_hw` and `asc_to_hw`. pulseq-checks makes
 the `hardware` argument from a target profile (see the `docs/usage.md` of
 pulseq-checks).
 
-For a report, `pns.pns_prediction(seq, *, gradient_asc=None) -> PnsPrediction`
-gives the summary only (`reason`, `hardware`, `asc_file`, `peak_hz_per_t`,
-`peak_time_s` and `axis_peaks_hz_per_t`, in Hz/T), and
-`pns.peak_tr_window(seq, peak_time_s)` gives the start and end of the TR that
-holds a time (from the `TR` definition of the file), or `None`.
-
 ## 4. The other modules
 
 `sampling.GradientSampler(seq, index)` gives the gradient waveform of one axis
@@ -304,7 +297,6 @@ block is within `sampling.ON_RASTER_TOLERANCE` samples of a whole number.
 |---|---|
 | `gradient_offsets(g)` | The delay, and the times after the delay and the amplitudes (Hz/m) of the points of the gradient event `g`. |
 | `gradient_points(g, t0)` | The times (`t0` + delay + offset) and the amplitudes of the points of `g`. |
-| `hold_samples(rf, raster)` | The complex samples (Hz) of the RF event `rf`, each held for one time step, and that time step. |
 | `TIME_TOLERANCE` | 1e-9 s. A line shorter than this has no slope. |
 
 `asc.read_gradient_asc(path)` gives the fields of a Siemens gradient `.asc`
@@ -470,12 +462,11 @@ To use an analysis by its ID:
 
 ```python
 from pulseq_analysis.analyses import registry
-from pulseq_analysis.pns_levels import PNS_LIMIT
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
 analysis = registry()["pns.safe.levels"]
-levels = analysis.compute(seq, thresholds_hz_per_t=(PNS_LIMIT * abs(gamma), 0.8 * abs(gamma)))
+levels = analysis.compute(seq, thresholds_hz_per_t=(abs(gamma), 0.8 * abs(gamma)))
 series = analysis.to_series(levels)
 ```
 
@@ -587,12 +578,12 @@ pypulseq's `Opts` also converts with `abs(gamma)`.
 | Amplitudes: `AxisResult.peak_hz_per_m`, `AxisResult.rms_hz_per_m`, `GradientLimits.vector_peak_hz_per_m`, `GradientLimits.whole_rms_hz_per_m`, `BlockGradientValues.peak_hz_per_m`, `BlockGradientValues.vector_peak_hz_per_m` | Hz/m | T/m (times 1e3: mT/m) | 1 mT/m is 42 576 Hz/m |
 | Slew rates: `AxisResult.max_slew_hz_per_m_per_s`, `BlockGradientValues.slew_hz_per_m_per_s`, `BlockGradientValues.junction_hz_per_m_per_s` | Hz/m/s | T/m/s | 1 T/m/s is 4.2576 × 10⁷ Hz/m/s |
 | The spectrum: `GradientSpectrum.axes`, `GradientSpectrum.rss`, the series `gradient_spectrum` | Hz/m/√Hz | T/m/√Hz (times 1e3: mT/m/√Hz) | 1 Hz/m/√Hz is 2.3487 × 10⁻⁵ mT/m/√Hz |
-| PNS: `PnsLevels.peak_hz_per_t`, `PnsLevels.axis_peaks_hz_per_t`, `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t`, `PnsInterval.peak_hz_per_t`, `PnsPrediction.peak_hz_per_t`, `PnsPrediction.axis_peaks_hz_per_t`, the series `pns_total` and `pns_above_<k>` | Hz/T | The fraction of the stimulation limit (1 is 100 %) | The limit is 4.2576 × 10⁷ Hz/T |
+| PNS: `PnsLevels.peak_hz_per_t`, `PnsLevels.axis_peaks_hz_per_t`, `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t`, `PnsInterval.peak_hz_per_t`, the series `pns_total` and `pns_above_<k>` | Hz/T | The fraction of the stimulation limit (1 is 100 %) | The limit is 4.2576 × 10⁷ Hz/T |
 
 **The thresholds, an input.** `thresholds_hz_per_t` of `pns_levels`,
 `pns_levels_for` and `pns.safe.levels` is in Hz/T. For a fraction f of the
-stimulation limit, give `f * abs(gamma)`. `pns_levels.PNS_LIMIT` is the limit
-as a fraction (1.0). The keys of `PnsLevels.above` and `meta["threshold"]` of
+stimulation limit, give `f * abs(gamma)`. The limit is the fraction 1, so it is
+`abs(gamma)`. The keys of `PnsLevels.above` and `meta["threshold"]` of
 `pns_above_<k>` are the Hz/T values that you gave.
 
 **The values with no gamma.** The times (each name that ends in `_s`), the
@@ -615,8 +606,8 @@ Thus the `Opts` of a target gives limits in the units of the values.
 
 ```python
 from pulseq_analysis.grad_limits import gradient_limits
-from pulseq_analysis.pns import pns_prediction
-from pulseq_analysis.pns_levels import PNS_LIMIT, pns_levels
+from pulseq_analysis.pns import pns_levels_for
+from pulseq_analysis.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
@@ -624,9 +615,9 @@ limits = gradient_limits(seq)
 peak_mt_per_m = limits.axes["x"].peak_hz_per_m / abs(gamma) * 1e3
 slew_t_per_m_per_s = limits.axes["x"].max_slew_hz_per_m_per_s / abs(gamma)
 
-fraction = pns_prediction(seq).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
+fraction = pns_levels_for(seq).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
 
-limit_hz_per_t = PNS_LIMIT * abs(gamma)
+limit_hz_per_t = abs(gamma)
 levels = pns_levels(seq, thresholds_hz_per_t=(limit_hz_per_t,))
 runs = levels.above[limit_hz_per_t]  # the runs at or above the limit
 ```
