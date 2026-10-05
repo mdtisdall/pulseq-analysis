@@ -160,7 +160,9 @@ with limits: a caller that has the limits of a scanner compares them.
 `block_gradient_values(seq) -> BlockGradientValues` gives the same values for
 each block, not only the largest, in the same units. The largest of each array
 is the value of `gradient_limits` for the whole file, and its first play index
-is the block of that value. It reads no block with `get_block`.
+is the block of that value. It reads one block with `get_block` for each
+unique gradient event, and no other block. `gradient_limits` does the same, and
+also reads the blocks that a window edge cuts.
 
 `BlockGradientValues`, a frozen dataclass. Each array has N entries, in play
 order. A dict has the keys `"x"`, `"y"` and `"z"`, each with an array.
