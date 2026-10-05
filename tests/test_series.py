@@ -8,6 +8,7 @@ import base64
 import gzip
 import json
 from dataclasses import replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -125,6 +126,23 @@ def test_series_refuses_a_bad_field(overrides, error):
     `TypeError` or `ValueError`."""
     with pytest.raises(error):
         _samples(**overrides)
+
+
+def test_a_coordinate_field_accepts_a_numpy_float_and_a_fraction():
+    """`coord_start`, `coord_step` and `coord_end` take any real number that is not a bool:
+    a numpy float and a `Fraction` become a `float`."""
+    s = _samples(coord_start=np.float32(0.5), coord_step=Fraction(1, 4))
+    e = _samples(
+        kind=SeriesKind.ENVELOPE,
+        arrays={"min": np.zeros(2), "max": np.ones(2)},
+        coord_end=np.float64(2.0),
+    )
+
+    assert (s.coord_start, s.coord_step) == (0.5, 0.25)
+    assert type(s.coord_start) is float
+    assert type(s.coord_step) is float
+    assert e.coord_end == 2.0
+    assert type(e.coord_end) is float
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 
+from ._equality import fields_equal
 from ._kept import _Entry, kept_results
 
 # The columns of a row of `seq.block_events`.
@@ -41,6 +42,9 @@ class SequenceIndex:
     The arrays are read-only (`writeable` is False): all callers share the index that
     `sequence_index` keeps, so a change in place would change it for all of them. A caller
     that needs a writable array makes a copy, for example `np.array(index.start_s)`.
+
+    Two indexes are equal when each field is equal (`_equality.values_equal`), for example
+    two indexes of two reads of one file. An index is not hashable.
     """
 
     num_blocks: int
@@ -57,6 +61,20 @@ class SequenceIndex:
     grad_first: np.ndarray  # int64, K_grad: the same for gradient event k + 1
     grad_first_axis: np.ndarray  # uint8, K_grad: 0, 1 or 2 for gx, gy or gz in that block
     adc_first: np.ndarray  # int64, K_adc
+
+    __eq__ = fields_equal
+    __hash__ = None  # type: ignore[assignment]
+
+
+# The `reason` values of the results: the sequence has no gradient event, or no gradient
+# event in the window.
+NO_GRADIENTS = "no gradients"
+NO_GRADIENTS_IN_WINDOW = "no gradients in the window"
+
+
+def has_gradients(index: SequenceIndex) -> bool:
+    """Whether `index` has a gradient event on any axis."""
+    return bool(index.gx.any() or index.gy.any() or index.gz.any())
 
 
 # One index for each sequence object, under the key "index" of its kept results.

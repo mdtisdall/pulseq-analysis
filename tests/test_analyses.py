@@ -125,8 +125,8 @@ def test_two_analyses_with_one_id_raise_an_error_that_names_both_packages(monkey
     _install_entry_points(
         monkeypatch,
         [
-            _EntryPoint("x", _analysis("t.a"), package="pkg-one"),
-            _EntryPoint("y", _analysis("t.a"), package="pkg-two"),
+            _EntryPoint("t.a", _analysis("t.a"), package="pkg-one"),
+            _EntryPoint("t.a", _analysis("t.a"), package="pkg-two"),
         ],
     )
 
@@ -168,6 +168,24 @@ def test_an_entry_point_without_a_spec_id_raises_an_error_that_names_it(monkeypa
 
         assert "no-id" in str(excinfo.value)
         assert "pkg-x" in str(excinfo.value)
+
+
+def test_an_entry_point_whose_name_is_not_the_spec_id_raises_an_error_that_names_both(
+    monkeypatch,
+):
+    """An entry point whose name is not the `spec.id` of its object raises `RegistryError`
+    with the name of the entry point, the name of its package and the `spec.id`."""
+    _install_entry_points(
+        monkeypatch, [_EntryPoint("other.name", _analysis("t.a"), package="pkg-x")]
+    )
+
+    with pytest.raises(RegistryError) as excinfo:
+        registry()
+
+    message = str(excinfo.value)
+    assert "other.name" in message
+    assert "pkg-x" in message
+    assert "t.a" in message
 
 
 @pytest.mark.parametrize(

@@ -61,12 +61,26 @@ These rules apply to all the modules:
   (`seq.read`), and after a change of `seq.grad_raster_time`.
   A block replaced in place is not seen: make a new sequence object for it.
   The other functions keep nothing.
-- **Equality.** `PnsLevels`, `GradientSpectrum` and `Series` compare by value:
-  `==` compares each field, an array by its dtype, its shape and its values (a
-  NaN equals a NaN). They are not hashable. `SequenceIndex` and
-  `BlockGradientValues` compare by identity: two objects are equal only when
-  they are one object. The other frozen dataclasses (for example
-  `GradientPeaks` and `PnsInterval`) have the `==` of `dataclasses`.
+- **Equality.** `SequenceIndex`, `BlockGradientValues`, `PnsLevels`,
+  `GradientSpectrum` and `Series` compare by value: `==` compares each field,
+  an array by its dtype, its shape and its values (a NaN equals a NaN), and a
+  dict with its keys in order. They are not hashable. The other frozen
+  dataclasses (for example `GradientPeaks` and `PnsInterval`) have the `==` of
+  `dataclasses`.
+- **Read-only results.** A result can be shared (the kept results above), so
+  the arrays of a result are read-only (a change in place raises
+  `ValueError`), and the dicts of a result are `FrozenDict`s, subclasses of
+  `dict` that raise `TypeError` for a change. A `FrozenDict` equals a `dict`
+  with the same items in the same order, and `json.dumps`, `pickle` and
+  `copy.deepcopy` take it. Make a copy (`np.array(a)`, `dict(d)`) to change one.
+- **Number arguments.** A number argument (a threshold, `bin_s`, the
+  arguments of the spectrum, the ends of a `window`, a coordinate of a
+  `Series`) is a real number (`numbers.Real`, not a `bool`). A value of
+  another type raises `TypeError`. A value that is too large, not finite or
+  out of range raises `ValueError`.
+- **No result.** A result without a value has the `reason`
+  `seq_index.NO_GRADIENTS` ("no gradients"), or
+  `seq_index.NO_GRADIENTS_IN_WINDOW` for a window of `gradient_peaks`.
 
 ## 1. `seq_index`: the block table
 
@@ -77,7 +91,10 @@ order, and in one block in the order gx, gy, gz. The three gradient axes share
 one number space, so one event that plays on x and on y has one number.
 
 `SequenceIndex` is a frozen dataclass. N is the number of blocks, and K the
-number of unique events of one kind.
+number of unique events of one kind. Two indexes are equal (`==`) when each
+field is equal, an array by its dtype, its shape and its values: the indexes of
+two reads of one file are equal. An index is not hashable (`hash(index)` raises
+`TypeError`).
 
 | Field | Meaning |
 |---|---|
@@ -99,6 +116,12 @@ The arrays of a `SequenceIndex` are read-only: a change in place, such as
 `index.start_s[0] = 1.0`, raises `ValueError`. All callers share the index that
 `sequence_index` keeps for a sequence object, so a change would reach all of them.
 Make a copy to change one: `np.array(index.start_s)`.
+
+`has_gradients(index) -> bool` is true when the index has a gradient event on
+any axis. `seq_index.NO_GRADIENTS` (`"no gradients"`) and
+`seq_index.NO_GRADIENTS_IN_WINDOW` (`"no gradients in the window"`) are the
+two texts of a `reason` ([section 2](#2-grad_peaks-gradient-amplitude-and-slew)
+and the other results that have one).
 
 `rf_events(seq, index)`, `grad_events(seq, index)` and `adc_events(seq, index)`
 give `(number, event)` for each unique event, in the order of the numbers.
@@ -129,23 +152,32 @@ of 0 gives no block (`None`) and the time 0.0.
 
 `gradient_peaks(seq, *, window=None) -> GradientPeaks` gives the largest
 values over the whole file, or over `window = (start_s, end_s)`. A window must
-be in the sequence (each end within `seq_utils.TIME_TOLERANCE`) and have
-`start_s < end_s`, or the function raises `ValueError`. A line that crosses an
-end of the window is cut there. The values are in Hz/m and Hz/m/s, the units
-of pypulseq, with no gamma. To get T/m and T/m/s, divide them by |γ|
-([section 8](#8-units-and-gamma)). The function does not compare the values
+be a tuple or a list of two real numbers (an `int`, a `float` or a numpy real
+scalar; not a `bool`), in the sequence (each end within
+`seq_utils.TIME_TOLERANCE`), and have `start_s < end_s`. The function raises
+`TypeError` for a window that is not a pair, and for a start or an end that is
+a `bool` or not a real number. It raises `ValueError` for a start or an end
+that is NaN or an infinity (the message says "finite"), for a window with no
+start before its end, and for a window that is not in the sequence. A line
+that crosses an end of the window is cut there. The values are in Hz/m and
+Hz/m/s, the units of pypulseq, with no gamma. To get T/m and T/m/s, divide
+them by |γ| ([section 8](#8-units-and-gamma)). The function does not compare the values
 with limits: a caller that has the limits of a scanner compares them.
 
 `GradientPeaks`, a frozen dataclass:
 
 | Field | Meaning |
 |---|---|
-| `reason` | `None` when the range has a gradient event. Otherwise a short text (`"no gradient events in the sequence"`, or `"no gradient events in the window"`), each number is 0.0 (except `whole_rms_hz_per_m`) and each block is `None`. |
+| `reason` | `None` when the range has a gradient event. Otherwise `seq_index.NO_GRADIENTS` (no window) or `seq_index.NO_GRADIENTS_IN_WINDOW` (with a window), each number is 0.0 (except `whole_rms_hz_per_m`) and each block is `None`. |
 | `range_s` | The range of the measurement: `(0.0, end_s)`, or the window. |
-| `axes` | A dict from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
+| `axes` | A read-only dict (`_equality.FrozenDict`) from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector in the range (Hz/m). |
 | `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and the block ID of the block that has it. |
-| `whole_rms_hz_per_m` | With a window: a dict from each axis to its RMS over the whole file (Hz/m). `None` without a window. |
+| `whole_rms_hz_per_m` | With a window: a read-only dict (`FrozenDict`) from each axis to its RMS over the whole file (Hz/m). `None` without a window. |
+
+A `FrozenDict` is a `dict` (`isinstance(x, dict)`, `json.dumps` and `pickle`
+work) whose methods that change it raise `TypeError`. A result is shared by all
+its callers, so a change of a dict would change it for all of them.
 
 `AxisResult`, a frozen dataclass, for one axis:
 
@@ -167,7 +199,13 @@ block with `get_block` for each unique gradient event, and no other block.
 cuts.
 
 `BlockGradientValues`, a frozen dataclass. Each array has N entries, in play
-order. A dict has the keys `"x"`, `"y"` and `"z"`, each with an array.
+order. A dict has the keys `"x"`, `"y"` and `"z"`, each with an array. Each of
+the five dicts is a read-only `FrozenDict`, and each array is read-only and its
+own array (not a view of the index): `values.start_s[0] = 1.0` raises
+`ValueError`, and `values.peak_hz_per_m["x"] = ...` raises `TypeError`. Make a
+copy to change an array: `np.array(values.start_s)`. Two results are equal
+(`==`) when each field is equal, as for `SequenceIndex`; a result is not
+hashable.
 
 | Field | Meaning |
 |---|---|
@@ -201,9 +239,12 @@ example hardware, which is not a real scanner, make the pair with
 `safe_example_hw()` (in `pypulseq.utils.safe_pns_prediction`):
 `hardware=(safe_example_hw(), "a label")`. `thresholds_hz_per_t` is a tuple of the
 totals, in Hz/T, whose runs `PnsLevels.above` gives. It can be empty. Each
-element is a finite `int` or `float` above 0 (not a `bool`), and no two are
-equal as floats. Else `ValueError`, before the sequence is read. The default
-is `()`: `above` is `{}`. For a fraction f of the stimulation limit, give
+element is a finite real number above 0 (an `int`, a `float`, a `Fraction` or
+a numpy real scalar; not a `bool`), and no two are equal as floats. A value
+that is not a tuple, and an element that is a `bool` or not a real number,
+raise `TypeError`. An element that is not finite, not above 0 or too large for
+a float, and two elements that are equal as floats, raise `ValueError`. Both
+are raised before the sequence is read. The default is `()`: `above` is `{}`. For a fraction f of the stimulation limit, give
 `f * abs(gamma)` ([section 8](#8-units-and-gamma)). The same thresholds in
 another order are another kept result, because the order of `above` is the
 order of `thresholds_hz_per_t`. `pns_levels.pns_levels` has the same
@@ -217,8 +258,8 @@ gives bins of one sample. When the level would have more than
 `pns_levels.MAX_BINS` (2,000,000) bins, the bins are longer, so that the level
 has at most that many. `bin_s` is a finite `int` or `float` above 0 (any real
 number, not a `bool`). A `bool` or a value that is not a real number raises
-`TypeError`, and a value that is not finite or not above 0 raises
-`ValueError`, both before the sequence is read. Only the level depends on
+`TypeError`, and a value that is not finite, not above 0 or too large for a
+float raises `ValueError`, both before the sequence is read. Only the level depends on
 `bin_s`: the summary and the intervals do not. A different `bin_s` is another
 kept result, also when it gives the same `bin_samples`. The bin of a result is
 `bin_samples * dt_s`.
@@ -239,14 +280,14 @@ the output of the model for that axis, and the total of a sample is
 
 | Field | Meaning |
 |---|---|
-| `reason` | `pns_levels.NO_GRADIENTS` when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, the peaks are 0, `peak_time_s` is `None` and there are no bins and no intervals. |
+| `reason` | `pns_levels.NO_GRADIENTS` (the object `seq_index.NO_GRADIENTS`) when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, the peaks are 0, `peak_time_s` is `None` and there are no bins and no intervals. |
 | `hardware` | The label of the `hardware` pair. |
-| `hw` | The SAFE parameters of each axis that the model used (a dict from `"x"`, `"y"` and `"z"` to a dict). |
+| `hw` | The SAFE parameters of each axis that the model used (a read-only dict from `"x"`, `"y"` and `"z"` to a read-only dict). |
 | `dt_s`, `num_samples` | The time step and the number of samples. |
 | `peak_hz_per_t` | The largest total, in Hz/T. The limit is `abs(gamma)`. |
-| `peak_time_s` | The time of the first sample whose total is within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. |
-| `axis_peaks_hz_per_t` | A dict from each axis to its largest value, in Hz/T. |
-| `above` | A dict from each threshold (`float(t)`, in the order of `thresholds_hz_per_t`) to a tuple of `PnsInterval`, in time order: each run of consecutive samples whose float64 total is at or above that threshold. A tuple is empty when `peak_hz_per_t` is below its threshold, and otherwise its largest `PnsInterval.peak_hz_per_t` is `peak_hz_per_t`. All thresholds are found in one pass. Without thresholds, `above` is `{}`. |
+| `peak_time_s` | The time of the first sample whose total is within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. `None` when the peak is 0: with `NO_GRADIENTS`, and for gradients that all have the amplitude 0 (then the model does not run a second time to find the time). |
+| `axis_peaks_hz_per_t` | A read-only dict from each axis to its largest value, in Hz/T. |
+| `above` | A read-only dict from each threshold (`float(t)`, in the order of `thresholds_hz_per_t`) to a tuple of `PnsInterval`, in time order: each run of consecutive samples whose float64 total is at or above that threshold. A tuple is empty when `peak_hz_per_t` is below its threshold, and otherwise its largest `PnsInterval.peak_hz_per_t` is `peak_hz_per_t`. All thresholds are found in one pass. Without thresholds, `above` is `{}`. |
 | `bin_samples`, `level_min_hz_per_t`, `level_max_hz_per_t` | The level, for a plot: read-only float32 arrays with the minimum and the maximum total of each bin of `bin_samples` samples (the last bin can have fewer), in Hz/T. Each total of a bin is in `[level_min_hz_per_t, level_max_hz_per_t]` of the bin. |
 | `on_raster` | `True` when the duration of each block is a whole number of samples. Otherwise the samples come from the waveform of the whole file at the same times (`GradientSampler.sample`). |
 
@@ -267,8 +308,12 @@ levels = pns_levels_for(seq, hardware=hardware)
 level_max_percent = levels.level_max_hz_per_t / abs(gamma) * 100  # a new array
 ```
 
-The dicts `hw`, `axis_peaks_hz_per_t` and `above` are plain dicts. Do not
-change them.
+The dicts `hw` (the outer dict and each inner dict), `axis_peaks_hz_per_t` and
+`above` are `_equality.FrozenDict`s: read-only subclasses of `dict`. A change
+(`d[key] = x`, `del d[key]`, `update`, `pop` and the like) raises `TypeError`.
+They are still `dict`s for `isinstance`, `json.dumps`, `pickle` and
+`copy.deepcopy`, and a `FrozenDict` equals a `dict` with the same items. To
+change one, make a plain dict: `dict(levels.hw)`.
 
 `==` compares two `PnsLevels` by the values of their fields: the arrays by
 dtype, shape and values, and the dicts with their keys in order. Thus the same
@@ -345,7 +390,7 @@ It is a frozen dataclass:
 |---|---|
 | `name` | A short, stable name, not empty, for example `"pns_total"`. |
 | `kind` | A `SeriesKind` (below). |
-| `unit` | The unit of the values, for example `"1"` (a fraction), `"mT/m"` or `"s"`. |
+| `unit` | The unit of the values, for example `"Hz/T"`, `"Hz/m"` or `"s"`. |
 | `coord_unit` | The unit of the coordinate (below), not empty, for example `"s"` or `"Hz"`. It has no default. |
 | `arrays` | A dict from a name to a one-dimensional numpy array of a bool, integer, float or complex dtype. All arrays of one series have the same length. |
 | `coord_start`, `coord_step` | The coordinate of the first sample or bin, and the step of the coordinate (finite, above 0). |
@@ -389,6 +434,13 @@ unit gives the quantity of the coordinate (`"s"` is the time, `"Hz"` is the
 frequency, `"m"` is a position). When the unit does not give all of it, for
 example which position, the analysis puts it in `meta`.
 
+`coord_start`, `coord_step` and `coord_end` are checked with `_validate.real`:
+a `bool` or a value that is not a `numbers.Real` is a `TypeError` (an `int`, a
+`float`, a `fractions.Fraction` and a numpy real scalar are valid), and an
+`int` too large for a `float` is a `ValueError`. A float that is not finite is
+valid in these three fields, except that `coord_step` must be finite and above
+0. Each is a `float` after the check.
+
 A `Series` raises `TypeError` for a value of a wrong type and `ValueError` for
 a wrong value. It keeps its own dicts and a read-only copy of each array, in
 native byte order, so a change to the caller's dicts or arrays does not change
@@ -429,8 +481,10 @@ A package gives its analyses as entry points of the group
 `pulseq_analysis.analyses` (`analyses.GROUP`). The name of an entry point is
 the ID, and its object is the analysis. `analyses.registry()` gives a dict
 from each installed ID to its analysis. Two analyses with one ID, an entry
-point that cannot load, and an object with no `spec.id` raise
-`analyses.RegistryError`, with the names of the packages.
+point that cannot load, an object with no `spec.id`, and an entry point whose
+name is not the `spec.id` of its object raise `analyses.RegistryError`, with
+the names of the packages (and, for the name that is not the `spec.id`, the
+name of the entry point and the `spec.id`).
 
 The analyses of this package (each `version` is 1):
 
@@ -448,7 +502,7 @@ the default `pns_levels.BIN_S` ([section 3](#3-pns-and-pns_levels-safe-pns)).
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 
 `to_series` of `pns.safe.levels` gives `()` for a sequence with no gradient
-event (`NO_GRADIENTS`). Else it gives:
+event (`reason == NO_GRADIENTS`, the constant of `seq_index`). Else it gives:
 
 | Name | Kind | Unit | `coord_unit` | Arrays | `meta` |
 |---|---|---|---|---|---|
@@ -476,7 +530,8 @@ needs other values calls `gradient_spectrum_for` with them. This is as
 `gradient.peaks`, which has no `window`.
 
 `to_series` of `gradient.spectrum` gives `()` for a sequence with no gradient
-event (`NO_GRADIENTS`). Else it gives one series:
+event (`reason == NO_GRADIENTS`, the constant of `seq_index`). Else it gives one
+series:
 
 | Name | Kind | Unit | `coord_unit` | Arrays | `meta` |
 |---|---|---|---|---|---|
@@ -524,9 +579,9 @@ method is that of pypulseq's `calculate_gradient_spectrum`:
 
 | Field | Meaning |
 |---|---|
-| `reason` | `grad_spectrum.NO_GRADIENTS` when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, `frequency_hz` and `rss` are empty and `axes` is `{}`. |
+| `reason` | `grad_spectrum.NO_GRADIENTS` (the object `seq_index.NO_GRADIENTS`) when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, `frequency_hz` and `rss` are empty and `axes` is empty. |
 | `frequency_hz` | float64, F: the frequencies, from 0 to the highest frequency. |
-| `axes` | A dict from `"x"`, `"y"` and `"z"` to a float64 array of F values in Hz/m/√Hz. |
+| `axes` | A read-only dict (`_equality.FrozenDict`, a subclass of `dict`) from `"x"`, `"y"` and `"z"` to a float64 array of F values in Hz/m/√Hz. |
 | `rss` | float64, F: the RSS of the three axes, in Hz/m/√Hz. |
 | `max_frequency_hz`, `window_s`, `frequency_oversampling` | The arguments of the call, as floats. The series of `gradient.spectrum` gives them in its `meta`. |
 
@@ -542,10 +597,11 @@ GradientSpectrum` measures the whole sequence. `gradient_spectrum_for(seq, *,
 | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0) | `frequency_oversampling` | The length of the FFT is `round(frequency_oversampling * nwin)`, where `nwin = round(window_s / dt)` is the number of samples of a window. |
 
 The three arguments are keyword-only. A value that the function refuses
-raises `ValueError`, or `TypeError` for a value that is not a number or is a
+raises `ValueError`, or `TypeError` for a value that is not a real number (an
+`int`, a `float`, a `Fraction` or a numpy real scalar are valid) or is a
 `bool`. The function raises before it reads the blocks. The rules:
 
-- Each argument is a finite number.
+- Each argument is a finite number, and not too large for a float.
 - `window_s` is above 0, and `nwin` is 2 or more at the gradient raster of the
   file.
 - `frequency_oversampling` is 1 or more.
@@ -573,7 +629,8 @@ result for each set of the three arguments. It builds the result again after
 A block replaced in place is not seen: make a new sequence object for it. All
 the callers share the kept result. For this reason, each array of
 a `GradientSpectrum` is read-only, also for `NO_GRADIENTS`: a change in place
-raises `ValueError`.
+raises `ValueError`. `axes` is a `FrozenDict`: a change of the dict raises
+`TypeError`.
 
 `==` compares two `GradientSpectrum` objects by the values of their fields, as
 for a `PnsLevels` (section 3), not by identity. A `GradientSpectrum` is not

@@ -417,6 +417,30 @@ def test_pns_levels_for_refuses_a_bad_bin_s_before_any_work(monkeypatch, bin_s, 
         pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
 
 
+@pytest.mark.parametrize(
+    ("thresholds", "error"),
+    [
+        pytest.param([1.0], TypeError, id="list"),
+        pytest.param((True,), TypeError, id="bool"),
+        pytest.param(("1.0",), TypeError, id="string"),
+        pytest.param((0.0,), ValueError, id="zero"),
+        pytest.param((1.0, 1.0), ValueError, id="equal floats"),
+    ],
+)
+def test_pns_levels_for_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds, error):
+    """`pns_levels_for` raises `TypeError` for thresholds that are not a tuple or have a
+    `bool` or a value that is not a real number, and `ValueError` for a value not above 0
+    or a repeat, before the sequence is read and before the kept results are read."""
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("the sequence was read")
+
+    monkeypatch.setattr(pns, "kept_results", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    with pytest.raises(error, match="threshold"):
+        pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
+
+
 def test_pns_levels_for_shares_a_read_only_result():
     """Two callers of `pns_levels_for` get the same kept result. A change in place of its
     level by the first caller raises `ValueError`, and the second caller gets the level as

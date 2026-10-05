@@ -32,7 +32,7 @@ Contents:
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
    the PNS levels, and the gradient peaks); the series; the analyses and their registry;
-   the gradient spectrum; the kept results
+   the gradient spectrum; the kept results; the number arguments
 
 ---
 
@@ -722,22 +722,36 @@ to 19 bins (`_chunk_across_an_interval` fails if there is none).
 
 #### `test_pns_levels_refuses_bad_thresholds_before_any_work`
 
-**Checks:** `pns_levels` raises `ValueError` for `thresholds_hz_per_t` that is not a tuple
-(a list, a float, `None`), has a `bool`, has an element that is not an `int` or a `float`
-(a string, `None`, a NumPy `float32`), has an element that is not finite (NaN, the two
-infinities, an `int` too large for a float) or not above 0 (0 and a negative number), or
-has two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)` and a pair that is not
-next to each other). The refusal is before the sequence is read.
+**Checks:** `pns_levels` raises `TypeError` for `thresholds_hz_per_t` that is not a tuple
+(a list, a float, `None`) or has an element that is a `bool` or not a real number (a
+string, `None`, a complex number). It raises `ValueError` for an element that is not
+finite (NaN, the two infinities, an `int` too large for a float) or not above 0 (0 and a
+negative number), or for two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)`,
+a pair that is not next to each other, a NumPy `float32` and the equal `float`). The
+refusal is before the sequence is read.
 
-**How:** Parametrized on the value. The test replaces `refuse_rotations` and
-`sequence_index` of `pulseq_analysis.pns_levels` with functions that raise
+**How:** Parametrized on the value and the error. The test replaces `refuse_rotations`
+and `sequence_index` of `pulseq_analysis.pns_levels` with functions that raise
 `RuntimeError`, and calls `pns_levels(spin_echo_sequence(), thresholds_hz_per_t=value)` inside
-`pytest.raises(ValueError, match="threshold")`. A `RuntimeError` would show that the work
+`pytest.raises(error, match="threshold")`. A `RuntimeError` would show that the work
 started before the check. The empty tuple is not a case: it is valid (the default).
 
 **Assumptions:** `pns_levels` calls `refuse_rotations` and `sequence_index` as module
 globals, so the replacements are used when it reads the sequence.
 
+
+#### `test_pns_levels_takes_numpy_and_fraction_thresholds`
+
+**Checks:** A threshold that is a NumPy real scalar (`float32`, `int64`) or a `Fraction` is valid. The
+keys of `above` are `float(t)` (type `float`) in the order given, and the result equals the
+result of the same thresholds as floats.
+
+**How:** `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=(np.float32(0.3 *
+_LIMIT), np.int64(12_345_678), Fraction(1, 3) * _LIMIT))`. The test checks `list(above)`
+against `[float(t) ...]`, the type of the keys, and `assert_levels_equal` (`ignore=()`)
+against the call with the thresholds as floats.
+
+**Assumptions:** None.
 #### `test_pns_levels_refuses_a_bad_bin_s_before_any_work`
 
 **Checks:** `pns_levels` raises `TypeError` (the message names `bin_s`) for a `bin_s` that
@@ -820,6 +834,54 @@ give a writable array, and `levels.level_max_hz_per_t` must not change.
 
 **Assumptions:** None.
 
+
+#### `test_the_dicts_of_the_levels_are_read_only_frozen_dicts`
+
+**Checks:** `hw` (the outer dict and each of its three inner dicts), `axis_peaks_hz_per_t` and `above`
+are `FrozenDict`s and `dict`s, also for a sequence without gradients. A change of an item,
+a new key, a deletion and `update` raise `TypeError`, and the dict stays as it was.
+
+**How:** Parametrized on the spin echo and the sequence without gradients, with
+`thresholds_hz_per_t=(_LIMIT,)`. The helper `_every_dict` lists the 6 dicts. For each:
+`isinstance` of `FrozenDict` and of `dict`, then `d[key] = 0.0`, `d["new"] = 0.0`,
+`del d[key]` and `d.update(...)` in `pytest.raises(TypeError)`, then `d == dict_before`.
+
+**Assumptions:** None.
+
+#### `test_the_levels_from_pickle_and_deepcopy_equal_the_original`
+
+**Checks:** A `PnsLevels` from `pickle` or `copy.deepcopy` is equal to the original, and all its dicts
+are `FrozenDict`s.
+
+**How:** A GRE of 4 TRs with two thresholds. `pickle.loads(pickle.dumps(levels))` and
+`copy.deepcopy(levels)`: not the same object, `==`, and `isinstance(d, FrozenDict)` for the
+six dicts.
+
+**Assumptions:** None.
+
+#### `test_the_reason_without_gradients_is_the_object_of_seq_index`
+
+**Checks:** `pns_levels.NO_GRADIENTS` and `grad_spectrum.NO_GRADIENTS` are `seq_index.NO_GRADIENTS`
+(one object), and the `reason` of a `PnsLevels` without gradients is it.
+
+**How:** Three `is` assertions, the last on `pns_levels(empty_sequence(),
+hardware=EXAMPLE_HW).reason`.
+
+**Assumptions:** None.
+
+#### `test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_run`
+
+**Checks:** A sequence whose only gradient is a trapezoid of the amplitude 0 has `reason` None, a peak
+of 0 and axis peaks of 0, `peak_time_s` None, and an empty tuple for a threshold. The model
+runs one time for each chunk, and not a second time for the peak time.
+
+**How:** `pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3)` in one block.
+`CHUNK_SAMPLES` is set to 1 (a chunk of one bin), and `_chunk_total` is replaced by a
+recorder. The number of calls must equal `ceil(num_samples / bin_samples)`, which is more
+than 3.
+
+**Assumptions:** `pns_levels` calls `_chunk_total` as a module global. pypulseq accepts a
+trapezoid with `amplitude=0`.
 #### `test_levels_compare_by_value`
 
 **Checks:** `==` compares two `PnsLevels` by the values of their fields, also with more
@@ -1106,6 +1168,29 @@ there are twelve. For each, it checks the flag. For an array with elements it wr
 one value inside `pytest.raises(ValueError)`. It then copies the array and checks that
 the copy is writable (and takes a write when it has elements). An empty array has no
 element to write, so only its flag is checked.
+
+**Assumptions:** None.
+
+#### `test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable`
+
+**Checks:** Two `SequenceIndex` of two equal sequences are equal by value, the index of another
+sequence is not equal, and an index is not hashable.
+
+**How:** The test builds `gre_sequence()` two times and takes `sequence_index` of each: two
+objects, and `==` is true. The index of `gre_sequence(num_trs=5)` and the index of the spin
+echo are `!=` to the first. `hash(index)` is in `pytest.raises(TypeError)`.
+
+**Assumptions:** None.
+
+#### `test_has_gradients_is_true_only_for_an_index_with_a_gradient_event`
+
+**Checks:** `has_gradients(index)` is True for an index with a gradient event on any axis, and
+False for an index with none.
+
+**How:** Parametrized over six sequences: the synthetic spin echo; one `make_trapezoid` block
+on x, on y and on z; one delay block; and `empty_sequence`. The test checks
+`has_gradients(sequence_index(seq)) is expected`: True for the first four, False for the last
+two.
 
 **Assumptions:** None.
 
@@ -1790,13 +1875,13 @@ the block's own gradient event. It checks that the x axis peak matches (Hz/m).
 
 #### `test_no_gradients_sets_reason`
 
-**Checks:** A sequence with no gradient events at all gives a set `reason`,
+**Checks:** A sequence with no gradient at all gives a set `reason`,
 and every numeric field is its zero value: 0.0 for an amplitude, slew or RMS
 field, and None for a block field.
 
 **How:** The test builds a sequence with one delay block and no gradients, and
 calls `gradient_peaks`. It checks that `reason` is
-"no gradient events in the sequence", that the vector peak and its time are
+`seq_index.NO_GRADIENTS`, that the vector peak and its time are
 0.0, and that every axis's peak, slew and RMS are 0.0 with `peak_block` and
 `slew_block` both None.
 
@@ -1964,7 +2049,7 @@ junction still uses it.
 **How:** The test builds an x extended trapezoid ending at 90% of the largest step
 `add_block` accepts, followed by a delay block with no gradient. It calls
 `gradient_peaks` with a window from partway into the delay block to its end, and
-checks that `reason` is "no gradient events in the window", the x slew is 0.0, and
+checks that `reason` is `seq_index.NO_GRADIENTS_IN_WINDOW`, the x slew is 0.0, and
 `slew_block` is None. It then calls `gradient_peaks` with a window that starts
 exactly at the junction (the end of the trapezoid block) and checks that the x slew
 equals the ending value divided by `grad_raster_time` and is credited to the delay
@@ -2191,13 +2276,77 @@ extension")`.
 
 **Assumptions:** None.
 
+
+#### `test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable`
+
+**Checks:** Two `BlockGradientValues` of two equal sequences are equal by value, another sequence
+gives an unequal result, and a result is not hashable.
+
+**How:** The test calls `block_gradient_values(gre_sequence())` two times: two objects, `==`
+true. The results for `gre_sequence(num_trs=5)` and for the spin echo are `!=`.
+`hash(result)` is in `pytest.raises(TypeError)`.
+
+**Assumptions:** None.
+
+#### `test_the_arrays_of_block_gradient_values_are_read_only_and_not_views_of_the_index`
+
+**Checks:** All 19 arrays of a `BlockGradientValues` (`block_id`, `start_s`, the vector peak and its
+time, and the 3 axes of each of the 5 dicts) are read-only, a copy is writable, and each
+array is its own: none shares memory with the kept `SequenceIndex` or with another array.
+
+**How:** For each array, a write of item 0 raises `ValueError` ("read-only"),
+`np.shares_memory` with `index.block_id` and `index.start_s` is False, `np.array(array)` is
+writable, and `np.shares_memory` is False for each pair of arrays.
+
+**Assumptions:** None.
+
+#### `test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_change`
+
+**Checks:** Each of the five dicts of a `BlockGradientValues` is a `FrozenDict` with the keys x, y and
+z that refuses a change.
+
+**How:** For each dict: `isinstance(d, FrozenDict)`, the keys are x, y and z, and `d["x"] = ...`,
+`del d["x"]` and `d.update(...)` each raise `TypeError`, and the keys are the same after.
+
+**Assumptions:** None.
+
+#### `test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change`
+
+**Checks:** `GradientPeaks.axes` is a `FrozenDict`, and `whole_rms_hz_per_m` is a `FrozenDict` with a
+window and None without, and each refuses a change.
+
+**How:** Parametrized with no window and with the window `(0.0, 1e-3)` on the spin echo. A set
+item and `clear` on `axes` raise `TypeError`. With a window, a set item and `pop` on
+`whole_rms_hz_per_m` raise `TypeError`.
+
+**Assumptions:** None.
+
+#### `test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients`
+
+**Checks:** The `reason` of a sequence with no gradient is `seq_index.NO_GRADIENTS`, and its `axes`
+is a `FrozenDict`.
+
+**How:** Parametrized: `empty_sequence()` (a delay block) and `pp.Sequence(SYSTEM)` with no
+blocks. `gradient_peaks(seq).reason == NO_GRADIENTS`.
+
+**Assumptions:** None.
+
+#### `test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window`
+
+**Checks:** For a sequence with gradients, a window that holds none has the `reason`
+`seq_index.NO_GRADIENTS_IN_WINDOW`, and the whole sequence has `reason` None.
+
+**How:** The test takes the spin echo, checks that block 0 (the RF block) has no gradient event,
+and calls `gradient_peaks` with the window from 0 to half the duration of block 0.
+
+**Assumptions:** None.
 #### `test_gradient_peaks_refuses_a_window_with_no_start_before_its_end`
 
 **Checks:** `gradient_peaks` raises `ValueError` for a `window` whose start is not
 before its end.
 
-**How:** The synthetic spin echo, with three cases: a start equal to the end, a start
-after the end, and a NaN start. Each call is in
+**How:** The synthetic spin echo, with two cases: a start equal to the end, and a start
+after the end. Each call is in
 `pytest.raises(ValueError, match="must have a start before its end")`.
 
 **Assumptions:** None.
@@ -2213,6 +2362,47 @@ an end of `total_duration + 2 * TIME_TOLERANCE`. Each call is in
 
 **Assumptions:** None.
 
+
+#### `test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite`
+
+**Checks:** `gradient_peaks` raises `ValueError` for a window with a start or an end that is NaN or an
+infinity, before the rules of the order and of the range.
+
+**How:** The synthetic spin echo, with four cases: a NaN start, a NaN end, an infinite end and a
+start of minus infinity. Each call is in `pytest.raises(ValueError, match="finite")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number`
+
+**Checks:** `gradient_peaks` raises `TypeError` for a window with a start or an end that is a `bool`,
+a string or None.
+
+**How:** The spin echo, with six cases (a `bool`, a `str` and `None`, each as the start and as the
+end), in `pytest.raises(TypeError, match="window (start|end)")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_peaks_refuses_a_window_that_is_not_a_pair`
+
+**Checks:** `gradient_peaks` raises `TypeError` for a window that is not a tuple or a list of two
+items.
+
+**How:** The spin echo, with six cases: 3 items, 1 item, no items, a number, a string and a set.
+Each call is in `pytest.raises(TypeError, match="must be a pair")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars`
+
+**Checks:** A window as a list, with an `int`, or with numpy scalars gives the result of the same
+window as a tuple of floats.
+
+**How:** The spin echo; the expected result is that of `(0.0, total / 2)`. The results for
+`[0.0, total / 2]`, `(0, np.float64(...))`, `(np.int64(0), np.float64(...))` and
+`(np.float64(0.0), np.float64(...))` are `==` to it.
+
+**Assumptions:** None.
 #### `test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence`
 
 **Checks:** `gradient_peaks` accepts a `window` that is outside the sequence by less
@@ -2646,6 +2836,19 @@ bin_s=value)` in `pytest.raises(error, match="bin_s")`.
 
 **Assumptions:** None.
 
+
+#### `test_pns_levels_for_refuses_bad_thresholds_before_any_work`
+
+**Checks:** `pns_levels_for` raises `TypeError` for thresholds that are a list, or that contain a
+`bool` or a string, and `ValueError` for 0 and for two equal values (the message names the
+threshold), before the sequence is read and before the kept results are read.
+
+**How:** Parametrized on the value and the error. The test replaces `pns.kept_results` and
+`pulseq_analysis.pns_levels.sequence_index` with functions that raise `RuntimeError`, and
+calls `pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=value)`
+in `pytest.raises(error, match="threshold")`.
+
+**Assumptions:** `pns_levels_for` calls `kept_results` as a global of `pulseq_analysis.pns`.
 #### `test_pns_levels_for_shares_a_read_only_result`
 
 **Checks:** Two callers of `pns_levels_for` get the same kept result. A change in place
@@ -2925,6 +3128,18 @@ trip, and `to_obj` keeps `coord_unit`.
 profile of pulseq-reports, which the tests do not import. A spectrum or a profile uses the
 same kinds as a time series.
 
+
+#### `test_a_coordinate_field_accepts_a_numpy_float_and_a_fraction`
+
+**Checks:** `coord_start`, `coord_step` and `coord_end` accept a NumPy float and a `Fraction` (each
+`numbers.Real` that is not a `bool`, the rule of `_validate.real`), and keep each as a
+Python `float`.
+
+**How:** A SAMPLES series with `coord_start=np.float32(0.5)` and `coord_step=Fraction(1, 4)`, and
+an ENVELOPE series with `coord_end=np.float64(2.0)`. Each field must be the Python `float`
+of its value.
+
+**Assumptions:** None.
 #### `test_encode_array_gives_the_same_text_each_time`
 
 **Checks:** One array encoded two times gives the same dict, a copy of it gives the same
@@ -3037,8 +3252,9 @@ this package).
 **Checks:** Two entry points whose analyses have the same ID raise `RegistryError`, and the
 message has the ID and the names of the two packages.
 
-**How:** The test makes two fake entry points with two analyses of the ID `t.a`, from the
-packages `pkg-one` and `pkg-two`, and checks the message of the error that `registry()`
+**How:** The test makes two fake entry points, both named `t.a`, with two analyses of the ID
+`t.a`, from the packages `pkg-one` and `pkg-two`, and checks the message of the error that
+`registry()` raises. The names are the ID, so the rule of the duplicate ID is the one that
 raises.
 
 **Assumptions:** None.
@@ -3063,6 +3279,16 @@ test makes one fake entry point and checks the message of the error that `regist
 
 **Assumptions:** None.
 
+
+#### `test_an_entry_point_whose_name_is_not_the_spec_id_raises_an_error_that_names_both`
+
+**Checks:** An entry point whose name is not the `spec.id` of its object raises `RegistryError`, and
+the message has the name of the entry point, the name of its package and the `spec.id`.
+
+**How:** The test makes a fake entry point named `other.name`, of the package `pkg-x`, whose
+analysis has the ID `t.a`, and checks the message of the error that `registry()` raises.
+
+**Assumptions:** None.
 #### `test_the_spec_of_each_analysis_has_the_documented_values`
 
 **Checks:** The ID, the version 1, `params`, `rasters` and `cost` of each analysis are the
@@ -3355,7 +3581,9 @@ peak must be within 2 % of `SINE_PEAK`.
 "no gradients", empty frequencies and RSS, and no axes.
 
 **How:** The test makes a sequence with only a block pulse. It checks the
-reason, that `frequency_hz` and `rss` have shape (0,), and that `axes` is `{}`.
+reason, that `frequency_hz` and `rss` have shape (0,), and that `axes` is `{}`. The
+reason is the object `seq_index.NO_GRADIENTS`, and `grad_spectrum.NO_GRADIENTS` is that
+object.
 
 **Assumptions:** None.
 
@@ -3512,6 +3740,18 @@ and `s.rss` must not change.
 
 **Assumptions:** None.
 
+
+#### `test_the_axes_of_a_spectrum_are_a_read_only_frozen_dict`
+
+**Checks:** `axes` is a `FrozenDict` and a `dict`, also for a sequence without gradients. A new key,
+an `update`, a change of an item and a deletion raise `TypeError`, and the keys stay as
+they were. A spectrum from `pickle` or `copy.deepcopy` is equal to the original, and its
+`axes` is a `FrozenDict`.
+
+**How:** Parametrized on the spin echo and the sequence without gradients:
+`gradient_spectrum(make_seq())`, then the checks above.
+
+**Assumptions:** None.
 #### `test_spectra_compare_by_value`
 
 **Checks:** `==` compares two `GradientSpectrum` objects by the values of their fields,
@@ -3645,6 +3885,80 @@ be equal. An object must not equal a string, and `fields_equal(a, "a")` must be
 
 **Assumptions:** None.
 
+#### `test_a_frozen_dict_refuses_each_change`
+
+**Checks:** Each method of `FrozenDict` that changes it raises `TypeError`, and the items
+stay as they were.
+
+**How:** One case for each of `__setitem__`, `__delitem__`, `clear`, `pop`, `popitem`,
+`setdefault`, `update` and `__ior__`, on `FrozenDict({"a": 1, "b": 2})`. Each must raise
+`TypeError` with "cannot be changed" in the message, and `dict(d)` must be the original.
+
+**Assumptions:** The test does not call the methods of `dict` that the class does not
+close through a C slot that Python code can reach in another way (for example
+`dict.__setitem__(d, ...)`): a program can always change a `dict` that way.
+
+#### `test_a_frozen_dict_reads_like_a_dict`
+
+**Checks:** A `FrozenDict` is a `dict` and reading works as for a `dict`.
+
+**How:** For `FrozenDict({"b": 1, "a": 2})`: `isinstance` of `dict`, `d["a"]`, `len`, `in`,
+the iteration order, `dict(d)`, `get` of a missing key, and equality with `FrozenDict(b=1,
+a=2)`.
+
+**Assumptions:** None.
+
+#### `test_a_frozen_dict_is_made_from_pairs_and_keywords`
+
+**Checks:** `FrozenDict(...)` takes the arguments of `dict`, so `dict.__init__` can fill it
+although `__setitem__` is closed.
+
+**How:** `FrozenDict([("a", 1)], b=2)` must hold `{"a": 1, "b": 2}`.
+
+**Assumptions:** CPython's `dict.__init__` does not call the overridden `__setitem__`.
+
+#### `test_a_frozen_dict_survives_pickle_and_copy`
+
+**Checks:** A copy from `pickle`, `copy.deepcopy` or `copy.copy` is an equal `FrozenDict`
+that still refuses changes.
+
+**How:** For each of the three, the copy of `FrozenDict({"a": 1, "b": (2.0, 3.0)})` must be
+of type `FrozenDict` (not a subclass, not a `dict`), have the same items in the same
+order, and raise `TypeError` for `c["a"] = 5`.
+
+**Assumptions:** None.
+
+#### `test_a_frozen_dict_is_written_by_json_as_an_object_and_is_not_hashable`
+
+**Checks:** `json.dumps` writes a `FrozenDict` as an object, and `hash` raises `TypeError`.
+
+**How:** `json.loads(json.dumps(d))` must equal the plain dict of the items. `hash(d)` must
+raise `TypeError`.
+
+**Assumptions:** None.
+
+#### `test_the_union_of_a_frozen_dict_is_a_plain_dict`
+
+**Checks:** `|` of a `FrozenDict` and a dict gives a new plain `dict`, in both orders, and
+does not change the `FrozenDict`.
+
+**How:** `d | {"b": 2}` and `{"b": 2} | d` must be of type `dict` (exactly) with the merged
+items, and `dict(d)` must be the original.
+
+**Assumptions:** None.
+
+#### `test_values_equal_does_not_separate_a_frozen_dict_from_a_dict`
+
+**Checks:** `values_equal` compares a `FrozenDict` and a `dict`, or two `FrozenDict`s, by
+the rules of two dicts.
+
+**How:** A `FrozenDict` with an array value and an int value is compared with a dict with
+the same items (equal), the same items in another order (not equal), another value (not
+equal) and another key (not equal). Each case runs in both orders and with the other
+dict made a `FrozenDict`. The `FrozenDict` and a list are not equal.
+
+**Assumptions:** None.
+
 ### 2.12 Kept results (`test_kept.py`)
 
 `test_kept.py` tests `_kept.py`, the rule that says when the kept results of a sequence
@@ -3743,3 +4057,74 @@ The `weakref` must be dead.
 
 - CPython collects the sequence at once, or in the `gc.collect()` call. The test does not
   cover another Python.
+
+### 2.13 Number arguments (`test_validate.py`)
+
+`test_validate.py` tests `_validate.real`, the one rule for the number arguments of the
+package. The tests call `real` with small values and do not use a result of the package.
+
+#### `test_real_returns_a_float`
+
+**Checks:** `real` accepts an int, a float, a numpy float64, float32 and int64, and a
+`fractions.Fraction`, and returns `float(value)`.
+
+**How:** One case for each type, and for a negative value and zero. The result must be of
+type `float` (exactly) and equal to the expected float.
+
+**Assumptions:** None.
+
+#### `test_real_refuses_a_value_that_is_not_a_real_number_with_type_error`
+
+**Checks:** A `bool`, a numpy bool, a string, `None`, a complex number and a list raise
+`TypeError`.
+
+**How:** `real("my_arg", value)` must raise `TypeError` with "my_arg must be a real number,
+not" in the message, and so must the call with `finite=False, positive=True`.
+
+**Assumptions:** None.
+
+#### `test_real_refuses_a_value_that_is_not_finite_with_value_error`
+
+**Checks:** With the default `finite=True`, NaN and the two infinities (also as a numpy
+float32) raise `ValueError`.
+
+**How:** `real("my_arg", value)` must raise `ValueError` with the name in the message.
+
+**Assumptions:** None.
+
+#### `test_real_with_finite_false_accepts_an_infinity_and_nan`
+
+**Checks:** With `finite=False`, an infinity and NaN are returned.
+
+**How:** `real` of `inf` and `-inf` must return them, and of NaN must return NaN.
+
+**Assumptions:** None.
+
+#### `test_real_refuses_an_int_too_large_for_a_float_with_value_error`
+
+**Checks:** An int that a float cannot hold raises `ValueError`, not `OverflowError`.
+
+**How:** `real` of `10**400` and, with `finite=False`, of `-(10**400)` must raise
+`ValueError` with the name in the message.
+
+**Assumptions:** None.
+
+#### `test_real_with_positive_refuses_zero_and_a_negative_value`
+
+**Checks:** With `positive=True`, a value not above 0 raises `ValueError`.
+
+**How:** The values 0, 0.0, -1, -0.5 and a numpy float32 -2.0 must each raise `ValueError`
+with the name in the message.
+
+**Assumptions:** None.
+
+#### `test_real_with_positive_accepts_a_positive_value_and_nan_is_not_positive`
+
+**Checks:** With `positive=True`, a small positive value is returned; with `finite=False`
+an infinity is returned and NaN raises `ValueError`.
+
+**How:** `real("x", 1e-300, positive=True)` must return `1e-300`. The infinity with
+`finite=False, positive=True` must return the infinity. NaN with the same arguments must
+raise `ValueError`.
+
+**Assumptions:** None.

@@ -14,7 +14,8 @@ The rules of `values_equal`:
   from `pickle` or `copy.deepcopy`) equals the read-only original.
 - Two dicts are equal when they have the same keys in the same order, and equal values.
   The order counts because it is part of the interface (`PnsLevels.above` follows the
-  order of the thresholds).
+  order of the thresholds). A `FrozenDict` and a `dict` are two dicts: the type rule below
+  does not separate them.
 - Two tuples or two lists are equal when they have the same length and equal elements.
 - Two dataclasses of the same class are equal when each pair of fields is equal.
 - Other values are equal when they have the same type and are equal by `==`, where a
@@ -22,9 +23,34 @@ The rules of `values_equal`:
 """
 
 import dataclasses
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
+
+
+class FrozenDict(dict):
+    """A `dict` that cannot be changed, for the dicts of a result.
+
+    The kept results (`_kept`) are shared by all callers, so a change of a dict of a result
+    would change it for all of them. `MappingProxyType` cannot be pickled, and it is not a
+    `dict`. A subclass of `dict` keeps `isinstance(x, dict)`, `json.dumps`, `pickle` and
+    `copy`. Each method that changes the dict raises `TypeError`. `|` gives a plain `dict`.
+    It is not hashable, as `dict`.
+    """
+
+    __slots__ = ()
+
+    def _refuse(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise TypeError("a FrozenDict of a result cannot be changed")
+
+    __setitem__ = __delitem__ = __ior__ = _refuse  # type: ignore[assignment]
+    clear = pop = popitem = setdefault = update = _refuse  # type: ignore[assignment]
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (FrozenDict, (dict(self),))
+
+    def __repr__(self) -> str:
+        return f"FrozenDict({dict.__repr__(self)})"
 
 
 def values_equal(a: Any, b: Any) -> bool:
@@ -37,10 +63,10 @@ def values_equal(a: Any, b: Any) -> bool:
             and a.shape == b.shape
             and bool(np.array_equal(a, b, equal_nan=a.dtype.kind in "fc"))
         )
+    if isinstance(a, dict) and isinstance(b, dict):
+        return list(a) == list(b) and all(values_equal(a[k], b[k]) for k in a)
     if type(a) is not type(b):
         return False
-    if isinstance(a, dict):
-        return list(a) == list(b) and all(values_equal(a[k], b[k]) for k in a)
     if isinstance(a, tuple | list):
         return len(a) == len(b) and all(values_equal(x, y) for x, y in zip(a, b, strict=True))
     if dataclasses.is_dataclass(a):

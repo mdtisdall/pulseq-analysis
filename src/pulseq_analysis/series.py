@@ -1,4 +1,5 @@
-"""`Series`: the JSON-ready form of an analysis value (design section 4.2).
+"""`Series`: the JSON-ready form of an analysis value (section 4.2 of the design in
+pulseq-checks, `docs/plans/pulseq-analysis.md`).
 
 A series is a named set of one-dimensional numpy arrays with a kind that says what the
 arrays mean. The coordinate of a series is the quantity of its horizontal axis, for example
@@ -37,6 +38,8 @@ from enum import Enum
 from typing import Any
 
 import numpy as np
+
+from ._validate import real
 
 # The strings that stand for a float that is not finite in the JSON form.
 _NON_FINITE = ("inf", "-inf", "nan")
@@ -78,16 +81,6 @@ def _check_array(name: str, a: Any) -> None:
         raise ValueError(f"the array {name!r} must have a numeric or bool dtype, not {a.dtype}")
 
 
-def _real(x: Any, what: str) -> float:
-    """`x` as a float; `TypeError` when `x` is not a number (a bool is not)."""
-    if isinstance(x, (bool, np.bool_)) or not isinstance(x, (int, float, np.integer, np.floating)):
-        raise TypeError(f"{what} must be a number, not {x!r}")
-    try:
-        return float(x)
-    except OverflowError as exc:
-        raise ValueError(f"{what} is too large for a float: {x!r}") from exc
-
-
 def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
     """A new dict with the values of `meta`, in the same order, as plain `str`, `int`,
     `float`, `bool` or None. It raises by the rules of `Finding.data` (pulseq-checks)."""
@@ -121,13 +114,14 @@ def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
 
 @dataclass(frozen=True, eq=False)
 class Series:
-    """One named series of an analysis value (design section 4.2).
+    """One named series of an analysis value (section 4.2 of the design in pulseq-checks,
+    `docs/plans/pulseq-analysis.md`).
 
     The coordinate of a series is the quantity of its horizontal axis, for example the time
     (unit "s") or the frequency (unit "Hz").
 
     `name` is a short, stable name, as `Finding.code` is: for example "pns_total". `unit` is
-    the unit of the values, for example "1" (a fraction), "mT/m" or "s". `coord_unit` is the
+    the unit of the values, for example "Hz/T", "Hz/m" or "s". `coord_unit` is the
     unit of the coordinate, and it is not empty. `arrays` maps a name to a one-dimensional
     numpy array of a bool, integer, float or complex dtype. All arrays of one series have the
     same length. The kind says which arrays are necessary:
@@ -205,12 +199,16 @@ class Series:
         if len(set(lengths.values())) > 1:
             raise ValueError(f"the arrays of a series must have one length, not {lengths}")
 
-        coord_start = _real(self.coord_start, "coord_start of a series")
+        coord_start = real("coord_start of a series", self.coord_start, finite=False)
         coord_step = (
-            None if self.coord_step is None else _real(self.coord_step, "coord_step of a series")
+            None
+            if self.coord_step is None
+            else real("coord_step of a series", self.coord_step, finite=False)
         )
         coord_end = (
-            None if self.coord_end is None else _real(self.coord_end, "coord_end of a series")
+            None
+            if self.coord_end is None
+            else real("coord_end of a series", self.coord_end, finite=False)
         )
         needs_step = self.kind in (SeriesKind.SAMPLES, SeriesKind.ENVELOPE)
         if coord_step is None and needs_step:

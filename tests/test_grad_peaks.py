@@ -23,13 +23,19 @@ from synthetic import (
     with_rotation_library,
 )
 
+from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis.grad_peaks import (
     GradientPeaks,
     _distinct_triples,
     block_gradient_values,
     gradient_peaks,
 )
-from pulseq_analysis.seq_index import grad_events, sequence_index
+from pulseq_analysis.seq_index import (
+    NO_GRADIENTS,
+    NO_GRADIENTS_IN_WINDOW,
+    grad_events,
+    sequence_index,
+)
 from pulseq_analysis.seq_utils import TIME_TOLERANCE, gradient_offsets
 
 
@@ -189,14 +195,14 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
 
 
 def test_no_gradients_sets_reason():
-    """A sequence with no gradient events at all: `reason` is set, and every numeric
+    """A sequence with no gradient at all: `reason` is set, and every numeric
     field is its zero value (0.0, or None for a block field)."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(2e-3))
 
     result = gradient_peaks(seq)
 
-    assert result.reason == "no gradient events in the sequence"
+    assert result.reason == NO_GRADIENTS
     assert result.vector_peak_hz_per_m == 0.0
     assert result.vector_peak_time_s == 0.0
     for axis in ("x", "y", "z"):
@@ -459,7 +465,7 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_junction_before_it()
     _block_a_id, block_b_id = seq.block_events
 
     inside_result = gradient_peaks(seq, window=(0.5e-3, 1.0e-3))
-    assert inside_result.reason == "no gradient events in the window"
+    assert inside_result.reason == NO_GRADIENTS_IN_WINDOW
     assert inside_result.axes["x"].max_slew_hz_per_m_per_s == 0.0
     assert inside_result.axes["x"].slew_block is None
 
@@ -1032,6 +1038,103 @@ def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block()
     assert np.all(np.diff(values.start_s) > 0.0)
 
 
+def test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable():
+    first, second = block_gradient_values(gre_sequence()), block_gradient_values(gre_sequence())
+    assert first is not second
+    assert first == second
+    assert first != block_gradient_values(gre_sequence(num_trs=5))
+    assert first != block_gradient_values(spin_echo_sequence())
+    with pytest.raises(TypeError):
+        hash(first)
+
+
+_BLOCK_VALUE_DICTS = (
+    "peak_hz_per_m",
+    "peak_time_s",
+    "slew_hz_per_m_per_s",
+    "slew_time_s",
+    "junction_hz_per_m_per_s",
+)
+
+
+def test_the_arrays_of_block_gradient_values_are_read_only_and_not_views_of_the_index():
+    seq = gre_sequence()
+    values = block_gradient_values(seq)
+    index = sequence_index(seq)
+    arrays = [values.block_id, values.start_s, values.vector_peak_hz_per_m]
+    arrays.append(values.vector_peak_time_s)
+    for name in _BLOCK_VALUE_DICTS:
+        arrays.extend(getattr(values, name).values())
+    assert len(arrays) == 4 + 5 * 3
+    for array in arrays:
+        assert not array.flags.writeable
+        with pytest.raises(ValueError, match="read-only"):
+            array[0] = array[0]
+        assert not np.shares_memory(array, index.block_id)
+        assert not np.shares_memory(array, index.start_s)
+        copied = np.array(array)
+        assert copied.flags.writeable
+        copied[0] = copied[0]
+    # Each array is its own: no two share memory.
+    for i, a in enumerate(arrays):
+        for b in arrays[i + 1 :]:
+            assert not np.shares_memory(a, b)
+
+
+def test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_change():
+    values = block_gradient_values(gre_sequence())
+    for name in _BLOCK_VALUE_DICTS:
+        field = getattr(values, name)
+        assert isinstance(field, FrozenDict)
+        assert list(field) == ["x", "y", "z"]
+        with pytest.raises(TypeError):
+            field["x"] = field["x"]
+        with pytest.raises(TypeError):
+            del field["x"]
+        with pytest.raises(TypeError):
+            field.update(w=field["x"])
+        assert list(field) == ["x", "y", "z"]
+
+
+@pytest.mark.parametrize("window", [None, (0.0, 1e-3)], ids=["whole", "window"])
+def test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change(window):
+    result = gradient_peaks(spin_echo_sequence(), window=window)
+    assert isinstance(result.axes, FrozenDict)
+    assert list(result.axes) == ["x", "y", "z"]
+    with pytest.raises(TypeError):
+        result.axes["x"] = result.axes["y"]
+    with pytest.raises(TypeError):
+        result.axes.clear()
+    if window is None:
+        assert result.whole_rms_hz_per_m is None
+        return
+    assert isinstance(result.whole_rms_hz_per_m, FrozenDict)
+    assert list(result.whole_rms_hz_per_m) == ["x", "y", "z"]
+    with pytest.raises(TypeError):
+        result.whole_rms_hz_per_m["x"] = 0.0
+    with pytest.raises(TypeError):
+        result.whole_rms_hz_per_m.pop("x")
+
+
+@pytest.mark.parametrize(
+    "build", [empty_sequence, lambda: pp.Sequence(SYSTEM)], ids=["delay_only", "no_blocks"]
+)
+def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients(build):
+    result = gradient_peaks(build())
+    assert result.reason == NO_GRADIENTS
+    assert isinstance(result.axes, FrozenDict)
+
+
+def test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window():
+    """The spin echo has gradients, but none in a window of its first RF block."""
+    seq = spin_echo_sequence()
+    index = sequence_index(seq)
+    assert index.gx[0] == 0 and index.gy[0] == 0 and index.gz[0] == 0
+    result = gradient_peaks(seq, window=(0.0, index.duration_s[0] / 2))
+    assert result.reason == NO_GRADIENTS_IN_WINDOW
+    assert gradient_peaks(seq).reason is None
+
+
 def test_block_gradient_values_refuses_rotations():
     """`block_gradient_values` raises `NotImplementedError` for a sequence with a rotation
     library, as `gradient_peaks` does."""
@@ -1044,16 +1147,82 @@ def test_block_gradient_values_refuses_rotations():
     [
         pytest.param(lambda total: (total / 2, total / 2), id="start_equals_end"),
         pytest.param(lambda total: (total / 2, total / 4), id="start_after_end"),
-        pytest.param(lambda total: (math.nan, total / 2), id="start_nan"),
     ],
 )
 def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of):
-    """A `window` with a start equal to its end, after its end or NaN raises `ValueError`
-    for a start that is not before the end."""
+    """A `window` with a start equal to its end or after its end raises `ValueError`."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
     with pytest.raises(ValueError, match="must have a start before its end"):
         gradient_peaks(seq, window=window)
+
+
+@pytest.mark.parametrize(
+    "window_of",
+    [
+        pytest.param(lambda total: (math.nan, total / 2), id="start_nan"),
+        pytest.param(lambda total: (0.0, math.nan), id="end_nan"),
+        pytest.param(lambda total: (0.0, math.inf), id="end_inf"),
+        pytest.param(lambda total: (-math.inf, total / 2), id="start_minus_inf"),
+    ],
+)
+def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_of):
+    """A `window` with a start or an end that is NaN or an infinity raises `ValueError`
+    ("finite"), before the rules of the order and of the range."""
+    seq = spin_echo_sequence()
+    window = window_of(sequence_index(seq).end_s)
+    with pytest.raises(ValueError, match="finite"):
+        gradient_peaks(seq, window=window)
+
+
+@pytest.mark.parametrize(
+    "window_of",
+    [
+        pytest.param(lambda total: (True, total / 2), id="start_bool"),
+        pytest.param(lambda total: (0.0, True), id="end_bool"),
+        pytest.param(lambda total: ("0.0", total / 2), id="start_str"),
+        pytest.param(lambda total: (0.0, "1e-3"), id="end_str"),
+        pytest.param(lambda total: (None, total / 2), id="start_none"),
+        pytest.param(lambda total: (0.0, None), id="end_none"),
+    ],
+)
+def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of):
+    """A `window` with a start or an end that is a `bool`, a string or `None` raises
+    `TypeError`."""
+    seq = spin_echo_sequence()
+    window = window_of(sequence_index(seq).end_s)
+    with pytest.raises(TypeError, match="window (start|end)"):
+        gradient_peaks(seq, window=window)
+
+
+@pytest.mark.parametrize(
+    "window_of",
+    [
+        pytest.param(lambda total: (0.0, total / 2, total), id="three_items"),
+        pytest.param(lambda total: (0.0,), id="one_item"),
+        pytest.param(lambda total: (), id="no_items"),
+        pytest.param(lambda total: total / 2, id="a_number"),
+        pytest.param(lambda total: "ab", id="a_string"),
+        pytest.param(lambda total: {0.0, total / 2}, id="a_set"),
+    ],
+)
+def test_gradient_peaks_refuses_a_window_that_is_not_a_pair(window_of):
+    """A `window` that is not a tuple or a list of two items raises `TypeError`."""
+    seq = spin_echo_sequence()
+    window = window_of(sequence_index(seq).end_s)
+    with pytest.raises(TypeError, match="must be a pair"):
+        gradient_peaks(seq, window=window)
+
+
+def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
+    """A `window` that is a list, or has an `int` or numpy scalars, gives the result of the
+    same window as a tuple of floats."""
+    seq = spin_echo_sequence()
+    total = sequence_index(seq).end_s
+    expected = gradient_peaks(seq, window=(0.0, total / 2))
+    assert gradient_peaks(seq, window=[0.0, total / 2]) == expected
+    assert gradient_peaks(seq, window=(0, np.float64(total / 2))) == expected
+    assert gradient_peaks(seq, window=(np.int64(0), np.float64(total / 2))) == expected
 
 
 @pytest.mark.parametrize(
