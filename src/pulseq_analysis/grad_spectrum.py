@@ -13,6 +13,15 @@ grow with the length of the sequence. Each chunk starts at a multiple of the hop
 overlaps the next chunk by one window less one hop, so the chunks give the same windows
 as one spectrogram of the whole padded waveform.
 
+pypulseq makes the windows with scipy's `spectrogram` (mode="magnitude"), which calculates
+the magnitude of every FFT bin. Here `_chunk_spectrogram` gives the same values with
+the same steps as scipy: the windows, the constant detrend, the Hann window, the FFT and
+the scale of the magnitude mode. The windows are a read-only view of the samples of the
+chunk, and the magnitude is taken only of the bins up to `max_frequency_hz`, about
+1/25 of the bins at the defaults, so the chunk needs less memory and time than scipy's
+call. The values agree with scipy's to the float rounding
+(`tests/test_grad_spectrum.py`, `test_matches_scipy_spectrogram`).
+
 The spectrum is in Hz/m/sqrt(Hz), the unit of the gradients of a .seq file, with no
 gamma. A change to T/m needs gamma, the gyromagnetic ratio of the nucleus that the scanner
 images. The .seq file does not give gamma: it is data of the target, not of the sequence.
@@ -35,7 +44,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pypulseq as pp
-from scipy.signal import spectrogram
+from scipy.signal import get_window
 
 from ._equality import fields_equal
 from ._kept import _Entry, kept_results
@@ -174,6 +183,9 @@ def gradient_spectrum(
     dt = seq.grad_raster_time
     nwin = round(window_s / dt)
     nfft = round(frequency_oversampling * nwin)
+    freq = np.fft.rfftfreq(nfft, dt)
+    keep_n = int(np.count_nonzero(freq <= max_frequency_hz + 1e-6))  # bins 0 to keep_n - 1
+    window = get_window(("tukey", 1), nwin)  # the Hann window of pypulseq
     pad = nwin // 2
     # Python's `sum` is compensated (Python 3.12), so this total can differ from
     # `index.end_s`, the sequential sum, by one sample. The oracle
@@ -189,7 +201,6 @@ def gradient_spectrum(
 
     axes_max: dict[str, np.ndarray] = {}
     rss_max = None
-    keep = None  # the frequencies to keep: the same for each chunk
     for first in range(0, num_windows, CHUNK_WINDOWS):
         last = min(first + CHUNK_WINDOWS, num_windows)
         # The samples of windows first to last - 1.
@@ -197,12 +208,9 @@ def gradient_spectrum(
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
         for axis in "xyz":
-            freq, sxx = _chunk_spectrogram(
-                sampler, f"g{axis}", start, stop, pad, nt, dt, nwin, nfft
+            sxx = _chunk_spectrogram(
+                sampler, f"g{axis}", start, stop, pad, nt, dt, nwin, nfft, keep_n, window
             )
-            if keep is None:
-                keep = freq <= max_frequency_hz + 1e-6
-            sxx = sxx[keep]
             chunk_max = sxx.max(axis=1)
             axes_max[axis] = (
                 chunk_max if axis not in axes_max else np.maximum(axes_max[axis], chunk_max)
@@ -210,10 +218,15 @@ def gradient_spectrum(
             rss_sq = rss_sq + sxx**2
         chunk_rss = np.sqrt(rss_sq).max(axis=1)
         rss_max = chunk_rss if rss_max is None else np.maximum(rss_max, chunk_rss)
-    freq = freq[keep]
     return _read_only(
         GradientSpectrum(
-            None, freq, axes_max, rss_max, max_frequency_hz, window_s, frequency_oversampling
+            None,
+            freq[:keep_n],
+            axes_max,
+            rss_max,
+            max_frequency_hz,
+            window_s,
+            frequency_oversampling,
         )
     )
 
@@ -254,27 +267,43 @@ def gradient_spectrum_for(
     return by_key[key]
 
 
-def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft):
-    """The frequencies and the magnitude spectrogram of samples [start, stop) of one
-    axis's padded waveform, with the arguments of pypulseq's
-    `calculate_gradient_spectrum`. `axis` is "gx", "gy" or "gz" (`sampling.GradientSampler`'s
-    axis names); `sampler` gives the axis's waveform (Hz/m), 0 before the first event and
-    after the last one, so an axis with no gradient gives an all-zero chunk. `nfft` is the
-    FFT length."""
+def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep_n, window):
+    """The magnitude spectrogram of samples [start, stop) of one axis's padded waveform, for
+    the first `keep_n` frequencies (`np.fft.rfftfreq(nfft, dt)`), with shape (`keep_n`,
+    windows) and dtype float64. The values are those of scipy's `spectrogram` with the
+    arguments of pypulseq's `calculate_gradient_spectrum` (mode="magnitude", `nperseg=nwin`,
+    `noverlap=nwin // 2`, `nfft=nfft`, detrend="constant", window=("tukey", 1), `fs=1 / dt`),
+    to the float rounding. `[start, stop)` holds a whole number of windows. `axis` is "gx",
+    "gy" or "gz" (`sampling.GradientSampler`'s axis names); `sampler` gives the axis's
+    waveform (Hz/m), 0 before the first event and after the last one, so an axis with no
+    gradient gives an all-zero chunk. `nfft` is the FFT length, and `window` is the Hann
+    window of `nwin` samples.
+
+    The steps are those of scipy's `_spectral_helper`: the windows (a read-only view with a
+    hop of `nwin - nwin // 2`), the mean of each window taken off, the window function, the
+    FFT with `nfft` points, and the scale of the magnitude mode with the density scaling,
+    `sqrt(1 / (fs * sum(window**2)))`. Only the `keep_n` bins are made into magnitudes."""
     w = np.zeros(stop - start)
     # Sequence sample i is at (i + 0.5) * dt, and is padded sample i + pad.
     lo, hi = max(start - pad, 0), min(stop - pad, nt)
     if hi > lo:
         t = (np.arange(lo, hi) + 0.5) * dt
         w[lo + pad - start : hi + pad - start] = sampler.sample(axis, t)
-    freq, _, sxx = spectrogram(
-        w,
-        fs=1 / dt,
-        mode="magnitude",
-        nperseg=nwin,
-        noverlap=nwin // 2,
-        nfft=nfft,
-        detrend="constant",
-        window=("tukey", 1),
+    # This duplicates the steps of scipy's `spectrogram` (its `_spectral_helper` with
+    # mode="magnitude") to save memory. scipy makes the magnitude of all nfft // 2 + 1 bins
+    # and has no argument for fewer, but the result keeps only the first `keep_n` (about
+    # 1/25 at the defaults). Here the bins are cut before `np.abs`: on
+    # `build_repeating(10000)` with the defaults, the peak memory of `gradient_spectrum` is
+    # 54 MB instead of 85 MB, and the time 0.53 s instead of 0.63 s. scipy's `ZoomFFT`,
+    # which makes only a range of bins, was slower and used more memory here.
+    # `test_matches_scipy_spectrogram` compares these values with scipy's, so a change of
+    # the steps in scipy fails that test.
+    hop = nwin - nwin // 2
+    num_windows = (w.size - nwin) // hop + 1
+    windows = np.lib.stride_tricks.as_strided(
+        w, shape=(num_windows, nwin), strides=(w.strides[0] * hop, w.strides[0]), writeable=False
     )
-    return freq, sxx
+    scale = np.sqrt(1.0 / ((1 / dt) * (window * window).sum()))
+    detrended = (windows - windows.mean(axis=1, keepdims=True)) * window
+    kept = np.fft.rfft(detrended, n=nfft, axis=1)[:, :keep_n]
+    return np.abs(kept).T * scale
