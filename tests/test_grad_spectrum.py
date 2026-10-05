@@ -8,6 +8,7 @@ import pypulseq as pp
 import pytest
 from oracles import grad_spectrum as oracle
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
+from scipy.signal import spectrogram
 from synthetic import (
     GAMMA_1H,
     SYSTEM,
@@ -19,6 +20,8 @@ from synthetic import (
 from test_extensions import _with_rotation_library
 
 from pulseq_analysis import grad_spectrum
+from pulseq_analysis.sampling import GradientSampler
+from pulseq_analysis.seq_index import sequence_index
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
 # A/2 * sum(w) / sqrt(fs * sum(w^2)), with 5000 samples at 100 kHz.
@@ -100,6 +103,57 @@ def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
     chunked = grad_spectrum.gradient_spectrum(seq)
     _assert_same_spectrum(chunked, whole)
+
+
+@pytest.mark.parametrize(
+    "seq",
+    [spin_echo_sequence(), gre_sequence(num_trs=30), arbitrary_gradient_sequence()],
+    ids=["spin_echo", "gre_30_trs", "arbitrary_gradient"],
+)
+def test_matches_scipy_spectrogram(seq, monkeypatch):
+    """The whole `gradient_spectrum`, not one call of `_chunk_spectrogram`: the reference
+    is scipy's `spectrogram` of the whole padded waveform of each axis, with the arguments
+    that the code used before it made the FFTs itself, so the reference does not use the
+    chunks, the strided windows, the kept-bin count or the scale of this module. Only the
+    samples come from `GradientSampler`, with the time rule of the module (sample i at
+    `(i + 0.5) * dt`, half a window of zeros at each end). `CHUNK_WINDOWS` is 4, so the
+    comparison also covers the joins of the chunks and a shorter last chunk."""
+    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
+    got = grad_spectrum.gradient_spectrum(seq)
+
+    sampler = GradientSampler(seq, sequence_index(seq))
+    dt = seq.grad_raster_time
+    nwin = round(grad_spectrum.FFT_WINDOW_S / dt)
+    nfft = round(grad_spectrum.FREQUENCY_OVERSAMPLING * nwin)
+    pad = nwin // 2
+    nt = math.ceil(sum(seq.block_durations.values()) / dt)
+    t = (np.arange(nt) + 0.5) * dt
+    window_maxima = {}
+    rss_sq = 0.0
+    for axis in "xyz":
+        w = np.zeros(nt + 2 * pad)
+        w[pad : pad + nt] = sampler.sample(f"g{axis}", t)
+        freq, _, sxx = spectrogram(
+            w,
+            fs=1 / dt,
+            mode="magnitude",
+            nperseg=nwin,
+            noverlap=nwin // 2,
+            nfft=nfft,
+            detrend="constant",
+            window=("tukey", 1),
+        )
+        keep = freq <= grad_spectrum.MAX_FREQUENCY_HZ + 1e-6
+        sxx = sxx[keep]
+        window_maxima[axis] = sxx.max(axis=1)
+        rss_sq = rss_sq + sxx**2
+    expected_rss = np.sqrt(rss_sq).max(axis=1)
+
+    np.testing.assert_array_equal(got.frequency_hz, freq[keep])
+    assert list(got.axes) == ["x", "y", "z"]
+    for axis, expected in window_maxima.items():
+        np.testing.assert_allclose(got.axes[axis], expected, rtol=0, atol=1e-12 * expected.max())
+    np.testing.assert_allclose(got.rss, expected_rss, rtol=0, atol=1e-12 * expected_rss.max())
 
 
 def _assert_matches_oracle(

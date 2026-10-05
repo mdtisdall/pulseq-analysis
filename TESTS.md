@@ -3165,6 +3165,38 @@ of 1e-12.
   FFTs of a different number of windows in each call. The tolerance allows for
   that rounding.
 
+#### `test_matches_scipy_spectrogram`
+
+**Checks:** `gradient_spectrum` makes the FFTs itself, for the kept bins only
+(`_chunk_spectrogram`). This test checks that its axis spectra and RSS equal
+those made with scipy's `spectrogram`, the call that the module used before and
+that pypulseq's `calculate_gradient_spectrum` uses, on the synthetic spin echo,
+a GRE of 30 TRs and the arbitrary-gradient sequence.
+
+**How:** The test sets `CHUNK_WINDOWS` to 4, so the sequences make several
+chunks, and calculates the spectrum. For the reference, it samples each axis
+with `GradientSampler` at the sample times of the module, pads half a window of
+zeros at each end, and calls `scipy.signal.spectrogram` on the whole padded
+waveform with `mode="magnitude"`, `nperseg=nwin`, `noverlap=nwin // 2`,
+`nfft=nfft`, `detrend="constant"`, `window=("tukey", 1)` and `fs=1 / dt`. It
+keeps the bins up to `MAX_FREQUENCY_HZ + 1e-6`, takes the maximum over windows
+for each axis, and the root-sum-of-squares of the axes in each window and then
+the maximum for the RSS. The frequencies must be equal. Each axis spectrum and
+the RSS must agree within an absolute 1e-12 times the largest value of the same
+array (so a zero axis must be exactly 0).
+
+**Assumptions:**
+
+- The test compares the whole function, so it covers the windows, the detrend,
+  the window function and the scale of the new code, and the joins of the
+  chunks. The reference does not use the chunks, the strided windows or the
+  scale of the module. The samples come from the same sampler, and the time rule
+  `(i + 0.5) * dt` is the module's own. The oracle tests check the sampler
+  against `Sequence.get_gradients()`.
+- The result differs from scipy's only by float rounding (measured: 4.6e-16 of the
+  peak on `build_repeating(10000)`), because the two take the FFTs of the same windows with a
+  different order of operations.
+
 #### `test_matches_oracle_on_synthetic_sequences`
 
 **Checks:** The raster sampler replaced `Sequence.get_gradients()` in
