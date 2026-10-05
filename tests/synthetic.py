@@ -1,9 +1,11 @@
-"""Small synthetic pypulseq sequences for the pulseq-reports tests."""
+"""Small synthetic pypulseq sequences for the tests of pulseq-analysis. This module
+imports nothing from the package, so the oracles of `tests/oracles/` can use it."""
 
 import math
 
 import numpy as np
 import pypulseq as pp
+from pypulseq.event_lib import EventLibrary
 
 # The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
 # gamma: the tests use this value to convert its values to tesla.
@@ -169,4 +171,39 @@ def raster_4us_sequence() -> pp.Sequence:
             channel="y", times=[0.0, 400e-6, 800e-6], amplitudes=[start, start, 0.0], system=system
         )
     )
+    return seq
+
+
+# A scalar-first unit quaternion (angle 45 deg about z): q0=cos(22.5deg), qz=sin(22.5deg).
+QUATERNION = (0.9238795325112867, 0.0, 0.0, 0.3826834323650898)
+
+
+def with_rotation_library() -> pp.Sequence:
+    """A `gre_sequence` with one rotation stored the way pypulseq draft PR #372 stores
+    it: a `rotation_library` (an `EventLibrary` of scalar-first unit quaternions)."""
+    seq = gre_sequence(num_trs=2)
+    seq.rotation_library = EventLibrary()
+    seq.rotation_library.insert(1, QUATERNION)
+    return seq
+
+
+def waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
+    """A trapezoid on x and an arbitrary gradient on y, each with an explicit amplitude in Hz/m
+    (times `sign`), so that the samples and the values do not depend on the gamma of `system`."""
+    n = 50
+    waveform_hz_per_m = 0.2 * SYSTEM.max_grad * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
+    gx = pp.make_trapezoid(
+        channel="x",
+        amplitude=sign * 0.5 * SYSTEM.max_grad,  # Hz/m
+        rise_time=200e-6,
+        flat_time=400e-6,
+        system=system,
+    )
+    gy = pp.make_arbitrary_grad(
+        channel="y", waveform=sign * waveform_hz_per_m, first=0.0, last=0.0, system=system
+    )
+    seq = pp.Sequence(system)
+    seq.add_block(gx)
+    seq.add_block(gy)
+    seq.add_block(gx, gy)
     return seq

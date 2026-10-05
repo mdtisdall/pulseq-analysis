@@ -4,6 +4,7 @@ import math
 import numpy as np
 import pypulseq as pp
 import pytest
+from asserts import assert_block_values_equal
 from oracles import grad_limits as oracle
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
@@ -18,11 +19,11 @@ from synthetic import (
     gre_sequence,
     raster_4us_sequence,
     spin_echo_sequence,
+    waveform_sequence,
+    with_rotation_library,
 )
-from test_extensions import _with_rotation_library
 
 from pulseq_analysis.grad_limits import (
-    BlockGradientValues,
     GradientLimits,
     _distinct_triples,
     block_gradient_values,
@@ -78,47 +79,6 @@ def _assert_limits_equal(a: GradientLimits, b: GradientLimits) -> None:
     assert a.whole_rms_hz_per_m == b.whole_rms_hz_per_m
 
 
-def _assert_block_values_equal(a: BlockGradientValues, b: BlockGradientValues) -> None:
-    """Every array of two `BlockGradientValues` is exactly equal."""
-    np.testing.assert_array_equal(a.block_id, b.block_id)
-    np.testing.assert_array_equal(a.start_s, b.start_s)
-    np.testing.assert_array_equal(a.vector_peak_hz_per_m, b.vector_peak_hz_per_m)
-    np.testing.assert_array_equal(a.vector_peak_time_s, b.vector_peak_time_s)
-    for name in (
-        "peak_hz_per_m",
-        "peak_time_s",
-        "slew_hz_per_m_per_s",
-        "slew_time_s",
-        "junction_hz_per_m_per_s",
-    ):
-        field_a, field_b = getattr(a, name), getattr(b, name)
-        assert list(field_a) == list(field_b)
-        for axis in field_a:
-            assert np.array_equal(field_a[axis], field_b[axis]), f"{name}[{axis}]"
-
-
-def _waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
-    """A trapezoid on x and an arbitrary gradient on y, each with an explicit amplitude in Hz/m
-    (times `sign`), so that the values do not depend on the gamma of `system`."""
-    n = 50
-    waveform_hz_per_m = 0.2 * SYSTEM.max_grad * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
-    gx = pp.make_trapezoid(
-        channel="x",
-        amplitude=sign * 0.5 * SYSTEM.max_grad,  # Hz/m
-        rise_time=200e-6,
-        flat_time=400e-6,
-        system=system,
-    )
-    gy = pp.make_arbitrary_grad(
-        channel="y", waveform=sign * waveform_hz_per_m, first=0.0, last=0.0, system=system
-    )
-    seq = pp.Sequence(system)
-    seq.add_block(gx)
-    seq.add_block(gy)
-    seq.add_block(gx, gy)
-    return seq
-
-
 def test_the_values_do_not_depend_on_the_gamma_of_the_system():
     """The same waveform in Hz/m (a trapezoid with an explicit amplitude and an arbitrary
     gradient), in a sequence of `SYSTEM` and in one of a copy of `SYSTEM` with another gamma:
@@ -126,7 +86,7 @@ def test_the_values_do_not_depend_on_the_gamma_of_the_system():
     equal values. The values are in the units of pypulseq, with no gamma."""
     other = copy.copy(SYSTEM)
     other.gamma = 0.9 * SYSTEM.gamma
-    first, second = _waveform_sequence(SYSTEM), _waveform_sequence(other)
+    first, second = waveform_sequence(SYSTEM), waveform_sequence(other)
     window = (0.0, sequence_index(first).end_s / 2)
 
     assert other.gamma != SYSTEM.gamma
@@ -135,14 +95,14 @@ def test_the_values_do_not_depend_on_the_gamma_of_the_system():
     _assert_limits_equal(
         gradient_limits(first, window=window), gradient_limits(second, window=window)
     )
-    _assert_block_values_equal(block_gradient_values(first), block_gradient_values(second))
+    assert_block_values_equal(block_gradient_values(first), block_gradient_values(second))
 
 
 def test_the_values_of_a_negated_waveform_are_equal():
     """The same sequence with each amplitude times -1 gives exactly equal values of
     `gradient_limits` (with and without a window) and `block_gradient_values`: a value is
     a magnitude, so it does not depend on the sign of a gradient, or of a gamma."""
-    positive, negative = _waveform_sequence(SYSTEM), _waveform_sequence(SYSTEM, sign=-1.0)
+    positive, negative = waveform_sequence(SYSTEM), waveform_sequence(SYSTEM, sign=-1.0)
     window = (0.0, sequence_index(positive).end_s / 2)
 
     assert gradient_limits(positive).reason is None
@@ -150,7 +110,7 @@ def test_the_values_of_a_negated_waveform_are_equal():
     _assert_limits_equal(
         gradient_limits(positive, window=window), gradient_limits(negative, window=window)
     )
-    _assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
+    assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
 
 
 def test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak():
@@ -422,17 +382,7 @@ def test_junction_step_between_extended_trapezoids_is_reported_as_the_slew():
     reported slew is the step divided by `grad_raster_time`, credited to the block after
     the junction, and its time is the junction (0.2 ms)."""
     step = 0.9 * _MAX_STEP
-    x = 0.3 * SYSTEM.max_grad
-    y = x - step
-    gx_a = pp.make_extended_trapezoid(
-        channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, x, x], system=SYSTEM
-    )
-    gx_b = pp.make_extended_trapezoid(
-        channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[y, y, 0.0], system=SYSTEM
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx_a)
-    seq.add_block(gx_b)
+    seq = _junction_sequence()
     _block_a_id, block_b_id = seq.block_events
 
     result = gradient_limits(seq)
@@ -473,15 +423,7 @@ def test_gradient_ending_non_zero_before_a_block_with_no_gradient_is_a_junction_
     uses 0 for the block with no event, and is credited to that block (the block after
     the junction)."""
     last_value = 0.9 * _MAX_STEP
-    gx = pp.make_extended_trapezoid(
-        channel="x",
-        times=[0.0, 100e-6, 200e-6],
-        amplitudes=[0.0, last_value, last_value],
-        system=SYSTEM,
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
-    seq.add_block(pp.make_delay(1e-3))
+    seq = _gradient_ends_non_zero_before_delay_sequence()
     _block_a_id, block_b_id = seq.block_events
 
     result = gradient_limits(seq)
@@ -496,14 +438,7 @@ def test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_bl
     `add_block` accepts: the junction before the first block uses 0 for "the block
     before" (there is none), and is credited to the first block."""
     start_value = 0.9 * _MAX_STEP
-    gx = pp.make_extended_trapezoid(
-        channel="x",
-        times=[0.0, 100e-6, 200e-6],
-        amplitudes=[start_value, start_value, 0.0],
-        system=SYSTEM,
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
+    seq = _first_block_starts_non_zero_sequence()
     (block_id,) = seq.block_events
 
     result = gradient_limits(seq)
@@ -520,12 +455,7 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_junction_before_it()
     not used, and the window has no gradient event and 0 slew. A window that starts
     exactly at that junction still uses it."""
     step = 0.9 * _MAX_STEP
-    gx = pp.make_extended_trapezoid(
-        channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, step, step], system=SYSTEM
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
-    seq.add_block(pp.make_delay(1e-3))
+    seq = _gradient_ends_non_zero_before_delay_sequence()
     _block_a_id, block_b_id = seq.block_events
 
     inside_result = gradient_limits(seq, window=(0.5e-3, 1.0e-3))
@@ -823,7 +753,7 @@ def test_gradient_limits_refuses_rotations():
     (`extensions.refuse_rotations`): its numbers are of the logical axes as they are
     stored."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
-        gradient_limits(_with_rotation_library())
+        gradient_limits(with_rotation_library())
 
 
 # ---- Values of each block (`block_gradient_values`) ----
@@ -1106,7 +1036,7 @@ def test_block_gradient_values_refuses_rotations():
     """`block_gradient_values` raises `NotImplementedError` for a sequence with a rotation
     library, as `gradient_limits` does."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
-        block_gradient_values(_with_rotation_library())
+        block_gradient_values(with_rotation_library())
 
 
 @pytest.mark.parametrize(

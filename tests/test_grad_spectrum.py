@@ -16,8 +16,8 @@ from synthetic import (
     empty_sequence,
     gre_sequence,
     spin_echo_sequence,
+    with_rotation_library,
 )
-from test_extensions import _with_rotation_library
 
 from pulseq_analysis import grad_spectrum
 from pulseq_analysis.sampling import GradientSampler
@@ -246,7 +246,7 @@ def test_gradient_spectrum_refuses_rotations():
     """`gradient_spectrum` raises `NotImplementedError` for a sequence with a rotation
     library (`extensions.refuse_rotations`): the sampler does not apply a rotation."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
-        grad_spectrum.gradient_spectrum(_with_rotation_library())
+        grad_spectrum.gradient_spectrum(with_rotation_library())
 
 
 def test_gradient_spectrum_for_keeps_the_result():

@@ -9,7 +9,9 @@ the call is `pns_levels(seq, thresholds_hz_per_t=(T, ...))`, and without it the 
     nix develop --command uv run python scripts/time_pns_levels.py [--blocks N] \
 [--repeat R] [--thresholds-hz-per-t T [T ...]] [--json OUT]
 
-The build of the sequence is timed and printed, but it is not part of the result.
+`--blocks` must be at least `TR_BLOCKS` (one TR), and the thresholds are checked with
+the validation of `pns_levels` before the sequence is built. The build of the sequence is
+timed and printed, but it is not part of the result.
 `sequence_index` keeps its result for the sequence object, so the first run also builds
 the block table and the later runs do not. The minimum is thus the time of the PNS model,
 the sampling and the bins, without the block table.
@@ -79,7 +81,15 @@ def main() -> None:
 
     from scale_sequences import TR_BLOCKS, build_repeating
 
-    from pulseq_analysis.pns_levels import pns_levels
+    from pulseq_analysis.pns_levels import _validated_thresholds, pns_levels
+
+    if args.blocks < TR_BLOCKS:
+        parser.error(f"--blocks must be at least {TR_BLOCKS}, one TR")
+    if args.thresholds_hz_per_t is not None:
+        try:
+            _validated_thresholds(tuple(args.thresholds_hz_per_t))
+        except ValueError as error:
+            parser.error(f"--thresholds-hz-per-t: {error}")
 
     n_trs = args.blocks // TR_BLOCKS
     blocks = n_trs * TR_BLOCKS

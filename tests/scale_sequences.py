@@ -9,43 +9,7 @@ import sys
 
 import numpy as np
 import pypulseq as pp
-
-# ---- Copied from tests/synthetic.py (this script must not import tests/) ----
-
-SYSTEM = pp.Opts(
-    max_grad=28,
-    grad_unit="mT/m",
-    max_slew=150,
-    slew_unit="T/m/s",
-    rf_ringdown_time=20e-6,
-    rf_dead_time=100e-6,
-    adc_dead_time=10e-6,
-)
-NUM_SAMPLES = 64
-CENTER = NUM_SAMPLES // 2
-DWELL = 20e-6  # s
-WIDTH = 5e-3  # m, for the phase-encode areas in cycles across the width
-
-
-def _block_pulse(use: str, flip: float):
-    return pp.make_block_pulse(
-        flip_angle=flip, duration=1e-3, delay=SYSTEM.rf_dead_time, system=SYSTEM, use=use
-    )
-
-
-def _readout():
-    """Readout gradient on x and its ADC, as `tests/synthetic.readout` (the readout
-    area is not needed here: this script does not use a prephaser)."""
-    gx = pp.make_trapezoid(channel="x", flat_time=1.4e-3, flat_area=1000, system=SYSTEM)
-    echo_offset = (CENTER + 0.5) * DWELL
-    adc = pp.make_adc(
-        num_samples=NUM_SAMPLES,
-        dwell=DWELL,
-        delay=round((gx.rise_time + gx.flat_time / 2 - echo_offset) * 1e6) * 1e-6,
-        system=SYSTEM,
-    )
-    return gx, adc
-
+from synthetic import SYSTEM, WIDTH, block_pulse, readout
 
 # ---- The TR ----
 
@@ -89,8 +53,8 @@ def build_repeating(n_trs: int) -> pp.Sequence:
     and delay events are each made once and reused, so their libraries stay at 1 entry;
     the phase-encode library stays at `min(PE_STEPS, n_trs)` entries."""
     seq = pp.Sequence(SYSTEM)
-    rf = _block_pulse("excitation", math.radians(20))
-    gx, adc = _readout()
+    rf = block_pulse("excitation", math.radians(20))
+    gx, adc, _ = readout()
     spoiler = pp.make_trapezoid(channel="z", area=4 / WIDTH, system=SYSTEM)
     pe_max = _pe_max_amplitude()
     pe_events = _pe_family(np.linspace(-pe_max, pe_max, min(PE_STEPS, n_trs)))
@@ -128,7 +92,7 @@ def build_worst(n_trs: int) -> pp.Sequence:
         system=SYSTEM,
         use="excitation",
     )
-    gx, adc = _readout()
+    gx, adc, _ = readout()
     spoiler = pp.make_trapezoid(channel="z", area=4 / WIDTH, system=SYSTEM)
     pe_max = _pe_max_amplitude()
     pe_amplitudes = np.linspace(-pe_max, pe_max, n_trs)

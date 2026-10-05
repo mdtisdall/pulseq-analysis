@@ -1,4 +1,4 @@
-"""The block iteration that the oracles and `tests/test_waveforms.py` use.
+"""The block iteration that the oracles use.
 
 It was `seq_utils.iter_blocks`. No library code calls it, so it lives with the tests.
 """
