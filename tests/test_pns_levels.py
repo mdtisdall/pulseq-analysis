@@ -219,6 +219,52 @@ def test_result_does_not_depend_on_chunk_samples(monkeypatch):
         assert got.bin_samples == reference.bin_samples
 
 
+def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatch):
+    """A block of 10,000 samples that holds events on x and z (with a delay before the first
+    one) and is cut by many chunk ends gives the same result with chunks of 1 bin, of 2 bins
+    and one chunk bigger than the file: every field, and the intervals of a threshold below
+    the peak. Each chunk reads only its part of the block."""
+    dt = SYSTEM.grad_raster_time
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(
+        pp.make_trapezoid(channel="x", area=1000.0, delay=2000 * dt, system=SYSTEM),
+        pp.make_trapezoid(channel="z", area=500.0, system=SYSTEM),
+        pp.make_delay(10_000 * dt),
+    )
+    seq.add_block(pp.make_trapezoid(channel="y", area=1000.0, system=SYSTEM))
+    thresholds = (0.05 * _LIMIT,)
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    reference = pns_levels(seq, thresholds_hz_per_t=thresholds)
+    assert reference.bin_samples * 4 < 10_000  # the block is cut by more than 4 chunk ends
+    assert len(reference.above[thresholds[0]]) >= 1
+
+    for chunk_samples in (1, reference.bin_samples + 1):
+        monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+        got = pns_levels(seq, thresholds_hz_per_t=thresholds)
+        _assert_levels_equal(got, reference, ignore=())
+
+
+def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks():
+    """A trapezoid and then one delay block of 1 s (100,000 samples, three real chunks) gives
+    exactly the result of the trapezoid and then ten delay blocks of 0.1 s: the samples of
+    the delay are 0 in both, so the totals, the stored level and the summary are equal."""
+    trapezoid = pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM)
+    long_block = pp.Sequence(SYSTEM)
+    long_block.add_block(trapezoid)
+    long_block.add_block(pp.make_delay(1.0))
+    short_blocks = pp.Sequence(SYSTEM)
+    short_blocks.add_block(trapezoid)
+    for _ in range(10):
+        short_blocks.add_block(pp.make_delay(0.1))
+
+    levels = pns_levels(long_block, thresholds_hz_per_t=(0.1 * _LIMIT,))
+    assert levels.num_samples > 3 * CHUNK_SAMPLES
+    expected = pns_levels(short_blocks, thresholds_hz_per_t=(0.1 * _LIMIT,))
+    assert len(expected.above[0.1 * _LIMIT]) >= 1
+    _assert_levels_equal(levels, expected, ignore=())
+
+
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
     bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware."""

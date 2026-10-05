@@ -281,15 +281,22 @@ holds a time (from the `TR` definition of the file), or `None`.
   This is the waveform of pypulseq's `Sequence.get_gradients()`. Where two
   events have a point at the same time (a step at a block junction), it keeps
   the point of the earlier event.
-- `block_samples(axis, first, stop, dt)`: the samples of the play indexes
-  `first` to `stop - 1`, each block on its own at the times `(j + 0.5) * dt`
-  from its start, with the values of its own event and 0 outside it. This is
-  what the PNS model uses. It raises `ValueError` when a block of the range is
-  not a whole number of samples long.
+- `block_samples(axis, first, stop, dt, *, skip=0, count=None)`: the samples
+  of the play indexes `first` to `stop - 1`, each block on its own at the times
+  `(j + 0.5) * dt` from its start, with the values of its own event and 0
+  outside it. This is what the PNS model uses. `skip` and `count` (0 or more)
+  choose a part of that range: the result is, bit for bit, the samples `skip`
+  to `skip + count - 1` of the result for the default arguments, and
+  `count=None` gives all the samples after `skip`. The first and the last
+  block give only their samples inside the part, so the cost and the memory do
+  not grow with the length of a block that the part cuts. It raises
+  `ValueError` when a block of the range is not a whole number of samples
+  long, or when `skip` or `count` is negative or `skip + count` is more than
+  the samples of the range.
 
 `sampling.raster_block_lengths(index, dt)` gives the number of samples of each
-block, `round(duration / dt)`, and whether each block is within
-`sampling.ON_RASTER_TOLERANCE` samples of that number.
+block, `round(duration / dt)`, and one bool for all the blocks: whether every
+block is within `sampling.ON_RASTER_TOLERANCE` samples of a whole number.
 
 `seq_utils`:
 

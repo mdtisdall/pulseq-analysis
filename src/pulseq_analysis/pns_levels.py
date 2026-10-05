@@ -213,9 +213,11 @@ def pns_levels(
 
     The result does not depend on the chunk size (exact equality). A sequence without
     a gradient event gives `reason=NO_GRADIENTS`, no bins, peak 0, `peak_time_s` None
-    and no interval (an empty tuple for each threshold). Memory: the chunk, the longest
-    block, the stored level and a few numbers for each chunk and for each interval. The
-    arrays of the result are read-only.
+    and no interval (an empty tuple for each threshold). Memory: the chunk, the kept
+    samples of the events of the blocks that lie whole in a chunk (each up to the last
+    point of its event), the stored level and a few numbers for each chunk and for each
+    interval; it does not grow with the length of a block. The arrays of the result are
+    read-only.
 
     Raises ValueError when both `gradient_asc` and `hardware` are given or
     `thresholds_hz_per_t` is refused, and NotImplementedError for a sequence with the rotation extension
@@ -409,13 +411,17 @@ def _read_block_range(
 ) -> np.ndarray:
     """The gwf (Hz/m, shape `(s1 - s0, 3)`) of the global sample range `[s0, s1)`, from
     `GradientSampler.block_samples` over the block range that covers it (found in
-    `cumulative`, the cumulative sample count of each block). Memory is bounded by the
-    range plus the longest block that straddles one of its ends."""
+    `cumulative`, the cumulative sample count of each block), with `skip` and `count`
+    for the range. The two blocks at its ends give only their samples inside it, so
+    the memory and the cost do not grow with the length of a block."""
     first_block = int(np.searchsorted(cumulative, s0, side="right"))
     stop_block = int(np.searchsorted(cumulative, s1 - 1, side="right")) + 1
     offset = int(cumulative[first_block - 1]) if first_block > 0 else 0
-    columns = [sampler.block_samples(axis, first_block, stop_block, dt) for axis in _GRAD_COLUMNS]
-    return np.stack(columns, axis=1)[s0 - offset : s1 - offset]
+    columns = [
+        sampler.block_samples(axis, first_block, stop_block, dt, skip=s0 - offset, count=s1 - s0)
+        for axis in _GRAD_COLUMNS
+    ]
+    return np.stack(columns, axis=1)
 
 
 def _read_sampled_range(sampler: GradientSampler, dt: float, s0: int, s1: int) -> np.ndarray:
