@@ -320,8 +320,7 @@ passes, showing the report if it does not.
 
 ### 2.2 PNS levels (`test_pns_levels.py`)
 
-`test_pns_levels.py` tests `pns_levels.py` (`docs/plans/diagram-lanes.md`, section
-4.1, item 2, and section 4.2): `pns_levels`, which samples the gradients block by
+`test_pns_levels.py` tests `pns_levels.py`: `pns_levels`, which samples the gradients block by
 block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypulseq
 fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
@@ -335,13 +334,13 @@ defines `_LIMIT = GAMMA_1H`, the stimulation limit for 1H in Hz/T (a fraction of
 `GAMMA_1H`), and gives a
 threshold or a comparison as a fraction times `_LIMIT`. The reference for most tests is
 `seq.calculate_pns` of the pinned fork
-(decision 6 of section 2.2 of the plan: this project does not test pypulseq itself,
-only compares this library's output with pypulseq's or with its own other output).
+(this project does not test pypulseq itself, only compares this library's output with
+pypulseq's or with its own other output).
 `calc_pns` samples `seq.get_gradients()` at the file times `(k + 0.5) * dt`, which
-drift off the ideal raster grid by float rounding of the block start time sums
-(section 2.3, item 1, of the plan); `pns_levels` samples each block at its own local
+drift off the ideal raster grid by float rounding of the block start time sums;
+`pns_levels` samples each block at its own local
 raster times, with no such drift. Both then run the same chunk function, so a
-relative 1e-6-of-peak tolerance (section 3.5, item 2, of the plan) covers the whole
+relative 1e-6-of-peak tolerance covers the whole
 difference, except for a file with a block off the gradient raster, where both
 sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradients by
 `seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
@@ -1451,8 +1450,8 @@ whole file at the raster centres, and compares with `_assert_matches_pypulseq`.
 #### `test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient`
 
 **Checks:** `sample` gives the correct waveform for a file with an oversampled
-arbitrary gradient (`make_arbitrary_grad(oversampling=True)`): B4 of
-`docs/reviews/2026-09-28-code-review.md` (pypulseq issue #423), fixed by the project's
+arbitrary gradient (`make_arbitrary_grad(oversampling=True)`): pypulseq issue #423, fixed
+by the project's
 pypulseq pin (`pulseq-reports-pin-1`, the fix of pypulseq PR #424). The reference is not
 `seq.get_gradients()`: pypulseq's `waveforms()` leaves out the first and the last point
 of an oversampled gradient (a separate pypulseq bug, draft 03 of
@@ -1536,9 +1535,9 @@ checks the result's dtype and shape.
 **Assumptions:** None.
 
 The remaining tests of this section are for `GradientSampler.block_samples` and
-`raster_block_lengths` (`docs/plans/diagram-lanes.md`, phase 2, task 2.0, section 4.1,
-item 3): the PNS lane's per-block samples at the local times `(j + 0.5) * dt`, 0 before
-a block's first gradient point and after its last, with no line across a gap and no
+`raster_block_lengths`: the PNS lane's per-block samples at the local times
+`(j + 0.5) * dt`, 0 before a block's first gradient point and after its last, with no
+line across a gap and no
 time drift from the block start sums. This is the rule of `PnsLanes` (`_eventSamples`
 in `assets/pns_lanes.js`), not the rule of `sample`.
 
@@ -1557,8 +1556,7 @@ is compared with `sample(axis, t_file)` with `numpy.testing.assert_allclose`, `a
 are not exactly equal: `block_samples` computes each block's samples from its own local
 raster grid, with no accumulated float error, while `sample` reads the waveform at the
 block's actual start time (the sequential sum of the durations before it), which drifts
-off the ideal raster grid by float rounding (`docs/plans/diagram-lanes.md`, section 2.3,
-item 1). The difference is that drift only.
+off the ideal raster grid by float rounding. The difference is that drift only.
 
 **Assumptions:** None.
 
@@ -1764,8 +1762,7 @@ junction-step cases, a window that starts inside a block after a
 junction step, and comparisons with the oracle
 (`tests/oracles/grad_peaks.py`, the earlier implementation).
 
-The last group tests `block_gradient_values` (`docs/plans/gradient-pns-findings.md` of
-pulseq-checks, section 3.1): the values of each block, in play order. Its
+The last group tests `block_gradient_values`: the values of each block, in play order. Its
 main test compares the maxima over the blocks with the whole-file result of `gradient_peaks`.
 The other tests check the blocks without an event on an axis, the junction step of each block,
 the arrays, and the refusal of the rotation extension.
@@ -2041,7 +2038,7 @@ slew matches and is credited to the first (only) block.
 **Checks:** A window entirely inside a block with no gradient, right after a gradient
 event that ends at a non-zero value (within the tolerance `add_block` accepts) in the
 block before: the window does not use the junction between the two blocks, because
-that block starts before the window (`docs/plans/review-bugs.md`, B1, decision 14), so
+that block starts before the window, so
 the window has no gradient event and 0 slew. A window that starts exactly at that
 junction still uses it.
 
@@ -2060,9 +2057,8 @@ block.
 
 **Checks:** When a block that the window start cuts and a later block fully inside the
 window reach the same peak and the same slew, both are credited to the cut block, the first
-in play order, as a single pass over the blocks would (finding L3 of
-`docs/reviews/2026-09-28-code-review.md`). The peak time and the vector peak time are the
-first time the cut block reaches the peak.
+in play order, as a single pass over the blocks would. The peak time and the vector peak
+time are the first time the cut block reaches the peak.
 
 **How:** The test builds two blocks with the same x trapezoid (rise 0.2 ms, flat 0.4 ms,
 fall 0.2 ms), then a delay block. The window starts at 0.4 ms, in the flat top of block 1,
@@ -2147,10 +2143,9 @@ the same block-attribution exception and the same conversion to the units of the
 **Assumptions:**
 
 - `make_arbitrary_grad`'s `first` and `last` default to a linear extrapolation of the
-  waveform's own edge samples, not to 0 (`docs/notes/slew-definitions.md`'s pypulseq source
-  reading confirms this), so the random arbitrary-gradient builder passes `first=0.0, last=0.0`
-  explicitly to keep every event zero-ended. This is a fact about pypulseq, not about the
-  function under test, and is not itself checked here.
+  waveform's own edge samples, not to 0, so the random arbitrary-gradient builder passes
+  `first=0.0, last=0.0` explicitly to keep every event zero-ended. This is a fact about
+  pypulseq, not about the function under test, and is not itself checked here.
 
 #### `test_gradient_peaks_refuses_rotations`
 
