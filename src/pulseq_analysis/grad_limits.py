@@ -12,10 +12,11 @@ an oblique slice one physical axis can see amplitude up to the vector peak,
 `GradientLimits.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
 
 This computes the per-event values one time for each unique gradient event
-(`seq_index.grad_events`), then combines them over the blocks of `seq_index.sequence_index`
-with numpy, instead of reading every block with `get_block`. Thus its cost grows with the
-number of unique events and the number of blocks, but it makes no pypulseq call for each
-block. It reads individual blocks only for the few blocks that a window edge cuts.
+(`seq_index.grad_events`, which reads one block with `get_block` for each unique event),
+then combines them over the blocks of `seq_index.sequence_index` with numpy, instead of
+reading every block with `get_block`. Thus its cost grows with the number of unique events
+and the number of blocks, but it makes no pypulseq call for each block. `gradient_limits`
+also reads the blocks that a window edge cuts.
 
 The peak slew rate is the largest of two kinds of value: the slope of each straight segment
 of each gradient event, and the step at each block junction divided by the gradient raster
@@ -35,6 +36,7 @@ caller that needs each place where a value is above a limit. `gradient_limits` d
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 import pypulseq as pp
@@ -113,7 +115,7 @@ class BlockGradientValues:
 
     Each array has one entry for each block, in play order (`seq_index.SequenceIndex`); N is
     the number of blocks. `block_id` is the block ID and `start_s` the start of the block in
-    seconds from the sequence start. The four dicts have the keys "x", "y" and "z", and each
+    seconds from the sequence start. The five dicts have the keys "x", "y" and "z", and each
     value is a float array of length N. For an axis that has no event in a block, the peak and
     the slew are 0 and their times are `start_s`; the junction step is the step from the last
     value of the previous block to 0, which is not 0 when the previous block ends at a value
@@ -123,10 +125,12 @@ class BlockGradientValues:
     `peak_time_s` its time. `slew_hz_per_m_per_s` is the largest slope of a straight segment of
     that event, and `slew_time_s` the start of that segment. `junction_hz_per_m_per_s` is the
     step at the start of the block, `|last value of the previous block - first value of this
-    block|` divided by `seq.grad_raster_time`, as the module docstring describes it (0 for
-    the first block). Its time is `start_s`. `vector_peak_hz_per_m` is the largest magnitude
-    of the three-axis vector in the block, and `vector_peak_time_s` the first time in the block
-    where it is reached (0 and `start_s` for a block without gradients).
+    block|` divided by `seq.grad_raster_time`, as the module docstring describes it. For the
+    first block it is the step from 0 to the first value of the block, which is not 0 when
+    the first event starts at a value that is not 0. Its time is `start_s`.
+    `vector_peak_hz_per_m` is the largest magnitude of the three-axis vector in the block, and
+    `vector_peak_time_s` the first time in the block where it is reached (0 and `start_s` for
+    a block without gradients).
 
     The maximum of each of these over the blocks is the value that `gradient_limits` gives for
     the whole file. The first block with that value is its credited block, and for the slew
@@ -185,6 +189,36 @@ def _vector_peak_in_block(
     return float(times[i]), float(magnitude[i])
 
 
+class _PolylineValues(NamedTuple):
+    """The values of one polyline, from `_polyline_values`."""
+
+    peak: float  # the largest |amplitude| of the points
+    peak_time: float  # the time of the first point with that value
+    slew: float  # the largest |slope| of a segment of `TIME_TOLERANCE` or more (0.0 if none)
+    slew_time: float  # the start time of the first such segment (0.0 if none)
+    integral: float  # the integral of amplitude^2 dt over the polyline
+
+
+def _polyline_values(t: np.ndarray, amp: np.ndarray) -> _PolylineValues:
+    """The peak, the slew and the integral of the piecewise-linear polyline `(t, amp)`. The
+    first point wins a tie of the peak, and the first segment wins a tie of the slew. A segment
+    shorter than `TIME_TOLERANCE` has no slope. Both `_event_values` (a whole event) and the
+    edge-block loop of `_range_result` (an event clipped to the range) use it."""
+    abs_amp = np.abs(amp)
+    pk = int(np.argmax(abs_amp))
+    dt = np.diff(t)
+    a, b = amp[:-1], amp[1:]
+    integral = float(np.sum(dt * (a * a + a * b + b * b) / 3.0))
+    slew, slew_time = 0.0, 0.0
+    valid = dt >= TIME_TOLERANCE
+    if np.any(valid):
+        seg_slew = np.abs((b - a)[valid] / dt[valid])
+        j = int(np.argmax(seg_slew))
+        slew = float(seg_slew[j])
+        slew_time = float(t[:-1][valid][j])
+    return _PolylineValues(float(abs_amp[pk]), float(t[pk]), slew, slew_time, integral)
+
+
 @dataclass
 class _EventData:
     """The per-unique-gradient-event values that `gradient_limits` needs, indexed by the dense
@@ -222,27 +256,58 @@ def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
     for dense_k, g in grad_events(seq, index):
         t, amp = gradient_points(g, 0.0)
         i = dense_k - 1
-        abs_amp = np.abs(amp)
-        pk = int(np.argmax(abs_amp))
-        peak[i] = float(abs_amp[pk])
-        peak_offset[i] = float(t[pk])
+        values = _polyline_values(t, amp)
+        peak[i] = values.peak
+        peak_offset[i] = values.peak_time
         first[i] = float(amp[0])
         last[i] = float(amp[-1])
-
-        dt = np.diff(t)
-        a, b = amp[:-1], amp[1:]
-        integral[i] = float(np.sum(dt * (a * a + a * b + b * b) / 3.0))
-        valid = dt >= TIME_TOLERANCE
-        if np.any(valid):
-            seg_slew = np.abs((b - a)[valid] / dt[valid])
-            j = int(np.argmax(seg_slew))
-            slew[i] = float(seg_slew[j])
-            slew_offset[i] = float(t[:-1][valid][j])
+        integral[i] = values.integral
+        slew[i] = values.slew
+        slew_offset[i] = values.slew_time
 
         t_rel[i] = t
         amp_list[i] = amp
 
     return _EventData(peak, peak_offset, slew, slew_offset, first, last, integral, t_rel, amp_list)
+
+
+def _event_column(col: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """For each block, the entry of `values` (K entries, one for each unique gradient event) of
+    the block's event on one axis, and 0.0 for a block without an event on it. `col` is the
+    dense event column of that axis (`seq_index.SequenceIndex.gx`/`gy`/`gz`, 0 = no event)."""
+    return np.concatenate(([0.0], values))[col]
+
+
+def _junction_steps(col: np.ndarray, ev: _EventData, grad_raster: float) -> np.ndarray:
+    """For each block, the step at its incoming junction on one axis, in Hz/m/s:
+    |last value of the previous block - first value of this block| / `grad_raster`. The value
+    of a block without an event on the axis is 0.0, and the value before the first block is
+    0.0. `col` is the dense event column of the axis. Both `_range_result` and
+    `block_gradient_values` use it."""
+    first_vals = _event_column(col, ev.first)
+    last_vals = _event_column(col, ev.last)
+    prev_last = np.concatenate(([0.0], last_vals[:-1]))
+    return np.abs(prev_last - first_vals) / grad_raster
+
+
+def _distinct_triples(
+    gx: np.ndarray, gy: np.ndarray, gz: np.ndarray, num_events: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The distinct triples `(gx, gy, gz)` of dense event indexes (0 = no event) of a set of
+    blocks, as `(first, inverse)`: `first[t]` is the first position in `gx` of triple number
+    `t`, and `inverse[i]` is the number of the triple at position `i`. `num_events` is the
+    number of unique gradient events (the largest index).
+
+    The triple is one number in two steps, `(rank of (gx, gy)) * base + gz`, so that the number
+    stays far from the int64 limit: `(gx * base + gy) * base + gz` can wrap around above about
+    2.6 million unique events. Both `_range_result` and `_block_vector_peaks` use it."""
+    base = num_events + 1
+    gx, gy, gz = (np.asarray(g, dtype=np.int64) for g in (gx, gy, gz))
+    _, pair = np.unique(gx * base + gy, return_inverse=True)
+    _, first, inverse = np.unique(
+        pair.astype(np.int64) * base + gz, return_index=True, return_inverse=True
+    )
+    return first, inverse
 
 
 def _triple_vector_peak(
@@ -418,27 +483,22 @@ def _range_result(
                     axis_points[axis] = (t_c, amp_c)
                     st = state[axis]
                     st["has_event"] = True
-                    abs_amp = np.abs(amp_c)
-                    i = int(np.argmax(abs_amp))
-                    if _credit_goes_to(abs_amp[i], play, st["peak"], st["peak_play"]):
+                    values = _polyline_values(t_c, amp_c)
+                    if _credit_goes_to(values.peak, play, st["peak"], st["peak_play"]):
                         st["peak"], st["peak_time"], st["peak_play"] = (
-                            float(abs_amp[i]),
-                            float(t_c[i]),
+                            values.peak,
+                            values.peak_time,
                             play,
                         )
-                    dt = np.diff(t_c)
-                    a, b = amp_c[:-1], amp_c[1:]
-                    st["rms_sum"] += float(np.sum(dt * (a * a + a * b + b * b) / 3.0))
-                    valid = dt >= TIME_TOLERANCE
-                    if np.any(valid):
-                        seg_slew = np.abs((b - a)[valid] / dt[valid])
-                        j = int(np.argmax(seg_slew))
-                        if _credit_goes_to(seg_slew[j], play, st["slew"], st["slew_play"]):
-                            st["slew"], st["slew_play"], st["slew_time"] = (
-                                float(seg_slew[j]),
-                                play,
-                                float(t_c[:-1][valid][j]),
-                            )
+                    st["rms_sum"] += values.integral
+                    # A clipped event with no segment of `TIME_TOLERANCE` or more has the
+                    # slew 0.0, which `_credit_goes_to` never credits.
+                    if _credit_goes_to(values.slew, play, st["slew"], st["slew_play"]):
+                        st["slew"], st["slew_play"], st["slew_time"] = (
+                            values.slew,
+                            play,
+                            values.slew_time,
+                        )
                 if axis_points:
                     axis_points_by_play[play] = axis_points
 
@@ -451,21 +511,17 @@ def _range_result(
         gx_s = index.gx[i0:i1].astype(np.int64)
         gy_s = index.gy[i0:i1].astype(np.int64)
         gz_s = index.gz[i0:i1].astype(np.int64)
-        any_grad = (gx_s > 0) | (gy_s > 0) | (gz_s > 0)
-        if np.any(any_grad):
-            base = k + 1
-            combo = (gx_s * base + gy_s) * base + gz_s
-            _, first_local = np.unique(combo, return_index=True)
-            for local in first_local.tolist():
-                if not any_grad[local]:
-                    continue
+        selected = np.flatnonzero((gx_s > 0) | (gy_s > 0) | (gz_s > 0))
+        if selected.size:
+            first, _ = _distinct_triples(gx_s[selected], gy_s[selected], gz_s[selected], k)
+            for local in selected[first].tolist():
                 triple = _triple_vector_peak(
                     ev, int(gx_s[local]), int(gy_s[local]), int(gz_s[local])
                 )
                 if triple is None:
                     continue
                 rel_t, mag = triple
-                # `first_local` is in the order of `combo`, not of play.
+                # `first` is in the order of the triples, not of play.
                 if _credit_goes_to(mag, i0 + local, vector_peak_hz, vector_peak_play):
                     vector_peak_hz, vector_peak_play = mag, i0 + local
                     vector_peak_time = float(start_s[i0 + local]) + rel_t
@@ -485,16 +541,7 @@ def _range_result(
     axes: dict[str, AxisResult] = {}
     has_event_any = False
     for axis in _AXES:
-        col = axis_cols[axis].astype(np.int64)
-        if k:
-            idx = np.clip(col - 1, 0, k - 1)
-            first_vals = np.where(col == 0, 0.0, ev.first[idx])
-            last_vals = np.where(col == 0, 0.0, ev.last[idx])
-        else:
-            first_vals = np.zeros(n)
-            last_vals = np.zeros(n)
-        prev_last = np.concatenate(([0.0], last_vals[:-1]))
-        steps = np.abs(prev_last - first_vals) / grad_raster
+        steps = _junction_steps(axis_cols[axis], ev, grad_raster)
 
         junction_max, junction_play = 0.0, None
         if np.any(junction_in_range):
@@ -571,10 +618,10 @@ def gradient_limits(
     section 8).
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
-    `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
-    blocks of the range. It reads individual blocks with `get_block` only for the few blocks
-    that a range edge cuts, so its cost does not grow with the number of blocks the way that
-    reading every block would.
+    `seq_index.grad_events` one time (`_event_values`, which reads one block with `get_block`
+    for each unique gradient event), then combines them with numpy over the blocks of the
+    range. It also reads the few blocks that a range edge cuts with `get_block`, so its
+    cost does not grow with the number of blocks the way that reading every block would.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
@@ -625,18 +672,11 @@ def gradient_limits(
     )
 
 
-def _event_column(col: np.ndarray, values: np.ndarray) -> np.ndarray:
-    """For each block, the entry of `values` (K entries, one for each unique gradient event) of
-    the block's event on one axis, and 0.0 for a block without an event on it. `col` is the
-    dense event column of that axis (`seq_index.SequenceIndex.gx`/`gy`/`gz`, 0 = no event)."""
-    return np.concatenate(([0.0], values))[col]
-
-
 def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarray, np.ndarray]:
     """The peak of |G| of each block in Hz/m, and its time from the block start, from
     `_triple_vector_peak` one time for each distinct triple of dense event indexes
-    (`np.unique` over the blocks that have a gradient, mapped back to every such block). A
-    block without a gradient has 0 and 0."""
+    (`_distinct_triples` over the blocks that have a gradient, mapped back to every such
+    block). A block without a gradient has 0 and 0."""
     peak = np.zeros(index.num_blocks)
     offset = np.zeros(index.num_blocks)
     gx, gy, gz = (col.astype(np.int64) for col in (index.gx, index.gy, index.gz))
@@ -644,12 +684,7 @@ def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarra
     if selected.size == 0:
         return peak, offset
     gx, gy, gz = gx[selected], gy[selected], gz[selected]
-    # The triple as one number, in two steps so that it stays far from the int64 limit.
-    base = ev.peak.size + 1
-    _, pair = np.unique(gx * base + gy, return_inverse=True)
-    _, first, inverse = np.unique(
-        pair.astype(np.int64) * base + gz, return_index=True, return_inverse=True
-    )
+    first, inverse = _distinct_triples(gx, gy, gz, ev.peak.size)
     triple_peak = np.zeros(first.size)
     triple_offset = np.zeros(first.size)
     for t, local in enumerate(first.tolist()):
@@ -673,8 +708,9 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
     `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
-    blocks. It computes the peak of |G| one time for each distinct triple of events. It does
-    not read a block with `get_block`.
+    blocks. It computes the peak of |G| one time for each distinct triple of events. It reads
+    one block with `get_block` for each unique gradient event (in `_event_values`), and no
+    other block.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the values are of the logical axes as they are stored.
@@ -695,10 +731,7 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
         peak_time_s[axis] = start_s + _event_column(col, ev.peak_offset)
         slew_hz_per_m_per_s[axis] = _event_column(col, ev.slew)
         slew_time_s[axis] = start_s + _event_column(col, ev.slew_offset)
-        first_vals = _event_column(col, ev.first)
-        last_vals = _event_column(col, ev.last)
-        prev_last = np.concatenate(([0.0], last_vals[:-1]))
-        junction_hz_per_m_per_s[axis] = np.abs(prev_last - first_vals) / grad_raster
+        junction_hz_per_m_per_s[axis] = _junction_steps(col, ev, grad_raster)
 
     vector_peak_hz_per_m, vector_offset = _block_vector_peaks(index, ev)
     return BlockGradientValues(

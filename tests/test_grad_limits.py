@@ -24,6 +24,7 @@ from test_extensions import _with_rotation_library
 from pulseq_analysis.grad_limits import (
     BlockGradientValues,
     GradientLimits,
+    _distinct_triples,
     block_gradient_values,
     gradient_limits,
 )
@@ -1148,3 +1149,63 @@ def test_gradient_limits_accepts_a_window_within_the_tolerance_of_the_sequence()
     total = sequence_index(seq).end_s
     result = gradient_limits(seq, window=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
     assert result.range_s == (0.0, total)
+
+
+def _assert_same_triple_groups(gx, gy, gz, num_events):
+    """`_distinct_triples` gives the groups of `np.unique(..., axis=0)`: the same partition
+    of the positions, and the same first position of each group."""
+    first, inverse = _distinct_triples(gx, gy, gz, num_events)
+    ref, ref_first, ref_inverse = np.unique(
+        np.stack([gx, gy, gz], axis=1), axis=0, return_index=True, return_inverse=True
+    )
+    ref_inverse = ref_inverse.reshape(-1)
+    assert first.size == ref.shape[0]
+    assert inverse.shape == ref_inverse.shape
+    # One group of the helper for each group of the reference, and the reverse.
+    pairs = set(zip(inverse.tolist(), ref_inverse.tolist(), strict=True))
+    assert len(pairs) == first.size
+    # The helper's first position of each group is the reference's.
+    np.testing.assert_array_equal(inverse[first], np.arange(first.size))
+    for group, ref_group in pairs:
+        assert first[group] == ref_first[ref_group]
+
+
+def test_distinct_triples_are_the_groups_of_np_unique_with_up_to_3_million_events():
+    """For random triples of event numbers up to 3,000,000, with repeats, triples that share
+    two numbers and the extremes 0 and 3,000,000, the groups and the first positions of
+    `_distinct_triples` are those of `np.unique(..., axis=0)`."""
+    top = 3_000_000
+    rng = np.random.default_rng(20261005)
+    pool = rng.integers(0, top + 1, size=(300, 3))
+    # Triples that differ from a triple of the pool in one number only.
+    near = pool[:100].copy()
+    near[np.arange(100), rng.integers(0, 3, size=100)] = rng.integers(0, top + 1, size=100)
+    extremes = np.array(
+        [[0, 0, 0], [top, top, top], [0, top, 0], [top, 0, top], [0, 0, top], [top, 0, 0]]
+    )
+    pool = np.concatenate([pool, near, extremes])
+    triples = pool[rng.integers(0, pool.shape[0], size=5000)]
+    # Every triple of the pool occurs at least once, in a random place.
+    triples[rng.permutation(triples.shape[0])[: pool.shape[0]]] = pool
+
+    _assert_same_triple_groups(triples[:, 0], triples[:, 1], triples[:, 2], top)
+
+
+def test_distinct_triples_keep_apart_two_triples_that_one_int64_key_gives_one_number():
+    """With 2**22 - 1 events, the one-step key `(gx * base + gy) * base + gz` wraps around
+    in int64 for `(2**20, 1, 1)` and `(0, 1, 1)` (the keys differ by 2**64), so they get one
+    number. `_distinct_triples` keeps them apart."""
+    num_events = 2**22 - 1
+    base = num_events + 1
+    gx, gy, gz = (np.array(v, dtype=np.int64) for v in ([2**20, 0, 2**20], [1, 1, 1], [1, 1, 1]))
+
+    with np.errstate(over="ignore"):
+        one_step_key = (gx * base + gy) * base + gz
+    assert one_step_key[0] == one_step_key[1]
+
+    first, inverse = _distinct_triples(gx, gy, gz, num_events)
+
+    assert first.size == 2
+    assert inverse[0] != inverse[1]
+    assert inverse[0] == inverse[2]
+    _assert_same_triple_groups(gx, gy, gz, num_events)

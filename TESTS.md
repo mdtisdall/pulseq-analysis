@@ -1989,7 +1989,7 @@ The test checks the two slews with `==`, then the `slew_block`, `slew_time_s` an
 #### `test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block`
 
 **Checks:** Each array has one entry for each block, `block_id` and `start_s` equal the arrays of
-`sequence_index(seq)` (play order), the four dicts have the keys x, y and z, and the arrays are of
+`sequence_index(seq)` (play order), the five dicts have the keys x, y and z, and the arrays are of
 type float64 (`block_id` aside).
 
 **How:** The test calls `block_gradient_values` on `gre_sequence(num_trs=3)`, compares `block_id`
@@ -2041,6 +2041,38 @@ than `TIME_TOLERANCE`, and `range_s` is the sequence.
 and `range_s` equals `(0.0, total_duration)`.
 
 **Assumptions:** None.
+
+#### `test_distinct_triples_are_the_groups_of_np_unique_with_up_to_3_million_events`
+
+**Checks:** For triples of dense event numbers up to 3,000,000, `_distinct_triples` (used by
+`_range_result` and `_block_vector_peaks`) gives the groups of
+`np.unique(np.stack([gx, gy, gz], axis=1), axis=0, return_index=True, return_inverse=True)`: the
+same partition of the positions and the same first position of each group.
+
+**How:** With the seed 20261005, a pool of 300 random triples, 100 triples that differ from a
+triple of the pool in one number, and six triples with the extremes 0 and 3,000,000. 5,000
+positions are drawn from the pool (so triples repeat), and every triple of the pool is put in a
+random position at least once. The test checks that the numbers of groups are equal, that the
+pairs (group of the helper, group of the reference) are one-to-one, that the first position of
+each group of the helper is the first position of its group in the reference, and that the
+inverse at each first position is the number of its group.
+
+**Assumptions:** `np.unique` with `axis=0` is correct. The test calls the private helper
+directly, because the 3 million events are too many for a sequence.
+
+#### `test_distinct_triples_keep_apart_two_triples_that_one_int64_key_gives_one_number`
+
+**Checks:** Two triples whose one-step key `(gx * base + gy) * base + gz` is equal in int64 are
+two groups in `_distinct_triples`. The old key of `_range_result` fails this test.
+
+**How:** With `num_events = 2**22 - 1` (`base = 2**22`), the triples `(2**20, 1, 1)` and
+`(0, 1, 1)` have keys that differ by `2**64`. The test first checks that the two one-step keys
+are equal (with int64 overflow allowed in numpy). Then, for the triples `(2**20, 1, 1)`,
+`(0, 1, 1)`, `(2**20, 1, 1)`, it checks that the helper gives two groups, that the first and the
+second position are in different groups, and that the first and the third are in one group, and
+that the groups are those of `np.unique(..., axis=0)`.
+
+**Assumptions:** int64 arithmetic of numpy wraps around without an error.
 
 ### 2.7 PNS prediction (`test_pns.py`)
 
