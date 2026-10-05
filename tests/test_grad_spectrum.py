@@ -163,11 +163,10 @@ def _assert_matches_oracle(
     got: grad_spectrum.GradientSpectrum, ref, seq: pp.Sequence, tol: float = 1e-12
 ) -> None:
     """`got` (this module, the sampler-based implementation, in Hz/m/sqrt(Hz)) times
-    `1e3 / seq.system.gamma` equals `ref` (`tests/oracles/grad_spectrum.py`, the
-    implementation before phase 5, which samples through `Sequence.get_gradients()` and
-    gives mT/m/sqrt(Hz)) within the tolerance of section 3.5, item 2 of
-    `docs/plans/cards-at-scale.md`: the sampler builds the waveform from each block's own
-    corner points and `numpy.interp`, in a different order of float operations than
+    `1e3 / seq.system.gamma` equals `ref` (`tests/oracles/grad_spectrum.py`, the earlier
+    implementation, which samples through `Sequence.get_gradients()` and gives
+    mT/m/sqrt(Hz)) within a tolerance: the sampler builds the waveform from each block's
+    own corner points and `numpy.interp`, in a different order of float operations than
     `Sequence.get_gradients()`'s one whole-axis `scipy.interpolate.PPoly`, so the tests
     allow a relative difference of 1e-12, or an absolute difference of 1e-12 times the
     largest value of the same array. `tol` replaces 1e-12 for a long sequence (see
@@ -207,15 +206,14 @@ def test_matches_oracle_on_synthetic_sequences(seq):
 @pytest.mark.parametrize("case", ["repeating", "worst"])
 def test_matches_oracle_on_long_sequences(case):
     """The builders of `scale_sequences` (`build_repeating` and `build_worst`) at 10^4
-    blocks (task 5.3 of docs/plans/cards-at-scale.md). The tolerance is
-    `1e-12 * max(1, duration in s)`, not 1e-12 (the user, 2026-09-28). Both
-    implementations place each gradient corner at an absolute time with float rounding, in
-    a different order of additions: the sampler adds `(block start + delay) + offset`, and
-    pypulseq's `get_gradients()` adds the segment durations one at a time. The rounding of
-    an absolute time grows with the time, and a gradient ramp turns it into a value
-    difference, so the difference grows with the duration of the sequence. Measured: 2.5e-12
-    of the peak at 10^4 repeating blocks (12 s), 3.6e-12 at 10^5 blocks. Neither is more
-    correct than the other."""
+    blocks. The tolerance is `1e-12 * max(1, duration in s)`, not 1e-12 (the user,
+    2026-09-28). Both implementations place each gradient corner at an absolute time with
+    float rounding, in a different order of additions: the sampler adds
+    `(block start + delay) + offset`, and pypulseq's `get_gradients()` adds the segment
+    durations one at a time. The rounding of an absolute time grows with the time, and a
+    gradient ramp turns it into a value difference, so the difference grows with the
+    duration of the sequence. Measured: 2.5e-12 of the peak at 10^4 repeating blocks
+    (12 s), 3.6e-12 at 10^5 blocks. Neither is more correct than the other."""
     n_trs = 10_000 // TR_BLOCKS
     build = build_repeating if case == "repeating" else build_worst
     seq = build(n_trs)

@@ -369,7 +369,7 @@ def test_vector_peak_of_g_compares_different_triples_across_blocks():
     assert result.vector_peak_time_s == pytest.approx(1.0e-3)
 
 
-# ---- Junction steps (decision 6 of section 2.5 of docs/plans/cards-at-scale.md, task 4.3) ----
+# ---- Junction steps ----
 #
 # `add_block` checks the step at every block junction against `max_slew * grad_raster_time`
 # (`docs/notes/slew-definitions.md`, section 1.1). The gradient limits card (pulseq-reports) now reports that
@@ -542,15 +542,14 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
     assert axis.slew_block is None
 
 
-# ---- Comparisons with the oracle (task 4.4) ----
+# ---- Comparisons with the oracle ----
 #
-# `tests/oracles/grad_peaks.py` is the implementation from before phase 4 of
-# docs/plans/cards-at-scale.md. It reads every block with `get_block` and has no junction
-# steps. The random sequences below build every gradient event so that it starts and ends at
-# 0, so every block junction step is 0 (the junction tests above cover the junction steps on
-# their own, against hand-computed values, as docs/plans/cards-at-scale.md section 4.6 item 6
-# says to). With no junction contribution, the new code's slew is the segment part only, so
-# the whole result can be compared with the oracle's.
+# `tests/oracles/grad_peaks.py` is the earlier implementation. It reads every block with
+# `get_block` and has no junction steps. The random sequences below build every gradient
+# event so that it starts and ends at 0, so every block junction step is 0 (the junction
+# tests above cover the junction steps on their own, against hand-computed values). With
+# no junction contribution, the new code's slew is the segment part only, so the whole
+# result can be compared with the oracle's.
 #
 # The new code sums and maxes per unique event; the oracle sums and maxes per block, after
 # adding that block's own start time to the event's corner points before differencing them
@@ -722,10 +721,9 @@ def _random_gradient_sequence(rng: np.random.Generator) -> pp.Sequence:
 def test_matches_oracle_on_random_gradient_sequences(seed):
     """200 random sequences of trapezoids, extended trapezoids and arbitrary gradients
     on random axes, each event starting and ending at 0 (so no block junction has a
-    step, and the result is only the per-event, non-junction part that
-    `docs/plans/cards-at-scale.md` section 4.6 item 6 says to compare with the
-    oracle): `gradient_peaks` matches the oracle, on the whole file and on a random
-    window, within the tolerance of section 3.5, item 2 (see the comment above)."""
+    step, and the result is only the per-event, non-junction part): `gradient_peaks`
+    matches the oracle, on the whole file and on a random window, within
+    `_rounding_tol` (see the comment above)."""
     rng = np.random.default_rng(seed)
     seq = _random_gradient_sequence(rng)
     total = sum(seq.block_durations.values())

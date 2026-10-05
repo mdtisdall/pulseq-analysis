@@ -23,8 +23,7 @@ def _raster_centers(duration_s: float, raster: float = SYSTEM.grad_raster_time) 
 
 def _assert_matches_pypulseq(seq: pp.Sequence, t: np.ndarray) -> None:
     """`GradientSampler.sample(axis, t)` equals `seq.get_gradients()[axis](t)` within
-    the exactness rule of section 3.5, item 2 of `docs/plans/cards-at-scale.md`: a
-    relative 1e-12 and an absolute 1e-12 times the largest |value| of that axis's
+    a relative 1e-12 and an absolute 1e-12 times the largest |value| of that axis's
     reference at `t`.
 
     Not bit-exact: `seq_utils.gradient_offsets` adds a trapezoid's corner times in a

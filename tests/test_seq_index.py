@@ -1,4 +1,4 @@
-"""Tests for `seq_index.py` (task 2.4, item 1, of `docs/plans/cards-at-scale.md`).
+"""Tests for `seq_index.py`.
 
 The reference, `_reference_index`, is a plain loop over the blocks that numbers the
 unique RF, gradient and ADC events by their first use, with one dict for each kind: the
@@ -152,9 +152,8 @@ def test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block():
 
     Worked out by hand: block 0 introduces only e1, on gz, so e1 gets dense index 1,
     first play index 0. Block 1 introduces e2 on gx before e3 on gy (gx before gy
-    within one block, section 4.1 of the plan), so they get dense indexes 2 and 3, both
-    with first play index 1. Block 2's gx event is e1 again (already dense 1), so it
-    adds no new dense index."""
+    within one block), so they get dense indexes 2 and 3, both with first play index 1.
+    Block 2's gx event is e1 again (already dense 1), so it adds no new dense index."""
     seq = pp.Sequence(SYSTEM)
     common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
     gz = pp.make_trapezoid(channel="z", amplitude=1e5, **common)
