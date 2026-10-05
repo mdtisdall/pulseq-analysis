@@ -487,6 +487,35 @@ with `==`.
 
 **Assumptions:** None.
 
+#### `test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples`
+
+**Checks:** A block of 10,000 samples, with events on x and z and a delay before the
+first one, that many chunk ends cut, gives the same result with chunks of 1 bin, of 2
+bins and one chunk bigger than the file: every field of `PnsLevels`, including the
+intervals of a threshold below the peak. Each chunk reads only its part of the block.
+
+**How:** A block with a trapezoid on x (`delay` of 2000 samples), a trapezoid on z and
+a delay event of 10,000 samples, then a trapezoid block on y. The threshold is `0.05 *
+_LIMIT`. `CHUNK_SAMPLES` is set to `10**9` for the reference (the test checks that
+four bins are fewer than 10,000 samples, and that the reference has an interval), then
+to 1 and `bin_samples + 1`. `_assert_levels_equal` compares each result with the
+reference, every field.
+
+**Assumptions:** None.
+
+#### `test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks`
+
+**Checks:** A trapezoid and one delay block of 1 s (more than three chunks of the real
+`CHUNK_SAMPLES`) gives exactly the same result as the trapezoid and ten delay blocks of
+0.1 s.
+
+**How:** Two sequences with the same trapezoid on x. The threshold is `0.1 * _LIMIT`.
+The test checks that the long sequence has more than `3 * CHUNK_SAMPLES` samples and
+that the result of the short blocks has an interval. `_assert_levels_equal` compares
+every field. The samples of a delay are 0 in both, so the totals are equal.
+
+**Assumptions:** None.
+
 #### `test_no_gradients`
 
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
@@ -1430,6 +1459,94 @@ sample count, used to find the sample offset and length of a block range `[2, nu
 - 1)`. For each axis, `block_samples(axis, 0, num_blocks, dt)` and `block_samples(axis,
 2, num_blocks - 1, dt)` are compared with `numpy.array_equal` after slicing the whole-file
 result to the same sample offset and length.
+
+**Assumptions:** None.
+
+#### `test_skip_and_count_equal_the_same_slice_of_the_whole_range`
+
+**Checks:** `block_samples(axis, first, stop, dt, skip=s, count=c)` equals
+`block_samples(axis, first, stop, dt)[s : s + c]` exactly (`numpy.array_equal`), for
+each axis, for block ranges of the whole file and of its inner blocks, and for sample
+ranges that start and end inside a block, at the edge of a block, inside a block with
+no event, and after the last point of a block's event (the samples that are 0 and
+that the sampler does not keep). `count=None` gives all the samples after `skip`.
+
+**How:** `_blocks_with_long_events_sequence()` has five blocks: a trapezoid on x and
+a longer one on z; a delay of 300 samples; an arbitrary gradient on x that starts 20
+samples after the block start, in a block of 120 samples held by a delay event (its
+last point is 60 samples before the block end); a triangle on y; and the arbitrary
+block again. The test checks that blocks 2 and 4 have 120 samples. For each block
+range in `(0, 5)`, `(1, 5)`, `(2, 5)`, `(1, 4)`, `(2, 3)`, `(3, 5)`, `(0, 2)` and `(4,
+5)` and each axis, `whole` is the result with no `skip` and `count`. `_sample_ranges`
+makes the `(skip, count)` pairs of the blocks of that range: the whole range, an empty
+range at each end, one sample at each end, and for each block its own samples, a range
+across each edge, and five ranges that cover the block in fifths. For each pair, the
+result with `skip` and `count` is compared with `whole[skip : skip + count]`, for the
+sampler that made `whole` (with samples kept) and for a new `GradientSampler`. For
+four values of `skip` (0, 1, half the range and the end), the result with `count`
+left out is compared with `whole[skip:]`. At the end, the test checks that samples 60
+to 119 of block 2 are all 0 and that samples 20 to 59 are not.
+
+**Assumptions:** None.
+
+#### `test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice`
+
+**Checks:** A sample range that cuts a block much longer than the range, the case of
+`pns_levels` with a chunk, gives exactly the matching slice of the samples of the whole
+block, for ranges before, across and after the end of the block's event, and inside
+the block after it.
+
+**How:** One block with a trapezoid on x held by a delay event for 100,000 samples,
+then a second trapezoid block. The whole result is computed. The index of the last
+nonzero sample of block 0 is found from it (and the number of nonzero samples is
+checked to be fewer than 1000). For eight `(skip, count)` pairs (the start of the
+block, across the last nonzero sample, just after it, the middle of the block, across
+the end of the block, across the end of the block and the whole next block, the next
+block, and a range that starts in the first block and ends past its end), the result
+with `skip` and `count` is compared with the slice of the whole result with
+`numpy.array_equal`.
+
+**Assumptions:** None.
+
+#### `test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point`
+
+**Checks:** A sample at exactly the time of the last point of a block's event has the
+value of that point, which is not 0, and the next sample is 0, with no `skip`/`count`
+and when the range cuts the block to one sample.
+
+**How:** `dt` is two raster steps, so the time of sample 0, `dt / 2`, is exactly one
+raster step (the test asserts this). A block with `pp.make_extended_trapezoid` that
+ramps from 0 to 1000.0 Hz/m over one raster step, and a delay event that makes the
+block four raster steps (two samples). `block_samples("gx", 0, 1, dt)` must be `[1000.0,
+0.0]`; with `skip=0, count=1` it must be `[1000.0]`, and with `skip=1, count=1` it
+must be `[0.0]`, with `numpy.testing.assert_array_equal`.
+
+**Assumptions:** The ramp's last point is at exactly `raster` (the event stores the
+times that it is given).
+
+#### `test_block_samples_bad_skip_or_count_raises_value_error`
+
+**Checks:** `block_samples` raises `ValueError`, with a message that names `skip`,
+for a negative `skip`, a negative `count`, a negative `skip` with `count=None`, a
+`skip + count` past the samples of the range, a `skip` past them, and a `skip` past
+them with `count=None`.
+
+**How:** Parametrized over `(skip, count) = (-1, 1)`, `(0, -1)`, `(-1, None)`, `(1,
+10**9)`, `(10**9, 0)` and `(10**9, None)` on blocks 1 to 2 of `gre_sequence(num_trs=1)`,
+each inside `pytest.raises(ValueError, match="skip")`.
+
+**Assumptions:** None.
+
+#### `test_skip_plus_count_up_to_the_range_end_is_accepted`
+
+**Checks:** A `skip + count` equal to the samples of the range is not an error: an
+empty range at the end, and the last four samples. For an empty range of blocks, only
+`skip=0, count=0` is valid.
+
+**How:** `gre_sequence(num_trs=1)`, blocks 1 to 2. `raster_block_lengths` gives the
+number of samples. `block_samples("gx", 1, 3, dt, skip=total, count=0)` has size 0 and
+`skip=total - 4, count=4` has size 4. For the empty block range `(2, 2)`, `skip=0,
+count=0` has size 0, and `skip=0, count=1` raises `ValueError` (match `skip`).
 
 **Assumptions:** None.
 

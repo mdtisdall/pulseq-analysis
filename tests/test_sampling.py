@@ -450,6 +450,180 @@ def test_range_inside_the_file_equals_the_same_slice_of_the_whole_file():
         assert np.array_equal(part, whole[offset : offset + length])
 
 
+def _blocks_with_long_events_sequence() -> pp.Sequence:
+    """Five blocks. Block 0: a trapezoid on x and a longer one on z. Block 1: a delay, with no
+    event on any axis. Block 2: an arbitrary gradient on x that starts 20 raster steps after
+    the block start, and a delay event that holds the block for 120 steps, so the gradient's
+    last point is 60 steps before the block end. Block 3: a triangle on y (two points at one
+    time). Block 4: the block 2 again (the same event in a block of the same length)."""
+    dt = SYSTEM.grad_raster_time
+    n_arb = 40
+    t = (np.arange(n_arb) + 0.5) * dt
+    waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * t / (n_arb * dt))
+    arbitrary = pp.make_arbitrary_grad(channel="x", waveform=waveform, delay=20 * dt, system=SYSTEM)
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(
+        pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM),
+        pp.make_trapezoid(channel="z", area=3000.0, system=SYSTEM),
+    )
+    seq.add_block(pp.make_delay(300 * dt))
+    seq.add_block(arbitrary, pp.make_delay(120 * dt))
+    seq.add_block(pp.make_trapezoid(channel="y", area=10.0, system=SYSTEM))
+    seq.add_block(arbitrary, pp.make_delay(120 * dt))
+    return seq
+
+
+def _sample_ranges(n: np.ndarray) -> list[tuple[int, int]]:
+    """`(skip, count)` pairs for blocks of `n` samples each: the whole range, an empty range
+    at each end, one sample at each end, and for each block its whole samples, a range across
+    each of its edges, and ranges that cover it in fifths (each inside the block or across
+    its edges)."""
+    total = int(n.sum())
+    ends = np.cumsum(n)
+    starts = ends - n
+    ranges = {(0, total), (0, 0), (total, 0), (0, 1), (total - 1, 1)}
+    for start, length in zip(starts.tolist(), n.tolist(), strict=True):
+        ranges.add((start, length))
+        ranges.add((start - 2, 5))
+        ranges.add((start + length - 3, 6))
+        for fifth in range(5):
+            ranges.add((start + fifth * length // 5, length // 5 + 3))
+    return sorted((skip, count) for skip, count in ranges if skip >= 0 and skip + count <= total)
+
+
+def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
+    """`block_samples(axis, first, stop, dt, skip=s, count=c)` equals `block_samples(axis, first,
+    stop, dt)[s : s + c]` exactly, for each axis, for block ranges of the whole file and of
+    its inner blocks, and for sample ranges that start and end inside a block, at the edge
+    of a block, inside a block with no event, and after the last point of the event of a
+    block (the samples that are 0 and that the sampler does not keep). `count=None` gives all
+    the samples after `skip`. The sampler that made the whole range first (with samples kept)
+    and a new one give the same part."""
+    seq = _blocks_with_long_events_sequence()
+    dt = SYSTEM.grad_raster_time
+    index = sequence_index(seq)
+    n_all, on_raster = raster_block_lengths(index, dt)
+    assert on_raster
+    assert n_all[2] == n_all[4] == 120  # the event of block 2 stops 60 samples before its end
+    sampler = GradientSampler(seq, index)
+    checked = 0
+    for first, stop in [(0, 5), (1, 5), (2, 5), (1, 4), (2, 3), (3, 5), (0, 2), (4, 5)]:
+        n = n_all[first:stop]
+        for axis in _AXES:
+            whole = sampler.block_samples(axis, first, stop, dt)
+            for skip, count in _sample_ranges(n):
+                expected = whole[skip : skip + count]
+                got = sampler.block_samples(axis, first, stop, dt, skip=skip, count=count)
+                assert got.dtype == np.float64
+                assert np.array_equal(got, expected), (axis, first, stop, skip, count)
+                fresh = GradientSampler(seq, index)
+                got = fresh.block_samples(axis, first, stop, dt, skip=skip, count=count)
+                assert np.array_equal(got, expected), (axis, first, stop, skip, count)
+                checked += 1
+            for skip in (0, 1, whole.size // 2, whole.size):
+                got = sampler.block_samples(axis, first, stop, dt, skip=skip)
+                assert np.array_equal(got, whole[skip:]), (axis, first, stop, skip)
+    assert checked > 300
+    # The range has samples that are not 0 after the first sample of block 2 and 0 at its end.
+    part = sampler.block_samples("gx", 2, 3, dt, skip=60, count=60)
+    assert not np.any(part)
+    assert np.any(sampler.block_samples("gx", 2, 3, dt, skip=20, count=40))
+
+
+def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
+    """A range inside one block that is much longer than the range (a trapezoid on x in a
+    block held by a delay for 100000 samples, then another block) gives exactly the slice of the
+    samples of the whole block, for ranges before, across and after the end of the trapezoid and
+    inside the block after it. It checks the part of a block that the range cuts, which the
+    sampler computes for the range only."""
+    dt = SYSTEM.grad_raster_time
+    n_block = 100_000
+    seq = pp.Sequence(SYSTEM)
+    trapezoid = pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM)
+    seq.add_block(trapezoid, pp.make_delay(n_block * dt))
+    seq.add_block(pp.make_trapezoid(channel="x", area=500.0, system=SYSTEM))
+    index = sequence_index(seq)
+    n, on_raster = raster_block_lengths(index, dt)
+    assert on_raster
+    assert n[0] == n_block
+    sampler = GradientSampler(seq, index)
+    whole = sampler.block_samples("gx", 0, 2, dt)
+    nonzero = np.flatnonzero(whole[:n_block])
+    assert 0 < nonzero.size < 1000
+    last = int(nonzero[-1])
+    for skip, count in [
+        (0, 10),
+        (last - 5, 10),
+        (last + 1, 10),
+        (n_block // 2, 50_000),
+        (n_block - 3, 6),
+        (n_block - 3, int(n[1]) + 3),
+        (n_block, int(n[1])),
+        (5, n_block + 10),
+    ]:
+        got = sampler.block_samples("gx", 0, 2, dt, skip=skip, count=count)
+        assert np.array_equal(got, whole[skip : skip + count]), (skip, count)
+
+
+def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
+    """With `dt` of two raster steps, the first sample of a block is at the raster time
+    `dt / 2`, which is exactly the time of the last point of a ramp that ends there with a
+    value that is not 0. That sample is the value of the last point, and the next sample (after
+    the last point, in the same block) is 0, also when the range cuts the block to one
+    sample."""
+    raster = SYSTEM.grad_raster_time
+    amp = 1000.0  # Hz/m
+    ramp = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([0.0, amp]),
+        times=np.array([0.0, raster]),
+        system=SYSTEM,
+    )
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(ramp, pp.make_delay(4 * raster))
+    sampler = GradientSampler(seq, sequence_index(seq))
+    dt = 2 * raster
+    assert 0.5 * dt == raster
+    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt), [amp, 0.0])
+    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=0, count=1), [amp])
+    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=1, count=1), [0.0])
+
+
+@pytest.mark.parametrize(
+    "skip,count",
+    [(-1, 1), (0, -1), (-1, None), (1, 10**9), (10**9, 0), (10**9, None)],
+    ids=[
+        "negative_skip",
+        "negative_count",
+        "negative_skip_and_count_none",
+        "skip_plus_count_past_the_range",
+        "skip_past_the_range",
+        "skip_past_the_range_and_count_none",
+    ],
+)
+def test_block_samples_bad_skip_or_count_raises_value_error(skip, count):
+    seq = gre_sequence(num_trs=1)
+    sampler = GradientSampler(seq, sequence_index(seq))
+    with pytest.raises(ValueError, match="skip"):
+        sampler.block_samples("gx", 1, 3, SYSTEM.grad_raster_time, skip=skip, count=count)
+
+
+def test_skip_plus_count_up_to_the_range_end_is_accepted():
+    """`skip + count` equal to the samples of the range is not an error (the edge of the
+    check), also for an empty range of blocks."""
+    seq = gre_sequence(num_trs=1)
+    dt = SYSTEM.grad_raster_time
+    index = sequence_index(seq)
+    sampler = GradientSampler(seq, index)
+    n, _ = raster_block_lengths(index, dt)
+    total = int(n[1:3].sum())
+    assert sampler.block_samples("gx", 1, 3, dt, skip=total, count=0).size == 0
+    assert sampler.block_samples("gx", 1, 3, dt, skip=total - 4, count=4).size == 4
+    assert sampler.block_samples("gx", 2, 2, dt, skip=0, count=0).size == 0
+    with pytest.raises(ValueError, match="skip"):
+        sampler.block_samples("gx", 2, 2, dt, skip=0, count=1)
+
+
 def test_block_samples_invalid_axis_name_raises_value_error():
     seq = gre_sequence(num_trs=1)
     sampler = GradientSampler(seq, sequence_index(seq))
