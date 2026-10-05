@@ -206,9 +206,23 @@ the output of the model for that axis, and the total of a sample is
 | `peak` | The largest total. The limit is `pns_levels.PNS_LIMIT` (1.0). |
 | `peak_time_s` | The time of the first sample whose total is within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. |
 | `axis_peaks` | A dict from each axis to its largest value. |
-| `above` | A dict from each threshold (`float(t)`, in the order of `thresholds`) to a tuple of `PnsInterval`, in time order: each run of consecutive samples whose float64 total is at or above that threshold. A tuple is empty when `peak` is below its threshold, and otherwise its largest `PnsInterval.peak` is `peak`. All thresholds are found in one pass. Do not change the dict. |
-| `bin_samples`, `level_min`, `level_max` | The level, for a plot: float32 arrays with the minimum and the maximum total of each bin of `bin_samples` samples (the last bin can have fewer). Each total of a bin is in `[level_min, level_max]` of the bin. |
+| `above` | A dict from each threshold (`float(t)`, in the order of `thresholds`) to a tuple of `PnsInterval`, in time order: each run of consecutive samples whose float64 total is at or above that threshold. A tuple is empty when `peak` is below its threshold, and otherwise its largest `PnsInterval.peak` is `peak`. All thresholds are found in one pass. |
+| `bin_samples`, `level_min`, `level_max` | The level, for a plot: read-only float32 arrays with the minimum and the maximum total of each bin of `bin_samples` samples (the last bin can have fewer). Each total of a bin is in `[level_min, level_max]` of the bin. |
 | `on_raster` | `True` when the duration of each block is a whole number of samples. Otherwise the samples come from the waveform of the whole file at the same times (`GradientSampler.sample`). |
+
+All the callers of `pns_levels_for` with the same sequence object, hardware
+and thresholds share the kept result. For this reason, `level_min` and
+`level_max` are read-only, also for `NO_GRADIENTS` and also in the result of
+`pns_levels`: a change in place raises `ValueError`. Convert to a new array:
+
+```python
+from pulseq_analysis.pns import pns_levels_for
+
+levels = pns_levels_for(seq)
+level_max_percent = levels.level_max * 100  # a new array
+```
+
+The dicts `hw`, `axis_peaks` and `above` are plain dicts. Do not change them.
 
 `PnsInterval`, a frozen dataclass: `start_s` and `end_s` (the times of the
 first and the last sample), `peak` (the largest total), `peak_time_s` (the

@@ -202,8 +202,8 @@ class _PnsSafeLevels:
             "`thresholds` is a tuple of finite numbers above 0, with no two equal, "
             "and the default is `(1.0,)`. A sequence with no gradient event has no "
             "prediction (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
-            "extension raises `NotImplementedError`. The result is kept for the sequence "
-            "object, the hardware and the thresholds."
+            "extension raises `NotImplementedError`. The arrays are read-only, and the "
+            "result is kept for the sequence object, the hardware and the thresholds."
         ),
         params=("hardware", "thresholds"),
         rasters=_GRADIENT_RASTERS,

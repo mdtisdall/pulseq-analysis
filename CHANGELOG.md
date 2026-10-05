@@ -3,6 +3,25 @@
 Each version of `pulseq-analysis` has an entry here. The version numbers
 follow [PEP 440](https://peps.python.org/pep-0440/).
 
+## 0.1.0rc5 (2026-10-04)
+
+The fifth release candidate: read-only arrays in `PnsLevels`, an item of
+section 9 of `docs/plans/gradient-spectrum.md`. `pns_levels_for` gives its
+kept result to each caller, as `gradient_spectrum_for` does (decision L12 of
+that plan).
+
+### Changed
+
+- `level_min` and `level_max` of a `PnsLevels` are read-only, also for
+  `NO_GRADIENTS` and also in the result of `pns_levels`. A change in place
+  (for example `levels.level_max *= 100`) raises `ValueError`. Convert to a
+  new array (`levels.level_max * 100`).
+- The documents say that a caller must not change the dicts `hw`,
+  `axis_peaks` and `above`. Before, they said this only for `above`. The
+  dicts stay plain dicts.
+- The specification version of `pns.safe.levels` stays 1. Its series do not
+  change: a `Series` keeps its own read-only copy of each array.
+
 ## 0.1.0rc4 (2026-10-04)
 
 The fourth release candidate: the gradient spectrum

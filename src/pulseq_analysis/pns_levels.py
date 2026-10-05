@@ -91,9 +91,12 @@ class PnsLevels:
     0, the level has no bins, `peak` and each axis peak are 0, `peak_time_s` is None and
     `above` has an empty tuple for each threshold.
 
-    `above` is a plain dict, and the dataclass is frozen only in its fields: a caller must
-    not change the dict (a `MappingProxyType` would stop that, but it cannot be pickled or
-    copied with `copy.deepcopy`, and the dict type is the one of the interface).
+    `level_min` and `level_max` are read-only, so that the callers of `pns.pns_levels_for`
+    can share one result: convert to a new array (`levels.level_max * 100`), not in place.
+    `hw`, `axis_peaks` and `above` are plain dicts, and the dataclass is frozen only in its
+    fields: a caller must not change a dict (a `MappingProxyType` would stop that, but it
+    cannot be pickled or copied with `copy.deepcopy`, and the dict type is the one of the
+    interface).
     """
 
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
@@ -192,7 +195,8 @@ def pns_levels(
     The result does not depend on the chunk size (exact equality). A sequence without
     a gradient event gives `reason=NO_GRADIENTS`, no bins, peak 0, `peak_time_s` None
     and no interval (an empty tuple for each threshold). Memory: the chunk, the longest
-    block, the stored level and a few numbers for each chunk and for each interval.
+    block, the stored level and a few numbers for each chunk and for each interval. The
+    arrays of the result are read-only.
 
     Raises ValueError when both `gradient_asc` and `hardware` are given or `thresholds`
     is refused, and NotImplementedError for a sequence with the rotation extension
@@ -220,21 +224,23 @@ def pns_levels(
 
     if not _has_gradients(index):
         empty = np.zeros(0, dtype=np.float32)
-        return PnsLevels(
-            reason=NO_GRADIENTS,
-            hardware=hardware_label,
-            asc_file=asc_file,
-            hw=hw,
-            dt_s=dt,
-            num_samples=0,
-            bin_samples=bin_samples_for(0, dt),
-            level_min=empty,
-            level_max=empty,
-            peak=0.0,
-            peak_time_s=None,
-            axis_peaks=dict.fromkeys(_AXES3, 0.0),
-            on_raster=on_raster,
-            above={key: () for key in keys},
+        return _read_only(
+            PnsLevels(
+                reason=NO_GRADIENTS,
+                hardware=hardware_label,
+                asc_file=asc_file,
+                hw=hw,
+                dt_s=dt,
+                num_samples=0,
+                bin_samples=bin_samples_for(0, dt),
+                level_min=empty,
+                level_max=empty,
+                peak=0.0,
+                peak_time_s=None,
+                axis_peaks=dict.fromkeys(_AXES3, 0.0),
+                on_raster=on_raster,
+                above={key: () for key in keys},
+            )
         )
 
     sampler = GradientSampler(seq, index)
@@ -301,21 +307,23 @@ def pns_levels(
         peak_time_s = (s0 + first + 0.5) * dt
         break
 
-    return PnsLevels(
-        reason=None,
-        hardware=hardware_label,
-        asc_file=asc_file,
-        hw=hw,
-        dt_s=dt,
-        num_samples=num_samples,
-        bin_samples=bin_samples,
-        level_min=level_min,
-        level_max=level_max,
-        peak=peak,
-        peak_time_s=peak_time_s,
-        axis_peaks=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
-        on_raster=on_raster,
-        above={key: finder.finish() for key, finder in zip(keys, finders, strict=True)},
+    return _read_only(
+        PnsLevels(
+            reason=None,
+            hardware=hardware_label,
+            asc_file=asc_file,
+            hw=hw,
+            dt_s=dt,
+            num_samples=num_samples,
+            bin_samples=bin_samples,
+            level_min=level_min,
+            level_max=level_max,
+            peak=peak,
+            peak_time_s=peak_time_s,
+            axis_peaks=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
+            on_raster=on_raster,
+            above={key: finder.finish() for key, finder in zip(keys, finders, strict=True)},
+        )
     )
 
 
@@ -326,6 +334,13 @@ _GRAD_COLUMNS = ("gx", "gy", "gz")
 # The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
 # `_safe_gwf_to_pns_chunk` does not use).
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
+
+
+def _read_only(levels: PnsLevels) -> PnsLevels:
+    """`levels`, with `writeable` off for `level_min` and `level_max`."""
+    for a in (levels.level_min, levels.level_max):
+        a.flags.writeable = False
+    return levels
 
 
 def _validated_thresholds(thresholds: object) -> tuple[float, ...]:
