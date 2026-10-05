@@ -2,7 +2,7 @@
 measurements.
 
 `gradient_offsets` and `gradient_points` give the corner or sample points of a gradient
-event, the points that `grad_limits` and `sampling` join with straight lines.
+event, the points that `grad_peaks` and `sampling` join with straight lines.
 """
 
 import numpy as np

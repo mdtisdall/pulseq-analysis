@@ -4,7 +4,7 @@ import dataclasses
 
 import numpy as np
 
-from pulseq_analysis.grad_limits import BlockGradientValues
+from pulseq_analysis.grad_peaks import BlockGradientValues
 from pulseq_analysis.pns_levels import PnsLevels
 
 

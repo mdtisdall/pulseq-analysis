@@ -21,16 +21,16 @@ with one ID, an entry point that cannot load, and an object with no `spec.id` ra
 The analyses of this package:
 
 - `seq.index` (`SEQ_INDEX`): `seq_index.sequence_index`, no parameters, no series.
-- `gradient.limits` (`GRADIENT_LIMITS`): `grad_limits.gradient_limits`, no parameters, no
+- `gradient.peaks` (`GRADIENT_PEAKS`): `grad_peaks.gradient_peaks`, no parameters, no
   series.
-- `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_limits.block_gradient_values`, no parameters,
+- `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
 - `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` and
   `thresholds_hz_per_t`, and the series of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
   parameters, and the series of the spectrum.
 
-`gradient_limits` has a `window` argument, but `gradient.limits` is of the whole sequence and
+`gradient_peaks` has a `window` argument, but `gradient.peaks` is of the whole sequence and
 has no such parameter. `pns.pns_levels_for` keeps its result for the sequence object, so
 `compute` of `pns.safe.levels` gives the kept object. `grad_spectrum.gradient_spectrum_for`
 has the arguments of the method, but `gradient.spectrum` has no parameters and uses the
@@ -45,7 +45,7 @@ from typing import Any, Protocol
 import numpy as np
 import pypulseq as pp
 
-from .grad_limits import BlockGradientValues, GradientLimits, block_gradient_values, gradient_limits
+from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
 from .grad_spectrum import NO_GRADIENTS as NO_SPECTRUM_GRADIENTS
 from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
 from .pns import pns_levels_for
@@ -117,13 +117,13 @@ class _SeqIndex:
         return ()
 
 
-class _GradientLimits:
+class _GradientPeaks:
     spec = AnalysisSpec(
-        id="gradient.limits",
+        id="gradient.peaks",
         version=1,
-        title="Gradient limits",
+        title="Gradient peaks",
         description=(
-            "A `GradientLimits`: for each logical axis (x, y, z) of the whole sequence, the "
+            "A `GradientPeaks`: for each logical axis (x, y, z) of the whole sequence, the "
             "largest absolute amplitude (Hz/m), the largest slew (Hz/m/s) and the RMS "
             "amplitude (Hz/m), each with its block ID and its time (seconds from the start "
             "of the sequence), and the largest magnitude of the three-axis vector. The slew "
@@ -141,11 +141,11 @@ class _GradientLimits:
         series=None,
     )
 
-    def compute(self, seq: pp.Sequence) -> GradientLimits:
-        """`grad_limits.gradient_limits(seq)`."""
-        return gradient_limits(seq)
+    def compute(self, seq: pp.Sequence) -> GradientPeaks:
+        """`grad_peaks.gradient_peaks(seq)`."""
+        return gradient_peaks(seq)
 
-    def to_series(self, value: GradientLimits) -> tuple[Series, ...]:
+    def to_series(self, value: GradientPeaks) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""
         return ()
 
@@ -156,14 +156,16 @@ class _GradientBlocks:
         version=1,
         title="Gradient values of each block",
         description=(
-            "A `BlockGradientValues`: the values of `gradient.limits` for each block, in "
+            "A `BlockGradientValues`: the values of `gradient.peaks` for each block, in "
             "play order, not only the largest. For each logical axis (x, y, z) it gives the "
             "largest absolute amplitude (Hz/m) of the event of the block and its time, the "
             "largest slope (Hz/m/s) of a line of that event and the start of that line, and "
             "the junction step (Hz/m/s) at the start of the block. It also gives the largest "
             "magnitude of the three-axis vector in the block and its first time. A block "
             "with no event on an axis has the peak and the slope 0 there, at the start of "
-            "the block. The largest of each array is the value of `gradient.limits`. "
+            "the block. The largest of each amplitude array is the value of `gradient.peaks`. "
+            "Its slew is the larger of the largest segment slew and the largest junction "
+            "step. "
             "The values are in the units of pypulseq, with no gamma. Divide them by the "
             "magnitude of gamma (Hz/T) to get T/m and T/m/s. A sequence with the rotation "
             "extension raises `NotImplementedError`."
@@ -175,7 +177,7 @@ class _GradientBlocks:
     )
 
     def compute(self, seq: pp.Sequence) -> BlockGradientValues:
-        """`grad_limits.block_gradient_values(seq)`."""
+        """`grad_peaks.block_gradient_values(seq)`."""
         return block_gradient_values(seq)
 
     def to_series(self, value: BlockGradientValues) -> tuple[Series, ...]:
@@ -363,7 +365,7 @@ class _GradientSpectrum:
 
 
 SEQ_INDEX = _SeqIndex()
-GRADIENT_LIMITS = _GradientLimits()
+GRADIENT_PEAKS = _GradientPeaks()
 GRADIENT_BLOCKS = _GradientBlocks()
 PNS_SAFE_LEVELS = _PnsSafeLevels()
 GRADIENT_SPECTRUM = _GradientSpectrum()

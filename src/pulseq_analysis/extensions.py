@@ -8,8 +8,9 @@ _ROTATIONS = "ROTATIONS"  # the extension type name in a .seq file and in pypuls
 def refuse_rotations(seq: pp.Sequence) -> None:
     """Raise `NotImplementedError` when `seq` uses the Pulseq rotation extension.
 
-    The measurements of the gradients (`grad_limits.gradient_limits` and
-    `pns_levels.pns_levels`) use the logical gradient events as they are stored. With a
+    The measurements of the gradients (`grad_peaks.gradient_peaks`,
+    `grad_peaks.block_gradient_values`, `pns_levels.pns_levels` and
+    `grad_spectrum.gradient_spectrum`) use the logical gradient events as they are stored. With a
     rotation in a block, the gradients on the scanner are different, so these
     measurements would be wrong without a warning. They call this function first.
 

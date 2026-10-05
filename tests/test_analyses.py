@@ -22,7 +22,7 @@ from synthetic import (
 
 from pulseq_analysis.analyses import (
     GRADIENT_BLOCKS,
-    GRADIENT_LIMITS,
+    GRADIENT_PEAKS,
     GRADIENT_SPECTRUM,
     GROUP,
     PNS_SAFE_LEVELS,
@@ -31,7 +31,7 @@ from pulseq_analysis.analyses import (
     RegistryError,
     registry,
 )
-from pulseq_analysis.grad_limits import block_gradient_values, gradient_limits
+from pulseq_analysis.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.grad_spectrum import (
     FFT_WINDOW_S,
     FREQUENCY_OVERSAMPLING,
@@ -50,7 +50,7 @@ _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times G
 # The specification of each analysis of the package: the ID, `params`, `rasters` and `cost`.
 _SPECS = [
     (SEQ_INDEX, "seq.index", (), (), "fast"),
-    (GRADIENT_LIMITS, "gradient.limits", (), _RASTERS, "fast"),
+    (GRADIENT_PEAKS, "gradient.peaks", (), _RASTERS, "fast"),
     (GRADIENT_BLOCKS, "gradient.blocks", (), _RASTERS, "fast"),
     (PNS_SAFE_LEVELS, "pns.safe.levels", ("hardware", "thresholds_hz_per_t"), _RASTERS, "slow"),
     (GRADIENT_SPECTRUM, "gradient.spectrum", (), _RASTERS, "slow"),
@@ -100,7 +100,7 @@ def test_the_registry_has_the_five_analyses_of_the_package():
 
     assert sorted(found) == [
         "gradient.blocks",
-        "gradient.limits",
+        "gradient.peaks",
         "gradient.spectrum",
         "pns.safe.levels",
         "seq.index",
@@ -192,12 +192,12 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
     ("analysis", "defaults"),
     [
         (SEQ_INDEX, {}),
-        (GRADIENT_LIMITS, {}),
+        (GRADIENT_PEAKS, {}),
         (GRADIENT_BLOCKS, {}),
         (PNS_SAFE_LEVELS, {"hardware": None, "thresholds_hz_per_t": ()}),
         (GRADIENT_SPECTRUM, {}),
     ],
-    ids=["seq.index", "gradient.limits", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
+    ids=["seq.index", "gradient.peaks", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
 )
 def test_params_name_the_keyword_only_parameters_of_compute(analysis, defaults):
     """The parameters of `compute` after `seq` are all keyword-only, their names are
@@ -223,7 +223,7 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
     hardware = hardware_for_peak(seq, 1.5)
 
     assert SEQ_INDEX.compute(seq) is sequence_index(seq)
-    assert GRADIENT_LIMITS.compute(seq) == gradient_limits(seq)
+    assert GRADIENT_PEAKS.compute(seq) == gradient_peaks(seq)
     got = GRADIENT_BLOCKS.compute(seq)
     expected = block_gradient_values(seq)
     assert_block_values_equal(got, expected)
@@ -418,8 +418,8 @@ def test_the_spectrum_series_of_a_sequence_without_gradients_is_empty():
 
 
 def test_the_other_three_analyses_give_no_series():
-    """`to_series` of `seq.index`, `gradient.limits` and `gradient.blocks` gives `()`, for
+    """`to_series` of `seq.index`, `gradient.peaks` and `gradient.blocks` gives `()`, for
     a sequence with gradients and for one without."""
     for seq in (gre_sequence(num_trs=2), empty_sequence()):
-        for analysis in (SEQ_INDEX, GRADIENT_LIMITS, GRADIENT_BLOCKS):
+        for analysis in (SEQ_INDEX, GRADIENT_PEAKS, GRADIENT_BLOCKS):
             assert analysis.to_series(analysis.compute(seq)) == ()

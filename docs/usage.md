@@ -9,7 +9,7 @@ starts with `_`, can change in any release.
 Contents:
 
 1. [`seq_index`: the block table](#1-seq_index-the-block-table)
-2. [`grad_limits`: gradient amplitude and slew](#2-grad_limits-gradient-amplitude-and-slew)
+2. [`grad_peaks`: gradient amplitude and slew](#2-grad_peaks-gradient-amplitude-and-slew)
 3. [`pns` and `pns_levels`: SAFE PNS](#3-pns-and-pns_levels-safe-pns)
 4. [The other modules](#4-the-other-modules)
 5. [`series`: values for JSON](#5-series-values-for-json)
@@ -20,7 +20,7 @@ Contents:
 | Module | What it gives |
 |---|---|
 | `pulseq_analysis.seq_index` | The block table of a sequence, and the unique events. |
-| `pulseq_analysis.grad_limits` | The peak amplitude, peak slew and RMS of the gradients, for the whole file and for each block. |
+| `pulseq_analysis.grad_peaks` | The peak amplitude, peak slew and RMS of the gradients, for the whole file and for each block. |
 | `pulseq_analysis.pns` and `pulseq_analysis.pns_levels` | The SAFE PNS prediction. |
 | `pulseq_analysis.grad_spectrum` | The spectrum of the gradients (section 7). |
 | `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. |
@@ -35,7 +35,7 @@ These rules apply to all the modules:
 - **Logical axes.** The gradient and PNS values are of the logical axes of
   the file (x, y, z), not of the physical axes of a scanner. On an oblique
   slice, one physical axis can get the magnitude of the three-axis vector.
-- **Rotation extension.** `gradient_limits`, `block_gradient_values`,
+- **Rotation extension.** `gradient_peaks`, `block_gradient_values`,
   `pns_levels` and `gradient_spectrum` raise `NotImplementedError` for a file
   with the Pulseq rotation extension (`extensions.refuse_rotations`), because the gradients
   of the file are not the gradients on the scanner.
@@ -66,7 +66,7 @@ These rules apply to all the modules:
   NaN equals a NaN). They are not hashable. `SequenceIndex` and
   `BlockGradientValues` compare by identity: two objects are equal only when
   they are one object. The other frozen dataclasses (for example
-  `GradientLimits` and `PnsInterval`) have the `==` of `dataclasses`.
+  `GradientPeaks` and `PnsInterval`) have the `==` of `dataclasses`.
 
 ## 1. `seq_index`: the block table
 
@@ -108,7 +108,7 @@ pypulseq's block cache off. `block_cache_off(seq)` is the context manager that
 they use: pypulseq keeps each block that `get_block` reads when
 `seq.use_block_cache` is true, and nothing removes it.
 
-## 2. `grad_limits`: gradient amplitude and slew
+## 2. `grad_peaks`: gradient amplitude and slew
 
 A gradient event is the straight lines between its corner points (a
 trapezoid) or its sample points (an arbitrary gradient), as the Pulseq
@@ -127,7 +127,7 @@ When several blocks have the largest value, the first of them in play order
 gets it. A junction step comes before the lines of its block. A largest value
 of 0 gives no block (`None`) and the time 0.0.
 
-`gradient_limits(seq, *, window=None) -> GradientLimits` gives the largest
+`gradient_peaks(seq, *, window=None) -> GradientPeaks` gives the largest
 values over the whole file, or over `window = (start_s, end_s)`. A window must
 be in the sequence (each end within `seq_utils.TIME_TOLERANCE`) and have
 `start_s < end_s`, or the function raises `ValueError`. A line that crosses an
@@ -136,7 +136,7 @@ of pypulseq, with no gamma. To get T/m and T/m/s, divide them by |γ|
 ([section 8](#8-units-and-gamma)). The function does not compare the values
 with limits: a caller that has the limits of a scanner compares them.
 
-`GradientLimits`, a frozen dataclass:
+`GradientPeaks`, a frozen dataclass:
 
 | Field | Meaning |
 |---|---|
@@ -158,11 +158,13 @@ with limits: a caller that has the limits of a scanner compares them.
 | `rms_hz_per_m` | The RMS amplitude over the range (Hz/m). |
 
 `block_gradient_values(seq) -> BlockGradientValues` gives the same values for
-each block, not only the largest, in the same units. The largest of each array
-is the value of `gradient_limits` for the whole file, and its first play index
-is the block of that value. It reads one block with `get_block` for each
-unique gradient event, and no other block. `gradient_limits` does the same, and
-also reads the blocks that a window edge cuts.
+each block, not only the largest, in the same units. The largest of each
+amplitude array is the value of `gradient_peaks` for the whole file. Its slew
+is the larger of the largest segment slew and the largest junction step. The
+first play index of a largest value is the block of that value. It reads one
+block with `get_block` for each unique gradient event, and no other block.
+`gradient_peaks` does the same, and also reads the blocks that a window edge
+cuts.
 
 `BlockGradientValues`, a frozen dataclass. Each array has N entries, in play
 order. A dict has the keys `"x"`, `"y"` and `"z"`, each with an array.
@@ -410,7 +412,7 @@ The analyses of this package (each `version` is 1):
 | ID | Object | `compute` | `params` | `cost` | `to_series` |
 |---|---|---|---|---|---|
 | `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | fast | `()` |
-| `gradient.limits` | `GRADIENT_LIMITS` | `gradient_limits(seq)`, the whole file | none | fast | `()` |
+| `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq)`, the whole file | none | fast | `()` |
 | `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | fast | `()` |
 | `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)` | `hardware`, `thresholds_hz_per_t` | slow | below |
 | `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum_for(seq)`, with the defaults | none | slow | below |
@@ -445,7 +447,7 @@ seconds.
 `gradient.spectrum` has no parameters. It uses the defaults of
 `gradient_spectrum_for`, which are the defaults of pypulseq. A caller that
 needs other values calls `gradient_spectrum_for` with them. This is as
-`gradient.limits`, which has no `window`.
+`gradient.peaks`, which has no `window`.
 
 `to_series` of `gradient.spectrum` gives `()` for a sequence with no gradient
 event (`NO_GRADIENTS`). Else it gives one series:
@@ -525,7 +527,7 @@ These arguments of pypulseq are not arguments here:
 - The overlap. pypulseq has no argument for it. It stays 50 % (`nwin // 2`).
 - `combine_mode` and `use_derivative`. They change what a value is, for
   example a spectrum of the slew rate. A later quantity gets its own function.
-- `time_range`. The spectrum is of the whole sequence, as `gradient_limits`
+- `time_range`. The spectrum is of the whole sequence, as `gradient_peaks`
   without `window`.
 - `acoustic_resonances`. The resonances are data of a target, not of a
   sequence.
@@ -575,7 +577,7 @@ pypulseq's `Opts` also converts with `abs(gamma)`.
 
 | Values | Unit | Divided by \|γ\| | For ¹H (γ = 42.576 MHz/T) |
 |---|---|---|---|
-| Amplitudes: `AxisResult.peak_hz_per_m`, `AxisResult.rms_hz_per_m`, `GradientLimits.vector_peak_hz_per_m`, `GradientLimits.whole_rms_hz_per_m`, `BlockGradientValues.peak_hz_per_m`, `BlockGradientValues.vector_peak_hz_per_m` | Hz/m | T/m (times 1e3: mT/m) | 1 mT/m is 42 576 Hz/m |
+| Amplitudes: `AxisResult.peak_hz_per_m`, `AxisResult.rms_hz_per_m`, `GradientPeaks.vector_peak_hz_per_m`, `GradientPeaks.whole_rms_hz_per_m`, `BlockGradientValues.peak_hz_per_m`, `BlockGradientValues.vector_peak_hz_per_m` | Hz/m | T/m (times 1e3: mT/m) | 1 mT/m is 42 576 Hz/m |
 | Slew rates: `AxisResult.max_slew_hz_per_m_per_s`, `BlockGradientValues.slew_hz_per_m_per_s`, `BlockGradientValues.junction_hz_per_m_per_s` | Hz/m/s | T/m/s | 1 T/m/s is 4.2576 × 10⁷ Hz/m/s |
 | The spectrum: `GradientSpectrum.axes`, `GradientSpectrum.rss`, the series `gradient_spectrum` | Hz/m/√Hz | T/m/√Hz (times 1e3: mT/m/√Hz) | 1 Hz/m/√Hz is 2.3487 × 10⁻⁵ mT/m/√Hz |
 | PNS: `PnsLevels.peak_hz_per_t`, `PnsLevels.axis_peaks_hz_per_t`, `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t`, `PnsInterval.peak_hz_per_t`, the series `pns_total` and `pns_above_<k>` | Hz/T | The fraction of the stimulation limit (1 is 100 %) | The limit is 4.2576 × 10⁷ Hz/T |
@@ -605,13 +607,13 @@ convert the limits to the unit of the values. pypulseq's `Opts` keeps
 Thus the `Opts` of a target gives limits in the units of the values.
 
 ```python
-from pulseq_analysis.grad_limits import gradient_limits
+from pulseq_analysis.grad_peaks import gradient_peaks
 from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
-limits = gradient_limits(seq)
+limits = gradient_peaks(seq)
 peak_mt_per_m = limits.axes["x"].peak_hz_per_m / abs(gamma) * 1e3
 slew_t_per_m_per_s = limits.axes["x"].max_slew_hz_per_m_per_s / abs(gamma)
 
