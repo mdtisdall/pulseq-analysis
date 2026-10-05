@@ -38,6 +38,7 @@ import pypulseq as pp
 from scipy.signal import spectrogram
 
 from ._equality import fields_equal
+from ._kept import _Entry, kept_results
 from .extensions import refuse_rotations
 from .sampling import GradientSampler
 from .seq_index import sequence_index
@@ -217,11 +218,10 @@ def gradient_spectrum(
     )
 
 
-# For each sequence object: the number of blocks, the last block id (the rule of
-# `seq_index.sequence_index`) and one `GradientSpectrum` for each tuple of
-# (max_frequency_hz, window_s, frequency_oversampling) as floats.
-_Kept = tuple[int, int, dict[tuple[float, float, float], GradientSpectrum]]
-_SPECTRUM_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Kept]" = weakref.WeakKeyDictionary()
+# For each sequence object: the kept results (`_kept.kept_results`), which hold one
+# `GradientSpectrum` for each tuple of (max_frequency_hz, window_s,
+# frequency_oversampling) as floats.
+_SPECTRUM_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
 def gradient_spectrum_for(
@@ -237,19 +237,13 @@ def gradient_spectrum_for(
     The result is kept for the sequence object and for each tuple of the three arguments as
     floats, so that callers of one sequence that need the same spectrum (for example the
     analysis of each target of one sequence) calculate it one time. The kept results are
-    built again when the number of blocks or the last block id changed, for example after
-    `add_block` (the rule of `seq_index.sequence_index`). The arrays of a result are
-    read-only, because all callers share them.
+    built again after `add_block`, after a new read of a file into the object, and after a
+    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not
+    seen (`seq_index.sequence_index`). The arrays of a result are read-only, because all
+    callers share them.
     """
     key = _validated_arguments(seq, max_frequency_hz, window_s, frequency_oversampling)
-    block_events = seq.block_events
-    num_blocks = len(block_events)
-    last_id = int(next(reversed(block_events))) if num_blocks else 0
-    kept = _SPECTRUM_CACHE.get(seq)
-    if kept is None or kept[0] != num_blocks or kept[1] != last_id:
-        kept = (num_blocks, last_id, {})
-        _SPECTRUM_CACHE[seq] = kept
-    by_key = kept[2]
+    by_key = kept_results(_SPECTRUM_CACHE, seq)
     if key not in by_key:
         by_key[key] = gradient_spectrum(
             seq,

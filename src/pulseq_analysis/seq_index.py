@@ -23,6 +23,8 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 
+from ._kept import _Entry, kept_results
+
 # The columns of a row of `seq.block_events`.
 _RF, _GX, _GY, _GZ, _ADC = 1, 2, 3, 4, 5
 _AXES = ("gx", "gy", "gz")
@@ -53,30 +55,24 @@ class SequenceIndex:
     adc_first: np.ndarray  # int64, K_adc
 
 
-# One index for each sequence object, with the number of blocks and the last block id
-# that it was built from.
-_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, tuple[int, int, SequenceIndex]]" = (
-    weakref.WeakKeyDictionary()
-)
+# One index for each sequence object, under the key "index" of its kept results.
+_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
 def sequence_index(seq: pp.Sequence) -> SequenceIndex:
     """The `SequenceIndex` of `seq`.
 
     The result is kept for the sequence object, so that several measurements of one
-    sequence build it one time. It is built again when the number of blocks or the last block id
-    changed, for example after `add_block`. A change that keeps both (a block replaced
-    in place) is not seen: build a new sequence object for it.
+    sequence build it one time. It is built again after `add_block`, after a new read of
+    a file into the object, and after a change of `seq.grad_raster_time` (the rule of
+    `_kept`). A change that keeps the number of blocks and the last block id and does not
+    replace `seq.block_events`, `seq.block_durations` or `seq.grad_library` (a block
+    replaced in place) is not seen: build a new sequence object for it.
     """
-    block_events = seq.block_events
-    num_blocks = len(block_events)
-    last_id = int(next(reversed(block_events))) if num_blocks else 0
-    kept = _CACHE.get(seq)
-    if kept is not None and kept[0] == num_blocks and kept[1] == last_id:
-        return kept[2]
-    index = _build_index(seq)
-    _CACHE[seq] = (num_blocks, last_id, index)
-    return index
+    kept = kept_results(_CACHE, seq)
+    if "index" not in kept:
+        kept["index"] = _build_index(seq)
+    return kept["index"]
 
 
 def _index_dtype(max_value: int):

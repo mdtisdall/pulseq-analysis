@@ -57,10 +57,10 @@ These rules apply to all the modules:
   `grad_spectrum.gradient_spectrum_for` keep their result for the sequence
   object (`pns_levels_for` for each hardware and each tuple of thresholds of
   that object, `gradient_spectrum_for` for each set of its arguments). They
-  build it again when the number of blocks or the ID of the last block
-  changed, for example after `add_block`.
-  A change that keeps both (a block replaced in place) is not seen: make a new
-  sequence object for it. The other functions keep nothing.
+  build it again after `add_block`, after a new read of a file into the object
+  (`seq.read`), and after a change of `seq.grad_raster_time`.
+  A block replaced in place is not seen: make a new sequence object for it.
+  The other functions keep nothing.
 - **Equality.** `PnsLevels`, `GradientSpectrum` and `Series` compare by value:
   `==` compares each field, an array by its dtype, its shape and its values (a
   NaN equals a NaN). They are not hashable. `SequenceIndex` and
@@ -529,10 +529,11 @@ These arguments of pypulseq are not arguments here:
 `NotImplementedError` for a file with the Pulseq rotation extension.
 
 `gradient_spectrum_for` keeps its result for the sequence object, with one
-result for each set of the three arguments. It builds the result again when
-the number of blocks or the ID of the last block changed, for example after
-`add_block`. A change that keeps both is not seen: make a new sequence object
-for it. All the callers share the kept result. For this reason, each array of
+result for each set of the three arguments. It builds the result again after
+`add_block`, after a new read of a file into the object, and after a change of
+`seq.grad_raster_time` (the rule "Kept results" at the top of this document).
+A block replaced in place is not seen: make a new sequence object for it. All
+the callers share the kept result. For this reason, each array of
 a `GradientSpectrum` is read-only, also for `NO_GRADIENTS`: a change in place
 raises `ValueError`.
 

@@ -27,6 +27,7 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 
+from ._kept import _Entry, kept_results
 from .pns_levels import SAFE_FIELDS, PnsLevels, _validated_thresholds, pns_levels
 from .seq_index import sequence_index
 
@@ -51,15 +52,14 @@ class PnsPrediction:
     axis_peaks_hz_per_t: dict[str, float] = field(default_factory=dict)  # "x", "y", "z"
 
 
-# For each sequence object: the number of blocks, the last block id (the rule of
-# `seq_index.sequence_index`) and one `PnsLevels` for each pair of a hardware and the
-# thresholds. The hardware is `None` (the example hardware), the resolved path of the
-# gradient .asc file, or the tuple of `_hardware_key` (a tuple is never equal to a path or
-# to `None`). The thresholds are the tuple of `float(t)`.
+# For each sequence object: the kept results (`_kept.kept_results`), which hold one
+# `PnsLevels` for each pair of a hardware and the thresholds. The hardware is `None` (the
+# example hardware), the resolved path of the gradient .asc file, or the tuple of
+# `_hardware_key` (a tuple is never equal to a path or to `None`). The thresholds are the
+# tuple of `float(t)`.
 _Hardware = tuple[SimpleNamespace, str]
 _HardwareKey = str | None | tuple
-_Kept = tuple[int, int, dict[tuple[_HardwareKey, tuple[float, ...]], PnsLevels]]
-_LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Kept]" = weakref.WeakKeyDictionary()
+_LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
 def _hardware_key(hardware: _Hardware) -> tuple:
@@ -94,27 +94,21 @@ def pns_levels_for(
     result (the order of the keys of `PnsLevels.above`). A relative and an
     absolute spelling of one file are one hardware, and two `hardware` pairs with the same
     label and the same field values are one hardware (`_hardware_key`). The kept results
-    are built again when the number of blocks or the last block id changed, for example
-    after `add_block` (the rule of `seq_index.sequence_index`). The arrays of a result are
-    read-only, because all callers share them.
+    are built again after `add_block`, after a new read of a file into the object, and
+    after a change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in
+    place is not seen (`seq_index.sequence_index`). The arrays of a result are read-only,
+    because all callers share them.
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")
     threshold_keys = _validated_thresholds(thresholds_hz_per_t)
-    block_events = seq.block_events
-    num_blocks = len(block_events)
-    last_id = int(next(reversed(block_events))) if num_blocks else 0
     key: _HardwareKey
     if hardware is not None:
         key = _hardware_key(hardware)
     else:
         key = None if gradient_asc is None else str(Path(gradient_asc).resolve())
 
-    kept = _LEVELS_CACHE.get(seq)
-    if kept is None or kept[0] != num_blocks or kept[1] != last_id:
-        kept = (num_blocks, last_id, {})
-        _LEVELS_CACHE[seq] = kept
-    by_key = kept[2]
+    by_key = kept_results(_LEVELS_CACHE, seq)
     kept_key = (key, threshold_keys)
     if kept_key not in by_key:
         by_key[kept_key] = pns_levels(
