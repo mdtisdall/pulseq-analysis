@@ -28,7 +28,7 @@ from pulseq_analysis.grad_limits import (
     gradient_limits,
 )
 from pulseq_analysis.seq_index import grad_events, sequence_index
-from pulseq_analysis.seq_utils import gradient_offsets
+from pulseq_analysis.seq_utils import TIME_TOLERANCE, gradient_offsets
 
 
 def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
@@ -1106,3 +1106,45 @@ def test_block_gradient_values_refuses_rotations():
     library, as `gradient_limits` does."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
         block_gradient_values(_with_rotation_library())
+
+
+@pytest.mark.parametrize(
+    "window_of",
+    [
+        pytest.param(lambda total: (total / 2, total / 2), id="start_equals_end"),
+        pytest.param(lambda total: (total / 2, total / 4), id="start_after_end"),
+        pytest.param(lambda total: (math.nan, total / 2), id="start_nan"),
+    ],
+)
+def test_gradient_limits_refuses_a_window_with_no_start_before_its_end(window_of):
+    """A `window` with a start equal to its end, after its end or NaN raises `ValueError`
+    for a start that is not before the end."""
+    seq = spin_echo_sequence()
+    window = window_of(sequence_index(seq).end_s)
+    with pytest.raises(ValueError, match="must have a start before its end"):
+        gradient_limits(seq, window=window)
+
+
+@pytest.mark.parametrize(
+    "window_of",
+    [
+        pytest.param(lambda total: (-2 * TIME_TOLERANCE, total / 2), id="start_below_zero"),
+        pytest.param(lambda total: (0.0, total + 2 * TIME_TOLERANCE), id="end_after_the_end"),
+    ],
+)
+def test_gradient_limits_refuses_a_window_outside_the_sequence(window_of):
+    """A `window` that starts more than `TIME_TOLERANCE` before 0 or ends more than
+    `TIME_TOLERANCE` after the end of the sequence raises `ValueError`."""
+    seq = spin_echo_sequence()
+    window = window_of(sequence_index(seq).end_s)
+    with pytest.raises(ValueError, match="is not within the sequence"):
+        gradient_limits(seq, window=window)
+
+
+def test_gradient_limits_accepts_a_window_within_the_tolerance_of_the_sequence():
+    """A `window` that starts `TIME_TOLERANCE / 2` before 0 and ends `TIME_TOLERANCE / 2`
+    after the end of the sequence is accepted, and `range_s` is clipped to the sequence."""
+    seq = spin_echo_sequence()
+    total = sequence_index(seq).end_s
+    result = gradient_limits(seq, window=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
+    assert result.range_s == (0.0, total)

@@ -288,42 +288,54 @@ _NAN, _INF = float("nan"), float("inf")
     "function", [grad_spectrum.gradient_spectrum, grad_spectrum.gradient_spectrum_for]
 )
 @pytest.mark.parametrize(
-    ("arguments", "error"),
+    ("arguments", "error", "match"),
     [
-        pytest.param({"max_frequency_hz": _NAN}, ValueError, id="max_frequency_nan"),
-        pytest.param({"window_s": _NAN}, ValueError, id="window_nan"),
-        pytest.param({"frequency_oversampling": _NAN}, ValueError, id="oversampling_nan"),
-        pytest.param({"max_frequency_hz": _INF}, ValueError, id="max_frequency_infinity"),
-        pytest.param({"window_s": _INF}, ValueError, id="window_infinity"),
-        pytest.param({"frequency_oversampling": _INF}, ValueError, id="oversampling_infinity"),
-        pytest.param({"max_frequency_hz": "2000"}, TypeError, id="max_frequency_string"),
-        pytest.param({"window_s": "0.05"}, TypeError, id="window_string"),
-        pytest.param({"frequency_oversampling": "3"}, TypeError, id="oversampling_string"),
-        pytest.param({"max_frequency_hz": True}, TypeError, id="max_frequency_bool"),
-        pytest.param({"window_s": True}, TypeError, id="window_bool"),
-        pytest.param({"frequency_oversampling": True}, TypeError, id="oversampling_bool"),
-        pytest.param({"window_s": 0.0}, ValueError, id="window_zero"),
-        pytest.param({"window_s": -0.05}, ValueError, id="window_negative"),
-        pytest.param({"window_s": 1e-5}, ValueError, id="window_of_one_sample"),
-        pytest.param({"frequency_oversampling": 0.5}, ValueError, id="oversampling_below_1"),
-        pytest.param({"max_frequency_hz": 0.0}, ValueError, id="max_frequency_zero"),
-        pytest.param({"max_frequency_hz": -1.0}, ValueError, id="max_frequency_negative"),
-        pytest.param({"max_frequency_hz": 60000.0}, ValueError, id="max_frequency_above_nyquist"),
-        pytest.param({"max_frequency_hz": 1.0}, ValueError, id="max_frequency_below_the_step"),
+        pytest.param({"max_frequency_hz": _NAN}, ValueError, None, id="max_frequency_nan"),
+        pytest.param({"window_s": _NAN}, ValueError, None, id="window_nan"),
+        pytest.param({"frequency_oversampling": _NAN}, ValueError, None, id="oversampling_nan"),
+        pytest.param({"max_frequency_hz": _INF}, ValueError, None, id="max_frequency_infinity"),
+        pytest.param({"window_s": _INF}, ValueError, None, id="window_infinity"),
+        pytest.param(
+            {"frequency_oversampling": _INF}, ValueError, None, id="oversampling_infinity"
+        ),
+        pytest.param({"max_frequency_hz": "2000"}, TypeError, None, id="max_frequency_string"),
+        pytest.param({"window_s": "0.05"}, TypeError, None, id="window_string"),
+        pytest.param({"frequency_oversampling": "3"}, TypeError, None, id="oversampling_string"),
+        pytest.param({"max_frequency_hz": True}, TypeError, None, id="max_frequency_bool"),
+        pytest.param({"window_s": True}, TypeError, None, id="window_bool"),
+        pytest.param({"frequency_oversampling": True}, TypeError, None, id="oversampling_bool"),
+        pytest.param({"window_s": 0.0}, ValueError, None, id="window_zero"),
+        pytest.param({"window_s": -0.05}, ValueError, None, id="window_negative"),
+        pytest.param(
+            {"window_s": 1e-5},
+            ValueError,
+            "samples at the gradient raster",
+            id="window_of_one_sample",
+        ),
+        pytest.param({"frequency_oversampling": 0.5}, ValueError, None, id="oversampling_below_1"),
+        pytest.param({"max_frequency_hz": 0.0}, ValueError, None, id="max_frequency_zero"),
+        pytest.param({"max_frequency_hz": -1.0}, ValueError, None, id="max_frequency_negative"),
+        pytest.param(
+            {"max_frequency_hz": 60000.0}, ValueError, None, id="max_frequency_above_nyquist"
+        ),
+        pytest.param(
+            {"max_frequency_hz": 1.0}, ValueError, None, id="max_frequency_below_the_step"
+        ),
         # The step is 20 Hz with no oversampling, so 10 Hz is above the step of the defaults.
         pytest.param(
             {"max_frequency_hz": 10.0, "frequency_oversampling": 1},
             ValueError,
+            None,
             id="max_frequency_below_the_step_of_the_arguments",
         ),
     ],
 )
-def test_gradient_spectrum_refuses_bad_arguments(function, arguments, error, monkeypatch):
+def test_gradient_spectrum_refuses_bad_arguments(function, arguments, error, match, monkeypatch):
     def fail(seq):
         raise AssertionError("the sequence was read")
 
     monkeypatch.setattr(grad_spectrum, "sequence_index", fail)
-    with pytest.raises(error):
+    with pytest.raises(error, match=match):
         function(spin_echo_sequence(), **arguments)
 
 

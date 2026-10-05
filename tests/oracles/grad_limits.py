@@ -1,7 +1,7 @@
 """How near a sequence's gradients get to the hardware limits.
 
-Each gradient event is piecewise linear between the points that
-`seq_utils.gradient_points` gives, as the Pulseq specification treats it. This module
+Each gradient event is piecewise linear between its corner or sample points, as the
+Pulseq specification treats it (`_gradient_points` here). This module
 computes, for each logical axis (x, y, z) and for the three-axis vector, the peak
 amplitude, the peak slew rate, and the RMS amplitude over a time range, and compares
 the peak amplitude and the peak slew rate with the hardware limits.
@@ -24,9 +24,25 @@ import pypulseq as pp
 from oracles.blocks import iter_blocks
 from synthetic import GAMMA_1H as GAMMA
 
-from pulseq_analysis.seq_utils import TIME_TOLERANCE, gradient_points
+# The value of the package's `seq_utils.TIME_TOLERANCE` (s), kept separately so that the
+# oracle does not depend on the package for it.
+TIME_TOLERANCE = 1e-9
 
 _AXES = ("x", "y", "z")
+
+
+def _gradient_points(g, t0: float) -> tuple[np.ndarray, np.ndarray]:
+    """The corner or sample times (s) and amplitudes (Hz/m) of one pypulseq gradient
+    event that starts in a block that starts at `t0`, from the fields of the event.
+    Written here, not imported from the package, so that the oracle is independent of
+    `seq_utils.gradient_points`."""
+    if g.type == "trap":
+        times = np.cumsum([0.0, g.rise_time, g.flat_time, g.fall_time])
+        amp = np.array([0.0, g.amplitude, g.amplitude, 0.0])
+    else:
+        times = np.concatenate([[0.0], np.asarray(g.tt, dtype=float), [g.shape_dur]])
+        amp = np.concatenate([[g.first], np.asarray(g.waveform, dtype=float), [g.last]])
+    return t0 + g.delay + times, amp
 
 
 @dataclass(frozen=True)
@@ -119,7 +135,7 @@ def _clip_polyline(
 class _AxisAccumulator:
     """The O(1) running state for one axis: the peak amplitude, the peak slew and the
     RMS accumulator, updated one clipped piece (one block's worth of points) at a time.
-    All amplitudes here are in Hz/m, and slew in Hz/m/s, the units of `gradient_points`.
+    All amplitudes here are in Hz/m, and slew in Hz/m/s, the units of `_gradient_points`.
     """
 
     def __init__(self) -> None:
@@ -246,7 +262,7 @@ def gradient_limits(
             g = getattr(block, f"g{axis}", None)
             if g is None:
                 continue
-            t, amp = gradient_points(g, block_start)
+            t, amp = _gradient_points(g, block_start)
             t_clipped, amp_clipped = _clip_polyline(t, amp, lo, hi)
             if t_clipped.size < 2:
                 continue
