@@ -12,6 +12,10 @@ The model needs the scanner's gradient hardware parameters, which Siemens keeps 
 gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software). The
 files are confidential, so this library does not include any. Without them, the
 prediction uses pypulseq's example hardware, which is not a real scanner.
+
+A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of gamma.
+Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fraction (1 is
+100 %). The model reads no gamma (`docs/usage.md` section 8).
 """
 
 import math
@@ -23,7 +27,7 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 
-from .pns_levels import PNS_LIMIT, SAFE_FIELDS, PnsLevels, _validated_thresholds, pns_levels
+from .pns_levels import SAFE_FIELDS, PnsLevels, _validated_thresholds, pns_levels
 from .seq_index import sequence_index
 
 
@@ -32,14 +36,19 @@ class PnsPrediction:
     """The PNS summary of one sequence (`pns_prediction`): the fields of
     `pns_levels.PnsLevels` without the level and the intervals. A caller that wants the
     samples of a short sequence can call `seq.calculate_pns` directly (the pinned fork's
-    memory is near the size of its result), or use `pns_levels_for` for the level."""
+    memory is near the size of its result), or use `pns_levels_for` for the level.
+
+    A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of
+    gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get the
+    fraction (1 is 100 %).
+    """
 
     reason: str | None  # why there is no prediction, or None
     hardware: str  # the hardware name in the .asc file, or asc.EXAMPLE_HARDWARE
     asc_file: str | None  # the .asc file name, or None for the example hardware
-    peak: float  # the largest total (root-sum-of-squares of the axes); 1 is the limit
+    peak_hz_per_t: float  # the largest total (root-sum-of-squares of the axes)
     peak_time_s: float | None  # the first sample within pns_levels.PEAK_TOLERANCE of the peak
-    axis_peaks: dict[str, float] = field(default_factory=dict)  # "x", "y", "z"
+    axis_peaks_hz_per_t: dict[str, float] = field(default_factory=dict)  # "x", "y", "z"
 
 
 # For each sequence object: the number of blocks, the last block id (the rule of
@@ -69,13 +78,13 @@ def pns_levels_for(
     *,
     gradient_asc: str | Path | None = None,
     hardware: _Hardware | None = None,
-    thresholds: tuple[float, ...] = (PNS_LIMIT,),
+    thresholds_hz_per_t: tuple[float, ...] = (),
 ) -> PnsLevels:
     """The `PnsLevels` of `seq` with the hardware of the gradient .asc file `gradient_asc`,
     with `hardware` (a pair of a SAFE hardware struct and its label), or with pypulseq's
     example hardware when both are None (`pns_levels.pns_levels`, which has the rules of
-    the arguments: both together raise ValueError), and with `thresholds` (the same rules
-    and the same default, `(PNS_LIMIT,)`; a refused value raises ValueError before the
+    the arguments: both together raise ValueError), and with `thresholds_hz_per_t` (in Hz/T,
+    the same rules and the same default, `()`; a refused value raises ValueError before the
     sequence is read).
 
     The result is kept for the sequence object, the hardware and the thresholds, so that a
@@ -91,7 +100,7 @@ def pns_levels_for(
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")
-    threshold_keys = _validated_thresholds(thresholds)
+    threshold_keys = _validated_thresholds(thresholds_hz_per_t)
     block_events = seq.block_events
     num_blocks = len(block_events)
     last_id = int(next(reversed(block_events))) if num_blocks else 0
@@ -109,7 +118,10 @@ def pns_levels_for(
     kept_key = (key, threshold_keys)
     if kept_key not in by_key:
         by_key[kept_key] = pns_levels(
-            seq, gradient_asc=gradient_asc, hardware=hardware, thresholds=thresholds
+            seq,
+            gradient_asc=gradient_asc,
+            hardware=hardware,
+            thresholds_hz_per_t=thresholds_hz_per_t,
         )
     return by_key[kept_key]
 
@@ -124,9 +136,9 @@ def pns_prediction(seq: pp.Sequence, *, gradient_asc: str | Path | None = None) 
         reason=levels.reason,
         hardware=levels.hardware,
         asc_file=levels.asc_file,
-        peak=levels.peak,
+        peak_hz_per_t=levels.peak_hz_per_t,
         peak_time_s=levels.peak_time_s,
-        axis_peaks=dict(levels.axis_peaks),
+        axis_peaks_hz_per_t=dict(levels.axis_peaks_hz_per_t),
     )
 
 

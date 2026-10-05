@@ -169,6 +169,30 @@ and compares the two versions.
   last `uv sync`. After a change to the version in `pyproject.toml`, the test
   fails until `uv sync` runs again.
 
+#### `test_the_package_has_no_gamma`
+
+**Checks:** No module of the package has a gyromagnetic ratio. No module has an
+attribute with "gamma" in its name, and no function or method that the package
+defines has a parameter with "gamma" in its name. Each value is in the units of
+pypulseq and the caller divides by the magnitude of gamma (`docs/usage.md`
+section 8).
+
+**How:** The test imports each module of `pulseq_analysis` with `pkgutil` and
+`importlib`. For each module, it checks the names in `dir(module)`. It then
+takes each function and each method of each class that the module defines,
+private ones too, and checks the names of the parameters that
+`inspect.signature` gives. It skips the objects with a `__module__` outside the
+package, such as numpy and pypulseq objects, and the objects whose signature
+cannot be read. The comparison ignores the case.
+
+**Assumptions:**
+
+- The test finds only the functions in the namespace of a module and in the
+  namespace of its classes. It does not find a function that a call makes at
+  run time, or a function nested in another function.
+- A parameter that has a different name for the gamma, for example `gyro`, is
+  not found.
+
 ### 2.1 Shared sequence helpers (`test_seq_utils.py`)
 
 `test_seq_utils.py` tests the shared helpers in `seq_utils.py` that the
@@ -176,14 +200,24 @@ report cards use to read a pypulseq sequence: the RF resampling helper and
 the gradient corner/sample helper. It also checks that the synthetic
 sequences in `tests/synthetic.py` are legal Pulseq.
 
-#### `test_gamma_and_time_tolerance`
+#### `test_time_tolerance`
 
-**Checks:** The gyromagnetic ratio is 42.576 MHz/T and the time tolerance is
-1 ns.
+**Checks:** The time tolerance is 1 ns.
 
-**How:** The test compares the two shared constants with these values.
+**How:** The test compares `seq_utils.TIME_TOLERANCE` with 1e-9.
 
 **Assumptions:** None.
+
+#### `test_the_gamma_of_the_tests_is_the_gamma_of_the_test_system`
+
+**Checks:** `GAMMA_1H` from `tests/synthetic.py` is equal to the gamma of `SYSTEM`, and both
+are 42.576 MHz/T.
+
+**How:** The test compares `GAMMA_1H` with `SYSTEM.gamma` and with the literal value. The tests
+convert the values of the package with `GAMMA_1H`. The test sequences convert their mT/m
+limits with the gamma of `SYSTEM`, so the two must be equal.
+
+**Assumptions:** `SYSTEM` leaves `gamma` at the default of pypulseq's `Opts`.
 
 #### `test_hold_samples_keeps_uniform_shapes_unchanged`
 
@@ -324,10 +358,14 @@ block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypul
 fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
 peak, the peak time and the axis peaks), and the intervals of consecutive samples
-whose total is at or above each threshold of the `thresholds` argument (`PnsInterval`,
-`PnsLevels.above`, a dict with one key for each threshold; the default threshold is the
-stimulation limit, 1.0, so the tests of one threshold read `above[1.0]`); and
-`bin_samples_for`, which picks the bin size. The reference for most tests is `seq.calculate_pns` of the pinned fork
+whose total is at or above each threshold of the `thresholds_hz_per_t` argument
+(`PnsInterval`, `PnsLevels.above`, a dict with one key for each threshold; the default is
+no threshold); and `bin_samples_for`, which picks the bin size. A PNS value of
+`pns_levels` is in Hz/T: the fraction of the stimulation limit times the magnitude of
+gamma, because the model runs on the Hz/m samples and reads no gamma. The test file
+defines `_LIMIT = PNS_LIMIT * GAMMA_1H`, the stimulation limit for 1H in Hz/T, and gives a
+threshold or a comparison as a fraction times `_LIMIT`. The reference for most tests is
+`seq.calculate_pns` of the pinned fork
 (decision 6 of section 2.2 of the plan: this project does not test pypulseq itself,
 only compares this library's output with pypulseq's or with its own other output).
 `calc_pns` samples `seq.get_gradients()` at the file times `(k + 0.5) * dt`, which
@@ -336,7 +374,9 @@ drift off the ideal raster grid by float rounding of the block start time sums
 raster times, with no such drift. Both then run the same chunk function, so a
 relative 1e-6-of-peak tolerance (section 3.5, item 2, of the plan) covers the whole
 difference, except for a file with a block off the gradient raster, where both
-sample at file times and a relative 1e-9 suffices.
+sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradients by
+`seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
+`seq.system.gamma` before they compare it with `calc_pns`.
 
 `pns_levels` takes the hardware of the SAFE model from one of three sources: the
 example hardware (`safe_example_hw()`, with no argument), a gradient `.asc` file
@@ -351,8 +391,10 @@ exactly: the same struct values give the same float operations.
 hand-made "border" sequence (two extended-trapezoid blocks whose gradient is not
 zero at the block border between them), `pns_levels`'s peak, peak time and axis
 peaks equal `seq.calculate_pns`'s (example hardware) within a relative 1e-6 of the
-peak. Also checks `reason`, `hardware`, `asc_file`, `dt_s` and `on_raster` for the
-example-hardware, on-raster case.
+peak, after the peak and the axis peaks are divided by `seq.system.gamma`. Also checks
+`reason`, `hardware`, `asc_file`, `dt_s` and `on_raster` for the example-hardware,
+on-raster case. The division is the conversion of `docs/usage.md` section 8, so this
+test also tests it.
 
 **How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
 `arbitrary_gradient_sequence()` and `synthetic.border_sequence()` (two
@@ -362,9 +404,10 @@ peak time (the first sample at or above `peak * (1 - PEAK_TOLERANCE)`, as
 `PnsPrediction.peak_time_s`) and axis peaks come from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(seq)`'s fields
 are compared with `pytest.approx`: the
-peak and axis peaks with `abs = 1e-6 * ref_peak`, the peak time with `abs = 1e-9`
-(both use the same `(k + 0.5) * dt` formula, so the same sample index gives the same
-float).
+peak and axis peaks (`peak_hz_per_t` and `axis_peaks_hz_per_t`, each divided by
+`seq.system.gamma`) with `abs = 1e-6 * ref_peak`, the peak time (not divided) with
+`abs = 1e-9` (both use the same `(k + 0.5) * dt` formula, so the same sample index gives
+the same float).
 
 **Assumptions:** None of these sequences has two samples close enough together, in
 value, to flip which one the tolerance-based peak-time search finds first.
@@ -373,7 +416,8 @@ value, to flip which one the tolerance-based peak-time search finds first.
 
 **Checks:** Each stored bin's minimum and maximum equal the minimum and the maximum
 of `seq.calculate_pns`'s totals over the same samples, within the same 1e-6-of-peak
-tolerance, for the same four sequences.
+tolerance, for the same four sequences, after each value of `pns_levels` is divided by
+`seq.system.gamma`.
 
 **How:** Same parametrization and reference call as
 `test_summary_matches_calculate_pns_within_the_fork_tolerance`. For each bin `i` of
@@ -383,9 +427,10 @@ whose `s1` is past the end of `calc_pns`'s own array (shorter than `pns_levels`'
 when a trailing block has no gradient event, for example `gre_sequence`'s TR
 padding: `pns_levels` keeps sampling into the filters' own decay past where
 `calc_pns` stopped, so a bin that straddles that point is not comparable). Each
-compared bin's `level_min[i]`/`level_max[i]` are checked against
-`norm[s0:s1].min()`/`.max()` with `pytest.approx(abs = 1e-6 * levels.peak)`. Asserts
-at least one bin was compared.
+compared bin's `level_min_hz_per_t[i]`/`level_max_hz_per_t[i]` (each divided by
+`seq.system.gamma`) are checked against `norm[s0:s1].min()`/`.max()` with
+`pytest.approx(abs = 1e-6 * levels.peak_hz_per_t / gamma)`. Asserts at least one bin was
+compared.
 
 **Assumptions:** None.
 
@@ -418,8 +463,8 @@ many bins.
 `bin_samples_for(1_230_000_000, 1e-5) == 615`, `bin_samples_for(1_230_000_001, 1e-5)
 == 616`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(0, 2e-5) ==
 307`. Then `pns_levels(gre_sequence(num_trs=6))`'s `bin_samples` is compared with
-`bin_samples_for(levels.num_samples, levels.dt_s)`, and `len(levels.level_min) ==
-len(levels.level_max)` equals the ceiling division of `num_samples` by
+`bin_samples_for(levels.num_samples, levels.dt_s)`, and `len(levels.level_min_hz_per_t) ==
+len(levels.level_max_hz_per_t)` equals the ceiling division of `num_samples` by
 `bin_samples`.
 
 **Assumptions:** None.
@@ -436,31 +481,33 @@ chunk) still has more than one chunk. `reference = pns_levels(seq)` (with the
 `monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_reports.pns_levels` to it and
 `pns_levels(seq)` runs again. `pns_levels` rounds the chunk up to a whole number of
 bins, so the sizes give chunks of 1, 2 and 7 bins and one chunk bigger than the file.
-`level_min`/`level_max` are compared with `numpy.array_equal`; `peak`, `peak_time_s`,
-`axis_peaks`, `num_samples` and `bin_samples` with `==`.
+`level_min_hz_per_t`/`level_max_hz_per_t` are compared with `numpy.array_equal`;
+`peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t`, `num_samples` and `bin_samples`
+with `==`.
 
 **Assumptions:** None.
 
 #### `test_no_gradients`
 
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
-stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no interval at or
-above the limit (`above[1.0]` is `()`), and still the example hardware and its `hw` fields.
+stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no threshold (the
+default, so `above == {}`), and still the example hardware and its `hw` fields.
 
 **How:** `pns_levels(empty_sequence())`. Checks `reason`, `hardware`, `asc_file`,
-the `(0,)` shape of `level_min`/`level_max`, `peak == 0.0`, `peak_time_s is None`,
-`axis_peaks == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw` against the 8 kept fields
-of `safe_example_hw()`, and `above[1.0] == ()`.
+the `(0,)` shape of `level_min_hz_per_t`/`level_max_hz_per_t`, `peak_hz_per_t == 0.0`,
+`peak_time_s is None`, `axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw`
+against the 8 kept fields of `safe_example_hw()`, and `above == {}`.
 
 **Assumptions:** None.
 
 #### `test_no_gradients_gives_an_empty_tuple_for_each_threshold`
 
 **Checks:** A sequence with no gradient event and two thresholds gives `above` with the
-two keys, in the order of `thresholds`, each with `()`.
+two keys, in the order of `thresholds_hz_per_t`, each with `()`.
 
-**How:** `pns_levels(empty_sequence(), thresholds=(1.0, 0.5))`. Checks `reason`,
-`list(levels.above) == [1.0, 0.5]` and `levels.above == {1.0: (), 0.5: ()}`.
+**How:** `pns_levels(empty_sequence(), thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT))`.
+Checks `reason`, `list(levels.above) == [_LIMIT, 0.5 * _LIMIT]` and
+`levels.above == {_LIMIT: (), 0.5 * _LIMIT: ()}`.
 
 **Assumptions:** None.
 
@@ -468,17 +515,19 @@ two keys, in the order of `thresholds`, each with `()`.
 
 **Checks:** A file with a block that is not on the gradient raster is reported as
 `on_raster=False`, and its peak, peak time and axis peaks equal `seq.calculate_pns`
-within a relative 1e-9 of the peak (tighter than the drift-based 1e-6 elsewhere in
+within a relative 1e-9 of the peak, after the peak and the axis peaks are divided by
+`seq.system.gamma` (the conversion of `docs/usage.md` section 8; tighter than the drift-based 1e-6 elsewhere in
 this section, because both now sample with `GradientSampler.sample`/
 `seq.get_gradients()` at the same file times; `test_sampling.py` established that
 those two agree to about float rounding).
 
 **How:** A trapezoid on x followed by `pp.make_delay(1.5 * dt)` (pypulseq's
 `add_block` accepts this duration, though it is not a whole number of raster
-steps). Compares `pns_levels(seq)`'s `on_raster`, `peak`, `peak_time_s` and
-`axis_peaks` with the same-named values from `seq.calculate_pns(safe_example_hw(),
-do_plots=False)`, as in `test_summary_matches_calculate_pns_within_the_fork_tolerance`
-but with `abs = 1e-9 * ref_peak` (and `abs = 1e-9` for the peak time). It also checks
+steps). Compares `pns_levels(seq)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
+(each divided by `seq.system.gamma`) and `peak_time_s` with the values from
+`seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
+`test_summary_matches_calculate_pns_within_the_fork_tolerance` but with
+`abs = 1e-9 * ref_peak` (and `abs = 1e-9` for the peak time). It also checks
 that `num_samples` is at least the length of `calculate_pns`'s result: `pns_levels`
 covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
@@ -486,17 +535,17 @@ covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
 #### `test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some`
 
-**Checks:** `above[1.0]` is empty if and only if `peak < 1`. For a sequence above the
-limit, the largest interval peak equals `peak`, each interval has a peak of at least 1
-and a peak time between its start and its end, its `num_samples` is the number of
+**Checks:** `above[_LIMIT]` is empty if and only if `peak_hz_per_t < _LIMIT`. For a
+sequence above the limit, the largest interval peak equals `peak_hz_per_t`, each interval
+has a peak of at least `_LIMIT` and a peak time between its start and its end, its `num_samples` is the number of
 samples from its start to its end, and the intervals are in time order with at least
 one sample below the limit between two of them.
 
-**How:** `gre_sequence(num_trs=20)` with the example hardware has a peak below 1 and
-no interval. Then the stimulation limit of each axis is scaled with the peak of the
-example hardware, so that the peak is 1.5 (`_hardware_for_peak`; the total is the
-percent of the limit), and `pns_levels` runs with that hardware as `hardware`. The
-sample of a time is `round(t / dt - 0.5)`.
+**How:** `pns_levels(seq, thresholds_hz_per_t=(_LIMIT,))` for
+`gre_sequence(num_trs=20)` with the example hardware has a peak below `_LIMIT` and no
+interval. Then the stimulation limit of each axis is scaled with the peak of the example
+hardware, so that the peak is 1.5 times `_LIMIT` (`_hardware_for_peak`; the total is the
+percent of the limit), and `pns_levels` runs with that hardware as `hardware`. The sample of a time is `round(t / dt - 0.5)`.
 
 **Assumptions:** The sequence gives more than one interval at that peak.
 
@@ -506,8 +555,9 @@ sample of a time is `round(t / dt - 0.5)`.
 chunk of 1 bin, for a chunk with an interval across its end (the interval is one
 interval, not two), and for one chunk larger than the whole file.
 
-**How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3.
-`reference` is `pns_levels` with the `CHUNK_SAMPLES` of the module.
+**How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`,
+and `thresholds_hz_per_t=(_LIMIT,)`. `reference` is `pns_levels` with the `CHUNK_SAMPLES`
+of the module.
 The test searches the chunks of 1 to 19 bins for the first one where the last sample of
 an interval is in a later chunk than its first sample, and fails if there is none. Then
 `monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
@@ -521,16 +571,17 @@ end and the third has none. Setting a chunk of 1 sample gives chunks of 1 bin
 #### `test_the_intervals_match_the_runs_of_the_totals`
 
 **Checks:** The start, the end, the peak, the peak time and the number of samples of
-each interval equal the runs of `total >= 1` in the totals of the whole sequence, for a
+each interval equal the runs of `total >= _LIMIT` in the totals of the whole sequence, for a
 sequence on the raster and for one with a block off it (the path of
 `GradientSampler.sample`).
 
 **How:** Parametrized with `gre_sequence(num_trs=20)` and `_off_raster_sequence()`, each
-with hardware that gives a peak of 1.5. The test sets `CHUNK_SAMPLES` to `10**9` (one
-chunk) and wraps `_chunk_total` to keep the totals it returns. It finds the runs of
-`total >= 1` with `itertools.groupby`, and takes the peak as the maximum of the run and
-the peak time as its first sample with that value. The expected `PnsInterval` tuple is
-compared with `above[1.0]` with `==` (exact).
+with hardware that gives a peak of 1.5 times `_LIMIT`, and
+`thresholds_hz_per_t=(_LIMIT,)`. The test sets `CHUNK_SAMPLES` to `10**9` (one chunk) and
+wraps `_chunk_total` to keep the totals it returns. It finds the runs of
+`total >= _LIMIT` with `itertools.groupby`, and takes the peak as the maximum of the run
+and the peak time as its first sample with that value. The expected `PnsInterval` tuple is
+compared with `above[_LIMIT]` with `==` (exact).
 
 **Assumptions:** The off-raster sequence has at least one interval at that peak.
 
@@ -539,42 +590,46 @@ compared with `above[1.0]` with `==` (exact).
 **Checks:** Two trapezoids on x with a gap of 50 ms give two intervals: the first ends
 before the middle of the gap and the second starts at or after the end of the gap.
 
-**How:** The hardware has a peak of 1.02 for one trapezoid, so that only the larger of
-the two humps of the total of a trapezoid is at or above 1. The test checks that one
+**How:** The hardware has a peak of 1.02 times `_LIMIT` for one trapezoid, so that only
+the larger of the two humps of the total of a trapezoid is at or above `_LIMIT`. The
+thresholds are `(_LIMIT,)`. The test checks that one
 trapezoid gives one interval, then compares the two intervals of the sequence of two
 trapezoids (a trapezoid, `pp.make_delay(50e-3)`, the same trapezoid) with the
 trapezoid duration and the gap.
 
 **Assumptions:** The decay of the filters after a trapezoid does not keep the total at
-or above 1 for half of the gap.
+or above `_LIMIT` for half of the gap.
 
 #### `test_two_thresholds_in_one_call_give_the_runs_of_two_calls`
 
-**Checks:** `thresholds=(1.0, 0.5)` gives, for each threshold, the intervals of the call
-with that one threshold, and every other field is unchanged. The keys of `above` are
-`float(t)` in the order of `thresholds` (`(0.5, 1.0)` gives the keys in that order, and
-`1` is the key `1.0`). It holds with the normal chunk size, with chunks of 1 bin and
-with a chunk size that has an interval of each threshold across a chunk end.
+**Checks:** `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)` gives, for each threshold, the
+intervals of the call with that one threshold, and every other field is unchanged. The
+keys of `above` are `float(t)` in the order of `thresholds_hz_per_t` (the thresholds in
+the other order give the keys in that order, and an `int` is the key of the equal
+`float`). It holds with the normal chunk size, with chunks of 1 bin and with a chunk size
+that has an interval of each threshold across a chunk end.
 
-**How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3. `single` has
-one call with `thresholds=(t,)` for each of 1.0 and 0.5. The test checks that the
-intervals of 1.0 are more than one and that those of 0.5 have more samples in total (so
-the two thresholds do not give the same runs). For each chunk size (the normal one, 1,
+**How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`.
+`single` has one call with `thresholds_hz_per_t=(t,)` for each of `_LIMIT` and
+`0.5 * _LIMIT`. The test checks that the intervals of `_LIMIT` are more than one and that
+those of `0.5 * _LIMIT` have more samples in total (so the two thresholds do not give the
+same runs). For each chunk size (the normal one, 1,
 and for each threshold the first of 1 to 19 bins with an interval across its end, found
 as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
 `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
-have the keys `[1.0, 0.5]`, the same tuple as `single` for each threshold, and every
-other field equal (`_assert_levels_equal` with `ignore=("above",)`). After the chunk
-sizes are restored, `thresholds=(0.5, 1.0)` gives the keys `[0.5, 1.0]` and the same
-tuples, and `thresholds=(1, 0.5)` gives the keys `[1.0, 0.5]` as `float`.
+have the keys `[_LIMIT, 0.5 * _LIMIT]`, the same tuple as `single` for each threshold, and
+every other field equal (`_assert_levels_equal` with `ignore=("above",)`). After the chunk
+sizes are restored, the thresholds in the other order give the keys in that order and the
+same tuples, and the `int` `round(_LIMIT)` in place of `_LIMIT` (the test checks that it
+equals `_LIMIT` as a float) gives the key `_LIMIT` as a `float`.
 
 **Assumptions:** The intervals of 1.0 and of 0.5 each cross a chunk end for a chunk of 1
 to 19 bins (`_chunk_across_an_interval` fails if there is none).
 
 #### `test_pns_levels_refuses_bad_thresholds_before_any_work`
 
-**Checks:** `pns_levels` raises `ValueError` for `thresholds` that is not a tuple (a list,
-a float, `None`), is empty, has a `bool`, has an element that is not an `int` or a `float`
+**Checks:** `pns_levels` raises `ValueError` for `thresholds_hz_per_t` that is not a tuple
+(a list, a float, `None`), has a `bool`, has an element that is not an `int` or a `float`
 (a string, `None`, a NumPy `float32`), has an element that is not finite (NaN, the two
 infinities, an `int` too large for a float) or not above 0 (0 and a negative number), or
 has two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)` and a pair that is not
@@ -582,9 +637,9 @@ next to each other). The refusal is before the sequence is read.
 
 **How:** Parametrized on the value. The test replaces `refuse_rotations` and
 `sequence_index` of `pulseq_analysis.pns_levels` with functions that raise
-`RuntimeError`, and calls `pns_levels(spin_echo_sequence(), thresholds=value)` inside
+`RuntimeError`, and calls `pns_levels(spin_echo_sequence(), thresholds_hz_per_t=value)` inside
 `pytest.raises(ValueError, match="threshold")`. A `RuntimeError` would show that the work
-started before the check.
+started before the check. The empty tuple is not a case: it is valid (the default).
 
 **Assumptions:** `pns_levels` calls `refuse_rotations` and `sequence_index` as module
 globals, so the replacements are used when it reads the sequence.
@@ -602,8 +657,8 @@ confidential, so this one is built from pypulseq's own public
 `safe_example_hw()`) writes an `asCOMP.tName` line and the `flGSWDTau*`,
 `flGSWDA*`, `flGSWDStimulationLimit*`/`Threshold*` and `flGScaleFactor*` fields for
 each axis. `pns_levels(spin_echo_sequence(), path)`'s `hardware`, `asc_file` and
-`hw` are checked, then its `level_min`, `level_max`, `peak` and `peak_time_s` are
-compared with a plain `pns_levels(seq)` call (`numpy.array_equal` for the arrays,
+`hw` are checked, then its `level_min_hz_per_t`, `level_max_hz_per_t`, `peak_hz_per_t` and
+`peak_time_s` are compared with a plain `pns_levels(seq)` call (`numpy.array_equal` for the arrays,
 `==` for the scalars).
 
 **Assumptions:** None.
@@ -630,13 +685,13 @@ the interface; the other tests of this section check individual fields.
 
 #### `test_the_arrays_of_the_levels_are_read_only`
 
-**Checks:** `level_min` and `level_max` are read-only, also for a sequence without
-gradients. A conversion to a new array works.
+**Checks:** `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, also for a
+sequence without gradients. A conversion to a new array works.
 
 **How:** The test runs for the synthetic spin echo and for a sequence without gradients
 (the two arrays are empty). Each array must have `flags.writeable` off, and a change in
-place (`a *= 100`) must raise `ValueError`. Then `levels.level_max * 100` must give a
-writable array, and `levels.level_max` must not change.
+place (`a *= 100`) must raise `ValueError`. Then `levels.level_max_hz_per_t * 100` must
+give a writable array, and `levels.level_max_hz_per_t` must not change.
 
 **Assumptions:** None.
 
@@ -671,6 +726,65 @@ field but the two with `numpy.array_equal` and `==`.
 
 **How:** `pns_levels(spin_echo_sequence(), gradient_asc=path, hardware=(safe_example_hw(),
 "LABEL"))` inside `pytest.raises(ValueError, match="not both")`.
+
+**Assumptions:** None.
+
+#### `test_the_levels_do_not_depend_on_the_gamma_of_the_system`
+
+**Checks:** The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of
+`SYSTEM` with another gamma, gives exactly equal levels in every field, including the
+intervals. The model runs on the Hz/m samples and reads no gamma.
+
+**How:** `_waveform_sequence` builds a trapezoid on x and an arbitrary gradient on y, each
+with an explicit amplitude in Hz/m (the arbitrary gradient has `first=0.0, last=0.0`), in
+three blocks. One sequence has `SYSTEM`, and the other has `copy.copy(SYSTEM)` with
+`gamma = 0.9 * SYSTEM.gamma`. The hardware gives a peak of 1.5 times `_LIMIT`
+(`_hardware_for_peak`), and `thresholds_hz_per_t=(_LIMIT,)`. The test checks that the two
+gammas differ, that there is no reason and that `above[_LIMIT]` is not empty. Then
+`_assert_levels_equal` with `ignore=()` compares the two results.
+
+**Assumptions:** None.
+
+#### `test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calculate_pns`
+
+**Checks:** For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and
+the axis peaks of `pns_levels`, divided by `seq.system.gamma`, and its peak time equal
+`seq.calculate_pns` within a relative 1e-6 of the peak. The peak divided by the gamma of
+1H does not equal it. Thus the conversion of `docs/usage.md` section 8 uses the gamma of
+the caller.
+
+**How:** The sequence of `_waveform_sequence` with a copy of `SYSTEM` with
+`gamma = 0.9 * SYSTEM.gamma`. The reference peak, peak time and axis peaks come from
+`seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
+`test_summary_matches_calculate_pns_within_the_fork_tolerance`, with the same tolerances.
+The test also checks that `peak_hz_per_t / GAMMA_1H` is not within that tolerance of the
+reference peak.
+
+**Assumptions:** The two gammas give peaks that differ by more than the tolerance (a
+factor of 0.9 does).
+
+#### `test_the_levels_of_a_negated_waveform_are_equal`
+
+**Checks:** The same sequence with each amplitude times -1 gives exactly equal levels in
+every field, including the intervals of two thresholds. The model of `-g` is equal to the
+model of `g`, bit for bit.
+
+**How:** `_waveform_sequence(SYSTEM)` and `_waveform_sequence(SYSTEM, sign=-1.0)`, with the
+hardware of a peak of 1.5 times `_LIMIT` and `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`.
+The test checks that each threshold has intervals, then compares the two results with
+`_assert_levels_equal` and `ignore=()`.
+
+**Assumptions:** None.
+
+#### `test_the_default_has_no_thresholds`
+
+**Checks:** `pns_levels(seq)` has `above == {}`, and `thresholds_hz_per_t=()` gives the
+same result in every field. This is also so with hardware for a peak above the limit.
+
+**How:** `gre_sequence(num_trs=4)`, with the example hardware and with the hardware of a
+peak of 1.5 times `_LIMIT`. For each, the test calls `pns_levels` with no threshold argument
+and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two results with
+`_assert_levels_equal` and `ignore=()`.
 
 **Assumptions:** None.
 
@@ -1272,7 +1386,9 @@ rate and the RMS amplitude of a sequence's gradients, on each logical axis and
 as a three-axis vector, over the whole sequence or over a window. Every
 expected value is computed by hand from the parameters of the trapezoid or
 arbitrary gradient that the test builds, not by calling `gradient_limits`
-itself for the expected value.
+itself for the expected value. The values are in Hz/m and Hz/m/s, the units of pypulseq,
+with no gamma, so the hand-computed values have no conversion. Only the comparisons with the
+oracle convert the values (`GAMMA_1H` from `tests/synthetic.py`).
 
 Since phase 4 of `docs/plans/cards-at-scale.md`, `grad_limits.py` computes its values from
 the per-event values of `seq_index.grad_events` and the columns of `seq_index.sequence_index`,
@@ -1300,8 +1416,8 @@ the trapezoid's own rise time, flat time and amplitude predicts.
 
 **How:** The test builds one block with an x trapezoid of a given amplitude,
 rise time and flat time, and calls `gradient_limits` on it. It computes the
-expected peak as the amplitude in mT/m, the expected slew as the amplitude
-divided by the rise time in T/m/s, and the expected RMS from the energy of the
+expected peak as the amplitude (Hz/m), the expected slew as the amplitude
+divided by the rise time (Hz/m/s), and the expected RMS from the energy of the
 two ramps (each `amplitude^2 * rise_time / 3`) plus the flat top
 (`amplitude^2 * flat_time`), divided by the block's duration and square
 rooted. It checks that the x axis result matches each expected value, that
@@ -1313,18 +1429,40 @@ trapezoid's own block ID.
 - The trapezoid's `fall_time` equals its `rise_time`, which is
   `pp.make_trapezoid`'s default when only `rise_time` is given.
 
-#### `test_gamma_converts_the_values_with_that_gamma`
+#### `test_the_values_do_not_depend_on_the_gamma_of_the_system`
 
-**Checks:** `gradient_limits(seq, gamma=40e6)` gives the amplitudes (mT/m), the slew
-rates (T/m/s), the RMS amplitudes (of the window and of the whole file) and the vector
-peak, all converted with 40 MHz/T: each value is the value of the default call times
-42.576e6 / 40e6.
+**Checks:** The values of `gradient_limits` (with and without a window) and of
+`block_gradient_values` do not depend on `seq.system.gamma`. For one waveform in Hz/m, the
+values of a sequence of `SYSTEM` and of a sequence of a copy of `SYSTEM` with another gamma are
+exactly equal, in every field.
 
-**How:** The test calls `gradient_limits` on `spin_echo_sequence()` with a window of the
-first half of the sequence, with and without `gamma`, and compares the two results field
-by field with `pytest.approx`.
+**How:** The test makes a copy of `SYSTEM` with `gamma = 0.9 * SYSTEM.gamma`. It builds the
+same sequence for each system: an x trapezoid with an explicit amplitude in Hz/m, a y arbitrary
+gradient with an explicit waveform in Hz/m (`first` and `last` 0), and a block with both. It
+checks that the two gammas differ and that the sequence has gradients. It compares the
+`GradientLimits` of the whole sequence and of a window of the first half field by field with
+`==` (the axes, the vector peak, its time and block, and the RMS over the whole file of the
+window result), and each array and each dict entry of the two `BlockGradientValues` with
+`numpy.array_equal`.
 
-**Assumptions:** The default call is correct (the other tests of this file).
+**Assumptions:** `pp.make_trapezoid` with an explicit `amplitude` and `pp.make_arbitrary_grad`
+with a waveform in Hz/m use no gamma, so the two sequences have the same events. The test
+follows `test_spectrum_does_not_depend_on_the_gamma_of_the_system` in section 2.10.
+
+#### `test_the_values_of_a_negated_waveform_are_equal`
+
+**Checks:** A value is a magnitude, so a sequence with each amplitude times -1 gives exactly
+equal values of `gradient_limits` (with and without a window) and of `block_gradient_values`,
+in every field. This is why the documents use the magnitude of gamma, which can be negative.
+
+**How:** The test builds the sequence of the test above for `SYSTEM`, one time with the
+amplitude of the trapezoid and the waveform of the arbitrary gradient as they are, and one
+time with each of them times -1 (an exact operation). It checks that the sequence has
+gradients, then compares the results as the test above does: field by field with `==` for
+`GradientLimits`, with `numpy.array_equal` for each array of `BlockGradientValues`.
+
+**Assumptions:** The multiplication by -1 of a float is exact, so the two sequences differ only
+in the sign. The test checks that the values are equal for this sequence.
 
 #### `test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak`
 
@@ -1363,8 +1501,7 @@ samples.
 waveform, whose largest magnitude is not at the shape's first or last sample,
 and calls `gradient_limits`. It computes the expected peak as the largest of
 `abs(first)`, `abs(last)` and the largest absolute waveform sample, taken from
-the block's own gradient event, converted to mT/m. It checks that the x axis
-peak matches.
+the block's own gradient event. It checks that the x axis peak matches (Hz/m).
 
 **Assumptions:**
 
@@ -1504,7 +1641,7 @@ raster: the slopes are 40 and 39.4 T/m/s and the junction step is 0.24 mT/m, so 
 junction is 60 T/m/s with 4 µs (24 T/m/s with 10 µs). The test writes the sequence to
 a file in `tmp_path` and reads it with `pp.Sequence()`, whose `system` has 10 µs. For
 the sequence that was read and for the sequence object, it checks that the y slew is
-60 T/m/s, credited to the second block, at the junction (0.8 ms).
+60 T/m/s times `GAMMA_1H` (Hz/m/s), credited to the second block, at the junction (0.8 ms).
 
 **Assumptions:** The file stores the amplitudes with fewer digits than the sequence
 object, so the comparison has a relative tolerance of 1e-4.
@@ -1608,12 +1745,15 @@ sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`).
 
 **How:** For each sequence, the test calls both `gradient_limits` and the oracle's, with no
-window and with a window from 0 to half the total duration, and compares every field (`reason`,
-`range_s`, each axis's peak, slew and RMS, and the vector peak), within a tolerance derived
-from the sequence (`_rounding_tol`): `1e-12 + 4 * eps * duration / shortest segment`, relative
-to the value or to the limit of the same kind (the limit of the oracle result: `gradient_limits`
-itself has no limits). It checks only whether a block is credited, not
-which one, because `gre_sequence` repeats its readout, phase-encode and spoiler events every TR,
+window and with a window from 0 to half the total duration. The oracle gives mT/m and T/m/s with
+`GAMMA_1H`, so `_assert_matches_oracle` converts the values of this package first: the
+amplitudes, the RMS and the vector peak times `1e3 / GAMMA_1H`, the slews times `1 / GAMMA_1H`
+(the conversion of `docs/usage.md` section 8, which the test also checks). It compares every
+field (`reason`, `range_s`, each axis's peak, slew and RMS, and the vector peak), within a
+tolerance derived from the sequence (`_rounding_tol`):
+`1e-12 + 4 * eps * duration / shortest segment`, relative to the value or to the limit of the
+same kind (the limit of the oracle result: `gradient_limits` itself has no limits). It checks
+only whether a block is credited, not which one, because `gre_sequence` repeats its readout, phase-encode and spoiler events every TR,
 and the oracle's own choice among such a tie can depend on the same rounding.
 
 **Assumptions:**
@@ -1630,7 +1770,7 @@ and the oracle's own choice among such a tie can depend on the same rounding.
 random axes, each event built so that it starts and ends at 0 (so every block junction step is
 0, and the result is only the per-event, non-junction part that the tests above cover on their
 own): `gradient_limits` matches the oracle, on the whole file and on a random window, and the
-window's `whole_rms_mt_per_m` (computed in the same call, for the card's "RMS over whole file"
+window's `whole_rms_hz_per_m` (computed in the same call, for the card's "RMS over whole file"
 column) matches the oracle's own whole-file RMS.
 
 **How:** For each of 200 seeds, the test builds a sequence of 2 to 6 blocks, each with 0 to 3
@@ -1638,8 +1778,9 @@ random axes, each a trapezoid, an extended trapezoid or an arbitrary gradient bu
 pypulseq's `make_*` functions (so pypulseq's own limit checks apply) and an explicit `first` and
 `last` of 0 where the function does not default to that. It compares the whole-file result and
 a random window's result with the oracle's, field by field, with the same derived tolerance and
-the same block-attribution exception as `test_matches_oracle_on_synthetic_sequences`, and separately
-compares `whole_rms_mt_per_m` against a fresh whole-file oracle call.
+the same block-attribution exception and the same conversion to the units of the oracle as
+`test_matches_oracle_on_synthetic_sequences`, and separately compares `whole_rms_hz_per_m`
+(times `1e3 / GAMMA_1H`) against a fresh whole-file oracle call.
 
 **Assumptions:**
 
@@ -1664,13 +1805,13 @@ rotation library.
 
 **Checks:** For each of 32 sequences (parametrized), the maxima of `block_gradient_values`
 over the blocks are the whole-file values of `gradient_limits`, with the same block and the
-same time. For each axis: the maximum of `peak_mt_per_m` is `peak_mt_per_m` of the axis, and
+same time. For each axis: the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis, and
 the first block in play order with that maximum has the `peak_block` and the `peak_time_s`. The
-maximum over the blocks of the larger of `slew_t_per_m_per_s` and `junction_t_per_m_per_s` is
-`max_slew_t_per_m_per_s`, and the first block with that maximum has the `slew_block`, with the
+maximum over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_per_m_per_s` is
+`max_slew_hz_per_m_per_s`, and the first block with that maximum has the `slew_block`, with the
 start of the block as the time when its junction step has the maximum (the junction is before
 every segment of its block), otherwise the `slew_time_s` of its segment. The maximum of
-`vector_peak_mt_per_m` is `vector_peak_mt_per_m` of the result, with the same block and time.
+`vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result, with the same block and time.
 When the maximum is 0, `gradient_limits` has no block (None).
 
 **How:** The sequences are `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
@@ -1685,25 +1826,12 @@ with `==`, not `pytest.approx`.
 **Assumptions:**
 
 - Exact equality holds because both functions use the same arithmetic on the same
-  per-event values: the same `_event_values`, `start_s + offset` for the times, `/ gamma * 1e3`
-  for an amplitude, `/ gamma` for a slew, and the junction step divided by
+  per-event values: the same `_event_values`, `start_s + offset` for the times, the values of
+  the events as they are for an amplitude and a slew, and the junction step divided by
   `seq.grad_raster_time`.
 - The 20 random sequences have no junction step (every event starts and ends at 0), the junction
   sequences have no random part. The test does not compare a window: `block_gradient_values` has
   no window.
-
-#### `test_block_gradient_values_with_gamma_scale_the_values_as_gradient_limits_does`
-
-**Checks:** `block_gradient_values(seq, gamma=40e6)` gives the amplitudes, the slews and the
-junction steps of each block of the default call times 42.576e6 / 40e6, with the same times,
-and it agrees with `gradient_limits(seq, gamma=40e6)` on the whole file.
-
-**How:** The test calls `block_gradient_values` on `gre_sequence()` with and without `gamma` and
-compares each array with `numpy.testing.assert_allclose` (relative tolerance 1e-12), the times
-with `assert_array_equal`. It then runs the comparison with `gradient_limits` of the first test
-(exact equality) with `gamma=40e6`.
-
-**Assumptions:** The default call is correct (the first test of this group).
 
 #### `test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time`
 
@@ -1725,11 +1853,11 @@ equality for the zeros and the start times.
 #### `test_first_block_junction_step_uses_zero_before_the_block`
 
 **Checks:** For a first block whose gradient starts at a non-zero value, the junction step of
-its axis is that value divided by `seq.grad_raster_time` (and by the gamma), and the junction
-step of the other axes is 0.
+its axis is that value divided by `seq.grad_raster_time`, and the junction step of the other
+axes is 0.
 
 **How:** One extended trapezoid on x that starts at 0.9 of the largest step that `add_block`
-accepts (`max_slew * grad_raster_time`). The test checks `junction_t_per_m_per_s` of the block
+accepts (`max_slew * grad_raster_time`). The test checks `junction_hz_per_m_per_s` of the block
 for x, y and z.
 
 **Assumptions:** None.
@@ -1742,7 +1870,7 @@ and block 2 has the step divided by the raster. A gradient that ends at a non-ze
 delay gives that value divided by the raster as the step of the delay block, and 0 for the
 first block.
 
-**How:** The test builds the two sequences and compares `junction_t_per_m_per_s["x"]` with the
+**How:** The test builds the two sequences and compares `junction_hz_per_m_per_s["x"]` with the
 hand-computed value (`pytest.approx`) and with 0 (exact).
 
 **Assumptions:** None.
@@ -1751,16 +1879,16 @@ hand-computed value (`pytest.approx`) and with 0 (exact).
 
 **Checks:** When the junction step and the first segment of the same block have the same slew,
 and it is the largest of the file, `gradient_limits` credits that block and gives the start of the
-block (the junction) as the time, and `block_gradient_values` has equal `junction_t_per_m_per_s`
-and `slew_t_per_m_per_s` in that block.
+block (the junction) as the time, and `block_gradient_values` has equal `junction_hz_per_m_per_s`
+and `slew_hz_per_m_per_s` in that block.
 
 **How:** Block 1 is an x extended trapezoid that ends at `x`. Block 2 starts at `x - step` and
 reaches `x` in one gradient raster, with `step` 0.9 of the largest step that `add_block` accepts.
 The test checks the two slews with `==`, then the `slew_block`, `slew_time_s` and
-`max_slew_t_per_m_per_s` of `gradient_limits`.
+`max_slew_hz_per_m_per_s` of `gradient_limits`.
 
 **Assumptions:** The two slews are equal in floating point for these values (the value of both is
-about 135 T/m/s). The test checks this with `==`.
+0.9 of the maximum slew of `SYSTEM`). The test checks this with `==`.
 
 #### `test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block`
 
@@ -1788,7 +1916,7 @@ extension")`.
 ### 2.7 PNS prediction (`test_pns.py`)
 
 `test_pns.py` tests `pns.py`. `PnsPrediction` is now summary-only (`reason`,
-`hardware`, `asc_file`, `peak`, `peak_time_s`, `axis_peaks`; no `t_s`,
+`hardware`, `asc_file`, `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t`; no `t_s`,
 `norm` or `axes`), built by `pns_prediction` from `pns_levels_for(seq,
 gradient_asc=...)` — the SAFE model itself (`pns_levels.pns_levels`, the pinned
 pypulseq fork's chunked SAFE recursion) has moved there. `pns_levels_for`
@@ -1799,7 +1927,10 @@ values of the struct, so two pairs with the same label and values are one
 hardware), and the rule of `seq_index.sequence_index` for staleness (all are
 rebuilt when the number of blocks or the last block id changes), so that a page with both the PNS summary card and the
 diagram's PNS lane for one sequence runs the SAFE model once. The thresholds of the key are
-the tuple of `float(t)`, so `(1,)` and the default `(1.0,)` are one key.
+the tuple of `float(t)`, so an `int` threshold and the equal `float` are one key, and the
+default `()` is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit
+times the magnitude of gamma). The test file defines `_LIMIT = PNS_LIMIT * GAMMA_1H`, the
+stimulation limit for 1H in Hz/T.
 `peak_tr_window` is the start and end of the TR that holds the
 prediction's peak, counted from the sequence start in steps of the TR
 definition. Without a gradient `.asc` file, the prediction uses pypulseq's
@@ -1841,9 +1972,9 @@ stimulation limit, and is highest on y.
 `example` fixture) and, separately, `pns_levels.pns_levels` on the same sequence
 object. It checks that there is no reason, that the hardware is the example hardware,
 and that there is no `.asc` file name. It checks that the axis peaks are keyed x, y and
-z, and that the peak is more than 0 and less than 1 (100 % of the limit). The axis with
-the highest peak must be y, where the crushers are. `peak`, `peak_time_s` and
-`axis_peaks` must equal `pns_levels`'s own fields exactly.
+z, and that the peak is more than 0 and less than `_LIMIT` (100 % of the limit, in Hz/T).
+The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t`,
+`peak_time_s` and `axis_peaks_hz_per_t` must equal `pns_levels`'s own fields exactly.
 
 **Assumptions:**
 
@@ -1861,9 +1992,9 @@ prediction as the example hardware, and the file's hardware name and file name.
 
 **How:** The test writes a test `.asc` file with scale factor 1 and runs the
 prediction with it. There must be no reason, the hardware name must be the name in the
-file, and the file name must be the name of the file. `peak`, `peak_time_s` and each
-axis of `axis_peaks` must equal the example hardware's own summary within a relative
-10⁻⁹.
+file, and the file name must be the name of the file. `peak_hz_per_t`, `peak_time_s` and
+each axis of `axis_peaks_hz_per_t` must equal the example hardware's own summary within a
+relative 10⁻⁹.
 
 **Assumptions:**
 
@@ -1879,8 +2010,8 @@ name in `asCOMP[0].tName`.
 **How:** The test writes a test `.asc` file with the scanner layout and scale factor
 1, and runs the prediction with the main file. There must be no reason, the hardware
 name must be the name in the main file, and the file name must be the name of the main
-file. `peak`, `peak_time_s` and each axis of `axis_peaks` must equal the example
-hardware's own summary within a relative 10⁻⁹.
+file. `peak_hz_per_t`, `peak_time_s` and each axis of `axis_peaks_hz_per_t` must equal the
+example hardware's own summary within a relative 10⁻⁹.
 
 **Assumptions:**
 
@@ -1933,7 +2064,7 @@ higher, above the limit.
 
 **How:** The test writes a test `.asc` file with scale factor 0.1 and runs the
 prediction. The peak must be 10 times the example hardware peak within a
-relative 10⁻⁹, and more than 1.
+relative 10⁻⁹, and more than `_LIMIT`.
 
 **Assumptions:**
 
@@ -2159,15 +2290,19 @@ the same order. It checks that there were 3 calls.
 #### `test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds`
 
 **Checks:** The thresholds are part of the key of a kept result: other thresholds, or
-the same ones in another order, run the model and do not give the result of the default;
-the same thresholds again give the kept result (the same object); `(1,)` is the key of
-the default `(1.0,)`.
+the same ones in another order, run the model and do not give the result of the default
+(no threshold, the key `()`); the same thresholds again give the kept result (the same
+object); an `int` threshold is the key of the equal `float`.
 
 **How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)`, then
-`thresholds=(1.0, 0.5)`, again `(1.0, 0.5)`, the default again, `(1,)`, and
-`(0.5, 1.0)`. It checks that the call count is 1, 2, 2, 2, 2 and 3, that the second result
-is not the first, that the repeated results are the same objects as the kept ones, and
-that `list(result.above)` is `[1.0]`, `[1.0, 0.5]` and `[0.5, 1.0]`.
+`thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, again the same, the default again, `()`,
+`(round(_LIMIT), 0.5 * _LIMIT)` (an `int` that equals `_LIMIT` as a float, which the test
+checks), and the two thresholds in the other order. It checks that the call count is 1
+after the default, 2 after the two thresholds and still 2 after the repeats, the call with
+`()` and the call with the `int`, and 3 after the other order. It also checks that the
+second result is not the first, that the repeated results are the same objects as the kept
+ones (the `int` call gives the second result), and that `list(result.above)` is `[]`,
+`[_LIMIT, 0.5 * _LIMIT]` and `[0.5 * _LIMIT, _LIMIT]`.
 
 **Assumptions:** None.
 
@@ -2178,9 +2313,10 @@ of its level by the first caller raises `ValueError`, and the second caller gets
 level as it was.
 
 **How:** The test calls `pns_levels_for` for the synthetic spin echo and keeps a copy of
-`level_min` and `level_max`. `level_max *= 100` (through a local name, so that the
-statement does not also assign the field of the frozen dataclass) and
-`level_min[0] = 0.0` must each raise `ValueError`. A second call must give the same object, with arrays equal to the copies.
+`level_min_hz_per_t` and `level_max_hz_per_t`. `level_max *= 100` (through a local name,
+so that the statement does not also assign the field of the frozen dataclass) and
+`level_min_hz_per_t[0] = 0.0` must each raise `ValueError`. A second call must give the same
+object, with arrays equal to the copies.
 
 **Assumptions:** None.
 
@@ -2531,8 +2667,10 @@ The registry tests that need two packages, a broken entry point or an object wit
 points (an object with a `name`, a `dist` with the package name, and a `load`). The test of
 the real registry uses the entry points that `uv sync` installs from `pyproject.toml`. The
 tests of the series use `gre_sequence(num_trs=20)` with the example hardware of pypulseq, with
-the stimulation limit multiplied so that the peak is 1.5, so that the total is above 1 in
-several runs (`_hardware_for_peak`, as in `test_pns_levels.py`). The test of the spectrum series
+the stimulation limit multiplied so that the peak is 1.5 times `_LIMIT`, so that the total is
+above `_LIMIT` in several runs (`_hardware_for_peak`, as in `test_pns_levels.py`). `_LIMIT` is
+`PNS_LIMIT * GAMMA_1H`, the stimulation limit for 1H in Hz/T: a PNS value and a threshold are
+in Hz/T. The test of the spectrum series
 uses `spin_echo_sequence()`.
 
 **Assumptions for the whole file:**
@@ -2602,8 +2740,10 @@ of `series`: they are for a reader.
 
 **Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
 `spec.params` in order, and their defaults are those of the function that `compute` calls
-(`GAMMA`, `None` and `(PNS_LIMIT,)`). `gradient.spectrum` has no parameter. A keyword that is
-not a parameter is a `TypeError`.
+(`None` and `()` for `pns.safe.levels`, whose parameters are `hardware` and
+`thresholds_hz_per_t`). `seq.index`, `gradient.limits`,
+`gradient.blocks` and `gradient.spectrum` have no parameter, so no default: there are no gamma
+defaults. A keyword that is not a parameter is a `TypeError`.
 
 **How:** Parametrized over the five analyses. The test reads `inspect.signature(compute)`, and
 calls `compute` on `empty_sequence()` with `unknown=1`.
@@ -2613,11 +2753,12 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 #### `test_compute_gives_the_value_of_its_function_with_the_same_arguments`
 
 **Checks:** `compute` of each analysis gives the value of the function that it calls, with
-the same arguments, with the defaults and with others (`gamma=40e6`, and a hardware with
-`thresholds=(1.0, 0.5)`). `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
+the same arguments, with the defaults and with others (a hardware with
+`thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`). `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
 object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
-result for the sequence object. `gradient.spectrum` has no other arguments. The
-gradient analyses give an equal value.
+result for the sequence object. `gradient.spectrum` has no other arguments. The gradient
+analyses have no arguments after `seq`: `gradient_limits(seq)` and `block_gradient_values(seq)`
+give an equal value.
 
 **How:** The test builds `gre_sequence(num_trs=4)` and compares `compute` with the function:
 `is` for the kept results, `==` for `GradientLimits`, and `numpy.array_equal` for each array of
@@ -2629,20 +2770,21 @@ each array one by one. `GradientSpectrum` is compared by identity only.
 
 #### `test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call`
 
-**Checks:** For a sequence with more than one run above 1, `to_series` gives `pns_total`, an
-ENVELOPE of unit "1" with the arrays `min` and `max` (float32) equal to `level_min` and
-`level_max`, `coord_unit` "s", `coord_start` 0, `coord_step` `bin_samples * dt_s`,
-`coord_end` `num_samples * dt_s`, and the
+**Checks:** For a sequence with more than one run above `_LIMIT` and `thresholds_hz_per_t=(_LIMIT,)`,
+`to_series` gives `pns_total`, an ENVELOPE of unit "Hz/T" with the arrays `min` and `max`
+(float32) equal to `level_min_hz_per_t` and `level_max_hz_per_t`, `coord_unit` "s",
+`coord_start` 0, `coord_step` `bin_samples * dt_s`, `coord_end` `num_samples * dt_s`, and the
 `meta` of design 4.4 (`hardware`, `asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`,
-`peak_time_s` and the three `axis_peaks_*`). It gives `pns_above_1`, a RUNS series of unit "1"
+`peak_time_s` and the three `axis_peaks_*`, the values from `peak_hz_per_t` and
+`axis_peaks_hz_per_t`). It gives `pns_above_0`, a RUNS series of unit "Hz/T"
 and `coord_unit` "s", with the arrays `start`, `end`, `num_samples` (int64), `peak` and `peak_time_s` (float64),
-in this order, with one entry for each interval of `above[1.0]` (`start` and `end` are
-`start_s` and `end_s` of the interval) and the `meta`
-`{"threshold": 1.0}`. For a `PnsLevels` of a gradient `.asc` file, `meta["hardware"]` is the
+in this order, with one entry for each interval of `above[_LIMIT]` (`start` and `end` are
+`start_s` and `end_s` of the interval, `peak` is `peak_hz_per_t`) and the `meta`
+`{"threshold": _LIMIT}`. For a `PnsLevels` of a gradient `.asc` file, `meta["hardware"]` is the
 name in the file and `meta["asc_file"]` is the file name.
 
 **How:** The test calls `compute` with the hardware of `_hardware_for_peak(seq, 1.5)` and
-compares each field of `to_series` with the field of the same `PnsLevels` (`numpy.array_equal`
+`thresholds_hz_per_t=(_LIMIT,)`, and compares each field of `to_series` with the field of the same `PnsLevels` (`numpy.array_equal`
 for the arrays, `tolist` for the intervals). For the file it writes a gradient `.asc` file with
 the `write_gradient_asc` fixture and calls `pns_levels` with it.
 
@@ -2651,30 +2793,25 @@ field is compared by itself.
 
 #### `test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds`
 
-**Checks:** With `thresholds=(1.0, 0.5)`, `to_series` gives `pns_total`, `pns_above_1` and
-`pns_above_0.5`, in this order, of the kinds ENVELOPE, RUNS and RUNS, and the `coord_unit` of each RUNS series is "s".
-The `start`, `end` and `peak` of each RUNS series are those of `above` of its threshold
-(`start_s`, `end_s` and `peak` of the intervals), which are not empty and not equal. With `(0.5, 1.0)`, the two RUNS series are in the other order.
+**Checks:** With `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, `to_series` gives
+`pns_total`, `pns_above_0` and `pns_above_1`, in this order, of the kinds ENVELOPE, RUNS and
+RUNS, and the `coord_unit` of each RUNS series is "s". The `start`, `end` and `peak` of each
+RUNS series are those of `above` of its threshold (`start_s`, `end_s` and `peak_hz_per_t` of
+the intervals), which are not empty and not equal. With the thresholds in the other order,
+the names are the same (they are the positions of the thresholds): the two RUNS series swap
+their runs and their `meta`.
 
-**How:** The test calls `compute` with the hardware for the peak 1.5, and compares the names,
-the kinds, the `meta` and the arrays with `levels.above`.
+**How:** The test calls `compute` with the hardware for the peak 1.5 times `_LIMIT`, and
+compares the names, the kinds, the `meta` and the arrays with `levels.above`. For the swapped
+thresholds, it compares the names, the `meta` and the `start` array of each RUNS series with
+those of the first call.
 
 **Assumptions:** None.
-
-#### `test_to_series_refuses_two_thresholds_with_one_series_name`
-
-**Checks:** The thresholds 1.0000001 and 1.0000002 are two keys of `above`, but both give the
-name `pns_above_1` with `:g`, so `to_series` raises `ValueError`.
-
-**How:** The test calls `compute` on `gre_sequence(num_trs=2)` with the two thresholds, checks
-that `above` has two keys, and checks the error of `to_series`.
-
-**Assumptions:** `pns_levels` accepts the two thresholds: they are two different floats.
 
 #### `test_the_pns_series_survive_the_json_round_trip`
 
 **Checks:** Each series of `to_series` (the ENVELOPE and two RUNS series, for the thresholds
-1.0 and 0.8) is equal to the series that `Series.from_obj` reads from the text of
+`_LIMIT` and `0.8 * _LIMIT`) is equal to the series that `Series.from_obj` reads from the text of
 `json.dumps(s.to_obj(), allow_nan=False)`.
 
 **How:** The test writes and reads each series and compares it with `==` (the `Series`
@@ -2685,9 +2822,21 @@ equality).
 #### `test_to_series_gives_nothing_for_a_sequence_without_gradients`
 
 **Checks:** For `empty_sequence()` the `PnsLevels` has a `reason` (`NO_GRADIENTS`), and
-`to_series` gives `()`, with the default thresholds and with two thresholds.
+`to_series` gives `()`, with no threshold, with one threshold and with two thresholds.
 
-**How:** The test calls `compute` and `to_series` for each tuple of thresholds.
+**How:** The test calls `compute` and `to_series` for each of the tuples `()`, `(_LIMIT,)`
+and `(_LIMIT, 0.5 * _LIMIT)`.
+
+**Assumptions:** None.
+
+#### `test_the_pns_series_without_thresholds_are_the_level_only`
+
+**Checks:** With the default thresholds (`()`), `to_series` gives one series, `pns_total`,
+an ENVELOPE whose `max` array is `level_max_hz_per_t` of the same call, and `above` is
+empty.
+
+**How:** The test calls `compute` on `gre_sequence(num_trs=4)` with the hardware for the peak
+1.5 times `_LIMIT` and no `thresholds_hz_per_t`, then `to_series`.
 
 **Assumptions:** None.
 
@@ -2939,8 +3088,9 @@ gradients. A conversion to a new array works.
 **How:** The test runs for the synthetic spin echo (the frequencies, the RSS
 and the three axes) and for a sequence without gradients (the frequencies and
 the RSS, empty). Each array must have `flags.writeable` off, and a change in
-place (`a *= 1e3 / GAMMA`) must raise `ValueError`. Then `s.rss * 1e3 / GAMMA`
-must give a writable array, and `s.rss` must not change.
+place (`a *= 1e3 / GAMMA_1H`, with `GAMMA_1H` from `tests/synthetic.py`) must
+raise `ValueError`. Then `s.rss * 1e3 / GAMMA_1H` must give a writable array,
+and `s.rss` must not change.
 
 **Assumptions:** None.
 

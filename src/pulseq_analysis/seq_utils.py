@@ -1,4 +1,4 @@
-"""Helpers that read one event of a pypulseq sequence, and the constants of the
+"""Helpers that read one event of a pypulseq sequence, and the time tolerance of the
 measurements.
 
 `gradient_offsets` and `gradient_points` give the corner or sample points of a gradient
@@ -11,8 +11,6 @@ from types import SimpleNamespace
 
 import numpy as np
 
-# The default gamma of `grad_limits` (1H), in Hz/T.
-GAMMA = 42.576e6  # Hz/T
 # The tolerance of a comparison of two times. A segment shorter than this has no slope.
 TIME_TOLERANCE = 1e-9  # s
 

@@ -8,6 +8,7 @@ import pytest
 from oracles import grad_spectrum as oracle
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
 from synthetic import (
+    GAMMA_1H,
     SYSTEM,
     arbitrary_gradient_sequence,
     empty_sequence,
@@ -17,7 +18,6 @@ from synthetic import (
 from test_extensions import _with_rotation_library
 
 from pulseq_analysis import grad_spectrum
-from pulseq_analysis.seq_utils import GAMMA
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
 # A/2 * sum(w) / sqrt(fs * sum(w^2)), with 5000 samples at 100 kHz.
@@ -214,10 +214,10 @@ def test_the_arrays_of_a_spectrum_are_read_only(make_seq, num_arrays):
     for a in arrays:
         assert not a.flags.writeable
         with pytest.raises(ValueError):
-            a *= 1e3 / GAMMA
+            a *= 1e3 / GAMMA_1H
     # A conversion to a new array works, and the spectrum stays as it was.
     before = s.rss.copy()
-    converted = s.rss * 1e3 / GAMMA
+    converted = s.rss * 1e3 / GAMMA_1H
     assert converted.flags.writeable
     np.testing.assert_array_equal(s.rss, before)
 

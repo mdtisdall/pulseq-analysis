@@ -5,6 +5,7 @@ import numpy.testing as npt
 import pypulseq as pp
 import pytest
 from synthetic import (
+    GAMMA_1H,
     SYSTEM,
     arbitrary_gradient_sequence,
     empty_sequence,
@@ -15,9 +16,15 @@ from synthetic import (
 from pulseq_analysis import seq_utils
 
 
-def test_gamma_and_time_tolerance():
-    assert seq_utils.GAMMA == 42.576e6
+def test_time_tolerance():
     assert seq_utils.TIME_TOLERANCE == 1e-9
+
+
+def test_the_gamma_of_the_tests_is_the_gamma_of_the_test_system():
+    """The tests convert the values of the package with GAMMA_1H. The test sequences
+    convert their mT/m limits with the gamma of SYSTEM (the default of pypulseq's
+    Opts). The two must be equal."""
+    assert GAMMA_1H == SYSTEM.gamma == 42.576e6
 
 
 def test_hold_samples_keeps_uniform_shapes_unchanged():

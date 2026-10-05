@@ -5,13 +5,15 @@ import pypulseq as pp
 import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
-from synthetic import SYSTEM, block_pulse, empty_sequence, spin_echo_sequence
+from synthetic import GAMMA_1H, SYSTEM, block_pulse, empty_sequence, spin_echo_sequence
 
 from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import EXAMPLE_HARDWARE, hardware_name, read_gradient_asc
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import NO_GRADIENTS, PnsLevels
+from pulseq_analysis.pns_levels import NO_GRADIENTS, PNS_LIMIT, PnsLevels
+
+_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
 
 
 @pytest.fixture(scope="module")
@@ -32,12 +34,13 @@ def test_example_hardware_for_spin_echo(example, default_seq):
     assert example.reason is None
     assert example.hardware == EXAMPLE_HARDWARE
     assert example.asc_file is None
-    assert list(example.axis_peaks) == ["x", "y", "z"]
-    assert 0 < example.peak < 1
-    assert max(example.axis_peaks, key=example.axis_peaks.get) == "y"  # the crushers
-    assert example.peak == ref.peak
+    assert list(example.axis_peaks_hz_per_t) == ["x", "y", "z"]
+    assert 0 < example.peak_hz_per_t < _LIMIT
+    peaks = example.axis_peaks_hz_per_t
+    assert max(peaks, key=peaks.get) == "y"  # the crushers
+    assert example.peak_hz_per_t == ref.peak_hz_per_t
     assert example.peak_time_s == ref.peak_time_s
-    assert example.axis_peaks == ref.axis_peaks
+    assert example.axis_peaks_hz_per_t == ref.axis_peaks_hz_per_t
 
 
 def test_asc_file_with_the_example_parameters(default_seq, example, write_gradient_asc):
@@ -46,10 +49,12 @@ def test_asc_file_with_the_example_parameters(default_seq, example, write_gradie
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
     assert p.asc_file == path.name
-    assert p.peak == pytest.approx(example.peak, rel=1e-9)
+    assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
     assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
     for axis in "xyz":
-        assert p.axis_peaks[axis] == pytest.approx(example.axis_peaks[axis], rel=1e-9)
+        assert p.axis_peaks_hz_per_t[axis] == pytest.approx(
+            example.axis_peaks_hz_per_t[axis], rel=1e-9
+        )
 
 
 def test_asc_file_that_includes_the_pns_parameters(default_seq, example, write_gradient_asc):
@@ -58,10 +63,12 @@ def test_asc_file_that_includes_the_pns_parameters(default_seq, example, write_g
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
     assert p.asc_file == path.name
-    assert p.peak == pytest.approx(example.peak, rel=1e-9)
+    assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
     assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
     for axis in "xyz":
-        assert p.axis_peaks[axis] == pytest.approx(example.axis_peaks[axis], rel=1e-9)
+        assert p.axis_peaks_hz_per_t[axis] == pytest.approx(
+            example.axis_peaks_hz_per_t[axis], rel=1e-9
+        )
 
 
 def test_asc_file_with_a_missing_include(write_gradient_asc):
@@ -87,15 +94,15 @@ def test_hardware_name():
 
 def test_prediction_scales_with_the_stimulation_limit(default_seq, example, write_gradient_asc):
     p = pns.pns_prediction(default_seq, gradient_asc=write_gradient_asc(limit_scale=0.1))
-    assert p.peak == pytest.approx(10 * example.peak, rel=1e-9)
-    assert p.peak > 1
+    assert p.peak_hz_per_t == pytest.approx(10 * example.peak_hz_per_t, rel=1e-9)
+    assert p.peak_hz_per_t > _LIMIT
 
 
 def test_no_gradients():
     p = pns.pns_prediction(empty_sequence())
     assert p.reason == NO_GRADIENTS
     assert p.hardware == EXAMPLE_HARDWARE
-    assert p.peak == 0
+    assert p.peak_hz_per_t == 0
     assert p.peak_time_s is None
 
 
@@ -115,7 +122,7 @@ def test_a_gradient_on_one_axis_has_a_prediction(channel):
     seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
     p = pns.pns_prediction(seq)
     assert p.reason is None
-    assert p.peak > 0
+    assert p.peak_hz_per_t > 0
 
 
 def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monkeypatch):
@@ -354,26 +361,31 @@ def test_pns_levels_for_hardware_pair_is_not_the_example_hardware_or_a_file(
 
 def test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):
     """The thresholds are part of the key of a kept result: other thresholds, or the same
-    ones in another order, run the model and do not give the result of the default; the
-    same thresholds again give the kept result (the same object), and `(1,)` is the key of
-    the default `(1.0,)`."""
+    ones in another order, run the model and do not give the result of the default (no
+    thresholds, the key `()`); the same thresholds again give the kept result (the same
+    object), and an `int` threshold is the key of the equal `float`."""
     calls = _count_pns_levels_calls(monkeypatch)
     seq = spin_echo_sequence()
+    thresholds = (_LIMIT, 0.5 * _LIMIT)
 
     default = pns_levels_for(seq)
     assert len(calls) == 1
-    other = pns_levels_for(seq, thresholds=(1.0, 0.5))
+    other = pns_levels_for(seq, thresholds_hz_per_t=thresholds)
     assert len(calls) == 2
     assert other is not default
-    assert list(default.above) == [1.0]
-    assert list(other.above) == [1.0, 0.5]
-    assert pns_levels_for(seq, thresholds=(1.0, 0.5)) is other
+    assert list(default.above) == []
+    assert list(other.above) == list(thresholds)
+    assert pns_levels_for(seq, thresholds_hz_per_t=thresholds) is other
     assert pns_levels_for(seq) is default
-    assert pns_levels_for(seq, thresholds=(1,)) is default
+    assert pns_levels_for(seq, thresholds_hz_per_t=()) is default
     assert len(calls) == 2
-    reordered = pns_levels_for(seq, thresholds=(0.5, 1.0))
+    whole = round(_LIMIT)  # an int that is equal to the float `_LIMIT`
+    assert float(whole) == _LIMIT
+    assert pns_levels_for(seq, thresholds_hz_per_t=(whole, 0.5 * _LIMIT)) is other
+    assert len(calls) == 2
+    reordered = pns_levels_for(seq, thresholds_hz_per_t=thresholds[::-1])
     assert len(calls) == 3
-    assert list(reordered.above) == [0.5, 1.0]
+    assert list(reordered.above) == list(thresholds[::-1])
 
 
 def test_pns_levels_for_shares_a_read_only_result():
@@ -382,15 +394,15 @@ def test_pns_levels_for_shares_a_read_only_result():
     it was."""
     seq = spin_echo_sequence()
     first = pns_levels_for(seq)
-    before_min, before_max = first.level_min.copy(), first.level_max.copy()
-    # Through a local name: `first.level_max *= 100` would also set the field of the frozen
+    before_min, before_max = first.level_min_hz_per_t.copy(), first.level_max_hz_per_t.copy()
+    # Through a local name: `first.level_max_hz_per_t *= 100` would also set the field of the frozen
     # dataclass.
-    level_max = first.level_max
+    level_max = first.level_max_hz_per_t
     with pytest.raises(ValueError):
         level_max *= 100
     with pytest.raises(ValueError):
-        first.level_min[0] = 0.0
+        first.level_min_hz_per_t[0] = 0.0
     second = pns_levels_for(seq)
     assert second is first
-    np.testing.assert_array_equal(second.level_min, before_min)
-    np.testing.assert_array_equal(second.level_max, before_max)
+    np.testing.assert_array_equal(second.level_min_hz_per_t, before_min)
+    np.testing.assert_array_equal(second.level_max_hz_per_t, before_max)

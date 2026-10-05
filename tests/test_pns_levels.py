@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import itertools
 import math
@@ -10,6 +11,7 @@ from pypulseq.event_lib import EventLibrary
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from synthetic import (
+    GAMMA_1H,
     SYSTEM,
     arbitrary_gradient_sequence,
     border_sequence,
@@ -22,6 +24,7 @@ from pulseq_analysis.asc import EXAMPLE_HARDWARE, read_gradient_asc
 from pulseq_analysis.pns_levels import (
     NO_GRADIENTS,
     PEAK_TOLERANCE,
+    PNS_LIMIT,
     PnsInterval,
     PnsLevels,
     _cast_outward,
@@ -31,6 +34,7 @@ from pulseq_analysis.pns_levels import (
 )
 
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
+_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
 
 
 def _hw_dict(hw_ns) -> dict:
@@ -73,7 +77,9 @@ _SEQUENCES = {
 def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     """The peak, the peak time and the axis peaks of `pns_levels` (example hardware)
     equal `seq.calculate_pns` of the pinned fork within a relative 1e-6 of the peak
-    (`docs/plans/diagram-lanes.md`, section 3.5, item 2).
+    (`docs/plans/diagram-lanes.md`, section 3.5, item 2). `pns_levels` gives Hz/T, so
+    each of its values is divided by `seq.system.gamma` first, as the rule of
+    `docs/usage.md` section 8 says: this also tests that conversion.
 
     The two are not exactly equal: `calc_pns` samples `seq.get_gradients()` at the
     file times `(k + 0.5) * dt`, which drift off the ideal raster grid by float
@@ -91,6 +97,7 @@ def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     ref_axis_peaks = {axis: float(comp[:, i].max()) for i, axis in enumerate("xyz")}
 
     levels = pns_levels(seq)
+    gamma = seq.system.gamma
     tol = 1e-6 * ref_peak
 
     assert levels.reason is None
@@ -98,10 +105,12 @@ def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     assert levels.asc_file is None
     assert levels.dt_s == seq.grad_raster_time
     assert levels.on_raster is True
-    assert levels.peak == pytest.approx(ref_peak, abs=tol)
+    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
     assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
     for axis in "xyz":
-        assert levels.axis_peaks[axis] == pytest.approx(ref_axis_peaks[axis], abs=tol)
+        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
+            ref_axis_peaks[axis], abs=tol
+        )
 
 
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
@@ -109,7 +118,8 @@ def test_stored_bins_match_calculate_pns_totals(build):
     """Each stored bin's minimum and maximum equal the minimum and the maximum of
     `seq.calculate_pns`'s totals over the same samples, within the same 1e-6-of-peak
     tolerance as `test_summary_matches_calculate_pns_within_the_fork_tolerance` (same
-    reason: the file-time drift of `calc_pns`'s own gradient sampling).
+    reason: the file-time drift of `calc_pns`'s own gradient sampling). The values of
+    `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md` section 8).
 
     `calc_pns`'s own array can be shorter than `pns_levels`'s (a trailing block with no
     gradient event, for example `gre_sequence`'s TR padding, extends `pns_levels`'s
@@ -122,19 +132,22 @@ def test_stored_bins_match_calculate_pns_totals(build):
     hw = safe_example_hw()
     _, norm, _, _ = seq.calculate_pns(hw, do_plots=False)
     levels = pns_levels(seq)
-    tol = 1e-6 * levels.peak
+    gamma = seq.system.gamma
+    tol = 1e-6 * levels.peak_hz_per_t / gamma
     nt_ref = norm.shape[0]
     bin_samples = levels.bin_samples
     compared = 0
 
-    for i in range(len(levels.level_min)):
+    for i in range(len(levels.level_min_hz_per_t)):
         s0 = i * bin_samples
         s1 = min(s0 + bin_samples, levels.num_samples)  # the last bin can be shorter
         if s1 > nt_ref:
             break
         segment = norm[s0:s1]
-        assert float(levels.level_min[i]) == pytest.approx(float(segment.min()), abs=tol)
-        assert float(levels.level_max[i]) == pytest.approx(float(segment.max()), abs=tol)
+        level_min = float(levels.level_min_hz_per_t[i]) / gamma
+        level_max = float(levels.level_max_hz_per_t[i]) / gamma
+        assert level_min == pytest.approx(float(segment.min()), abs=tol)
+        assert level_max == pytest.approx(float(segment.max()), abs=tol)
         compared += 1
     assert compared > 0
 
@@ -170,8 +183,10 @@ def test_bin_samples_for_matches_the_formula():
 
     levels = pns_levels(gre_sequence(num_trs=6))
     assert levels.bin_samples == bin_samples_for(levels.num_samples, levels.dt_s)
-    assert len(levels.level_min) == -(-levels.num_samples // levels.bin_samples)  # ceil division
-    assert len(levels.level_max) == len(levels.level_min)
+    assert len(levels.level_min_hz_per_t) == -(
+        -levels.num_samples // levels.bin_samples
+    )  # ceil division
+    assert len(levels.level_max_hz_per_t) == len(levels.level_min_hz_per_t)
 
 
 def test_result_does_not_depend_on_chunk_samples(monkeypatch):
@@ -192,11 +207,11 @@ def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     for chunk_samples in sizes:
         monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
         got = pns_levels(seq)
-        assert np.array_equal(got.level_min, reference.level_min)
-        assert np.array_equal(got.level_max, reference.level_max)
-        assert got.peak == reference.peak
+        assert np.array_equal(got.level_min_hz_per_t, reference.level_min_hz_per_t)
+        assert np.array_equal(got.level_max_hz_per_t, reference.level_max_hz_per_t)
+        assert got.peak_hz_per_t == reference.peak_hz_per_t
         assert got.peak_time_s == reference.peak_time_s
-        assert got.axis_peaks == reference.axis_peaks
+        assert got.axis_peaks_hz_per_t == reference.axis_peaks_hz_per_t
         assert got.num_samples == reference.num_samples
         assert got.bin_samples == reference.bin_samples
 
@@ -208,22 +223,22 @@ def test_no_gradients():
     assert levels.reason == NO_GRADIENTS
     assert levels.hardware == EXAMPLE_HARDWARE
     assert levels.asc_file is None
-    assert levels.level_min.shape == (0,)
-    assert levels.level_max.shape == (0,)
-    assert levels.peak == 0.0
+    assert levels.level_min_hz_per_t.shape == (0,)
+    assert levels.level_max_hz_per_t.shape == (0,)
+    assert levels.peak_hz_per_t == 0.0
     assert levels.peak_time_s is None
-    assert levels.axis_peaks == {"x": 0.0, "y": 0.0, "z": 0.0}
+    assert levels.axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}
     assert levels.hw == _hw_dict(safe_example_hw())
-    assert levels.above[1.0] == ()
+    assert levels.above == {}
 
 
 def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
     """A sequence with no gradient event and two thresholds gives `above` with the two keys,
-    in the order of `thresholds`, each with `()`."""
-    levels = pns_levels(empty_sequence(), thresholds=(1.0, 0.5))
+    in the order of `thresholds_hz_per_t`, each with `()`."""
+    levels = pns_levels(empty_sequence(), thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT))
     assert levels.reason == NO_GRADIENTS
-    assert list(levels.above) == [1.0, 0.5]
-    assert levels.above == {1.0: (), 0.5: ()}
+    assert list(levels.above) == [_LIMIT, 0.5 * _LIMIT]
+    assert levels.above == {_LIMIT: (), 0.5 * _LIMIT: ()}
 
 
 def test_off_raster_block_falls_back_to_sampling():
@@ -232,7 +247,9 @@ def test_off_raster_block_falls_back_to_sampling():
     its summary equals `seq.calculate_pns` within a relative 1e-9 of the peak: both
     sample with `GradientSampler.sample`/`seq.get_gradients()` at the same file times
     now (`docs/plans/cards-at-scale.md`'s `test_sampling.py` established that the two
-    agree to about float rounding), so no drift-based tolerance is needed here."""
+    agree to about float rounding), so no drift-based tolerance is needed here. The
+    values of `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md`
+    section 8)."""
     seq = _off_raster_sequence()
     hw = safe_example_hw()
     _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)
@@ -240,15 +257,18 @@ def test_off_raster_block_falls_back_to_sampling():
     tol = 1e-9 * ref_peak
 
     levels = pns_levels(seq)
+    gamma = seq.system.gamma
     assert levels.on_raster is False
     # pns_levels covers the whole sequence; calculate_pns stops at the last gradient point.
     assert levels.num_samples >= norm.size
-    assert levels.peak == pytest.approx(ref_peak, abs=tol)
+    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
     threshold = ref_peak * (1 - PEAK_TOLERANCE)
     ref_peak_time = float(t[int(np.flatnonzero(norm >= threshold)[0])])
     assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
     for i, axis in enumerate("xyz"):
-        assert levels.axis_peaks[axis] == pytest.approx(float(comp[:, i].max()), abs=tol)
+        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
+            float(comp[:, i].max()), abs=tol
+        )
 
 
 def _scaled_hardware(factor: float) -> tuple[SimpleNamespace, str]:
@@ -262,9 +282,10 @@ def _scaled_hardware(factor: float) -> tuple[SimpleNamespace, str]:
 
 
 def _hardware_for_peak(seq: pp.Sequence, peak: float) -> tuple[SimpleNamespace, str]:
-    """Hardware with which `seq` has the peak `peak` (up to float rounding): the peak of the
-    example hardware is divided by `peak` to give the factor of the stimulation limit."""
-    return _scaled_hardware(pns_levels(seq).peak / peak)
+    """Hardware with which `seq` has the peak `peak` (up to float rounding), a fraction of
+    the limit: the peak of the example hardware (Hz/T) is divided by `peak * _LIMIT` to give
+    the factor of the stimulation limit."""
+    return _scaled_hardware(pns_levels(seq).peak_hz_per_t / (peak * _LIMIT))
 
 
 def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
@@ -273,25 +294,25 @@ def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
 
 
 def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
-    """`above[1.0]` is empty if and only if `peak < 1`; the largest interval peak is `peak`;
-    the intervals are in time order, do not touch, and have the times and the count that
-    their fields give."""
+    """`above[_LIMIT]` is empty if and only if `peak_hz_per_t < _LIMIT`; the largest interval
+    peak is `peak_hz_per_t`; the intervals are in time order, do not touch, and have the times
+    and the count that their fields give."""
     seq = gre_sequence(num_trs=20)
-    below = pns_levels(seq)
-    assert below.peak < 1
-    assert below.above[1.0] == ()
+    below = pns_levels(seq, thresholds_hz_per_t=(_LIMIT,))
+    assert below.peak_hz_per_t < _LIMIT
+    assert below.above[_LIMIT] == ()
 
-    levels = pns_levels(seq, hardware=_hardware_for_peak(seq, 1.5))
+    levels = pns_levels(seq, hardware=_hardware_for_peak(seq, 1.5), thresholds_hz_per_t=(_LIMIT,))
     dt = levels.dt_s
-    assert levels.peak >= 1
-    assert len(levels.above[1.0]) > 1
-    assert max(i.peak for i in levels.above[1.0]) == levels.peak
-    for i in levels.above[1.0]:
+    assert levels.peak_hz_per_t >= _LIMIT
+    assert len(levels.above[_LIMIT]) > 1
+    assert max(i.peak_hz_per_t for i in levels.above[_LIMIT]) == levels.peak_hz_per_t
+    for i in levels.above[_LIMIT]:
         first, last = _sample_range(i, dt)
-        assert i.peak >= 1
+        assert i.peak_hz_per_t >= _LIMIT
         assert i.start_s <= i.peak_time_s <= i.end_s
         assert i.num_samples == last - first + 1
-    for a, b in itertools.pairwise(levels.above[1.0]):
+    for a, b in itertools.pairwise(levels.above[_LIMIT]):
         assert a.end_s + dt < b.start_s  # at least one sample below the limit between them
 
 
@@ -301,9 +322,10 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     field exactly, including the intervals."""
     seq = gre_sequence(num_trs=20)
     hardware = _hardware_for_peak(seq, 3.0)
-    reference = pns_levels(seq, hardware=hardware)
+    thresholds = (_LIMIT,)
+    reference = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
     dt, bin_samples = reference.dt_s, reference.bin_samples
-    ranges = [_sample_range(i, dt) for i in reference.above[1.0]]
+    ranges = [_sample_range(i, dt) for i in reference.above[_LIMIT]]
     assert len(ranges) > 1
 
     def crosses(chunk: int) -> bool:
@@ -316,9 +338,11 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
 
     for chunk_samples in (1, across, bin_samples * (reference.num_samples // bin_samples + 10)):
         monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
-        _assert_levels_equal(pns_levels(seq, hardware=hardware), reference, ignore=())
+        got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+        _assert_levels_equal(got, reference, ignore=())
     monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", across)
-    assert pns_levels(seq, hardware=hardware).above[1.0] == reference.above[1.0]
+    got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+    assert got.above[_LIMIT] == reference.above[_LIMIT]
 
 
 @pytest.mark.parametrize(
@@ -328,7 +352,7 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
 )
 def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raster):
     """The start, the end, the peak, the peak time and the number of samples of each
-    interval equal the runs of `total >= 1` that plain NumPy and `itertools.groupby` find
+    interval equal the runs of `total >= _LIMIT` that plain NumPy and `itertools.groupby` find
     in the totals of the whole sequence, with the model run on it in one chunk."""
     seq = build()
     hardware = _hardware_for_peak(seq, 1.5)
@@ -341,14 +365,14 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
 
     monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
     monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
-    levels = pns_levels(seq, hardware=hardware)
+    levels = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
     assert levels.on_raster is on_raster
     total, dt = totals[0], levels.dt_s  # the rerun for the peak time records the same total
     assert total.shape[0] == levels.num_samples
 
     expected = []
     position = 0
-    for above, group in itertools.groupby(total >= 1):
+    for above, group in itertools.groupby(total >= _LIMIT):
         length = len(list(group))
         if above:
             run = total[position : position + length]
@@ -357,14 +381,14 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
                 PnsInterval(
                     start_s=(position + 0.5) * dt,
                     end_s=(position + length - 1 + 0.5) * dt,
-                    peak=float(run.max()),
+                    peak_hz_per_t=float(run.max()),
                     peak_time_s=(peak_sample + 0.5) * dt,
                     num_samples=length,
                 )
             )
         position += length
     assert len(expected) >= 1
-    assert levels.above[1.0] == tuple(expected)
+    assert levels.above[_LIMIT] == tuple(expected)
 
 
 def test_two_separate_intervals_are_in_time_order():
@@ -380,14 +404,18 @@ def test_two_separate_intervals_are_in_time_order():
     two.add_block(trapezoid)
     two.add_block(pp.make_delay(gap))
     two.add_block(trapezoid)
-    hardware = _hardware_for_peak(one, 1.02)  # only the larger hump of a trapezoid is above 1
-    assert len(pns_levels(one, hardware=hardware).above[1.0]) == 1
+    hardware = _hardware_for_peak(one, 1.02)  # only the larger hump of a trapezoid is above
+    # the limit
+    thresholds = (_LIMIT,)
+    assert (
+        len(pns_levels(one, hardware=hardware, thresholds_hz_per_t=thresholds).above[_LIMIT]) == 1
+    )
 
-    first, second = pns_levels(two, hardware=hardware).above[1.0]
+    first, second = pns_levels(two, hardware=hardware, thresholds_hz_per_t=thresholds).above[_LIMIT]
     assert first.end_s < duration + gap / 2 < second.start_s
     assert second.start_s >= duration + gap  # the second trapezoid starts there
-    assert first.peak >= 1
-    assert second.peak >= 1
+    assert first.peak_hz_per_t >= _LIMIT
+    assert second.peak_hz_per_t >= _LIMIT
 
 
 def _chunk_across_an_interval(intervals: tuple[PnsInterval, ...], levels: PnsLevels) -> int:
@@ -402,15 +430,17 @@ def _chunk_across_an_interval(intervals: tuple[PnsInterval, ...], levels: PnsLev
 
 
 def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
-    """`thresholds=(1.0, 0.5)` gives, for each threshold, the intervals of the call with
-    that one threshold, and the other fields of the result do not change. The keys are in
-    the order of `thresholds` (and `1` is the key `1.0`). It holds with chunks of 1 bin and
-    with a chunk size that has an interval of each threshold across a chunk end."""
+    """`thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)` gives, for each threshold, the intervals of
+    the call with that one threshold, and the other fields of the result do not change. The
+    keys are in the order of `thresholds_hz_per_t` (and an `int` is the key of the same
+    `float`). It holds with chunks of 1 bin and with a chunk size that has an interval of
+    each threshold across a chunk end."""
     seq = gre_sequence(num_trs=20)
     hardware = _hardware_for_peak(seq, 3.0)
-    thresholds = (1.0, 0.5)
-    single = {t: pns_levels(seq, hardware=hardware, thresholds=(t,)) for t in thresholds}
-    high, low = single[1.0].above[1.0], single[0.5].above[0.5]
+    high_t, low_t = _LIMIT, 0.5 * _LIMIT
+    thresholds = (high_t, low_t)
+    single = {t: pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(t,)) for t in thresholds}
+    high, low = single[high_t].above[high_t], single[low_t].above[low_t]
     assert len(high) > 1
     assert sum(i.num_samples for i in low) > sum(i.num_samples for i in high)
     assert low != high
@@ -420,20 +450,22 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     for chunk_samples in sizes:
         if chunk_samples is not None:
             monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
-        both = pns_levels(seq, hardware=hardware, thresholds=thresholds)
-        assert list(both.above) == [1.0, 0.5]
+        both = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+        assert list(both.above) == [high_t, low_t]
         for t in thresholds:
             assert both.above[t] == single[t].above[t]
-        _assert_levels_equal(both, single[1.0], ignore=("above",))
+        _assert_levels_equal(both, single[high_t], ignore=("above",))
 
     monkeypatch.undo()
-    swapped = pns_levels(seq, hardware=hardware, thresholds=(0.5, 1.0))
-    assert list(swapped.above) == [0.5, 1.0]
-    assert swapped.above[0.5] == low
-    assert swapped.above[1.0] == high
+    swapped = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(low_t, high_t))
+    assert list(swapped.above) == [low_t, high_t]
+    assert swapped.above[low_t] == low
+    assert swapped.above[high_t] == high
 
-    keys = list(pns_levels(seq, hardware=hardware, thresholds=(1, 0.5)).above)
-    assert keys == [1.0, 0.5]
+    whole = round(_LIMIT)  # an int that is equal to the float `_LIMIT`
+    assert float(whole) == _LIMIT
+    keys = list(pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(whole, low_t)).above)
+    assert keys == [high_t, low_t]
     assert all(type(key) is float for key in keys)
 
 
@@ -443,7 +475,6 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
         pytest.param([1.0], id="list"),
         pytest.param(1.0, id="float"),
         pytest.param(None, id="none"),
-        pytest.param((), id="empty"),
         pytest.param((True,), id="bool"),
         pytest.param((1.0, False), id="bool second"),
         pytest.param(("1.0",), id="string"),
@@ -461,7 +492,7 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     ],
 )
 def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds):
-    """`pns_levels` raises `ValueError` for `thresholds` that is not a tuple, is empty, has
+    """`pns_levels` raises `ValueError` for `thresholds_hz_per_t` that is not a tuple, has
     a `bool` or an element that is not an `int` or a `float`, has an element that is not
     finite or not above 0, or has two elements that are equal as floats. It does so before
     the sequence is read: the functions that read the rotations and the block table of the
@@ -473,7 +504,7 @@ def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, threshol
     monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
     with pytest.raises(ValueError, match="threshold"):
-        pns_levels(spin_echo_sequence(), thresholds=thresholds)
+        pns_levels(spin_echo_sequence(), thresholds_hz_per_t=thresholds)
 
 
 @pytest.fixture
@@ -515,9 +546,9 @@ def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc):
     assert levels.hw == _hw_dict(safe_example_hw())
 
     default = pns_levels(seq)
-    assert np.array_equal(levels.level_min, default.level_min)
-    assert np.array_equal(levels.level_max, default.level_max)
-    assert levels.peak == default.peak
+    assert np.array_equal(levels.level_min_hz_per_t, default.level_min_hz_per_t)
+    assert np.array_equal(levels.level_max_hz_per_t, default.level_max_hz_per_t)
+    assert levels.peak_hz_per_t == default.peak_hz_per_t
     assert levels.peak_time_s == default.peak_time_s
 
 
@@ -541,15 +572,15 @@ def test_the_arrays_of_the_levels_are_read_only(make_seq):
     """`level_min` and `level_max` are read-only, also for a sequence without gradients. A
     conversion to a new array works."""
     levels = pns_levels(make_seq())
-    for a in (levels.level_min, levels.level_max):
+    for a in (levels.level_min_hz_per_t, levels.level_max_hz_per_t):
         assert not a.flags.writeable
         with pytest.raises(ValueError):
             a *= 100
     # A conversion to a new array works, and the level stays as it was.
-    before = levels.level_max.copy()
-    converted = levels.level_max * 100
+    before = levels.level_max_hz_per_t.copy()
+    converted = levels.level_max_hz_per_t * 100
     assert converted.flags.writeable
-    np.testing.assert_array_equal(levels.level_max, before)
+    np.testing.assert_array_equal(levels.level_max_hz_per_t, before)
 
 
 def _assert_levels_equal(a: PnsLevels, b: PnsLevels, *, ignore: tuple[str, ...]) -> None:
@@ -598,3 +629,96 @@ def test_pns_levels_refuses_both_gradient_asc_and_hardware(write_gradient_asc):
             gradient_asc=write_gradient_asc(),
             hardware=(safe_example_hw(), "LABEL"),
         )
+
+
+def _waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
+    """A trapezoid on x and an arbitrary gradient on y, each with an explicit amplitude in Hz/m
+    (times `sign`), so that the samples do not depend on the gamma of `system`."""
+    n = 50
+    waveform_hz_per_m = 0.2 * SYSTEM.max_grad * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
+    gx = pp.make_trapezoid(
+        channel="x",
+        amplitude=sign * 0.5 * SYSTEM.max_grad,  # Hz/m
+        rise_time=200e-6,
+        flat_time=400e-6,
+        system=system,
+    )
+    gy = pp.make_arbitrary_grad(
+        channel="y", waveform=sign * waveform_hz_per_m, first=0.0, last=0.0, system=system
+    )
+    seq = pp.Sequence(system)
+    seq.add_block(gx)
+    seq.add_block(gy)
+    seq.add_block(gx, gy)
+    return seq
+
+
+def test_the_levels_do_not_depend_on_the_gamma_of_the_system():
+    """The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of `SYSTEM`
+    with another gamma, gives exactly equal levels, every field and every interval: the model
+    runs on the Hz/m samples and reads no gamma."""
+    other = copy.copy(SYSTEM)
+    other.gamma = 0.9 * SYSTEM.gamma
+    first, second = _waveform_sequence(SYSTEM), _waveform_sequence(other)
+    hardware = _hardware_for_peak(first, 1.5)
+
+    a = pns_levels(first, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
+    b = pns_levels(second, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
+
+    assert other.gamma != SYSTEM.gamma
+    assert a.reason is None
+    assert a.above[_LIMIT]
+    _assert_levels_equal(a, b, ignore=())
+
+
+def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calculate_pns():
+    """For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak, the axis
+    peaks and the peak time of `pns_levels`, divided by `seq.system.gamma` (the time is not
+    divided), equal `seq.calculate_pns` within a relative 1e-6 of the peak, as in
+    `test_summary_matches_calculate_pns_within_the_fork_tolerance`. The peak divided by the
+    gamma of 1H does not equal it: the division uses the gamma of the caller."""
+    other = copy.copy(SYSTEM)
+    other.gamma = 0.9 * SYSTEM.gamma
+    seq = _waveform_sequence(other)
+    _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
+    ref_peak = float(norm.max())
+    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
+    tol = 1e-6 * ref_peak
+
+    levels = pns_levels(seq)
+
+    assert seq.system.gamma == 0.9 * GAMMA_1H
+    assert levels.peak_hz_per_t / seq.system.gamma == pytest.approx(ref_peak, abs=tol)
+    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
+    for i, axis in enumerate("xyz"):
+        got = levels.axis_peaks_hz_per_t[axis] / seq.system.gamma
+        assert got == pytest.approx(float(comp[:, i].max()), abs=tol)
+    assert levels.peak_hz_per_t / GAMMA_1H != pytest.approx(ref_peak, abs=tol)
+
+
+def test_the_levels_of_a_negated_waveform_are_equal():
+    """The same sequence with each amplitude times -1 gives exactly equal levels, every field
+    and every interval, with two thresholds that both have intervals: the model of `-g` is
+    equal to the model of `g`, bit for bit."""
+    positive, negative = _waveform_sequence(SYSTEM), _waveform_sequence(SYSTEM, sign=-1.0)
+    hardware = _hardware_for_peak(positive, 1.5)
+    thresholds = (_LIMIT, 0.5 * _LIMIT)
+
+    a = pns_levels(positive, hardware=hardware, thresholds_hz_per_t=thresholds)
+    b = pns_levels(negative, hardware=hardware, thresholds_hz_per_t=thresholds)
+
+    assert a.reason is None
+    assert all(a.above[t] for t in thresholds)
+    _assert_levels_equal(a, b, ignore=())
+
+
+def test_the_default_has_no_thresholds():
+    """`pns_levels(seq)` has `above == {}`, also for a sequence with a peak above the limit,
+    and `thresholds_hz_per_t=()` gives the same result, every field."""
+    seq = gre_sequence(num_trs=4)
+    hardware = _hardware_for_peak(seq, 1.5)
+
+    for kwargs in ({}, {"hardware": hardware}):
+        default = pns_levels(seq, **kwargs)
+        assert default.above == {}
+        _assert_levels_equal(default, pns_levels(seq, thresholds_hz_per_t=(), **kwargs), ignore=())

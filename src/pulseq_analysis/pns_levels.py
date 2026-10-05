@@ -1,10 +1,15 @@
 """The SAFE PNS prediction of a whole sequence: the summary (the peak, its time and the
-peak of each axis), the intervals at or above each threshold (the stimulation limit by
-default), and the level.
+peak of each axis), the intervals at or above each threshold (none by default), and the
+level.
 
 The level is the minimum and the maximum of the PNS total in fixed time bins. It is for a
 caller that draws the PNS of a long sequence (pulseq-reports, for example) and cannot keep
 one value for each sample.
+
+A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of
+gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fraction
+(1 is 100 %). The model runs on the gradient samples in Hz/m and reads no gamma
+(`docs/usage.md` section 8).
 
 `pns_levels` samples the gradients block by block (`GradientSampler.block_samples`),
 runs the SAFE model of the pinned pypulseq fork over them in chunks
@@ -54,9 +59,10 @@ NO_GRADIENTS = "no gradients"
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
-# The stimulation threshold of the SAFE model: a total of 1 is 100 %. The default threshold
-# of `pns_levels`: an interval of `PnsLevels.above[PNS_LIMIT]` is a run of samples with
-# `total >= PNS_LIMIT`.
+# The stimulation limit of the SAFE model, as a fraction: a fraction of 1 is 100 %. A PNS
+# value of this module is the fraction times abs(gamma), in Hz/T, so the limit for a gamma
+# is PNS_LIMIT * abs(gamma). It is not a default: `thresholds_hz_per_t` of `pns_levels` is
+# in Hz/T, and its default is no threshold.
 PNS_LIMIT = 1.0
 
 
@@ -67,7 +73,7 @@ class PnsInterval:
 
     start_s: float  # the time of the first sample of the interval
     end_s: float  # the time of the last sample of the interval
-    peak: float  # the largest total (float64) in the interval; 1 is the stimulation limit
+    peak_hz_per_t: float  # the largest total (float64) in the interval, in Hz/T
     peak_time_s: float  # the time of the first sample of the interval with that total
     num_samples: int  # the number of samples of the interval
 
@@ -77,25 +83,27 @@ class PnsLevels:
     """The result of `pns_levels` (and of `pns.pns_levels_for`) for one sequence and one
     hardware.
 
-    A PNS value is a fraction of the stimulation limit: 1 is 100 %, the limit of `pns.safe`.
-    The value of an axis is the SAFE model output of that logical axis. The total of a
-    sample is `sqrt(x^2 + y^2 + z^2)` of the axis values. Sample `k` is at the time
-    `(k + 0.5) * dt_s`, in seconds from the start of the sequence.
+    A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of
+    gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get the
+    fraction (1 is 100 %). The value of an axis is the SAFE model output of that logical
+    axis. The total of a sample is `sqrt(x^2 + y^2 + z^2)` of the axis values. Sample `k` is
+    at the time `(k + 0.5) * dt_s`, in seconds from the start of the sequence.
 
-    `peak`, `peak_time_s`, `axis_peaks` and `above` are the summary. `level_min` and
-    `level_max` are the level: bin `i` holds the samples `i * bin_samples` to
-    `(i + 1) * bin_samples - 1` (the last bin can have fewer), and every total of those
-    samples is in `[level_min[i], level_max[i]]`.
+    `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t` and `above` are the summary.
+    `level_min_hz_per_t` and `level_max_hz_per_t` are the level: bin `i` holds the samples
+    `i * bin_samples` to `(i + 1) * bin_samples - 1` (the last bin can have fewer), and every
+    total of those samples is in `[level_min_hz_per_t[i], level_max_hz_per_t[i]]`.
 
     Without a gradient event in the sequence, `reason` is `NO_GRADIENTS`, `num_samples` is
-    0, the level has no bins, `peak` and each axis peak are 0, `peak_time_s` is None and
-    `above` has an empty tuple for each threshold.
+    0, the level has no bins, `peak_hz_per_t` and each axis peak are 0, `peak_time_s` is None
+    and `above` has an empty tuple for each threshold.
 
-    `level_min` and `level_max` are read-only, so that the callers of `pns.pns_levels_for`
-    can share one result: convert to a new array (`levels.level_max * 100`), not in place.
-    `hw`, `axis_peaks` and `above` are plain dicts, and the dataclass is frozen only in its
-    fields: a caller must not change a dict (a `MappingProxyType` would stop that, but it
-    cannot be pickled or copied with `copy.deepcopy`, and the dict type is the one of the
+    `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, so that the callers of
+    `pns.pns_levels_for` can share one result: convert to a new array
+    (`levels.level_max_hz_per_t / abs(gamma) * 100`), not in place.
+    `hw`, `axis_peaks_hz_per_t` and `above` are plain dicts, and the dataclass is frozen only
+    in its fields: a caller must not change a dict (a `MappingProxyType` would stop that, but
+    it cannot be pickled or copied with `copy.deepcopy`, and the dict type is the one of the
     interface).
     """
 
@@ -109,16 +117,17 @@ class PnsLevels:
     dt_s: float  # the gradient raster
     num_samples: int  # the number of samples of the whole sequence
     bin_samples: int  # samples in each bin of the level (`bin_samples_for`)
-    level_min: np.ndarray  # float32, one for each bin: the minimum of the total
-    level_max: np.ndarray  # float32, one for each bin: the maximum of the total
-    peak: float  # the largest total; 1 is the stimulation limit
+    level_min_hz_per_t: np.ndarray  # float32, one for each bin: the minimum of the total
+    level_max_hz_per_t: np.ndarray  # float32, one for each bin: the maximum of the total
+    peak_hz_per_t: float  # the largest total
     peak_time_s: float | None  # the first sample time within PEAK_TOLERANCE of the peak
-    axis_peaks: dict[str, float]  # "x", "y", "z": the largest value of each axis
+    axis_peaks_hz_per_t: dict[str, float]  # "x", "y", "z": the largest value of each axis
     on_raster: bool  # every block is a whole number of samples (`raster_block_lengths`)
     above: dict[float, tuple[PnsInterval, ...]]  # one key for each threshold of
-    # `pns_levels`, as `float(t)` in the order of `thresholds`: the intervals with
+    # `pns_levels`, as `float(t)` in the order of `thresholds_hz_per_t`: the intervals with
     # total >= that threshold, in time order; the tuple of a threshold is not empty if and
-    # only if `peak >=` that threshold, and then the largest `PnsInterval.peak` equals `peak`
+    # only if `peak_hz_per_t >=` that threshold, and then the largest
+    # `PnsInterval.peak_hz_per_t` equals `peak_hz_per_t`
 
 
 def bin_samples_for(num_samples: int, dt: float) -> int:
@@ -137,7 +146,7 @@ def pns_levels(
     *,
     gradient_asc: str | Path | None = None,
     hardware: tuple[SimpleNamespace, str] | None = None,
-    thresholds: tuple[float, ...] = (PNS_LIMIT,),
+    thresholds_hz_per_t: tuple[float, ...] = (),
 ) -> PnsLevels:
     """The stored level and the summary of the SAFE PNS total of `seq`, with the hardware
     of the gradient .asc file `gradient_asc`, with `hardware`, or with pypulseq's example
@@ -150,20 +159,23 @@ def pns_levels(
     is the string that `PnsLevels.hardware` gives. `PnsLevels.asc_file` is then None.
     `gradient_asc` and `hardware` together raise ValueError.
 
-    `thresholds` is a tuple of the totals whose intervals `PnsLevels.above` gives (1 is the
-    stimulation limit, `PNS_LIMIT`, the default). Each is a finite `int` or `float` above 0
-    (not a `bool`), and no two are equal as floats. Else ValueError, before the sequence is
-    read. The keys of `PnsLevels.above` are `float(t)`, in the order of `thresholds`.
+    `thresholds_hz_per_t` is a tuple of the totals, in Hz/T, whose intervals
+    `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
+    `f * abs(gamma)` (`PNS_LIMIT * abs(gamma)` is the limit). The default is `()`: no
+    threshold and no interval. Each is a finite `int` or `float` above 0 (not a `bool`), and
+    no two are equal as floats. Else ValueError, before the sequence is read. The keys of
+    `PnsLevels.above` are `float(t)`, in the order of `thresholds_hz_per_t`.
 
     The model is `calc_pns` of the pinned fork, on other samples:
 
     1. `dt = seq.grad_raster_time`. The samples are `GradientSampler.block_samples` of
-       each axis (Hz/m), divided by `seq.system.gamma` (T/m), as `calc_pns` divides.
-       When a block is not on the raster (`on_raster` False), the samples are
-       `GradientSampler.sample` at the file times `(k + 0.5) * dt`, as `calc_pns`
-       samples, with `k = 0 .. ceil((end - 1e-10) / dt) - 1` and `end` the end of the
-       last block (`calc_pns` stops at the last gradient point instead; the samples
-       after it are the decay of the filters).
+       each axis, in Hz/m. They are not divided by a gamma. (`calc_pns` divides them by
+       `seq.system.gamma`.) Thus each value is the value of `calc_pns` times the magnitude
+       of `seq.system.gamma`, to the float rounding. When a block is not on the raster
+       (`on_raster` False), the samples are `GradientSampler.sample` at the file times
+       `(k + 0.5) * dt`, as `calc_pns` samples, with `k = 0 .. ceil((end - 1e-10) / dt) - 1`
+       and `end` the end of the last block (`calc_pns` stops at the last gradient point
+       instead; the samples after it are the decay of the filters).
     2. The samples go through `_safe_gwf_to_pns_chunk` in chunks of
        `bin_samples * ceil(CHUNK_SAMPLES / bin_samples)` samples (the whole number of
        bins nearest at or above `CHUNK_SAMPLES`), with `state=None` for the first chunk
@@ -190,7 +202,7 @@ def pns_levels(
        above the threshold: it is one interval. An interval keeps its first and last
        sample, its largest total and the first sample with it. They use the totals of
        item 3, not the float32 bins, so the tuple of a threshold is not empty if and only
-       if `peak` is at or above it.
+       if `peak_hz_per_t` is at or above it.
 
     The result does not depend on the chunk size (exact equality). A sequence without
     a gradient event gives `reason=NO_GRADIENTS`, no bins, peak 0, `peak_time_s` None
@@ -198,13 +210,13 @@ def pns_levels(
     block, the stored level and a few numbers for each chunk and for each interval. The
     arrays of the result are read-only.
 
-    Raises ValueError when both `gradient_asc` and `hardware` are given or `thresholds`
-    is refused, and NotImplementedError for a sequence with the rotation extension
+    Raises ValueError when both `gradient_asc` and `hardware` are given or
+    `thresholds_hz_per_t` is refused, and NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
     if gradient_asc is not None and hardware is not None:
         raise ValueError("give gradient_asc or hardware, not both")
-    keys = _validated_thresholds(thresholds)
+    keys = _validated_thresholds(thresholds_hz_per_t)
     refuse_rotations(seq)
     dt = seq.grad_raster_time
 
@@ -233,18 +245,17 @@ def pns_levels(
                 dt_s=dt,
                 num_samples=0,
                 bin_samples=bin_samples_for(0, dt),
-                level_min=empty,
-                level_max=empty,
-                peak=0.0,
+                level_min_hz_per_t=empty,
+                level_max_hz_per_t=empty,
+                peak_hz_per_t=0.0,
                 peak_time_s=None,
-                axis_peaks=dict.fromkeys(_AXES3, 0.0),
+                axis_peaks_hz_per_t=dict.fromkeys(_AXES3, 0.0),
                 on_raster=on_raster,
                 above={key: () for key in keys},
             )
         )
 
     sampler = GradientSampler(seq, index)
-    gamma = seq.system.gamma
 
     # After `_has_gradients`, `num_samples >= 1`, and each chunk has one sample or more.
     if on_raster:
@@ -252,14 +263,14 @@ def pns_levels(
         num_samples = int(cumulative[-1])
 
         def read_range(s0: int, s1: int) -> np.ndarray:
-            return _read_block_range(sampler, dt, gamma, cumulative, s0, s1)
+            return _read_block_range(sampler, dt, cumulative, s0, s1)
     else:
         # The whole sequence, as the blocks give it, not `seq.get_gradients()`: that
         # builds the gradients of the whole file.
         num_samples = max(math.ceil((index.end_s - 1e-10) / dt), 0)
 
         def read_range(s0: int, s1: int) -> np.ndarray:
-            return _read_sampled_range(sampler, dt, gamma, s0, s1)
+            return _read_sampled_range(sampler, dt, s0, s1)
 
     bin_samples = bin_samples_for(num_samples, dt)
     chunk_samples = bin_samples * math.ceil(CHUNK_SAMPLES / bin_samples)
@@ -316,11 +327,11 @@ def pns_levels(
             dt_s=dt,
             num_samples=num_samples,
             bin_samples=bin_samples,
-            level_min=level_min,
-            level_max=level_max,
-            peak=peak,
+            level_min_hz_per_t=level_min,
+            level_max_hz_per_t=level_max,
+            peak_hz_per_t=peak,
             peak_time_s=peak_time_s,
-            axis_peaks=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
+            axis_peaks_hz_per_t=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
             on_raster=on_raster,
             above={key: finder.finish() for key, finder in zip(keys, finders, strict=True)},
         )
@@ -337,23 +348,23 @@ _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
 
 
 def _read_only(levels: PnsLevels) -> PnsLevels:
-    """`levels`, with `writeable` off for `level_min` and `level_max`."""
-    for a in (levels.level_min, levels.level_max):
+    """`levels`, with `writeable` off for `level_min_hz_per_t` and `level_max_hz_per_t`."""
+    for a in (levels.level_min_hz_per_t, levels.level_max_hz_per_t):
         a.flags.writeable = False
     return levels
 
 
-def _validated_thresholds(thresholds: object) -> tuple[float, ...]:
-    """`thresholds` of `pns_levels` as the tuple of `float(t)`, in the same order. Raises
-    ValueError for a value that is not a tuple, an empty tuple, an element that is a
-    `bool` or not an `int` or a `float`, an element that is not finite or not above 0, and
-    two elements that are equal as floats. `pns.pns_levels_for` uses it too."""
-    if not isinstance(thresholds, tuple):
-        raise ValueError(f"thresholds must be a tuple, not {type(thresholds).__name__}")  # noqa: TRY004
-    if not thresholds:
-        raise ValueError("thresholds must not be empty")
+def _validated_thresholds(thresholds_hz_per_t: object) -> tuple[float, ...]:
+    """`thresholds_hz_per_t` of `pns_levels` as the tuple of `float(t)`, in the same order.
+    The empty tuple is valid. Raises ValueError for a value that is not a tuple, an element
+    that is a `bool` or not an `int` or a `float`, an element that is not finite or not
+    above 0, and two elements that are equal as floats. `pns.pns_levels_for` uses it too."""
+    if not isinstance(thresholds_hz_per_t, tuple):
+        raise ValueError(  # noqa: TRY004
+            f"thresholds_hz_per_t must be a tuple, not {type(thresholds_hz_per_t).__name__}"
+        )
     keys = []
-    for t in thresholds:
+    for t in thresholds_hz_per_t:
         if isinstance(t, bool) or not isinstance(t, int | float):
             raise ValueError(f"each threshold must be an int or a float, not {t!r}")  # noqa: TRY004
         try:
@@ -364,7 +375,9 @@ def _validated_thresholds(thresholds: object) -> tuple[float, ...]:
             raise ValueError(f"each threshold must be finite and above 0, not {t!r}")
         keys.append(key)
     if len(set(keys)) != len(keys):
-        raise ValueError(f"thresholds must not repeat a value, got {thresholds!r}")
+        raise ValueError(
+            f"thresholds_hz_per_t must not repeat a value, got {thresholds_hz_per_t!r}"
+        )
     return tuple(keys)
 
 
@@ -385,9 +398,9 @@ def _hw_to_dict(hw_ns) -> dict[str, dict[str, float]]:
 
 
 def _read_block_range(
-    sampler: GradientSampler, dt: float, gamma: float, cumulative: np.ndarray, s0: int, s1: int
+    sampler: GradientSampler, dt: float, cumulative: np.ndarray, s0: int, s1: int
 ) -> np.ndarray:
-    """The gwf (T/m, shape `(s1 - s0, 3)`) of the global sample range `[s0, s1)`, from
+    """The gwf (Hz/m, shape `(s1 - s0, 3)`) of the global sample range `[s0, s1)`, from
     `GradientSampler.block_samples` over the block range that covers it (found in
     `cumulative`, the cumulative sample count of each block). Memory is bounded by the
     range plus the longest block that straddles one of its ends."""
@@ -395,25 +408,22 @@ def _read_block_range(
     stop_block = int(np.searchsorted(cumulative, s1 - 1, side="right")) + 1
     offset = int(cumulative[first_block - 1]) if first_block > 0 else 0
     columns = [sampler.block_samples(axis, first_block, stop_block, dt) for axis in _GRAD_COLUMNS]
-    gwf_hz = np.stack(columns, axis=1)[s0 - offset : s1 - offset]
-    return gwf_hz / gamma
+    return np.stack(columns, axis=1)[s0 - offset : s1 - offset]
 
 
-def _read_sampled_range(
-    sampler: GradientSampler, dt: float, gamma: float, s0: int, s1: int
-) -> np.ndarray:
-    """The gwf (T/m, shape `(s1 - s0, 3)`) of the global sample range `[s0, s1)`, from
+def _read_sampled_range(sampler: GradientSampler, dt: float, s0: int, s1: int) -> np.ndarray:
+    """The gwf (Hz/m, shape `(s1 - s0, 3)`) of the global sample range `[s0, s1)`, from
     `GradientSampler.sample` at the file times `(k + 0.5) * dt` (the fallback for a
     sequence with a block that is not on the raster)."""
     t = (np.arange(s0, s1, dtype=np.float64) + 0.5) * dt
     columns = [sampler.sample(axis, t) for axis in _GRAD_COLUMNS]
-    return np.stack(columns, axis=1) / gamma
+    return np.stack(columns, axis=1)
 
 
 def _chunk_total(gwf: np.ndarray, dt: float, hw_ns, state) -> tuple[np.ndarray, np.ndarray, object]:
-    """Runs `_safe_gwf_to_pns_chunk` on `gwf` (T/m) and returns the total (float64,
-    `sqrt(x^2 + y^2 + z^2)`), the axis fractions (`0.01 *` the returned percent) and the
-    state for the next chunk, as `calc_pns` computes them."""
+    """Runs `_safe_gwf_to_pns_chunk` on `gwf` (Hz/m) and returns the total (float64, in Hz/T,
+    `sqrt(x^2 + y^2 + z^2)`), the axis values (in Hz/T, `0.01 *` the returned percent) and
+    the state for the next chunk, as `calc_pns` computes them (but from Hz/m, not T/m)."""
     percent, new_state = _safe_gwf_to_pns_chunk(gwf, dt, hw_ns, state)
     axis_frac = 0.01 * percent
     total = np.sqrt((axis_frac**2).sum(axis=1))
@@ -435,7 +445,7 @@ class _IntervalFinder:
         self._open: tuple[int, int, float, int] | None = None
 
     def add_chunk(self, s0: int, total: np.ndarray) -> None:
-        """Adds the next chunk: `total` (float64) starts at the global sample `s0`."""
+        """Adds the next chunk: `total` (float64, Hz/T) starts at the global sample `s0`."""
         mask = total >= self._threshold
         if not mask.any():
             self._close_open()
@@ -482,7 +492,7 @@ class _IntervalFinder:
         return PnsInterval(
             start_s=(first + 0.5) * self._dt,
             end_s=(last + 0.5) * self._dt,
-            peak=peak,
+            peak_hz_per_t=peak,
             peak_time_s=(peak_sample + 0.5) * self._dt,
             num_samples=last - first + 1,
         )
@@ -495,7 +505,7 @@ def _store_bins(
     total: np.ndarray,
     bin_samples: int,
 ) -> int:
-    """Stores the minimum and the maximum of `total` (float64) in consecutive bins of
+    """Stores the minimum and the maximum of `total` (float64, Hz/T) in consecutive bins of
     `bin_samples` samples of `level_min`/`level_max`, starting at `bin_cursor`, cast
     outward to float32 (item 4 of `pns_levels`). Only the last bin of `total` can be shorter than
     `bin_samples`: `pns_levels` builds every chunk except the last as a whole number of

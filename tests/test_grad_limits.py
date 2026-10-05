@@ -1,3 +1,4 @@
+import copy
 import math
 
 import numpy as np
@@ -6,6 +7,7 @@ import pytest
 from oracles import grad_limits as oracle
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
+    GAMMA_1H,
     RASTER_4US,
     RASTER_4US_JUNCTION,
     RASTER_4US_JUNCTION_TIME,
@@ -20,12 +22,13 @@ from synthetic import (
 from test_extensions import _with_rotation_library
 
 from pulseq_analysis.grad_limits import (
+    BlockGradientValues,
     GradientLimits,
     block_gradient_values,
     gradient_limits,
 )
 from pulseq_analysis.seq_index import grad_events, sequence_index
-from pulseq_analysis.seq_utils import GAMMA, gradient_offsets
+from pulseq_analysis.seq_utils import gradient_offsets
 
 
 def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
@@ -42,46 +45,111 @@ def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
 
     result = gradient_limits(seq)
 
-    peak_mt_per_m = amplitude / GAMMA * 1e3
-    slew_t_per_m_per_s = amplitude / gx.rise_time / GAMMA
+    peak_hz_per_m = amplitude
+    slew_hz_per_m_per_s = amplitude / gx.rise_time
     # RMS^2 * duration is the integral of amplitude^2 dt: the rising ramp contributes
     # amplitude^2 * rise_time / 3 (the integral of (amplitude * t / rise_time)^2 from 0
     # to rise_time), the falling ramp contributes the same by symmetry, and the flat
     # top contributes amplitude^2 * flat_time.
     duration = sum(seq.block_durations.values())
     energy = 2 * (gx.rise_time * amplitude**2 / 3) + gx.flat_time * amplitude**2
-    rms_mt_per_m = math.sqrt(energy / duration) / GAMMA * 1e3
+    rms_hz_per_m = math.sqrt(energy / duration)
 
     axis = result.axes["x"]
     assert result.reason is None
-    assert axis.peak_mt_per_m == pytest.approx(peak_mt_per_m)
+    assert axis.peak_hz_per_m == pytest.approx(peak_hz_per_m)
     assert axis.peak_block == block_id
-    assert axis.max_slew_t_per_m_per_s == pytest.approx(slew_t_per_m_per_s)
+    assert axis.max_slew_hz_per_m_per_s == pytest.approx(slew_hz_per_m_per_s)
     assert axis.slew_block == block_id
-    assert axis.rms_mt_per_m == pytest.approx(rms_mt_per_m)
+    assert axis.rms_hz_per_m == pytest.approx(rms_hz_per_m)
 
 
-def test_gamma_converts_the_values_with_that_gamma():
-    seq = spin_echo_sequence()
-    window = (0.0, sequence_index(seq).end_s / 2)
-    gamma = 40e6
-    scale = GAMMA / gamma
+def _assert_limits_equal(a: GradientLimits, b: GradientLimits) -> None:
+    """Every field of two `GradientLimits` is exactly equal."""
+    assert a.reason == b.reason
+    assert a.range_s == b.range_s
+    assert list(a.axes) == list(b.axes)
+    for axis in a.axes:
+        assert a.axes[axis] == b.axes[axis]
+    assert a.vector_peak_hz_per_m == b.vector_peak_hz_per_m
+    assert a.vector_peak_time_s == b.vector_peak_time_s
+    assert a.vector_peak_block == b.vector_peak_block
+    assert a.whole_rms_hz_per_m == b.whole_rms_hz_per_m
 
-    default = gradient_limits(seq, window=window)
-    result = gradient_limits(seq, window=window, gamma=gamma)
 
-    assert result.vector_peak_mt_per_m > 0.0
-    assert result.vector_peak_mt_per_m == pytest.approx(default.vector_peak_mt_per_m * scale)
-    for axis, values in result.axes.items():
-        expected = default.axes[axis]
-        assert values.peak_mt_per_m == pytest.approx(expected.peak_mt_per_m * scale)
-        assert values.max_slew_t_per_m_per_s == pytest.approx(
-            expected.max_slew_t_per_m_per_s * scale
-        )
-        assert values.rms_mt_per_m == pytest.approx(expected.rms_mt_per_m * scale)
-        assert result.whole_rms_mt_per_m[axis] == pytest.approx(
-            default.whole_rms_mt_per_m[axis] * scale
-        )
+def _assert_block_values_equal(a: BlockGradientValues, b: BlockGradientValues) -> None:
+    """Every array of two `BlockGradientValues` is exactly equal."""
+    np.testing.assert_array_equal(a.block_id, b.block_id)
+    np.testing.assert_array_equal(a.start_s, b.start_s)
+    np.testing.assert_array_equal(a.vector_peak_hz_per_m, b.vector_peak_hz_per_m)
+    np.testing.assert_array_equal(a.vector_peak_time_s, b.vector_peak_time_s)
+    for name in (
+        "peak_hz_per_m",
+        "peak_time_s",
+        "slew_hz_per_m_per_s",
+        "slew_time_s",
+        "junction_hz_per_m_per_s",
+    ):
+        field_a, field_b = getattr(a, name), getattr(b, name)
+        assert list(field_a) == list(field_b)
+        for axis in field_a:
+            assert np.array_equal(field_a[axis], field_b[axis]), f"{name}[{axis}]"
+
+
+def _waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
+    """A trapezoid on x and an arbitrary gradient on y, each with an explicit amplitude in Hz/m
+    (times `sign`), so that the values do not depend on the gamma of `system`."""
+    n = 50
+    waveform_hz_per_m = 0.2 * SYSTEM.max_grad * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
+    gx = pp.make_trapezoid(
+        channel="x",
+        amplitude=sign * 0.5 * SYSTEM.max_grad,  # Hz/m
+        rise_time=200e-6,
+        flat_time=400e-6,
+        system=system,
+    )
+    gy = pp.make_arbitrary_grad(
+        channel="y", waveform=sign * waveform_hz_per_m, first=0.0, last=0.0, system=system
+    )
+    seq = pp.Sequence(system)
+    seq.add_block(gx)
+    seq.add_block(gy)
+    seq.add_block(gx, gy)
+    return seq
+
+
+def test_the_values_do_not_depend_on_the_gamma_of_the_system():
+    """The same waveform in Hz/m (a trapezoid with an explicit amplitude and an arbitrary
+    gradient), in a sequence of `SYSTEM` and in one of a copy of `SYSTEM` with another gamma:
+    `gradient_limits`, with and without a window, and `block_gradient_values` give exactly
+    equal values. The values are in the units of pypulseq, with no gamma."""
+    other = copy.copy(SYSTEM)
+    other.gamma = 0.9 * SYSTEM.gamma
+    first, second = _waveform_sequence(SYSTEM), _waveform_sequence(other)
+    window = (0.0, sequence_index(first).end_s / 2)
+
+    assert other.gamma != SYSTEM.gamma
+    assert gradient_limits(first).reason is None
+    _assert_limits_equal(gradient_limits(first), gradient_limits(second))
+    _assert_limits_equal(
+        gradient_limits(first, window=window), gradient_limits(second, window=window)
+    )
+    _assert_block_values_equal(block_gradient_values(first), block_gradient_values(second))
+
+
+def test_the_values_of_a_negated_waveform_are_equal():
+    """The same sequence with each amplitude times -1 gives exactly equal values of
+    `gradient_limits` (with and without a window) and `block_gradient_values`: a value is
+    a magnitude, so it does not depend on the sign of a gradient, or of a gamma."""
+    positive, negative = _waveform_sequence(SYSTEM), _waveform_sequence(SYSTEM, sign=-1.0)
+    window = (0.0, sequence_index(positive).end_s / 2)
+
+    assert gradient_limits(positive).reason is None
+    _assert_limits_equal(gradient_limits(positive), gradient_limits(negative))
+    _assert_limits_equal(
+        gradient_limits(positive, window=window), gradient_limits(negative, window=window)
+    )
+    _assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
 
 
 def test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak():
@@ -107,10 +175,10 @@ def test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak():
 
     result = gradient_limits(seq)
 
-    assert result.vector_peak_mt_per_m == pytest.approx(
-        result.axes["x"].peak_mt_per_m * math.sqrt(2)
+    assert result.vector_peak_hz_per_m == pytest.approx(
+        result.axes["x"].peak_hz_per_m * math.sqrt(2)
     )
-    assert result.axes["x"].peak_mt_per_m == pytest.approx(result.axes["y"].peak_mt_per_m)
+    assert result.axes["x"].peak_hz_per_m == pytest.approx(result.axes["y"].peak_hz_per_m)
 
 
 def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
@@ -133,10 +201,10 @@ def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
     mid_amplitude = amplitude / 2
     length = window[1] - window[0]
     energy = (rise_time / 2) * (mid_amplitude**2) / 3
-    rms_mt_per_m = math.sqrt(energy / length) / GAMMA * 1e3
+    rms_hz_per_m = math.sqrt(energy / length)
 
     assert result.range_s == window
-    assert result.axes["x"].rms_mt_per_m == pytest.approx(rms_mt_per_m)
+    assert result.axes["x"].rms_hz_per_m == pytest.approx(rms_hz_per_m)
 
 
 def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
@@ -156,7 +224,7 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
 
     block = seq.get_block(1)
     peak_hz_per_m = max(abs(block.gx.first), abs(block.gx.last), np.max(np.abs(waveform)))
-    assert result.axes["x"].peak_mt_per_m == pytest.approx(peak_hz_per_m / GAMMA * 1e3)
+    assert result.axes["x"].peak_hz_per_m == pytest.approx(peak_hz_per_m)
 
 
 def test_no_gradients_sets_reason():
@@ -168,15 +236,15 @@ def test_no_gradients_sets_reason():
     result = gradient_limits(seq)
 
     assert result.reason == "no gradient events in the sequence"
-    assert result.vector_peak_mt_per_m == 0.0
+    assert result.vector_peak_hz_per_m == 0.0
     assert result.vector_peak_time_s == 0.0
     for axis in ("x", "y", "z"):
         a = result.axes[axis]
-        assert a.peak_mt_per_m == 0.0
+        assert a.peak_hz_per_m == 0.0
         assert a.peak_block is None
-        assert a.max_slew_t_per_m_per_s == 0.0
+        assert a.max_slew_hz_per_m_per_s == 0.0
         assert a.slew_block is None
-        assert a.rms_mt_per_m == 0.0
+        assert a.rms_hz_per_m == 0.0
 
 
 def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
@@ -198,9 +266,9 @@ def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
 
     times = np.concatenate(([0.0], block.gx.tt, [block.gx.shape_dur]))
     amps = np.concatenate(([block.gx.first], block.gx.waveform, [block.gx.last]))
-    expected_slew_t_per_m_per_s = float(np.max(np.abs(np.diff(amps) / np.diff(times)))) / GAMMA
+    expected_slew_hz_per_m_per_s = float(np.max(np.abs(np.diff(amps) / np.diff(times))))
 
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
 
 
 def test_extended_trapezoid_max_slew_is_the_largest_segment_slope():
@@ -216,11 +284,9 @@ def test_extended_trapezoid_max_slew_is_the_largest_segment_slope():
 
     result = gradient_limits(seq)
 
-    expected_slew_t_per_m_per_s = (
-        float(np.max(np.abs(np.diff(amplitudes) / np.diff(times)))) / GAMMA
-    )
+    expected_slew_hz_per_m_per_s = float(np.max(np.abs(np.diff(amplitudes) / np.diff(times))))
 
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
 
 
 def test_largest_over_several_blocks_and_axes_credits_the_first_block_with_that_value():
@@ -258,13 +324,13 @@ def test_largest_over_several_blocks_and_axes_credits_the_first_block_with_that_
 
     result = gradient_limits(seq)
 
-    assert result.axes["x"].peak_mt_per_m == pytest.approx(0.8 * SYSTEM.max_grad / GAMMA * 1e3)
+    assert result.axes["x"].peak_hz_per_m == pytest.approx(0.8 * SYSTEM.max_grad)
     assert result.axes["x"].peak_block == block_ids[2]
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(
-        0.8 * SYSTEM.max_grad / gx_big.rise_time / GAMMA
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(
+        0.8 * SYSTEM.max_grad / gx_big.rise_time
     )
     assert result.axes["x"].slew_block == block_ids[2]
-    assert result.axes["y"].peak_mt_per_m == pytest.approx(0.5 * SYSTEM.max_grad / GAMMA * 1e3)
+    assert result.axes["y"].peak_hz_per_m == pytest.approx(0.5 * SYSTEM.max_grad)
     assert result.axes["y"].peak_block == block_ids[1]
 
 
@@ -284,9 +350,9 @@ def test_window_that_cuts_a_ramp_gives_the_slew_of_the_part_inside_the_window():
 
     result = gradient_limits(seq, window=window)
 
-    expected_slew_t_per_m_per_s = (500 * mg) / GAMMA  # the slope of the 0-200 us segment
+    expected_slew_hz_per_m_per_s = 500 * mg  # the slope of the 0-200 us segment
 
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
     assert result.axes["x"].slew_time_s == pytest.approx(100e-6)
 
 
@@ -302,7 +368,7 @@ def test_slew_time_is_the_start_of_the_steepest_segment():
 
     result = gradient_limits(seq)
 
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(750 * mg / GAMMA)
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(750 * mg)
     assert result.axes["x"].slew_time_s == pytest.approx(900e-6)
 
 
@@ -328,9 +394,9 @@ def test_vector_peak_of_g_compares_different_triples_across_blocks():
 
     result = gradient_limits(seq)
 
-    expected_vector_peak_mt_per_m = math.sqrt(2) * amp_b / GAMMA * 1e3
-    assert expected_vector_peak_mt_per_m > amp_a / GAMMA * 1e3  # block B's triple wins
-    assert result.vector_peak_mt_per_m == pytest.approx(expected_vector_peak_mt_per_m)
+    expected_vector_peak_hz_per_m = math.sqrt(2) * amp_b
+    assert expected_vector_peak_hz_per_m > amp_a  # block B's triple wins
+    assert result.vector_peak_hz_per_m == pytest.approx(expected_vector_peak_hz_per_m)
     _block_a_id, block_b_id = seq.block_events
     assert result.vector_peak_block == block_b_id
     assert result.vector_peak_time_s == pytest.approx(1.0e-3)
@@ -370,8 +436,8 @@ def test_junction_step_between_extended_trapezoids_is_reported_as_the_slew():
 
     result = gradient_limits(seq)
 
-    expected_slew_t_per_m_per_s = step / _RASTER / GAMMA
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    expected_slew_hz_per_m_per_s = step / _RASTER
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
     assert result.axes["x"].slew_block == block_b_id
     assert result.axes["x"].slew_time_s == pytest.approx(200e-6)
 
@@ -393,8 +459,8 @@ def test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system(tm
         result = gradient_limits(seq)
 
         # The file stores the amplitudes with fewer digits: 2e-5 relative in the value.
-        assert result.axes["y"].max_slew_t_per_m_per_s == pytest.approx(
-            RASTER_4US_JUNCTION, rel=1e-4
+        assert result.axes["y"].max_slew_hz_per_m_per_s == pytest.approx(
+            RASTER_4US_JUNCTION * GAMMA_1H, rel=1e-4
         )
         assert result.axes["y"].slew_block == block_b_id
         assert result.axes["y"].slew_time_s == pytest.approx(RASTER_4US_JUNCTION_TIME)
@@ -419,8 +485,8 @@ def test_gradient_ending_non_zero_before_a_block_with_no_gradient_is_a_junction_
 
     result = gradient_limits(seq)
 
-    expected_slew_t_per_m_per_s = last_value / _RASTER / GAMMA
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    expected_slew_hz_per_m_per_s = last_value / _RASTER
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
     assert result.axes["x"].slew_block == block_b_id
 
 
@@ -441,8 +507,8 @@ def test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_bl
 
     result = gradient_limits(seq)
 
-    expected_slew_t_per_m_per_s = start_value / _RASTER / GAMMA
-    assert result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(expected_slew_t_per_m_per_s)
+    expected_slew_hz_per_m_per_s = start_value / _RASTER
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
     assert result.axes["x"].slew_block == block_id
 
 
@@ -463,14 +529,14 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_junction_before_it()
 
     inside_result = gradient_limits(seq, window=(0.5e-3, 1.0e-3))
     assert inside_result.reason == "no gradient events in the window"
-    assert inside_result.axes["x"].max_slew_t_per_m_per_s == 0.0
+    assert inside_result.axes["x"].max_slew_hz_per_m_per_s == 0.0
     assert inside_result.axes["x"].slew_block is None
 
     junction_result = gradient_limits(seq, window=(0.2e-3, 1.0e-3))
-    expected_slew_t_per_m_per_s = step / _RASTER / GAMMA
+    expected_slew_hz_per_m_per_s = step / _RASTER
     assert junction_result.reason is None
-    assert junction_result.axes["x"].max_slew_t_per_m_per_s == pytest.approx(
-        expected_slew_t_per_m_per_s
+    assert junction_result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(
+        expected_slew_hz_per_m_per_s
     )
     assert junction_result.axes["x"].slew_block == block_b_id
 
@@ -533,8 +599,8 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
     result = gradient_limits(seq)
 
     axis = result.axes["y"]
-    assert axis.peak_mt_per_m == 0.0
-    assert axis.max_slew_t_per_m_per_s == 0.0
+    assert axis.peak_hz_per_m == 0.0
+    assert axis.max_slew_hz_per_m_per_s == 0.0
     assert axis.peak_block is None
     assert axis.slew_block is None
 
@@ -590,21 +656,35 @@ def _assert_close(actual: float, expected: float, scale: float, tol: float, labe
 
 
 def _assert_matches_oracle(ours: GradientLimits, theirs, tol: float) -> None:
+    """The values of this package, converted to mT/m and T/m/s with `GAMMA_1H`, match the
+    oracle's. The conversion is that of `docs/usage.md` section 8, so this also tests it."""
     assert ours.reason == theirs.reason
     assert ours.range_s == pytest.approx(theirs.range_s, abs=1e-9)
     grad_scale = theirs.limits.max_grad_mt_per_m
     slew_scale = theirs.limits.max_slew_t_per_m_per_s
+    to_mt_per_m = 1e3 / GAMMA_1H
+    to_t_per_m_per_s = 1 / GAMMA_1H
     for axis in ("x", "y", "z"):
         a, b = ours.axes[axis], theirs.axes[axis]
-        _assert_close(a.peak_mt_per_m, b.peak_mt_per_m, grad_scale, tol, f"{axis} peak")
         _assert_close(
-            a.max_slew_t_per_m_per_s, b.max_slew_t_per_m_per_s, slew_scale, tol, f"{axis} slew"
+            a.peak_hz_per_m * to_mt_per_m, b.peak_mt_per_m, grad_scale, tol, f"{axis} peak"
         )
-        _assert_close(a.rms_mt_per_m, b.rms_mt_per_m, grad_scale, tol, f"{axis} rms")
+        _assert_close(
+            a.max_slew_hz_per_m_per_s * to_t_per_m_per_s,
+            b.max_slew_t_per_m_per_s,
+            slew_scale,
+            tol,
+            f"{axis} slew",
+        )
+        _assert_close(a.rms_hz_per_m * to_mt_per_m, b.rms_mt_per_m, grad_scale, tol, f"{axis} rms")
         assert (a.peak_block is None) == (b.peak_block is None), f"{axis} peak_block presence"
         assert (a.slew_block is None) == (b.slew_block is None), f"{axis} slew_block presence"
     _assert_close(
-        ours.vector_peak_mt_per_m, theirs.vector_peak_mt_per_m, grad_scale, tol, "vector peak"
+        ours.vector_peak_hz_per_m * to_mt_per_m,
+        theirs.vector_peak_mt_per_m,
+        grad_scale,
+        tol,
+        "vector peak",
     )
 
 
@@ -729,11 +809,11 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
     # "RMS over whole file" column, matches the oracle's own whole-file RMS.
     for axis in ("x", "y", "z"):
         _assert_close(
-            ours_window.whole_rms_mt_per_m[axis],
+            ours_window.whole_rms_hz_per_m[axis] * 1e3 / GAMMA_1H,
             theirs_whole.axes[axis].rms_mt_per_m,
             theirs_window.limits.max_grad_mt_per_m,
             tol,
-            f"whole_rms_mt_per_m[{axis}]",
+            f"whole_rms_hz_per_m[{axis}]",
         )
 
 
@@ -821,19 +901,19 @@ def _first_block_starts_non_zero_sequence() -> pp.Sequence:
     return seq
 
 
-def _assert_block_values_agree_with_gradient_limits(seq: pp.Sequence, gamma: float = GAMMA) -> None:
+def _assert_block_values_agree_with_gradient_limits(seq: pp.Sequence) -> None:
     """The maximum of each value of `block_gradient_values` is the value of the whole file
     in `gradient_limits`, and the first block with that value, with its time, is the block and
     the time of `gradient_limits`. The arithmetic is the same, so every comparison is exact."""
-    values = block_gradient_values(seq, gamma=gamma)
-    whole = gradient_limits(seq, gamma=gamma)
+    values = block_gradient_values(seq)
+    whole = gradient_limits(seq)
     assert values.block_id.size > 0
     for axis in ("x", "y", "z"):
         result = whole.axes[axis]
 
-        peak = values.peak_mt_per_m[axis]
+        peak = values.peak_hz_per_m[axis]
         top = float(peak.max())
-        assert top == result.peak_mt_per_m
+        assert top == result.peak_hz_per_m
         if top > 0.0:
             play = int(np.argmax(peak == top))
             assert int(values.block_id[play]) == result.peak_block
@@ -841,11 +921,11 @@ def _assert_block_values_agree_with_gradient_limits(seq: pp.Sequence, gamma: flo
         else:
             assert result.peak_block is None
 
-        segment = values.slew_t_per_m_per_s[axis]
-        junction = values.junction_t_per_m_per_s[axis]
+        segment = values.slew_hz_per_m_per_s[axis]
+        junction = values.junction_hz_per_m_per_s[axis]
         combined = np.maximum(segment, junction)
         top = float(combined.max())
-        assert top == result.max_slew_t_per_m_per_s
+        assert top == result.max_slew_hz_per_m_per_s
         if top > 0.0:
             play = int(np.argmax(combined == top))
             assert int(values.block_id[play]) == result.slew_block
@@ -855,9 +935,9 @@ def _assert_block_values_agree_with_gradient_limits(seq: pp.Sequence, gamma: flo
         else:
             assert result.slew_block is None
 
-    vector = values.vector_peak_mt_per_m
+    vector = values.vector_peak_hz_per_m
     top = float(vector.max())
-    assert top == whole.vector_peak_mt_per_m
+    assert top == whole.vector_peak_hz_per_m
     if top > 0.0:
         play = int(np.argmax(vector == top))
         assert int(values.block_id[play]) == whole.vector_peak_block
@@ -908,34 +988,6 @@ def test_block_gradient_values_agree_with_gradient_limits_for_the_whole_file(mak
     _assert_block_values_agree_with_gradient_limits(make_seq())
 
 
-def test_block_gradient_values_with_gamma_scale_the_values_as_gradient_limits_does():
-    seq = gre_sequence()
-    gamma = 40e6
-    scale = GAMMA / gamma
-
-    default = block_gradient_values(seq)
-    result = block_gradient_values(seq, gamma=gamma)
-
-    assert default.vector_peak_mt_per_m.max() > 0.0
-    np.testing.assert_allclose(
-        result.vector_peak_mt_per_m, default.vector_peak_mt_per_m * scale, rtol=1e-12
-    )
-    for axis in ("x", "y", "z"):
-        np.testing.assert_allclose(
-            result.peak_mt_per_m[axis], default.peak_mt_per_m[axis] * scale, rtol=1e-12
-        )
-        np.testing.assert_allclose(
-            result.slew_t_per_m_per_s[axis], default.slew_t_per_m_per_s[axis] * scale, rtol=1e-12
-        )
-        np.testing.assert_allclose(
-            result.junction_t_per_m_per_s[axis],
-            default.junction_t_per_m_per_s[axis] * scale,
-            rtol=1e-12,
-        )
-        np.testing.assert_array_equal(result.peak_time_s[axis], default.peak_time_s[axis])
-    _assert_block_values_agree_with_gradient_limits(seq, gamma=gamma)
-
-
 def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time():
     """Block 1 has x and y gradients, block 2 only z, block 3 none: an axis without an event
     in a block has a peak, a slew and a junction step of 0 there, and the block start as the
@@ -953,24 +1005,24 @@ def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time
     values = block_gradient_values(seq)
 
     start_s = sequence_index(seq).start_s
-    assert values.peak_mt_per_m["x"][0] == pytest.approx(0.5 * mg / GAMMA * 1e3)
+    assert values.peak_hz_per_m["x"][0] == pytest.approx(0.5 * mg)
     assert values.peak_time_s["x"][0] == pytest.approx(200e-6)
-    assert values.slew_t_per_m_per_s["x"][0] == pytest.approx(0.5 * mg / 200e-6 / GAMMA)
-    assert values.peak_mt_per_m["y"][0] == pytest.approx(0.25 * mg / GAMMA * 1e3)
-    assert values.peak_mt_per_m["z"][1] == pytest.approx(0.5 * mg / GAMMA * 1e3)
+    assert values.slew_hz_per_m_per_s["x"][0] == pytest.approx(0.5 * mg / 200e-6)
+    assert values.peak_hz_per_m["y"][0] == pytest.approx(0.25 * mg)
+    assert values.peak_hz_per_m["z"][1] == pytest.approx(0.5 * mg)
     assert values.peak_time_s["z"][1] == pytest.approx(start_s[1] + 200e-6)
     for axis, plays in (("x", [1, 2]), ("y", [1, 2]), ("z", [0, 2])):
         for play in plays:
-            assert values.peak_mt_per_m[axis][play] == 0.0
-            assert values.slew_t_per_m_per_s[axis][play] == 0.0
-            assert values.junction_t_per_m_per_s[axis][play] == 0.0
+            assert values.peak_hz_per_m[axis][play] == 0.0
+            assert values.slew_hz_per_m_per_s[axis][play] == 0.0
+            assert values.junction_hz_per_m_per_s[axis][play] == 0.0
             assert values.peak_time_s[axis][play] == start_s[play]
             assert values.slew_time_s[axis][play] == start_s[play]
     # Block 1: |G| is largest at 0.2 ms, where x has finished its rise and y is on its flat top.
-    assert values.vector_peak_mt_per_m[0] == pytest.approx(math.hypot(0.5, 0.25) * mg / GAMMA * 1e3)
+    assert values.vector_peak_hz_per_m[0] == pytest.approx(math.hypot(0.5, 0.25) * mg)
     assert values.vector_peak_time_s[0] == pytest.approx(200e-6)
-    assert values.vector_peak_mt_per_m[1] == pytest.approx(0.5 * mg / GAMMA * 1e3)
-    assert values.vector_peak_mt_per_m[2] == 0.0
+    assert values.vector_peak_hz_per_m[1] == pytest.approx(0.5 * mg)
+    assert values.vector_peak_hz_per_m[2] == 0.0
     assert values.vector_peak_time_s[2] == start_s[2]
 
 
@@ -981,9 +1033,9 @@ def test_first_block_junction_step_uses_zero_before_the_block():
 
     values = block_gradient_values(_first_block_starts_non_zero_sequence())
 
-    assert values.junction_t_per_m_per_s["x"][0] == pytest.approx(start_value / _RASTER / GAMMA)
-    assert values.junction_t_per_m_per_s["y"][0] == 0.0
-    assert values.junction_t_per_m_per_s["z"][0] == 0.0
+    assert values.junction_hz_per_m_per_s["x"][0] == pytest.approx(start_value / _RASTER)
+    assert values.junction_hz_per_m_per_s["y"][0] == 0.0
+    assert values.junction_hz_per_m_per_s["z"][0] == 0.0
 
 
 def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
@@ -997,13 +1049,13 @@ def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
 
     values = block_gradient_values(seq)
 
-    np.testing.assert_array_equal(values.junction_t_per_m_per_s["x"][[0, 2]], [0.0, 0.0])
-    assert values.junction_t_per_m_per_s["x"][1] == pytest.approx(step / _RASTER / GAMMA)
+    np.testing.assert_array_equal(values.junction_hz_per_m_per_s["x"][[0, 2]], [0.0, 0.0])
+    assert values.junction_hz_per_m_per_s["x"][1] == pytest.approx(step / _RASTER)
 
     last_value = 0.9 * _MAX_STEP
     after_delay = block_gradient_values(_gradient_ends_non_zero_before_delay_sequence())
-    assert after_delay.junction_t_per_m_per_s["x"][0] == 0.0
-    assert after_delay.junction_t_per_m_per_s["x"][1] == pytest.approx(last_value / _RASTER / GAMMA)
+    assert after_delay.junction_hz_per_m_per_s["x"][0] == 0.0
+    assert after_delay.junction_hz_per_m_per_s["x"][1] == pytest.approx(last_value / _RASTER)
 
 
 def test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junction_time():
@@ -1015,12 +1067,12 @@ def test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junc
 
     values = block_gradient_values(seq)
 
-    assert values.junction_t_per_m_per_s["x"][1] == values.slew_t_per_m_per_s["x"][1]
-    assert values.junction_t_per_m_per_s["x"][1] == values.slew_t_per_m_per_s["x"].max()
+    assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"][1]
+    assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"].max()
     result = gradient_limits(seq).axes["x"]
     assert result.slew_block == block_2_id
     assert result.slew_time_s == values.start_s[1]
-    assert result.max_slew_t_per_m_per_s == values.junction_t_per_m_per_s["x"][1]
+    assert result.max_slew_hz_per_m_per_s == values.junction_hz_per_m_per_s["x"][1]
 
 
 def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block():
@@ -1032,13 +1084,13 @@ def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block()
     assert index.num_blocks > 3
     np.testing.assert_array_equal(values.block_id, index.block_id)
     np.testing.assert_array_equal(values.start_s, index.start_s)
-    arrays = [values.vector_peak_mt_per_m, values.vector_peak_time_s]
+    arrays = [values.vector_peak_hz_per_m, values.vector_peak_time_s]
     for field in (
-        values.peak_mt_per_m,
+        values.peak_hz_per_m,
         values.peak_time_s,
-        values.slew_t_per_m_per_s,
+        values.slew_hz_per_m_per_s,
         values.slew_time_s,
-        values.junction_t_per_m_per_s,
+        values.junction_hz_per_m_per_s,
     ):
         assert list(field) == ["x", "y", "z"]
         arrays.extend(field.values())

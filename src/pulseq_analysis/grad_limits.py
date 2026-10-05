@@ -9,7 +9,7 @@ hardware limits compares the values with them.
 The axes are the logical sequence axes, not the physical gradient axes of a scanner. The
 scanner rotates the logical axes onto the physical ones for the prescribed orientation, so on
 an oblique slice one physical axis can see amplitude up to the vector peak,
-`GradientLimits.vector_peak_mt_per_m`, even when no single logical axis is near the limit.
+`GradientLimits.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
 
 This computes the per-event values one time for each unique gradient event
 (`seq_index.grad_events`), then combines them over the blocks of `seq_index.sequence_index`
@@ -41,7 +41,7 @@ import pypulseq as pp
 
 from .extensions import refuse_rotations
 from .seq_index import SequenceIndex, block_cache_off, grad_events, sequence_index
-from .seq_utils import GAMMA, TIME_TOLERANCE, gradient_points
+from .seq_utils import TIME_TOLERANCE, gradient_points
 
 _AXES = ("x", "y", "z")
 
@@ -60,17 +60,17 @@ class AxisResult:
     value, the credited block is the first of them in play order, and the time is the first
     time in that block where the value is reached (a junction step is before every segment
     of its block). A largest value of 0 credits no block (None) and has the time 0.0.
-    `rms_mt_per_m` is the RMS amplitude over the range that `GradientLimits.range_s` gives,
+    `rms_hz_per_m` is the RMS amplitude over the range that `GradientLimits.range_s` gives,
     not over the whole sequence when a window is used.
     """
 
-    peak_mt_per_m: float
+    peak_hz_per_m: float
     peak_time_s: float
     peak_block: int | None
-    max_slew_t_per_m_per_s: float
+    max_slew_hz_per_m_per_s: float
     slew_time_s: float
     slew_block: int | None
-    rms_mt_per_m: float
+    rms_hz_per_m: float
 
 
 @dataclass(frozen=True)
@@ -79,20 +79,20 @@ class GradientLimits:
 
     `reason` is None when the range has at least one gradient event on some axis. Otherwise it
     is a short human-readable string, for example "no gradient events in the sequence", and
-    every numeric field is its zero value, except `whole_rms_mt_per_m`, which is the RMS of the
+    every numeric field is its zero value, except `whole_rms_hz_per_m`, which is the RMS of the
     whole file when `window` is given. The zero value is 0.0 for an amplitude, slew or RMS
     field, and 0.0 for a time field; every block field (`AxisResult.peak_block`,
     `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that
     was used.
 
-    `vector_peak_mt_per_m` is the largest magnitude of the three-axis gradient vector over the
+    `vector_peak_hz_per_m` is the largest magnitude of the three-axis gradient vector over the
     range, `vector_peak_time_s` is the first time in the range where it is reached, and
     `vector_peak_block` is the block ID of the block that holds that time, by the rule of
     `AxisResult` (0.0 and None when the peak is 0). There is no vector slew field. The RMS of
     the vector magnitude is the square root of the sum of the squares of the three axis RMS
     values, because the mean of |G|² is the sum of the three axis means of G².
 
-    `whole_rms_mt_per_m` is the RMS amplitude of each axis (mT/m) over the whole sequence,
+    `whole_rms_hz_per_m` is the RMS amplitude of each axis (Hz/m) over the whole sequence,
     computed in the same call that computes `axes`, so that a caller that wants both the
     window's values and the whole file's RMS needs only one call. It is None when `window` was
     None (then `axes`' own RMS already is the whole file's).
@@ -101,10 +101,10 @@ class GradientLimits:
     reason: str | None
     range_s: tuple[float, float]
     axes: dict[str, AxisResult]
-    vector_peak_mt_per_m: float
+    vector_peak_hz_per_m: float
     vector_peak_time_s: float
     vector_peak_block: int | None
-    whole_rms_mt_per_m: dict[str, float] | None = None
+    whole_rms_hz_per_m: dict[str, float] | None = None
 
 
 @dataclass(frozen=True, eq=False)
@@ -119,12 +119,12 @@ class BlockGradientValues:
     value of the previous block to 0, which is not 0 when the previous block ends at a value
     that is not 0.
 
-    `peak_mt_per_m` is the largest absolute amplitude of the block's event on the axis, and
-    `peak_time_s` its time. `slew_t_per_m_per_s` is the largest slope of a straight segment of
-    that event, and `slew_time_s` the start of that segment. `junction_t_per_m_per_s` is the
+    `peak_hz_per_m` is the largest absolute amplitude of the block's event on the axis, and
+    `peak_time_s` its time. `slew_hz_per_m_per_s` is the largest slope of a straight segment of
+    that event, and `slew_time_s` the start of that segment. `junction_hz_per_m_per_s` is the
     step at the start of the block, `|last value of the previous block - first value of this
     block|` divided by `seq.grad_raster_time`, as the module docstring describes it (0 for
-    the first block). Its time is `start_s`. `vector_peak_mt_per_m` is the largest magnitude
+    the first block). Its time is `start_s`. `vector_peak_hz_per_m` is the largest magnitude
     of the three-axis vector in the block, and `vector_peak_time_s` the first time in the block
     where it is reached (0 and `start_s` for a block without gradients).
 
@@ -135,12 +135,12 @@ class BlockGradientValues:
 
     block_id: np.ndarray
     start_s: np.ndarray
-    peak_mt_per_m: dict[str, np.ndarray]
+    peak_hz_per_m: dict[str, np.ndarray]
     peak_time_s: dict[str, np.ndarray]
-    slew_t_per_m_per_s: dict[str, np.ndarray]
+    slew_hz_per_m_per_s: dict[str, np.ndarray]
     slew_time_s: dict[str, np.ndarray]
-    junction_t_per_m_per_s: dict[str, np.ndarray]
-    vector_peak_mt_per_m: np.ndarray
+    junction_hz_per_m_per_s: dict[str, np.ndarray]
+    vector_peak_hz_per_m: np.ndarray
     vector_peak_time_s: np.ndarray
 
 
@@ -263,9 +263,9 @@ def _triple_vector_peak(
 
 
 def _whole_file_rms(
-    index: SequenceIndex, ev: _EventData, total_duration: float, gamma: float
+    index: SequenceIndex, ev: _EventData, total_duration: float
 ) -> dict[str, float]:
-    """The RMS amplitude (mT/m) of each axis over the whole sequence, from the per-event
+    """The RMS amplitude (Hz/m) of each axis over the whole sequence, from the per-event
     integrals and how many times each event plays on each axis (`numpy.bincount`)."""
     axis_cols = {"x": index.gx, "y": index.gy, "z": index.gz}
     k = ev.integral.size
@@ -276,7 +276,7 @@ def _whole_file_rms(
             continue
         counts = np.bincount(col, minlength=k + 1)[1:]
         rms_sum = float(np.sum(counts * ev.integral))
-        result[axis] = math.sqrt(rms_sum / total_duration) / gamma * 1e3
+        result[axis] = math.sqrt(rms_sum / total_duration)
     return result
 
 
@@ -344,9 +344,8 @@ def _range_result(
     lo: float,
     hi: float,
     grad_raster: float,
-    gamma: float,
 ) -> tuple[dict[str, AxisResult], float, float, int | None, bool]:
-    """`axes`, `vector_peak_mt_per_m`, `vector_peak_time_s`, `vector_peak_block` and whether any
+    """`axes`, `vector_peak_hz_per_m`, `vector_peak_time_s`, `vector_peak_block` and whether any
     axis has an event, for the range `[lo, hi]`.
 
     Blocks fully inside the range use the per-event values (`_axis_slice_stats`,
@@ -531,36 +530,29 @@ def _range_result(
         has_event = st["has_event"] or final_slew_play is not None
         has_event_any = has_event_any or has_event
         range_length = hi - lo
-        rms = (
-            math.sqrt(st["rms_sum"] / range_length) / gamma * 1e3
-            if has_event and range_length > 0
-            else 0.0
-        )
+        rms = math.sqrt(st["rms_sum"] / range_length) if has_event and range_length > 0 else 0.0
         axes[axis] = AxisResult(
-            peak_mt_per_m=st["peak"] / gamma * 1e3,
+            peak_hz_per_m=st["peak"],
             peak_time_s=st["peak_time"],
             peak_block=int(index.block_id[st["peak_play"]])
             if st["peak_play"] is not None
             else None,
-            max_slew_t_per_m_per_s=final_slew / gamma,
+            max_slew_hz_per_m_per_s=final_slew,
             slew_time_s=final_slew_time,
             slew_block=(
                 int(index.block_id[final_slew_play]) if final_slew_play is not None else None
             ),
-            rms_mt_per_m=rms,
+            rms_hz_per_m=rms,
         )
 
     vector_peak_block = (
         int(index.block_id[vector_peak_play]) if vector_peak_play is not None else None
     )
-    return axes, vector_peak_hz / gamma * 1e3, vector_peak_time, vector_peak_block, has_event_any
+    return axes, vector_peak_hz, vector_peak_time, vector_peak_block, has_event_any
 
 
 def gradient_limits(
-    seq: pp.Sequence,
-    *,
-    window: tuple[float, float] | None = None,
-    gamma: float = GAMMA,
+    seq: pp.Sequence, *, window: tuple[float, float] | None = None
 ) -> GradientLimits:
     """The peak amplitude, the peak slew rate and the RMS amplitude of `seq`'s
     gradients, on each logical axis and as a three-axis vector.
@@ -571,12 +563,12 @@ def gradient_limits(
     (`0.0 <= start_s` and `end_s <= total_duration`, each within `TIME_TOLERANCE`),
     or this function raises `ValueError`. A gradient piece that crosses a range edge
     is cut at the edge, with the amplitude at the edge found by linear interpolation.
-    With `window` given, `GradientLimits.whole_rms_mt_per_m` also gives each axis's RMS
+    With `window` given, `GradientLimits.whole_rms_hz_per_m` also gives each axis's RMS
     over the whole sequence, computed in this same call.
 
-    `gamma` (Hz/T) converts every value from Hz/m (Hz/m/s) to mT/m (T/m/s). The default is
-    42.576 MHz/T. A caller that compares the values with limits of its own passes the gamma
-    that converted those limits.
+    The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
+    T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
+    section 8).
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
     `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
@@ -596,7 +588,7 @@ def gradient_limits(
 
     if window is None:
         range_s = (0.0, total_duration)
-        whole_rms_mt_per_m = None
+        whole_rms_hz_per_m = None
     else:
         start_s, end_s = window
         if not start_s < end_s:
@@ -608,11 +600,11 @@ def gradient_limits(
         # Clip to the sequence exactly: start_s/end_s can be off by a rounding error of
         # up to TIME_TOLERANCE and still pass the check above.
         range_s = (max(0.0, start_s), min(total_duration, end_s))
-        whole_rms_mt_per_m = _whole_file_rms(index, ev, total_duration, gamma)
+        whole_rms_hz_per_m = _whole_file_rms(index, ev, total_duration)
 
     lo, hi = range_s
-    axes, vector_peak_mt_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
-        seq, index, ev, lo, hi, grad_raster, gamma
+    axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
+        seq, index, ev, lo, hi, grad_raster
     )
 
     if has_event:
@@ -626,10 +618,10 @@ def gradient_limits(
         reason=reason,
         range_s=range_s,
         axes=axes,
-        vector_peak_mt_per_m=vector_peak_mt_per_m,
+        vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=vector_peak_time_s,
         vector_peak_block=vector_peak_block,
-        whole_rms_mt_per_m=whole_rms_mt_per_m,
+        whole_rms_hz_per_m=whole_rms_hz_per_m,
     )
 
 
@@ -669,7 +661,7 @@ def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarra
     return peak, offset
 
 
-def block_gradient_values(seq: pp.Sequence, *, gamma: float = GAMMA) -> BlockGradientValues:
+def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     """The gradient values of each block of `seq`, in play order (`BlockGradientValues`).
 
     These are the values that `gradient_limits` takes the largest of for the whole file, kept
@@ -677,8 +669,7 @@ def block_gradient_values(seq: pp.Sequence, *, gamma: float = GAMMA) -> BlockGra
     axis, the junction step at the start of the block, and the peak of the three-axis vector.
     The slope and the junction step follow the rules of the module docstring.
 
-    `gamma` (Hz/T) converts the values from Hz/m (Hz/m/s) to mT/m (T/m/s), as it does for
-    `gradient_limits`. The default is 42.576 MHz/T.
+    The values are in Hz/m and Hz/m/s, with no gamma, as for `gradient_limits`.
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
     `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
@@ -694,30 +685,30 @@ def block_gradient_values(seq: pp.Sequence, *, gamma: float = GAMMA) -> BlockGra
     grad_raster = seq.grad_raster_time
     start_s = index.start_s
 
-    peak_mt_per_m: dict[str, np.ndarray] = {}
+    peak_hz_per_m: dict[str, np.ndarray] = {}
     peak_time_s: dict[str, np.ndarray] = {}
-    slew_t_per_m_per_s: dict[str, np.ndarray] = {}
+    slew_hz_per_m_per_s: dict[str, np.ndarray] = {}
     slew_time_s: dict[str, np.ndarray] = {}
-    junction_t_per_m_per_s: dict[str, np.ndarray] = {}
+    junction_hz_per_m_per_s: dict[str, np.ndarray] = {}
     for axis, col in zip(_AXES, (index.gx, index.gy, index.gz), strict=True):
-        peak_mt_per_m[axis] = _event_column(col, ev.peak) / gamma * 1e3
+        peak_hz_per_m[axis] = _event_column(col, ev.peak)
         peak_time_s[axis] = start_s + _event_column(col, ev.peak_offset)
-        slew_t_per_m_per_s[axis] = _event_column(col, ev.slew) / gamma
+        slew_hz_per_m_per_s[axis] = _event_column(col, ev.slew)
         slew_time_s[axis] = start_s + _event_column(col, ev.slew_offset)
         first_vals = _event_column(col, ev.first)
         last_vals = _event_column(col, ev.last)
         prev_last = np.concatenate(([0.0], last_vals[:-1]))
-        junction_t_per_m_per_s[axis] = np.abs(prev_last - first_vals) / grad_raster / gamma
+        junction_hz_per_m_per_s[axis] = np.abs(prev_last - first_vals) / grad_raster
 
-    vector_peak_hz, vector_offset = _block_vector_peaks(index, ev)
+    vector_peak_hz_per_m, vector_offset = _block_vector_peaks(index, ev)
     return BlockGradientValues(
         block_id=index.block_id.astype(np.int64),
         start_s=start_s.copy(),
-        peak_mt_per_m=peak_mt_per_m,
+        peak_hz_per_m=peak_hz_per_m,
         peak_time_s=peak_time_s,
-        slew_t_per_m_per_s=slew_t_per_m_per_s,
+        slew_hz_per_m_per_s=slew_hz_per_m_per_s,
         slew_time_s=slew_time_s,
-        junction_t_per_m_per_s=junction_t_per_m_per_s,
-        vector_peak_mt_per_m=vector_peak_hz / gamma * 1e3,
+        junction_hz_per_m_per_s=junction_hz_per_m_per_s,
+        vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=start_s + vector_offset,
     )

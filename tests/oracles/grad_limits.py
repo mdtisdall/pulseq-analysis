@@ -22,8 +22,9 @@ from dataclasses import dataclass
 import numpy as np
 import pypulseq as pp
 from oracles.blocks import iter_blocks
+from synthetic import GAMMA_1H as GAMMA
 
-from pulseq_analysis.seq_utils import GAMMA, TIME_TOLERANCE, gradient_points
+from pulseq_analysis.seq_utils import TIME_TOLERANCE, gradient_points
 
 _AXES = ("x", "y", "z")
 
