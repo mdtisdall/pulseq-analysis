@@ -2273,9 +2273,8 @@ example hardware's own summary within a relative 10⁻⁹.
 
 **Assumptions:**
 
-- The layout is the layout of the `MP_GradSys_K2309_2250V_951A_XR_AS82.asc` files from
-  the XA60 IDEA installation: the `$INCLUDE` line names a file in the same directory,
-  without quotes. Other software versions are not tested.
+- The `$INCLUDE` line names a file in the same directory, without quotes. Other forms
+  of `$INCLUDE` are not tested.
 
 #### `test_asc_file_with_a_missing_include`
 
@@ -2301,9 +2300,9 @@ main file, and a field in both files gets the value of the included file.
 
 **Assumptions:**
 
-- In the real files, the `$INCLUDE` line is the last field of the main file,
-  so the included values are the last values, as in the file order. A field
-  after a `$INCLUDE` line that is also in the included file is not tested.
+- The `$INCLUDE` line is the last field of the main file in this test, so the
+  included values are the last values, as in the file order. A field after a
+  `$INCLUDE` line that is also in the included file is not tested.
 
 #### `test_hardware_name`
 
