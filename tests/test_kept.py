@@ -12,6 +12,7 @@ import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import SYSTEM, WIDTH, spin_echo_sequence
 
+from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.grad_peaks import gradient_peaks
 from pulseq_analysis.grad_spectrum import gradient_spectrum_for
 from pulseq_analysis.pns import pns_levels_for
@@ -104,15 +105,16 @@ def test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_
 def test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result(
     write_gradient_asc, monkeypatch
 ):
-    """`pns_levels_for` with the relative path and with the absolute path of one `.asc`
-    file gives one object, in both orders of the two calls."""
+    """`pns_levels_for` with `hardware_from_asc` of the relative path and with that of the
+    absolute path of one `.asc` file gives one object, in both orders of the two calls."""
     path = write_gradient_asc()
     monkeypatch.chdir(path.parent)
-    relative = path.name
-    for first, second in ((relative, path), (path, relative)):
+    relative = hardware_from_asc(path.name)
+    absolute = hardware_from_asc(path)
+    for first, second in ((relative, absolute), (absolute, relative)):
         seq = spin_echo_sequence()
-        result = pns_levels_for(seq, gradient_asc=first)
-        assert pns_levels_for(seq, gradient_asc=second) is result
+        result = pns_levels_for(seq, hardware=first)
+        assert pns_levels_for(seq, hardware=second) is result
 
 
 def test_a_change_of_the_last_block_id_with_the_same_number_of_blocks_gives_a_new_index():

@@ -1,14 +1,14 @@
 import numpy as np
 import pypulseq as pp
 import pytest
-from asserts import assert_levels_equal
+from pns_hardware import NOT_A_PAIR
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from synthetic import EXAMPLE_HW, GAMMA_1H, SYSTEM, block_pulse, empty_sequence, spin_echo_sequence
 
 from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
-from pulseq_analysis.asc import hardware_name, read_gradient_asc
+from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
 from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.pns_levels import NO_GRADIENTS
 
@@ -31,7 +31,6 @@ def test_example_hardware_for_spin_echo(example, default_seq):
     ref = pns_levels_module.pns_levels(default_seq, hardware=EXAMPLE_HW)
     assert example.reason is None
     assert example.hardware == EXAMPLE_HW[1]
-    assert example.asc_file is None
     assert list(example.axis_peaks_hz_per_t) == ["x", "y", "z"]
     assert 0 < example.peak_hz_per_t < _LIMIT
     peaks = example.axis_peaks_hz_per_t
@@ -43,10 +42,9 @@ def test_example_hardware_for_spin_echo(example, default_seq):
 
 def test_asc_file_with_the_example_parameters(default_seq, example, write_gradient_asc):
     path = write_gradient_asc()
-    p = pns_levels_for(default_seq, gradient_asc=path)
+    p = pns_levels_for(default_seq, hardware=hardware_from_asc(path))
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
-    assert p.asc_file == path.name
     assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
     assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
     for axis in "xyz":
@@ -57,10 +55,9 @@ def test_asc_file_with_the_example_parameters(default_seq, example, write_gradie
 
 def test_asc_file_that_includes_the_pns_parameters(default_seq, example, write_gradient_asc):
     path = write_gradient_asc(split=True)
-    p = pns_levels_for(default_seq, gradient_asc=path)
+    p = pns_levels_for(default_seq, hardware=hardware_from_asc(path))
     assert p.reason is None
     assert p.hardware == "MP_GPA_TEST"
-    assert p.asc_file == path.name
     assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
     assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
     for axis in "xyz":
@@ -91,7 +88,7 @@ def test_hardware_name():
 
 
 def test_prediction_scales_with_the_stimulation_limit(default_seq, example, write_gradient_asc):
-    p = pns_levels_for(default_seq, gradient_asc=write_gradient_asc(limit_scale=0.1))
+    p = pns_levels_for(default_seq, hardware=hardware_from_asc(write_gradient_asc(limit_scale=0.1)))
     assert p.peak_hz_per_t == pytest.approx(10 * example.peak_hz_per_t, rel=1e-9)
     assert p.peak_hz_per_t > _LIMIT
 
@@ -184,21 +181,21 @@ def _count_pns_levels_calls(monkeypatch) -> list:
 
 
 def test_pns_levels_for_keeps_one_result_for_each_asc_file(monkeypatch, write_gradient_asc):
-    """`pns_levels_for` keeps one result for each (sequence, gradient .asc file): the same
-    file is cached, a different file computes once, and going back to the first file does
-    not compute again (a, a, b, a gives 2 calls)."""
+    """`pns_levels_for` keeps one result for each (sequence, `hardware_from_asc` of a
+    gradient .asc file): the same file is cached, a different file computes once, and going
+    back to the first file does not compute again (a, a, b, a gives 2 calls)."""
     calls = _count_pns_levels_calls(monkeypatch)
     seq = spin_echo_sequence()
-    path_a = write_gradient_asc(name="MP_GPA_A")
-    path_b = write_gradient_asc(name="MP_GPA_B")
+    hardware_a = hardware_from_asc(write_gradient_asc(name="MP_GPA_A"))
+    hardware_b = hardware_from_asc(write_gradient_asc(name="MP_GPA_B"))
 
-    pns_levels_for(seq, gradient_asc=path_a)
+    pns_levels_for(seq, hardware=hardware_a)
     assert len(calls) == 1
-    pns_levels_for(seq, gradient_asc=path_a)  # same sequence, same file: cached
+    pns_levels_for(seq, hardware=hardware_a)  # same sequence, same hardware: cached
     assert len(calls) == 1
-    pns_levels_for(seq, gradient_asc=path_b)  # a different file: computes
+    pns_levels_for(seq, hardware=hardware_b)  # a different hardware: computes
     assert len(calls) == 2
-    pns_levels_for(seq, gradient_asc=path_a)  # back to path_a: cached
+    pns_levels_for(seq, hardware=hardware_a)  # back to hardware_a: cached
     assert len(calls) == 2
 
 
@@ -206,44 +203,32 @@ def test_pns_levels_for_alternating_two_hardwares_runs_the_model_two_times(
     monkeypatch, write_gradient_asc
 ):
     """Two keys alternated (a, b, a, b) run the model two times, not four: the example
-    hardware (a pair) and a file are two hardwares of one sequence."""
+    hardware and the pair of a file are two hardwares of one sequence."""
     calls = _count_pns_levels_calls(monkeypatch)
     seq = spin_echo_sequence()
-    path = write_gradient_asc()
+    from_file = hardware_from_asc(write_gradient_asc())
 
-    for kwargs in ({"hardware": EXAMPLE_HW}, {"gradient_asc": path}) * 2:
-        pns_levels_for(seq, **kwargs)
+    for hardware in (EXAMPLE_HW, from_file) * 2:
+        pns_levels_for(seq, hardware=hardware)
     assert len(calls) == 2
 
 
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
-def test_pns_levels_for_hardware_from_an_asc_file_gives_the_levels_of_the_file(
-    write_gradient_asc, split
-):
-    """`pns_levels_for` with `hardware=(asc_to_hw(read_gradient_asc(path)), label)` gives the
-    levels of `gradient_asc=path`, except the hardware name (the label) and `asc_file`
-    (None), for the plain layout and for the layout of a scanner file."""
-    seq = spin_echo_sequence()
+def test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file(write_gradient_asc, split):
+    """`hardware_from_asc(path)` is the pair `(asc_to_hw(asc), hardware_name(asc))` of
+    `asc = read_gradient_asc(path)`, field by field, for the plain layout and for the layout
+    of a scanner file (a main file that includes the PNS parameters with `$INCLUDE`)."""
     path = write_gradient_asc(split=split)
-    from_file = pns_levels_for(seq, gradient_asc=path)
-    levels = pns_levels_for(seq, hardware=(asc_to_hw(read_gradient_asc(path)), "LABEL"))
-    assert from_file.asc_file == path.name
-    assert levels.hardware == "LABEL"
-    assert levels.asc_file is None
-    assert_levels_equal(levels, from_file, ignore=("hardware", "asc_file"))
+    asc = read_gradient_asc(path)
+    expected = asc_to_hw(asc)
 
-
-def test_pns_levels_for_refuses_both_gradient_asc_and_hardware(monkeypatch, write_gradient_asc):
-    """`pns_levels_for` with `gradient_asc` and `hardware` together raises `ValueError`,
-    and does not run the SAFE model."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    with pytest.raises(ValueError, match="not both"):
-        pns_levels_for(
-            spin_echo_sequence(),
-            gradient_asc=write_gradient_asc(),
-            hardware=(safe_example_hw(), "LABEL"),
-        )
-    assert calls == []
+    hardware = hardware_from_asc(path)
+    assert isinstance(hardware, tuple)
+    struct, label = hardware
+    assert label == hardware_name(asc) == "MP_GPA_TEST"
+    assert vars(struct).keys() == vars(expected).keys()
+    for axis in "xyz":
+        assert vars(getattr(struct, axis)) == vars(getattr(expected, axis))
 
 
 def test_pns_levels_for_keeps_one_result_for_equal_hardware_pairs(monkeypatch):
@@ -280,36 +265,65 @@ def test_pns_levels_for_computes_again_for_another_label_or_value(monkeypatch):
     assert len(calls) == 3
 
 
-def test_pns_levels_for_hardware_pair_is_not_a_file(monkeypatch, write_gradient_asc):
-    """A `hardware` pair is its own key: a `.asc` file and a pair with the values and the
-    hardware name of that file are two hardwares of one sequence, and with the example pair
-    (`EXAMPLE_HW`) they are three, and each runs the model one time."""
+def test_pns_levels_for_keys_a_hardware_from_an_asc_file_by_its_label_and_values(
+    monkeypatch, write_gradient_asc
+):
+    """The key of a pair from a file is its label and its values, as for any pair: the
+    pair of `hardware_from_asc`, a pair made again by hand from the same file, and a pair
+    from the file read again are one hardware; the same values with another label are
+    another, and so is `EXAMPLE_HW` (the same values, another label). Each of the two
+    hardwares runs the model one time, in two rounds."""
     calls = _count_pns_levels_calls(monkeypatch)
     seq = spin_echo_sequence()
     path = write_gradient_asc()
-    values = asc_to_hw(read_gradient_asc(path))
-    name = pns_levels_for(seq, gradient_asc=path).hardware
+    asc = read_gradient_asc(path)
+    from_file = hardware_from_asc(path)
+    relabelled = (from_file[0], "OTHER")
+
+    first = pns_levels_for(seq, hardware=from_file)
+    assert len(calls) == 1
+    for _ in range(2):
+        assert pns_levels_for(seq, hardware=hardware_from_asc(path)) is first
+        assert pns_levels_for(seq, hardware=(asc_to_hw(asc), hardware_name(asc))) is first
     assert len(calls) == 1
 
     for _ in range(2):
+        pns_levels_for(seq, hardware=relabelled)
         pns_levels_for(seq, hardware=EXAMPLE_HW)
-        pns_levels_for(seq, gradient_asc=path)
-        pns_levels_for(seq, hardware=(values, name))
     assert len(calls) == 3
 
 
-def test_pns_levels_for_needs_gradient_asc_or_hardware(monkeypatch):
-    """`pns_levels_for` with neither `gradient_asc` nor `hardware` raises `ValueError`, before
-    the sequence is read: the functions that read the rotations and the block table of the
-    sequence are replaced by ones that fail, and the error is still the `ValueError`."""
+def test_pns_levels_for_needs_hardware(monkeypatch):
+    """`pns_levels_for` without `hardware` raises `TypeError` ("hardware"), before the
+    sequence is read: the functions that read the rotations and the block table of the
+    sequence are replaced by ones that fail, and the error is still the `TypeError`."""
 
     def fail(*args, **kwargs):
         raise RuntimeError("the sequence was read")
 
     monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(ValueError, match="give gradient_asc or hardware"):
-        pns_levels_for(spin_echo_sequence())
+    with pytest.raises(TypeError, match="hardware"):
+        pns_levels_for(spin_echo_sequence())  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("hardware", NOT_A_PAIR)
+def test_pns_levels_for_refuses_a_hardware_that_is_not_a_pair_before_any_work(
+    monkeypatch, hardware
+):
+    """`pns_levels_for` with a `hardware` that is not a tuple of two items with a `str`
+    second item raises `TypeError` ("hardware"), before the sequence is read and before the
+    kept results are touched: the functions that read the sequence and `kept_results` are
+    replaced by ones that fail, and the error is still the `TypeError`."""
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("the sequence or the kept results were read")
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    monkeypatch.setattr(pns, "kept_results", fail)
+    with pytest.raises(TypeError, match="hardware"):
+        pns_levels_for(spin_echo_sequence(), hardware=hardware)
 
 
 def test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):
