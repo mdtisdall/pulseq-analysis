@@ -21,12 +21,12 @@ with one ID, an entry point that cannot load, and an object with no `spec.id` ra
 The analyses of this package:
 
 - `seq.index` (`SEQ_INDEX`): `seq_index.sequence_index`, no parameters, no series.
-- `gradient.limits` (`GRADIENT_LIMITS`): `grad_limits.gradient_limits`, the parameter
-  `gamma`, no series.
-- `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_limits.block_gradient_values`, the parameter
-  `gamma`, no series.
+- `gradient.limits` (`GRADIENT_LIMITS`): `grad_limits.gradient_limits`, no parameters, no
+  series.
+- `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_limits.block_gradient_values`, no parameters,
+  no series.
 - `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` and
-  `thresholds`, and the series of the level and of the runs above each threshold.
+  `thresholds_hz_per_t`, and the series of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
   parameters, and the series of the spectrum.
 
@@ -49,9 +49,8 @@ from .grad_limits import BlockGradientValues, GradientLimits, block_gradient_val
 from .grad_spectrum import NO_GRADIENTS as NO_SPECTRUM_GRADIENTS
 from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
 from .pns import pns_levels_for
-from .pns_levels import NO_GRADIENTS, PNS_LIMIT, PnsLevels
+from .pns_levels import NO_GRADIENTS, PnsLevels
 from .seq_index import SequenceIndex, sequence_index
-from .seq_utils import GAMMA
 from .series import Series, SeriesKind
 
 GROUP = "pulseq_analysis.analyses"
@@ -125,25 +124,26 @@ class _GradientLimits:
         title="Gradient limits",
         description=(
             "A `GradientLimits`: for each logical axis (x, y, z) of the whole sequence, the "
-            "largest absolute amplitude (mT/m), the largest slew (T/m/s) and the RMS "
-            "amplitude (mT/m), each with its block ID and its time (seconds from the start "
+            "largest absolute amplitude (Hz/m), the largest slew (Hz/m/s) and the RMS "
+            "amplitude (Hz/m), each with its block ID and its time (seconds from the start "
             "of the sequence), and the largest magnitude of the three-axis vector. The slew "
             "is the largest of the slope of each straight line of each event and the step "
             "at each block junction, divided by the gradient raster of the file. When "
             "several blocks have the largest value, the first in play order gets it. The "
             "values are of the logical axes of the file, not of the axes of a scanner, and "
-            "they are not compared with a limit. `gamma` (Hz/T) converts the values from "
-            "Hz/m. A sequence with the rotation extension raises `NotImplementedError`."
+            "they are not compared with a limit. The values are in the units of pypulseq, "
+            "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
+            "T/m/s. A sequence with the rotation extension raises `NotImplementedError`."
         ),
-        params=("gamma",),
+        params=(),
         rasters=_GRADIENT_RASTERS,
         cost="fast",
         series=None,
     )
 
-    def compute(self, seq: pp.Sequence, *, gamma: float = GAMMA) -> GradientLimits:
-        """`grad_limits.gradient_limits(seq, gamma=gamma)`."""
-        return gradient_limits(seq, gamma=gamma)
+    def compute(self, seq: pp.Sequence) -> GradientLimits:
+        """`grad_limits.gradient_limits(seq)`."""
+        return gradient_limits(seq)
 
     def to_series(self, value: GradientLimits) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""
@@ -158,24 +158,25 @@ class _GradientBlocks:
         description=(
             "A `BlockGradientValues`: the values of `gradient.limits` for each block, in "
             "play order, not only the largest. For each logical axis (x, y, z) it gives the "
-            "largest absolute amplitude (mT/m) of the event of the block and its time, the "
-            "largest slope (T/m/s) of a line of that event and the start of that line, and "
-            "the junction step (T/m/s) at the start of the block. It also gives the largest "
+            "largest absolute amplitude (Hz/m) of the event of the block and its time, the "
+            "largest slope (Hz/m/s) of a line of that event and the start of that line, and "
+            "the junction step (Hz/m/s) at the start of the block. It also gives the largest "
             "magnitude of the three-axis vector in the block and its first time. A block "
             "with no event on an axis has the peak and the slope 0 there, at the start of "
             "the block. The largest of each array is the value of `gradient.limits`. "
-            "`gamma` (Hz/T) converts the values from Hz/m. A sequence with the rotation "
+            "The values are in the units of pypulseq, with no gamma. Divide them by the "
+            "magnitude of gamma (Hz/T) to get T/m and T/m/s. A sequence with the rotation "
             "extension raises `NotImplementedError`."
         ),
-        params=("gamma",),
+        params=(),
         rasters=_GRADIENT_RASTERS,
         cost="fast",
         series=None,
     )
 
-    def compute(self, seq: pp.Sequence, *, gamma: float = GAMMA) -> BlockGradientValues:
-        """`grad_limits.block_gradient_values(seq, gamma=gamma)`."""
-        return block_gradient_values(seq, gamma=gamma)
+    def compute(self, seq: pp.Sequence) -> BlockGradientValues:
+        """`grad_limits.block_gradient_values(seq)`."""
+        return block_gradient_values(seq)
 
     def to_series(self, value: BlockGradientValues) -> tuple[Series, ...]:
         """`()`: this analysis has no series (a later version can give `POINTS` series)."""
@@ -190,39 +191,42 @@ class _PnsSafeLevels:
         description=(
             "A `PnsLevels`: the SAFE model of peripheral nerve stimulation (PNS) on the "
             "gradients of the sequence, with one sample of each axis for each gradient "
-            "raster time. A value is a fraction of the stimulation limit: 1 is 100 %. The "
-            "total of a sample is `sqrt(x^2 + y^2 + z^2)` of the three axis values, and "
-            "sample `k` is at the time `(k + 0.5) * dt_s`. The result has the peak total, "
-            "its time, the peak of each axis, the minimum and the maximum total of each bin "
-            "of `bin_samples` samples (float32, each total of a bin is in its range), and, "
-            "for each threshold, the runs of consecutive samples at or above it, in time "
-            "order. The tuple of a threshold is not empty if and only if the peak is at or "
-            "above it. `hardware` is a pair of a SAFE hardware struct and its name, or None "
-            "for the example hardware of pypulseq, which is not a real scanner. "
-            "`thresholds` is a tuple of finite numbers above 0, with no two equal, "
-            "and the default is `(1.0,)`. A sequence with no gradient event has no "
+            "raster time. A value is in Hz/T: the fraction of the stimulation limit times the "
+            "magnitude of gamma. Divide it by the magnitude of gamma (Hz/T) to get the "
+            "fraction (1 is 100 %). The total of a sample is `sqrt(x^2 + y^2 + z^2)` of the "
+            "three axis values, and sample `k` is at the time `(k + 0.5) * dt_s`. The result "
+            "has the peak total, its time, the peak of each axis, the minimum and the "
+            "maximum total of each bin of `bin_samples` samples (float32, each total of a "
+            "bin is in its range), and, for each threshold, the runs of consecutive samples "
+            "at or above it, in time order. The tuple of a threshold is not empty if and "
+            "only if the peak is at or above it. `hardware` is a pair of a SAFE hardware "
+            "struct and its name, or None for the example hardware of pypulseq, which is "
+            "not a real scanner. "
+            "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
+            "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
+            "default is `()`: no runs. A sequence with no gradient event has no "
             "prediction (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
             "result is kept for the sequence object, the hardware and the thresholds."
         ),
-        params=("hardware", "thresholds"),
+        params=("hardware", "thresholds_hz_per_t"),
         rasters=_GRADIENT_RASTERS,
         cost="slow",
         series=(
             "A sequence with no gradient event gives (). Else: "
-            '`pns_total`, ENVELOPE, unit "1", arrays `min` and `max` (float32: `level_min` '
-            'and `level_max`), `coord_unit` "s", `coord_start` 0, `coord_step` '
-            "`bin_samples * dt_s`, `coord_end` `num_samples * dt_s`, `meta` `hardware`, "
-            "`asc_file`, `dt_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, "
-            "`axis_peaks_x`, `axis_peaks_y` and `axis_peaks_z`. And one series for each "
-            "threshold, in the order of "
-            '`thresholds`: `pns_above_<t>`, with `<t>` the threshold as `f"{t:g}"` (for '
-            'example `pns_above_1`, `pns_above_0.8`), RUNS, unit "1", `coord_unit` "s", '
-            "arrays `start`, `end`, `num_samples` (int64), `peak` and `peak_time_s` "
-            "(float64), one entry for each run (the times of its first and last sample), "
-            "`meta` `threshold`. "
-            "Two thresholds with the same text of `:g` (for example 1.0000001 and "
-            "1.0000002) raise `ValueError` in `to_series`."
+            '`pns_total`, ENVELOPE, unit "Hz/T", arrays `min` and `max` (float32: '
+            '`level_min_hz_per_t` and `level_max_hz_per_t`), `coord_unit` "s", '
+            "`coord_start` 0, `coord_step` `bin_samples * dt_s`, `coord_end` "
+            "`num_samples * dt_s`, `meta` `hardware`, `asc_file`, `dt_s`, `bin_samples`, "
+            "`num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y` and "
+            "`axis_peaks_z`. And one series for each threshold, in the order of "
+            "`thresholds_hz_per_t`: `pns_above_<k>`, with `<k>` the position of the "
+            'threshold from 0 (`pns_above_0`, `pns_above_1`), RUNS, unit "Hz/T", '
+            '`coord_unit` "s", arrays `start`, `end`, `num_samples` (int64), `peak` and '
+            "`peak_time_s` (float64), one entry for each run (the times of its first and "
+            "last sample), `meta` `threshold` (the value in Hz/T). With no threshold, "
+            "`to_series` gives only `pns_total`. The values of `min`, `max`, `peak`, "
+            "`axis_peaks_<axis>` and `threshold` are in Hz/T."
         ),
     )
 
@@ -231,32 +235,25 @@ class _PnsSafeLevels:
         seq: pp.Sequence,
         *,
         hardware: tuple[SimpleNamespace, str] | None = None,
-        thresholds: tuple[float, ...] = (PNS_LIMIT,),
+        thresholds_hz_per_t: tuple[float, ...] = (),
     ) -> PnsLevels:
-        """`pns.pns_levels_for(seq, hardware=hardware, thresholds=thresholds)`: the kept
-        result for the sequence object, the hardware and the thresholds."""
-        return pns_levels_for(seq, hardware=hardware, thresholds=thresholds)
+        """`pns.pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)`:
+        the kept result for the sequence object, the hardware and the thresholds."""
+        return pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)
 
     def to_series(self, value: PnsLevels) -> tuple[Series, ...]:
         """The series of `spec.series`: the level of `value` (`pns_total`) and the runs
-        for each threshold of `value.above` (`pns_above_<t>`, `<t>` as `f"{t:g}"`), or `()`
-        for a result with `reason == NO_GRADIENTS`.
-
-        Raises ValueError when two thresholds have the same name with `:g` (for example
-        1.0000001 and 1.0000002), because two series would have one name."""
+        for each threshold of `value.above` (`pns_above_<k>`, `<k>` the position of the
+        threshold from 0), all in Hz/T. The result is `(pns_total,)` for a result with no
+        threshold, and `()` for a result with `reason == NO_GRADIENTS`."""
         if value.reason == NO_GRADIENTS:
             return ()
-        names = [f"pns_above_{t:g}" for t in value.above]
-        if len(set(names)) != len(names):
-            raise ValueError(
-                f"two thresholds of {list(value.above)!r} have the same series name: {names!r}"
-            )
 
         level = Series(
             name="pns_total",
             kind=SeriesKind.ENVELOPE,
-            unit="1",
-            arrays={"min": value.level_min, "max": value.level_max},
+            unit="Hz/T",
+            arrays={"min": value.level_min_hz_per_t, "max": value.level_max_hz_per_t},
             coord_unit="s",
             coord_start=0.0,
             coord_step=value.bin_samples * value.dt_s,
@@ -267,26 +264,26 @@ class _PnsSafeLevels:
                 "dt_s": value.dt_s,
                 "bin_samples": value.bin_samples,
                 "num_samples": value.num_samples,
-                "peak": value.peak,
+                "peak": value.peak_hz_per_t,
                 "peak_time_s": value.peak_time_s,
-                "axis_peaks_x": value.axis_peaks["x"],
-                "axis_peaks_y": value.axis_peaks["y"],
-                "axis_peaks_z": value.axis_peaks["z"],
+                "axis_peaks_x": value.axis_peaks_hz_per_t["x"],
+                "axis_peaks_y": value.axis_peaks_hz_per_t["y"],
+                "axis_peaks_z": value.axis_peaks_hz_per_t["z"],
             },
         )
         runs = []
-        for name, (threshold, intervals) in zip(names, value.above.items(), strict=True):
+        for k, (threshold, intervals) in enumerate(value.above.items()):
             runs.append(
                 Series(
-                    name=name,
+                    name=f"pns_above_{k}",
                     kind=SeriesKind.RUNS,
-                    unit="1",
+                    unit="Hz/T",
                     coord_unit="s",
                     arrays={
                         "start": np.array([i.start_s for i in intervals], dtype=np.float64),
                         "end": np.array([i.end_s for i in intervals], dtype=np.float64),
                         "num_samples": np.array([i.num_samples for i in intervals], dtype=np.int64),
-                        "peak": np.array([i.peak for i in intervals], dtype=np.float64),
+                        "peak": np.array([i.peak_hz_per_t for i in intervals], dtype=np.float64),
                         "peak_time_s": np.array(
                             [i.peak_time_s for i in intervals], dtype=np.float64
                         ),
@@ -311,7 +308,7 @@ class _GradientSpectrum:
             "x, y, z) and `rss`, the root-sum-of-squares of the three axes in each window, "
             "then the maximum over windows. The values are in Hz/m/sqrt(Hz), the unit of "
             "the gradients of a `.seq` file, with no gamma. To get mT/m/sqrt(Hz), multiply "
-            "them by 1e3 / gamma, with gamma in Hz/T. A sequence with no gradient event has "
+            "them by 1e3 / abs(gamma), with gamma in Hz/T. A sequence with no gradient event has "
             "no spectrum (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
             "result is kept for the sequence object. This analysis has no parameters and "

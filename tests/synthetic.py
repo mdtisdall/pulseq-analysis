@@ -5,7 +5,9 @@ import math
 import numpy as np
 import pypulseq as pp
 
-from pulseq_analysis.seq_utils import GAMMA
+# The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
+# gamma: the tests use this value to convert its values to tesla.
+GAMMA_1H = 42.576e6
 
 SYSTEM = pp.Opts(
     max_grad=28,
@@ -154,8 +156,8 @@ def raster_4us_sequence() -> pp.Sequence:
         slew_unit="T/m/s",
         grad_raster_time=RASTER_4US,
     )
-    top = 16e-3 * GAMMA  # Hz/m
-    start = 15.76e-3 * GAMMA  # Hz/m
+    top = 16e-3 * GAMMA_1H  # Hz/m
+    start = 15.76e-3 * GAMMA_1H  # Hz/m
     seq = pp.Sequence(system)
     seq.add_block(
         pp.make_extended_trapezoid(

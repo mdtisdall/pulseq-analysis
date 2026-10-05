@@ -13,19 +13,19 @@ grow with the length of the sequence. Each chunk starts at a multiple of the hop
 overlaps the next chunk by one window less one hop, so the chunks give the same windows
 as one spectrogram of the whole padded waveform.
 
-The spectrum is in Hz/m/sqrt(Hz), the unit of the gradients of a .seq file. A change to
-T/m needs gamma, the gyromagnetic ratio of the nucleus that the scanner images. The .seq
-file does not give gamma: it is data of the target, not of the sequence. Thus the
-spectrum depends only on the sequence.
+The spectrum is in Hz/m/sqrt(Hz), the unit of the gradients of a .seq file, with no
+gamma. A change to T/m needs gamma, the gyromagnetic ratio of the nucleus that the scanner
+images. The .seq file does not give gamma: it is data of the target, not of the sequence.
+Thus the spectrum depends only on the sequence.
 
-To get mT/m/sqrt(Hz) for a gamma in Hz/T, multiply each value by `1e3 / gamma`. For 1H,
-gamma is 42.576 MHz/T (`seq_utils.GAMMA`), and 1 Hz/m/sqrt(Hz) is 2.3487e-5
-mT/m/sqrt(Hz). The conversion is exact to the float rounding, because each step of the
-method changes in proportion to a positive scale of the waveform: the constant detrend,
-the Hann window, the magnitude of the FFT, the maximum over windows and the
-root-sum-of-squares of the three axes. This includes the RSS spectrum.
+To get mT/m/sqrt(Hz) for a gamma in Hz/T, multiply each value by `1e3 / abs(gamma)`. For
+1H, gamma is 42.576 MHz/T, and 1 Hz/m/sqrt(Hz) is 2.3487e-5 mT/m/sqrt(Hz). The
+conversion is exact to the float rounding, because each step of the method changes in
+proportion to a positive scale of the waveform: the constant detrend, the Hann window,
+the magnitude of the FFT, the maximum over windows and the root-sum-of-squares of the
+three axes. This includes the RSS spectrum.
 
-`gradient.limits` and `gradient.blocks` take `gamma` and give mT/m. The spectrum does not.
+`docs/usage.md` section 8 gives the rule for all the values of the package.
 """
 
 import math
@@ -53,7 +53,7 @@ NO_GRADIENTS = "no gradients"
 class GradientSpectrum:
     """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, so that
     the callers of `gradient_spectrum_for` can share one result: convert to a new array
-    (`s.rss * 1e3 / gamma`), not in place."""
+    (`s.rss * 1e3 / abs(gamma)`), not in place."""
 
     reason: str | None  # why there is no spectrum, or None
     frequency_hz: np.ndarray  # float64, F: 0 up to max_frequency_hz

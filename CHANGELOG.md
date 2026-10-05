@@ -5,22 +5,96 @@ follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## 0.1.0rc5 (2026-10-04)
 
-The fifth release candidate: read-only arrays in `PnsLevels`, an item of
-section 9 of `docs/plans/gradient-spectrum.md`. `pns_levels_for` gives its
-kept result to each caller, as `gradient_spectrum_for` does (decision L12 of
-that plan).
+The fifth release candidate: values with no gamma
+(`docs/plans/gamma-free-units.md`), and read-only arrays in `PnsLevels`, an
+item of section 9 of `docs/plans/gradient-spectrum.md`. `pns_levels_for` gives
+its kept result to each caller, as `gradient_spectrum_for` does (decision L12
+of that plan). No value of the package uses a gamma now. Section 8 of
+`docs/usage.md` gives the conversion.
 
 ### Changed
 
-- `level_min` and `level_max` of a `PnsLevels` are read-only, also for
-  `NO_GRADIENTS` and also in the result of `pns_levels`. A change in place
-  (for example `levels.level_max *= 100`) raises `ValueError`. Convert to a
-  new array (`levels.level_max * 100`).
+- **The units.** Each value is in a unit that needs no gamma:
+
+  | Values | `0.1.0rc4` | `0.1.0rc5` |
+  |---|---|---|
+  | `grad_limits`: amplitudes and RMS | mT/m, with the argument `gamma` (default `seq_utils.GAMMA`) | Hz/m |
+  | `grad_limits`: slew rates and junction steps | T/m/s, with the argument `gamma` | Hz/m/s |
+  | `pns_levels` and `pns`: PNS values | a fraction of the stimulation limit, with `seq.system.gamma` | Hz/T: the fraction times \|γ\| |
+  | `pns_levels`: thresholds (an input) | a fraction | Hz/T |
+  | `grad_spectrum` | Hz/m/√Hz | no change |
+
+  The measurements do not change. Only the last division by a gamma goes
+  away. The PNS model does not use `seq.system.gamma` any more: it runs on the
+  Hz/m samples. The rule for the caller is the same for every value: divide
+  the value by |γ| in Hz/T to get the unit with tesla. The result is the old
+  value for that gamma, to the float rounding. pypulseq's
+  `seq.calculate_pns` still divides by `seq.system.gamma`, so it gives
+  fractions.
+- **The names of `grad_limits`.** Only the unit part of a name changes. The
+  field order does not change.
+
+  | `0.1.0rc4` | `0.1.0rc5` |
+  |---|---|
+  | `AxisResult.peak_mt_per_m` | `AxisResult.peak_hz_per_m` |
+  | `AxisResult.max_slew_t_per_m_per_s` | `AxisResult.max_slew_hz_per_m_per_s` |
+  | `AxisResult.rms_mt_per_m` | `AxisResult.rms_hz_per_m` |
+  | `GradientLimits.vector_peak_mt_per_m` | `GradientLimits.vector_peak_hz_per_m` |
+  | `GradientLimits.whole_rms_mt_per_m` | `GradientLimits.whole_rms_hz_per_m` |
+  | `BlockGradientValues.peak_mt_per_m` | `BlockGradientValues.peak_hz_per_m` |
+  | `BlockGradientValues.slew_t_per_m_per_s` | `BlockGradientValues.slew_hz_per_m_per_s` |
+  | `BlockGradientValues.junction_t_per_m_per_s` | `BlockGradientValues.junction_hz_per_m_per_s` |
+  | `BlockGradientValues.vector_peak_mt_per_m` | `BlockGradientValues.vector_peak_hz_per_m` |
+  | `gradient_limits(seq, *, window=None, gamma=GAMMA)` | `gradient_limits(seq, *, window=None)` |
+  | `block_gradient_values(seq, *, gamma=GAMMA)` | `block_gradient_values(seq)` |
+
+- **The names of `pns_levels` and `pns`.** The fields get the unit of the
+  new value, and the argument `thresholds` becomes `thresholds_hz_per_t`. The
+  other fields keep their names. The keys of `above` are the Hz/T thresholds.
+
+  | `0.1.0rc4` | `0.1.0rc5` |
+  |---|---|
+  | `PnsLevels.level_min`, `PnsLevels.level_max` | `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t` |
+  | `PnsLevels.peak` | `PnsLevels.peak_hz_per_t` |
+  | `PnsLevels.axis_peaks` | `PnsLevels.axis_peaks_hz_per_t` |
+  | `PnsInterval.peak` | `PnsInterval.peak_hz_per_t` |
+  | `PnsPrediction.peak` | `PnsPrediction.peak_hz_per_t` |
+  | `PnsPrediction.axis_peaks` | `PnsPrediction.axis_peaks_hz_per_t` |
+  | the argument `thresholds=(PNS_LIMIT,)` of `pns_levels` and `pns_levels_for` | the argument `thresholds_hz_per_t=()` |
+
+  The default of `thresholds_hz_per_t` is `()`. An empty tuple is valid and
+  gives `above == {}`. The other rules of a threshold do not change. For a
+  fraction f of the stimulation limit, give `f * abs(gamma)`. `PNS_LIMIT`
+  stays 1.0, the limit as a fraction. It is not a default any more.
+- **The analyses.** `gradient.limits` and `gradient.blocks` have no
+  parameters. The parameters of `pns.safe.levels` are `hardware` and
+  `thresholds_hz_per_t` (defaults `None` and `()`). The descriptions of the
+  three analyses give the new units.
+- **The series of `pns.safe.levels`.** The series `pns_total` and
+  `pns_above_<k>` have the unit `"Hz/T"`. `<k>` is the position of the
+  threshold in `thresholds_hz_per_t`, from 0: the names were `pns_above_<t>`,
+  with `f"{t:g}"` of the threshold. The arrays and the `meta` keys keep their
+  names, and their values are in Hz/T. `meta["threshold"]` gives the
+  threshold. With no thresholds, `to_series` gives only `pns_total`.
+- `level_min_hz_per_t` and `level_max_hz_per_t` of a `PnsLevels` are
+  read-only, also for `NO_GRADIENTS` and also in the result of `pns_levels`. A
+  change in place (for example `levels.level_max_hz_per_t *= 100`) raises
+  `ValueError`. Convert to a new array
+  (`levels.level_max_hz_per_t / abs(gamma) * 100`).
 - The documents say that a caller must not change the dicts `hw`,
-  `axis_peaks` and `above`. Before, they said this only for `above`. The
-  dicts stay plain dicts.
-- The specification version of `pns.safe.levels` stays 1. Its series do not
-  change: a `Series` keeps its own read-only copy of each array.
+  `axis_peaks_hz_per_t` and `above`. Before, they said this only for `above`.
+  The dicts stay plain dicts.
+- Each specification version stays 1 (decision L3 of the plan). In the
+  release candidates, an incompatible change edits version 1.
+
+### Removed
+
+- `seq_utils.GAMMA`. The package has no gamma value.
+- The argument `gamma` of `gradient_limits` and `block_gradient_values`, and
+  the parameter `gamma` of `gradient.limits` and `gradient.blocks`. A call of
+  either function with `gamma=` raises `TypeError`.
+- The `ValueError` of `to_series` of `pns.safe.levels` for two thresholds
+  with one series name. The names are by position, so no two are equal.
 
 ## 0.1.0rc4 (2026-10-04)
 

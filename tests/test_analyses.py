@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
-from synthetic import empty_sequence, gre_sequence, spin_echo_sequence
+from synthetic import GAMMA_1H, empty_sequence, gre_sequence, spin_echo_sequence
 
 from pulseq_analysis.analyses import (
     GRADIENT_BLOCKS,
@@ -36,17 +36,17 @@ from pulseq_analysis.grad_spectrum import (
 from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.pns_levels import PNS_LIMIT, pns_levels
 from pulseq_analysis.seq_index import sequence_index
-from pulseq_analysis.seq_utils import GAMMA
 from pulseq_analysis.series import Series, SeriesKind
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
+_LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
 
 # The specification of each analysis of the package: the ID, `params`, `rasters` and `cost`.
 _SPECS = [
     (SEQ_INDEX, "seq.index", (), (), "fast"),
-    (GRADIENT_LIMITS, "gradient.limits", ("gamma",), _RASTERS, "fast"),
-    (GRADIENT_BLOCKS, "gradient.blocks", ("gamma",), _RASTERS, "fast"),
-    (PNS_SAFE_LEVELS, "pns.safe.levels", ("hardware", "thresholds"), _RASTERS, "slow"),
+    (GRADIENT_LIMITS, "gradient.limits", (), _RASTERS, "fast"),
+    (GRADIENT_BLOCKS, "gradient.blocks", (), _RASTERS, "fast"),
+    (PNS_SAFE_LEVELS, "pns.safe.levels", ("hardware", "thresholds_hz_per_t"), _RASTERS, "slow"),
     (GRADIENT_SPECTRUM, "gradient.spectrum", (), _RASTERS, "slow"),
 ]
 
@@ -83,11 +83,11 @@ def _analysis(analysis_id):
 
 
 def _hardware_for_peak(seq, peak):
-    """Hardware with which `seq` has the peak `peak` (up to float rounding): the stimulation
-    limit of the example hardware is multiplied by the peak of the example hardware divided
-    by `peak`."""
+    """Hardware with which `seq` has the peak `peak` (up to float rounding), a fraction of the
+    limit: the stimulation limit of the example hardware is multiplied by the peak of the
+    example hardware (Hz/T) divided by `peak * _LIMIT`."""
     hw = safe_example_hw()
-    factor = pns_levels(seq).peak / peak
+    factor = pns_levels(seq).peak_hz_per_t / (peak * _LIMIT)
     for axis in "xyz":
         getattr(hw, axis).stim_limit *= factor
     return hw, "SCALED"
@@ -197,9 +197,9 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
     ("analysis", "defaults"),
     [
         (SEQ_INDEX, {}),
-        (GRADIENT_LIMITS, {"gamma": GAMMA}),
-        (GRADIENT_BLOCKS, {"gamma": GAMMA}),
-        (PNS_SAFE_LEVELS, {"hardware": None, "thresholds": (PNS_LIMIT,)}),
+        (GRADIENT_LIMITS, {}),
+        (GRADIENT_BLOCKS, {}),
+        (PNS_SAFE_LEVELS, {"hardware": None, "thresholds_hz_per_t": ()}),
         (GRADIENT_SPECTRUM, {}),
     ],
     ids=["seq.index", "gradient.limits", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
@@ -223,55 +223,57 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
     """`compute` of each analysis gives the value of the function that it calls, with the
     default arguments and with others: the same object for `seq.index`, `pns.safe.levels` and
     `gradient.spectrum` (all keep their result for the sequence object), an equal value for
-    the gradient analyses."""
+    the gradient analyses (which have no other arguments)."""
     seq = gre_sequence(num_trs=4)
     hardware = _hardware_for_peak(seq, 1.5)
 
     assert SEQ_INDEX.compute(seq) is sequence_index(seq)
-    for gamma in (GAMMA, 40e6):
-        kwargs = {} if gamma == GAMMA else {"gamma": gamma}
-        assert GRADIENT_LIMITS.compute(seq, **kwargs) == gradient_limits(seq, gamma=gamma)
-        got = GRADIENT_BLOCKS.compute(seq, **kwargs)
-        expected = block_gradient_values(seq, gamma=gamma)
-        assert np.array_equal(got.block_id, expected.block_id)
-        assert np.array_equal(got.start_s, expected.start_s)
-        assert np.array_equal(got.vector_peak_mt_per_m, expected.vector_peak_mt_per_m)
-        assert np.array_equal(got.vector_peak_time_s, expected.vector_peak_time_s)
-        for name in (
-            "peak_mt_per_m",
-            "peak_time_s",
-            "slew_t_per_m_per_s",
-            "slew_time_s",
-            "junction_t_per_m_per_s",
-        ):
-            for axis in "xyz":
-                assert np.array_equal(getattr(got, name)[axis], getattr(expected, name)[axis])
+    assert GRADIENT_LIMITS.compute(seq) == gradient_limits(seq)
+    got = GRADIENT_BLOCKS.compute(seq)
+    expected = block_gradient_values(seq)
+    assert np.array_equal(got.block_id, expected.block_id)
+    assert np.array_equal(got.start_s, expected.start_s)
+    assert np.array_equal(got.vector_peak_hz_per_m, expected.vector_peak_hz_per_m)
+    assert np.array_equal(got.vector_peak_time_s, expected.vector_peak_time_s)
+    for name in (
+        "peak_hz_per_m",
+        "peak_time_s",
+        "slew_hz_per_m_per_s",
+        "slew_time_s",
+        "junction_hz_per_m_per_s",
+    ):
+        for axis in "xyz":
+            assert np.array_equal(getattr(got, name)[axis], getattr(expected, name)[axis])
     assert PNS_SAFE_LEVELS.compute(seq) is pns_levels_for(seq)
-    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds=(1.0, 0.5)) is (
-        pns_levels_for(seq, hardware=hardware, thresholds=(1.0, 0.5))
+    thresholds = (_LIMIT, 0.5 * _LIMIT)
+    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=thresholds) is (
+        pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
     )
     assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware) is pns_levels_for(seq, hardware=hardware)
     assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum_for(seq)
 
 
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):
-    """For a sequence with runs above 1, `to_series` gives `pns_total` (an ENVELOPE of
-    `level_min` and `level_max` as they are, with the times and the `meta` of design 4.4)
-    and `pns_above_1` (a RUNS series of `above[1.0]`, in the array order of design 4.4)."""
+    """For a sequence with runs above the limit, `to_series` gives `pns_total` (an ENVELOPE of
+    `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times and the `meta`
+    of design 4.4) and `pns_above_0` (a RUNS series of `above[_LIMIT]`, in the array order of
+    design 4.4), each with the unit "Hz/T"."""
     seq = gre_sequence(num_trs=20)
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=_hardware_for_peak(seq, 1.5))
-    assert len(levels.above[1.0]) > 1
+    levels = PNS_SAFE_LEVELS.compute(
+        seq, hardware=_hardware_for_peak(seq, 1.5), thresholds_hz_per_t=(_LIMIT,)
+    )
+    assert len(levels.above[_LIMIT]) > 1
 
     total, above = PNS_SAFE_LEVELS.to_series(levels)
 
     assert total.name == "pns_total"
     assert total.kind is SeriesKind.ENVELOPE
-    assert total.unit == "1"
+    assert total.unit == "Hz/T"
     assert list(total.arrays) == ["min", "max"]
     assert total.arrays["min"].dtype == np.float32
     assert total.arrays["max"].dtype == np.float32
-    assert np.array_equal(total.arrays["min"], levels.level_min)
-    assert np.array_equal(total.arrays["max"], levels.level_max)
+    assert np.array_equal(total.arrays["min"], levels.level_min_hz_per_t)
+    assert np.array_equal(total.arrays["max"], levels.level_max_hz_per_t)
     assert total.coord_unit == "s"
     assert total.coord_start == 0.0
     assert total.coord_step == levels.bin_samples * levels.dt_s
@@ -282,31 +284,31 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
         "dt_s": levels.dt_s,
         "bin_samples": levels.bin_samples,
         "num_samples": levels.num_samples,
-        "peak": levels.peak,
+        "peak": levels.peak_hz_per_t,
         "peak_time_s": levels.peak_time_s,
-        "axis_peaks_x": levels.axis_peaks["x"],
-        "axis_peaks_y": levels.axis_peaks["y"],
-        "axis_peaks_z": levels.axis_peaks["z"],
+        "axis_peaks_x": levels.axis_peaks_hz_per_t["x"],
+        "axis_peaks_y": levels.axis_peaks_hz_per_t["y"],
+        "axis_peaks_z": levels.axis_peaks_hz_per_t["z"],
     }
 
-    intervals = levels.above[1.0]
-    assert above.name == "pns_above_1"
+    intervals = levels.above[_LIMIT]
+    assert above.name == "pns_above_0"
     assert above.kind is SeriesKind.RUNS
-    assert above.unit == "1"
+    assert above.unit == "Hz/T"
     assert above.coord_unit == "s"
     assert list(above.arrays) == ["start", "end", "num_samples", "peak", "peak_time_s"]
     assert above.arrays["num_samples"].dtype == np.int64
     expected = {
         "start": [i.start_s for i in intervals],
         "end": [i.end_s for i in intervals],
-        "peak": [i.peak for i in intervals],
+        "peak": [i.peak_hz_per_t for i in intervals],
         "peak_time_s": [i.peak_time_s for i in intervals],
     }
     for name, values in expected.items():
         assert above.arrays[name].dtype == np.float64
         assert above.arrays[name].tolist() == values
     assert above.arrays["num_samples"].tolist() == [i.num_samples for i in intervals]
-    assert above.meta == {"threshold": 1.0}
+    assert above.meta == {"threshold": _LIMIT}
 
     path = write_gradient_asc(name="MP_GPA_SERIES")
     from_file = PNS_SAFE_LEVELS.to_series(pns_levels(seq, gradient_asc=path))[0]
@@ -315,42 +317,34 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
 
 
 def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
-    """With `thresholds=(1.0, 0.5)`, `to_series` gives `pns_total`, `pns_above_1` and
-    `pns_above_0.5`, in this order, and the runs of each are `above` of its threshold (which
-    are not empty and not equal). With `(0.5, 1.0)` the two RUNS series swap."""
+    """With `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, `to_series` gives `pns_total`,
+    `pns_above_0` and `pns_above_1`, in this order, and the runs of each are `above` of its
+    threshold (which are not empty and not equal). With the thresholds swapped the names are
+    the same: the two RUNS series swap their runs and their `meta`."""
     seq = gre_sequence(num_trs=20)
     hardware = _hardware_for_peak(seq, 1.5)
+    high, low = _LIMIT, 0.5 * _LIMIT
 
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds=(1.0, 0.5))
+    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=(high, low))
     series = PNS_SAFE_LEVELS.to_series(levels)
 
-    assert [s.name for s in series] == ["pns_total", "pns_above_1", "pns_above_0.5"]
+    assert [s.name for s in series] == ["pns_total", "pns_above_0", "pns_above_1"]
     assert [s.kind for s in series] == [SeriesKind.ENVELOPE, SeriesKind.RUNS, SeriesKind.RUNS]
-    assert levels.above[1.0] and levels.above[0.5]
-    assert levels.above[1.0] != levels.above[0.5]
-    for s, threshold in zip(series[1:], (1.0, 0.5), strict=True):
+    assert levels.above[high] and levels.above[low]
+    assert levels.above[high] != levels.above[low]
+    for s, threshold in zip(series[1:], (high, low), strict=True):
         assert s.meta == {"threshold": threshold}
         assert s.coord_unit == "s"
         assert s.arrays["start"].tolist() == [i.start_s for i in levels.above[threshold]]
         assert s.arrays["end"].tolist() == [i.end_s for i in levels.above[threshold]]
-        assert s.arrays["peak"].tolist() == [i.peak for i in levels.above[threshold]]
+        assert s.arrays["peak"].tolist() == [i.peak_hz_per_t for i in levels.above[threshold]]
 
-    swapped = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds=(0.5, 1.0))
-    assert [s.name for s in PNS_SAFE_LEVELS.to_series(swapped)] == [
-        "pns_total",
-        "pns_above_0.5",
-        "pns_above_1",
-    ]
-
-
-def test_to_series_refuses_two_thresholds_with_one_series_name():
-    """The thresholds 1.0000001 and 1.0000002 are two keys of `above`, but both are
-    "pns_above_1" with `:g`, so `to_series` raises `ValueError`."""
-    levels = PNS_SAFE_LEVELS.compute(gre_sequence(num_trs=2), thresholds=(1.0000001, 1.0000002))
-    assert len(levels.above) == 2
-
-    with pytest.raises(ValueError, match="same series name"):
-        PNS_SAFE_LEVELS.to_series(levels)
+    swapped = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=(low, high))
+    swapped_series = PNS_SAFE_LEVELS.to_series(swapped)
+    assert [s.name for s in swapped_series] == ["pns_total", "pns_above_0", "pns_above_1"]
+    assert [s.meta for s in swapped_series[1:]] == [{"threshold": low}, {"threshold": high}]
+    assert swapped_series[1].arrays["start"].tolist() == series[2].arrays["start"].tolist()
+    assert swapped_series[2].arrays["start"].tolist() == series[1].arrays["start"].tolist()
 
 
 def test_the_pns_series_survive_the_json_round_trip():
@@ -358,7 +352,7 @@ def test_the_pns_series_survive_the_json_round_trip():
     that `Series.from_obj` reads from the strict JSON text of its `to_obj`."""
     seq = gre_sequence(num_trs=20)
     levels = PNS_SAFE_LEVELS.compute(
-        seq, hardware=_hardware_for_peak(seq, 1.5), thresholds=(1.0, 0.8)
+        seq, hardware=_hardware_for_peak(seq, 1.5), thresholds_hz_per_t=(_LIMIT, 0.8 * _LIMIT)
     )
 
     series = PNS_SAFE_LEVELS.to_series(levels)
@@ -370,13 +364,27 @@ def test_the_pns_series_survive_the_json_round_trip():
 
 def test_to_series_gives_nothing_for_a_sequence_without_gradients():
     """`pns.safe.levels` for `empty_sequence()` has `reason == NO_GRADIENTS`, and
-    `to_series` gives `()` for it, also with two thresholds."""
+    `to_series` gives `()` for it, also with one and with two thresholds."""
     seq = empty_sequence()
 
-    for thresholds in ((PNS_LIMIT,), (1.0, 0.5)):
-        levels = PNS_SAFE_LEVELS.compute(seq, thresholds=thresholds)
+    for thresholds in ((), (_LIMIT,), (_LIMIT, 0.5 * _LIMIT)):
+        levels = PNS_SAFE_LEVELS.compute(seq, thresholds_hz_per_t=thresholds)
         assert levels.reason is not None
         assert PNS_SAFE_LEVELS.to_series(levels) == ()
+
+
+def test_the_pns_series_without_thresholds_are_the_level_only():
+    """With the default thresholds (`()`), `to_series` gives one series, `pns_total`, with
+    the level of the same call."""
+    seq = gre_sequence(num_trs=4)
+    levels = PNS_SAFE_LEVELS.compute(seq, hardware=_hardware_for_peak(seq, 1.5))
+
+    series = PNS_SAFE_LEVELS.to_series(levels)
+
+    assert levels.above == {}
+    assert [s.name for s in series] == ["pns_total"]
+    assert series[0].kind is SeriesKind.ENVELOPE
+    assert np.array_equal(series[0].arrays["max"], levels.level_max_hz_per_t)
 
 
 def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():

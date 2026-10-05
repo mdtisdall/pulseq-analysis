@@ -16,7 +16,8 @@ The third, `0.1.0rc3`, gives each series a coordinate unit, so that a series
 can be in seconds or in hertz.
 The fourth, `0.1.0rc4`, adds the gradient spectrum and the analysis
 `gradient.spectrum`.
-The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only.
+The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only, and gives
+each value with no gamma, in the units of pypulseq.
 
 ## Install
 
@@ -40,14 +41,19 @@ import pypulseq as pp
 
 from pulseq_analysis.pns import pns_prediction
 
+gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
+
 seq = pp.Sequence()
 seq.read("sequence.seq")
 prediction = pns_prediction(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
-print(f"{prediction.peak:.0%} of the stimulation limit at {prediction.peak_time_s:.4f} s")
+fraction = prediction.peak_hz_per_t / abs(gamma)
+print(f"{fraction:.0%} of the stimulation limit at {prediction.peak_time_s:.4f} s")
 ```
 
 `gradient_asc` is the Siemens gradient `.asc` file of the scanner. Without
 it, the model uses pypulseq's example hardware, which is not a real scanner.
+The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
+fraction of the stimulation limit.
 [`docs/usage.md`](docs/usage.md) gives the other values and modules.
 
 ## Documents
