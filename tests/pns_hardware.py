@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pypulseq as pp
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
-from synthetic import GAMMA_1H
+from synthetic import EXAMPLE_HW, GAMMA_1H
 
 from pulseq_analysis.pns_levels import pns_levels
 
@@ -25,4 +25,4 @@ def hardware_for_peak(seq: pp.Sequence, peak: float) -> tuple[SimpleNamespace, s
     """Hardware with which `seq` has the peak `peak` (up to float rounding), a fraction of
     the limit: the peak of the example hardware (Hz/T) is divided by `peak` times the
     stimulation limit for 1H (Hz/T) to give the factor of the stimulation limit."""
-    return _scaled_hardware(pns_levels(seq).peak_hz_per_t / (peak * GAMMA_1H))
+    return _scaled_hardware(pns_levels(seq, hardware=EXAMPLE_HW).peak_hz_per_t / (peak * GAMMA_1H))

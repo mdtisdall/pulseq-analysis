@@ -1,14 +1,12 @@
 """The gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software)
 that the SAFE PNS model reads its hardware parameters from: `read_gradient_asc` and
-`hardware_name`, and the name of pypulseq's example hardware, which is used without a
-file (`pns_levels.pns_levels`)."""
+`hardware_name`."""
 
 import re
 from pathlib import Path
 
 from pypulseq.utils.siemens.readasc import readasc
 
-EXAMPLE_HARDWARE = "pypulseq example hardware (not a real scanner)"
 # A line that includes another .asc file, for example the _GSWD_SAFETY.asc file with the
 # SAFE PNS parameters.
 INCLUDE_LINE = re.compile(r'^\s*\$INCLUDE\s+"?([^"\s]+)"?\s*$')

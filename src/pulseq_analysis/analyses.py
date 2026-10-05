@@ -25,8 +25,9 @@ The analyses of this package:
   series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
-- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` and
-  `thresholds_hz_per_t`, and the series of the level and of the runs above each threshold.
+- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `gradient_asc`,
+  `hardware` and `thresholds_hz_per_t` (exactly one of the first two is necessary), and the
+  series of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
   parameters, and the series of the spectrum.
 
@@ -39,6 +40,7 @@ defaults, and its `compute` also gives the kept object.
 
 import importlib.metadata
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol
 
@@ -201,9 +203,12 @@ class _PnsSafeLevels:
             "maximum total of each bin of `bin_samples` samples (float32, each total of a "
             "bin is in its range), and, for each threshold, the runs of consecutive samples "
             "at or above it, in time order. The tuple of a threshold is not empty if and "
-            "only if the peak is at or above it. `hardware` is a pair of a SAFE hardware "
-            "struct and its name, or None for the example hardware of pypulseq, which is "
-            "not a real scanner. "
+            "only if the peak is at or above it. The hardware is necessary: exactly one of "
+            "`gradient_asc` (the path of a gradient .asc file) and `hardware` (a pair of a "
+            "SAFE hardware struct and its name). There is no default hardware; for "
+            "pypulseq's example hardware, which is not a real scanner, give "
+            '`hardware=(safe_example_hw(), "<a label>")`. Neither, or both, raises '
+            "`ValueError`. "
             "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
             "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
             "default is `()`: no runs. A sequence with no gradient event has no "
@@ -211,7 +216,7 @@ class _PnsSafeLevels:
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
             "result is kept for the sequence object, the hardware and the thresholds."
         ),
-        params=("hardware", "thresholds_hz_per_t"),
+        params=("gradient_asc", "hardware", "thresholds_hz_per_t"),
         rasters=_GRADIENT_RASTERS,
         cost="slow",
         series=(
@@ -236,12 +241,20 @@ class _PnsSafeLevels:
         self,
         seq: pp.Sequence,
         *,
+        gradient_asc: str | Path | None = None,
         hardware: tuple[SimpleNamespace, str] | None = None,
         thresholds_hz_per_t: tuple[float, ...] = (),
     ) -> PnsLevels:
-        """`pns.pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)`:
-        the kept result for the sequence object, the hardware and the thresholds."""
-        return pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)
+        """`pns.pns_levels_for(seq, gradient_asc=gradient_asc, hardware=hardware,
+        thresholds_hz_per_t=thresholds_hz_per_t)`: the kept result for the sequence object,
+        the hardware and the thresholds. Exactly one of `gradient_asc` and `hardware` is
+        necessary; neither, or both, raises ValueError before the sequence is read."""
+        return pns_levels_for(
+            seq,
+            gradient_asc=gradient_asc,
+            hardware=hardware,
+            thresholds_hz_per_t=thresholds_hz_per_t,
+        )
 
     def to_series(self, value: PnsLevels) -> tuple[Series, ...]:
         """The series of `spec.series`: the level of `value` (`pns_total`) and the runs

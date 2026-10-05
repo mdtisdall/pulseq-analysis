@@ -51,8 +51,11 @@ fraction = levels.peak_hz_per_t / abs(gamma)
 print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```
 
-`gradient_asc` is the Siemens gradient `.asc` file of the scanner. Without
-it, the model uses pypulseq's example hardware, which is not a real scanner.
+`gradient_asc` is the Siemens gradient `.asc` file of the scanner. The
+hardware is necessary: the model has no default. For pypulseq's example
+hardware, which is not a real scanner, pass
+`hardware=(safe_example_hw(), "a label")` instead of `gradient_asc`
+(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`).
 The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
 fraction of the stimulation limit.
 [`docs/usage.md`](docs/usage.md) gives the other values and modules.

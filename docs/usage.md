@@ -186,16 +186,19 @@ value that is not 0.
 `pns.pns_levels_for(seq, *, gradient_asc=None, hardware=None,
 thresholds_hz_per_t=()) -> PnsLevels` runs the SAFE model of the pinned
 pypulseq fork on the gradients of `seq`, and keeps the result for the sequence
-object, the hardware and the thresholds. The hardware is one of:
+object, the hardware and the thresholds. The hardware is necessary: give
+exactly one of these two arguments.
 
 - `hardware=(struct, label)`: a SAFE hardware struct in the form of
   pypulseq's `asc_to_hw`, and a name for it.
 - `gradient_asc`: the path of a Siemens gradient `.asc` file
   (`asc.read_gradient_asc`).
-- neither: pypulseq's example hardware, which is not a real scanner
-  (`asc.EXAMPLE_HARDWARE`).
 
-Both together raise `ValueError`. `thresholds_hz_per_t` is a tuple of the
+Neither, and both together, raise `ValueError`, before the sequence is read.
+There is no default hardware. For pypulseq's example hardware, which is not a
+real scanner, make the pair with `safe_example_hw()` (in
+`pypulseq.utils.safe_pns_prediction`):
+`hardware=(safe_example_hw(), "a label")`. `thresholds_hz_per_t` is a tuple of the
 totals, in Hz/T, whose runs `PnsLevels.above` gives. It can be empty. Each
 element is a finite `int` or `float` above 0 (not a `bool`), and no two are
 equal as floats. Else `ValueError`, before the sequence is read. The default
@@ -222,7 +225,7 @@ the output of the model for that axis, and the total of a sample is
 | Field | Meaning |
 |---|---|
 | `reason` | `pns_levels.NO_GRADIENTS` when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, the peaks are 0, `peak_time_s` is `None` and there are no bins and no intervals. |
-| `hardware`, `asc_file` | The name of the hardware, and the name of the `.asc` file or `None`. |
+| `hardware`, `asc_file` | The name of the hardware (in the `.asc` file, or the label of the `hardware` argument), and the name of the `.asc` file or `None` (for a `hardware` argument). |
 | `hw` | The SAFE parameters of each axis that the model used (a dict from `"x"`, `"y"` and `"z"` to a dict). |
 | `dt_s`, `num_samples` | The time step and the number of samples. |
 | `peak_hz_per_t` | The largest total, in Hz/T. The limit is `abs(gamma)`. |
@@ -243,7 +246,7 @@ from pulseq_analysis.pns import pns_levels_for
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
-levels = pns_levels_for(seq)
+levels = pns_levels_for(seq, gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc")
 level_max_percent = levels.level_max_hz_per_t / abs(gamma) * 100  # a new array
 ```
 
@@ -414,11 +417,13 @@ The analyses of this package (each `version` is 1):
 | `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | fast | `()` |
 | `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq)`, the whole file | none | fast | `()` |
 | `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | fast | `()` |
-| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)` | `hardware`, `thresholds_hz_per_t` | slow | below |
+| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, gradient_asc=gradient_asc, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)` | `gradient_asc`, `hardware`, `thresholds_hz_per_t` | slow | below |
 | `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum_for(seq)`, with the defaults | none | slow | below |
 
-The parameters have the defaults of the functions (`hardware=None`,
-`thresholds_hz_per_t=()`). No analysis has a gamma. All the analyses except
+The parameters have the defaults of the functions (`gradient_asc=None`,
+`hardware=None`, `thresholds_hz_per_t=()`), but `pns.safe.levels` needs exactly
+one of `gradient_asc` and `hardware`: neither, and both, raise `ValueError`,
+before the sequence is read. No analysis has a gamma. All the analyses except
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 
 `to_series` of `pns.safe.levels` gives `()` for a sequence with no gradient
@@ -468,7 +473,11 @@ from pulseq_analysis.analyses import registry
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
 analysis = registry()["pns.safe.levels"]
-levels = analysis.compute(seq, thresholds_hz_per_t=(abs(gamma), 0.8 * abs(gamma)))
+levels = analysis.compute(
+    seq,
+    gradient_asc="MP_GPA_K2309_2250V_951A_AS82.asc",
+    thresholds_hz_per_t=(abs(gamma), 0.8 * abs(gamma)),
+)
 series = analysis.to_series(levels)
 ```
 
@@ -617,10 +626,11 @@ limits = gradient_peaks(seq)
 peak_mt_per_m = limits.axes["x"].peak_hz_per_m / abs(gamma) * 1e3
 slew_t_per_m_per_s = limits.axes["x"].max_slew_hz_per_m_per_s / abs(gamma)
 
-fraction = pns_levels_for(seq).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
+asc = "MP_GPA_K2309_2250V_951A_AS82.asc"  # the gradient .asc file of the scanner
+fraction = pns_levels_for(seq, gradient_asc=asc).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
 
 limit_hz_per_t = abs(gamma)
-levels = pns_levels(seq, thresholds_hz_per_t=(limit_hz_per_t,))
+levels = pns_levels(seq, gradient_asc=asc, thresholds_hz_per_t=(limit_hz_per_t,))
 runs = levels.above[limit_hz_per_t]  # the runs at or above the limit
 ```
 

@@ -347,11 +347,12 @@ sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradie
 `seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
 `seq.system.gamma` before they compare it with `calc_pns`.
 
-`pns_levels` takes the hardware of the SAFE model from one of three sources: the
-example hardware (`safe_example_hw()`, with no argument), a gradient `.asc` file
-(`gradient_asc`), or a pair `(struct, label)` (`hardware`), where `struct` is a SAFE
-hardware struct in the form of pypulseq's `asc_to_hw`. The last tests of this section
-check the `hardware` keyword against the other two sources. They compare the results
+`pns_levels` takes the hardware of the SAFE model from one of two sources, and needs
+exactly one: a gradient `.asc` file (`gradient_asc`), or a pair `(struct, label)`
+(`hardware`), where `struct` is a SAFE hardware struct in the form of pypulseq's
+`asc_to_hw`. The tests give pypulseq's example hardware as the pair `EXAMPLE_HW` of
+`tests/synthetic.py` (`safe_example_hw()` and a label). The last tests of this section
+check the `hardware` keyword against a file and against `EXAMPLE_HW`. They compare the results
 exactly: the same struct values give the same float operations.
 
 #### `test_summary_matches_calculate_pns_within_the_fork_tolerance`
@@ -489,9 +490,9 @@ every field. The samples of a delay are 0 in both, so the totals are equal.
 
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
 stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no threshold (the
-default, so `above == {}`), and still the example hardware and its `hw` fields.
+default, so `above == {}`), and still the hardware of `EXAMPLE_HW` and its `hw` fields.
 
-**How:** `pns_levels(empty_sequence())`. Checks `reason`, `hardware`, `asc_file`,
+**How:** `pns_levels(empty_sequence(), hardware=EXAMPLE_HW)`. Checks `reason`, `hardware`, `asc_file`,
 the `(0,)` shape of `level_min_hz_per_t`/`level_max_hz_per_t`, `peak_hz_per_t == 0.0`,
 `peak_time_s is None`, `axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw`
 against the 8 kept fields of `safe_example_hw()`, and `above == {}`.
@@ -695,7 +696,7 @@ globals, so the replacements are used when it reads the sequence.
 
 **Checks:** `pns_levels` reads the hardware name and the 8 kept fields of each axis
 from a given gradient .asc file, instead of the example hardware, and its stored
-level and summary then equal the default (example-hardware) call exactly, because
+level and summary then equal the call with `EXAMPLE_HW` exactly, because
 this .asc file encodes the example hardware's own numbers.
 
 **How:** The `write_gradient_asc` fixture of `tests/conftest.py` (not confidential
@@ -765,10 +766,10 @@ count). These must not be equal:
 
 **Assumptions:** None.
 
-#### `test_hardware_with_the_example_struct_gives_the_default_levels`
+#### `test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair`
 
 **Checks:** `pns_levels(seq, hardware=(safe_example_hw(), label))` gives the levels of
-`pns_levels(seq)`, except `hardware`, which is the label: `asc_file` is None, and each
+`pns_levels(seq, hardware=EXAMPLE_HW)` (another struct object and another label), except `hardware`, which is the label: `asc_file` is None, and each
 other field is exactly equal.
 
 **How:** For `spin_echo_sequence()` (on the raster) and for a sequence with a block off
@@ -796,6 +797,18 @@ field but the two with `numpy.array_equal` and `==`.
 
 **How:** `pns_levels(spin_echo_sequence(), gradient_asc=path, hardware=(safe_example_hw(),
 "LABEL"))` inside `pytest.raises(ValueError, match="not both")`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_needs_gradient_asc_or_hardware`
+
+**Checks:** `pns_levels` with neither `gradient_asc` nor `hardware` raises `ValueError`
+("give gradient_asc or hardware"), before the sequence is read.
+
+**How:** The test replaces `refuse_rotations` and `sequence_index` of `pns_levels` with
+functions that raise `RuntimeError`, and calls `pns_levels(spin_echo_sequence())` in
+`pytest.raises(ValueError, match="give gradient_asc or hardware")`. A read of the sequence
+would give the `RuntimeError` instead.
 
 **Assumptions:** None.
 
@@ -848,10 +861,10 @@ The test checks that each threshold has intervals, then compares the two results
 
 #### `test_the_default_has_no_thresholds`
 
-**Checks:** `pns_levels(seq)` has `above == {}`, and `thresholds_hz_per_t=()` gives the
-same result in every field. This is also so with hardware for a peak above the limit.
+**Checks:** `pns_levels(seq, hardware=...)` with no threshold argument has `above == {}`,
+and `thresholds_hz_per_t=()` gives the same result in every field. This is also so with hardware for a peak above the limit.
 
-**How:** `gre_sequence(num_trs=4)`, with the example hardware and with the hardware of a
+**How:** `gre_sequence(num_trs=4)`, with `EXAMPLE_HW` and with the hardware of a
 peak of 1.5 times `_LIMIT`. For each, the test calls `pns_levels` with no threshold argument
 and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two results with
 `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
@@ -2181,7 +2194,7 @@ sequence: the summary fields (`reason`, `hardware`, `asc_file`, `peak_hz_per_t`,
 `peak_time_s`, `axis_peaks_hz_per_t`) and the level. The SAFE model itself
 (`pns_levels.pns_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs there.
 `pns_levels_for` keeps one `PnsLevels` for each (sequence object, hardware, thresholds),
-the hardware being the example hardware, the resolved path of the gradient `.asc` file, or
+the hardware being the resolved path of the gradient `.asc` file or
 a `hardware` pair `(struct, label)` (its key is the label and the 27 values of the struct,
 so two pairs with the same label and values are one hardware), so that a caller that needs
 the PNS of one sequence more than once runs the SAFE model once. `_kept.py` says when the
@@ -2189,9 +2202,9 @@ kept results are made again (section 2.12). The thresholds of the key are the tu
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
-1H in Hz/T (a fraction of 1 times `GAMMA_1H`). Without a gradient `.asc` file, the result
-uses pypulseq's example hardware, which is not a real scanner. The tests of `hardware`
-are the last ones of this section.
+1H in Hz/T (a fraction of 1 times `GAMMA_1H`). One of the two is necessary: with neither, `pns_levels_for` raises `ValueError`. The tests
+give pypulseq's example hardware, which is not a real scanner, as the pair `EXAMPLE_HW` of
+`tests/synthetic.py`. The tests of `hardware` are the last ones of this section.
 
 The real `.asc` files are confidential, so the tests write a test `.asc` file
 with the PNS parameters of pypulseq's example hardware, with the
@@ -2218,9 +2231,9 @@ fields of `pns_levels_for` equal those of `pns_levels.pns_levels` of the same se
 and hardware, are below the
 stimulation limit, and are highest on y.
 
-**How:** The test calls `pns_levels_for` without an `.asc` file (the module-scoped
+**How:** The test calls `pns_levels_for` with `hardware=EXAMPLE_HW` (the module-scoped
 `example` fixture) and, separately, `pns_levels.pns_levels` on the same sequence
-object. It checks that there is no reason, that the hardware is the example hardware,
+object. It checks that there is no reason, that the hardware is the label of `EXAMPLE_HW`,
 and that there is no `.asc` file name. It checks that the axis peaks are keyed x, y and
 z, and that the peak is more than 0 and less than `_LIMIT` (100 % of the limit, in Hz/T).
 The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t`,
@@ -2431,8 +2444,8 @@ restored from the kept results).
 times, not four: the cache keeps one result for each hardware.
 
 **How:** The test patches `pns.pns_levels` as above, and calls
-`pns.pns_levels_for(seq, gradient_asc=...)` with the keys `None` (the example hardware),
-a `.asc` file, `None`, the same file. It checks there were 2 calls.
+`pns.pns_levels_for` with `hardware=EXAMPLE_HW`, a `.asc` file (`gradient_asc`),
+`EXAMPLE_HW`, the same file. It checks there were 2 calls.
 
 **Assumptions:** None.
 
@@ -2482,14 +2495,28 @@ the same. It checks the call count after each change: 1, 1, 2, 3, 3.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_hardware_pair_is_not_the_example_hardware_or_a_file`
+#### `test_pns_levels_for_hardware_pair_is_not_a_file`
 
-**Checks:** A `hardware` pair has its own key: the example hardware (no argument), a
-`.asc` file, and a pair with the values and the label of the example hardware are three
-hardwares of one sequence. Each runs the model one time.
+**Checks:** A `hardware` pair has its own key: a `.asc` file and a pair with the values
+and the hardware name of that file are two hardwares of one sequence, and with
+`EXAMPLE_HW` they are three. Each runs the model one time.
 
-**How:** The test patches `pns.pns_levels` as above, and calls the three two times in
-the same order. It checks that there were 3 calls.
+**How:** The test patches `pns.pns_levels` as above, calls the file once to get its
+hardware name, then calls `EXAMPLE_HW`, the file and the pair two times in that order. It
+checks that there were 3 calls.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_for_needs_gradient_asc_or_hardware`
+
+**Checks:** `pns_levels_for` with neither `gradient_asc` nor `hardware` raises `ValueError`
+("give gradient_asc or hardware"), before the model reads the sequence.
+
+**How:** The test replaces `refuse_rotations` and `sequence_index` of `pns_levels` with
+functions that raise `RuntimeError`, and calls `pns_levels_for(spin_echo_sequence())` in
+`pytest.raises(ValueError, match="give gradient_asc or hardware")`.
+
+**Assumptions:** None.
 
 #### `test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds`
 
@@ -2944,8 +2971,8 @@ of `series`: they are for a reader.
 
 **Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
 `spec.params` in order, and their defaults are those of the function that `compute` calls
-(`None` and `()` for `pns.safe.levels`, whose parameters are `hardware` and
-`thresholds_hz_per_t`). `seq.index`, `gradient.peaks`,
+(`None`, `None` and `()` for `pns.safe.levels`, whose parameters are `gradient_asc`,
+`hardware` and `thresholds_hz_per_t`). `seq.index`, `gradient.peaks`,
 `gradient.blocks` and `gradient.spectrum` have no parameter, so no default: there are no gamma
 defaults. A keyword that is not a parameter is a `TypeError`.
 
@@ -2957,8 +2984,9 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 #### `test_compute_gives_the_value_of_its_function_with_the_same_arguments`
 
 **Checks:** `compute` of each analysis gives the value of the function that it calls, with
-the same arguments, with the defaults and with others (a hardware with
-`thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`). `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
+the same arguments, with the defaults and with others. `pns.safe.levels` always gets a
+hardware: `hardware=EXAMPLE_HW` for the defaults of the other arguments, and a scaled
+hardware with `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)` for the others. `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
 object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
 result for the sequence object. `gradient.spectrum` has no other arguments. The gradient
 analyses have no arguments after `seq`: `gradient_peaks(seq)` and `block_gradient_values(seq)`
@@ -2971,6 +2999,30 @@ axis the peak, the slew, the junction step and the times of the peak and of the 
 
 **Assumptions:** `BlockGradientValues` has no `__eq__` for its arrays, so the test compares
 each array one by one. `GradientSpectrum` is compared by identity only.
+
+#### `test_compute_of_pns_safe_levels_with_gradient_asc_gives_the_kept_result_of_the_file`
+
+**Checks:** `PNS_SAFE_LEVELS.compute(seq, gradient_asc=path)` gives the same object (`is`)
+as `pns_levels_for(seq, gradient_asc=path)` for the same file, with no threshold and with
+`thresholds_hz_per_t=(_LIMIT,)`. `asc_file` of the result is the name of the file.
+
+**How:** `gre_sequence(num_trs=4)` and a gradient `.asc` file of the `write_gradient_asc`
+fixture. The test compares the two calls with `is`.
+
+**Assumptions:** The file has the PNS parameters of pypulseq's example hardware (the real
+files are confidential).
+
+#### `test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read`
+
+**Checks:** `PNS_SAFE_LEVELS.compute(seq)` with neither `gradient_asc` nor `hardware` raises
+`ValueError` with the whole message of `pns_levels` (it tells how to give pypulseq's example
+hardware), also with `thresholds_hz_per_t=(_LIMIT,)`, before the sequence is read.
+
+**How:** The test passes an object whose `__getattr__` raises `AssertionError`, so a read of
+the sequence gives another error, and matches the message with `re.escape`.
+
+**Assumptions:** A read of the sequence goes through an attribute of the object
+(`__getattr__` is not called for the special methods that Python looks up on the type).
 
 #### `test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call`
 
@@ -3028,8 +3080,8 @@ equality).
 **Checks:** For `empty_sequence()` the `PnsLevels` has a `reason` (`NO_GRADIENTS`), and
 `to_series` gives `()`, with no threshold, with one threshold and with two thresholds.
 
-**How:** The test calls `compute` and `to_series` for each of the tuples `()`, `(_LIMIT,)`
-and `(_LIMIT, 0.5 * _LIMIT)`.
+**How:** The test calls `compute` (with `hardware=EXAMPLE_HW`) and `to_series` for each of
+the tuples `()`, `(_LIMIT,)` and `(_LIMIT, 0.5 * _LIMIT)`.
 
 **Assumptions:** None.
 
