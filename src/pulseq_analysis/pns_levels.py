@@ -24,7 +24,6 @@ a drawing tool that samples one block with the same rule gets the same values.
 """
 
 import math
-import numbers
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -36,10 +35,11 @@ import pypulseq as pp
 # pypulseq adds no public name. This is the only module that imports it.
 from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 
-from ._equality import fields_equal
+from ._equality import FrozenDict, fields_equal
+from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import GradientSampler, raster_block_lengths
-from .seq_index import sequence_index
+from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
 
 # The default bin of the level, in seconds: about 6.16 ms, the bin of 0.1.0rc5 (615 samples
 # at the 10 us raster). A caller that needs another bin gives `bin_s`. It changes only the
@@ -52,7 +52,6 @@ MAX_BINS = 2_000_000
 # The fork's chunk size (samples): smaller chunks add time, larger ones add memory. A
 # chunk of `pns_levels` is the whole number of bins nearest at or above it.
 CHUNK_SAMPLES = 30_000
-NO_GRADIENTS = "no gradients"
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
@@ -86,17 +85,19 @@ class PnsLevels:
     `i * bin_samples` to `(i + 1) * bin_samples - 1` (the last bin can have fewer), and every
     total of those samples is in `[level_min_hz_per_t[i], level_max_hz_per_t[i]]`.
 
-    Without a gradient event in the sequence, `reason` is `NO_GRADIENTS`, `num_samples` is
-    0, the level has no bins, `peak_hz_per_t` and each axis peak are 0, `peak_time_s` is None
-    and `above` has an empty tuple for each threshold.
+    Without a gradient event in the sequence, `reason` is `NO_GRADIENTS` (the object of
+    `seq_index.NO_GRADIENTS`), `num_samples` is 0, the level has no bins, `peak_hz_per_t`
+    and each axis peak are 0, `peak_time_s` is None and `above` has an empty tuple for each
+    threshold. When the gradients all have the amplitude 0, the peak is 0 and `peak_time_s`
+    is None too, and the model does not run a second time for the peak time.
 
     `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, so that the callers of
     `pns.pns_levels_for` can share one result: convert to a new array
     (`levels.level_max_hz_per_t / abs(gamma) * 100`), not in place.
-    `hw`, `axis_peaks_hz_per_t` and `above` are plain dicts, and the dataclass is frozen only
-    in its fields: a caller must not change a dict (a `MappingProxyType` would stop that, but
-    it cannot be pickled or copied with `copy.deepcopy`, and the dict type is the one of the
-    interface).
+    `hw` (the outer dict and each inner dict), `axis_peaks_hz_per_t` and `above` are
+    read-only `_equality.FrozenDict`s (subclasses of `dict`): a change raises `TypeError`.
+    They keep `isinstance(x, dict)`, `json.dumps`, `pickle` and `copy.deepcopy`, and a
+    `FrozenDict` equals a `dict` with the same items.
 
     `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
     shape and values, and the dicts with their keys in order. A `PnsLevels` is not hashable.
@@ -104,18 +105,20 @@ class PnsLevels:
 
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
     hardware: str  # the label of the `hardware` pair
-    hw: dict[str, dict[str, float]]  # "x", "y", "z": tau1, tau2, tau3, a1, a2, a3,
-    # stim_limit, g_scale, as pypulseq's hardware namespace has them
+    hw: FrozenDict[str, FrozenDict[str, float]]  # "x", "y", "z": tau1, tau2, tau3, a1, a2,
+    # a3, stim_limit, g_scale, as pypulseq's hardware namespace has them
     dt_s: float  # the gradient raster
     num_samples: int  # the number of samples of the whole sequence
     bin_samples: int  # samples in each bin of the level (`bin_samples_for`)
     level_min_hz_per_t: np.ndarray  # float32, one for each bin: the minimum of the total
     level_max_hz_per_t: np.ndarray  # float32, one for each bin: the maximum of the total
     peak_hz_per_t: float  # the largest total
-    peak_time_s: float | None  # the first sample time within PEAK_TOLERANCE of the peak
-    axis_peaks_hz_per_t: dict[str, float]  # "x", "y", "z": the largest value of each axis
+    # The first sample time within PEAK_TOLERANCE of the peak; None when the peak is 0
+    # (no gradient event, or gradients that all have the amplitude 0)
+    peak_time_s: float | None
+    axis_peaks_hz_per_t: FrozenDict[str, float]  # "x", "y", "z": the largest value of each axis
     on_raster: bool  # every block is a whole number of samples (`raster_block_lengths`)
-    above: dict[float, tuple[PnsInterval, ...]]  # one key for each threshold of
+    above: FrozenDict[float, tuple[PnsInterval, ...]]  # one key for each threshold of
     # `pns_levels`, as `float(t)` in the order of `thresholds_hz_per_t`: the intervals with
     # total >= that threshold, in time order; the tuple of a threshold is not empty if and
     # only if `peak_hz_per_t >=` that threshold, and then the largest
@@ -135,21 +138,6 @@ def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
     wanted = math.floor(bin_s / dt)
     coarsest_for_size = math.ceil(num_samples / MAX_BINS)
     return max(wanted, coarsest_for_size, 1)
-
-
-def _validated_bin_s(bin_s: object) -> float:
-    """`bin_s` of `pns_levels` as a `float`. Raises TypeError for a `bool` or a value that
-    is not a real number (`numbers.Real`), and ValueError for a value that is not finite
-    or not above 0. `pns.pns_levels_for` uses it too."""
-    if isinstance(bin_s, bool) or not isinstance(bin_s, numbers.Real):
-        raise TypeError(f"bin_s must be a real number of seconds, not {bin_s!r}")
-    try:
-        key = float(bin_s)
-    except OverflowError:  # an int too large for a float
-        raise ValueError(f"bin_s must be finite, not {bin_s!r}") from None
-    if not math.isfinite(key) or key <= 0:
-        raise ValueError(f"bin_s must be finite and above 0, not {bin_s!r}")
-    return key
 
 
 def _require_hardware(hardware: object) -> None:
@@ -188,17 +176,21 @@ def pns_levels(
     `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
     `f * abs(gamma)` (the stimulation limit is the fraction 1, so the limit is
     `abs(gamma)`). The default is `()`: no threshold and no interval. Each is a finite
-    `int` or `float` above 0 (not a `bool`), and no two are equal as floats. Else
-    ValueError, before the sequence is read. The keys of `PnsLevels.above` are `float(t)`,
-    in the order of `thresholds_hz_per_t`.
+    real number above 0 (`_validate.real`: an `int`, a `float`, a `Fraction` or a NumPy real
+    scalar, not a `bool`), and no two are equal as floats. A value that is not a tuple, or
+    an element that is a `bool` or not a real number, raises TypeError; an element that is
+    not finite, not above 0 or too large for a float, and two elements that are equal as
+    floats, raise ValueError. Both are raised before the sequence is read. The keys of
+    `PnsLevels.above` are `float(t)`, in the order of `thresholds_hz_per_t`.
 
     `bin_s` is the length of a bin of the level, in seconds. The default is `BIN_S` (about
     6.16 ms, the bin of 0.1.0rc5). `bin_samples_for` rounds it down to whole samples, to
     at least one sample (a `bin_s` shorter than `dt` gives bins of one sample), and gives
     longer bins when the level would have more than `MAX_BINS` bins. It is a `float` or an
-    `int` (any `numbers.Real`, not a `bool`) that is finite and above 0: a `bool` or a value
-    that is not a real number raises TypeError, and a value that is not finite or not above
-    0 raises ValueError, both before the sequence is read. `bin_s` changes only the bins of
+    `int` (any `numbers.Real`, not a `bool`) that is finite and above 0
+    (`_validate.real`): a `bool` or a value that is not a real number raises TypeError, and
+    a value that is not finite, not above 0 or too large for a float raises ValueError,
+    both before the sequence is read. `bin_s` changes only the bins of
     the level: the summary and the intervals do not depend on it.
 
     The model is `calc_pns` of the pinned fork, on other samples:
@@ -228,7 +220,9 @@ def pns_levels(
        `peak * (1 - PEAK_TOLERANCE)`, as `PnsLevels.peak_time_s`. The peak is
        known only at the end, so `pns_levels` keeps the start state of each chunk
        (12 numbers) and the float64 maximum of each chunk, and runs again only the
-       first chunk whose maximum reaches `peak * (1 - PEAK_TOLERANCE)`.
+       first chunk whose maximum reaches `peak * (1 - PEAK_TOLERANCE)`. When the peak is 0
+       (gradients that all have the amplitude 0), `peak_time_s` is None and the model does
+       not run again.
     6. The intervals (`above`): for each threshold, the runs of consecutive samples whose
        float64 total is at or above it. There is one finder for each threshold, and every
        chunk goes to every finder in the same loop as the peak (no second pass; the total
@@ -247,13 +241,14 @@ def pns_levels(
     interval; it does not grow with the length of a block. The arrays of the result are
     read-only.
 
-    Raises TypeError when `hardware` is not a pair or `bin_s` is a `bool` or not a real
-    number, ValueError when `thresholds_hz_per_t` or `bin_s` is refused, and
-    NotImplementedError for a sequence with the rotation extension
+    Raises TypeError when `hardware` is not a pair, `thresholds_hz_per_t` is not a tuple or
+    has an element that is a `bool` or not a real number, or `bin_s` is a `bool` or not a
+    real number, ValueError when a threshold or `bin_s` is not finite or not above 0 or two
+    thresholds are equal, and NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
     _require_hardware(hardware)
-    bin_s = _validated_bin_s(bin_s)
+    bin_s = real("bin_s", bin_s, positive=True)
     keys = _validated_thresholds(thresholds_hz_per_t)
     refuse_rotations(seq)
     dt = seq.grad_raster_time
@@ -264,7 +259,7 @@ def pns_levels(
     index = sequence_index(seq)
     block_lengths, on_raster = raster_block_lengths(index, dt)
 
-    if not _has_gradients(index):
+    if not has_gradients(index):
         empty = np.zeros(0, dtype=np.float32)
         return _read_only(
             PnsLevels(
@@ -278,15 +273,15 @@ def pns_levels(
                 level_max_hz_per_t=empty,
                 peak_hz_per_t=0.0,
                 peak_time_s=None,
-                axis_peaks_hz_per_t=dict.fromkeys(_AXES3, 0.0),
+                axis_peaks_hz_per_t=FrozenDict(dict.fromkeys(_AXES3, 0.0)),
                 on_raster=on_raster,
-                above={key: () for key in keys},
+                above=FrozenDict({key: () for key in keys}),
             )
         )
 
     sampler = GradientSampler(seq, index)
 
-    # After `_has_gradients`, `num_samples >= 1`, and each chunk has one sample or more.
+    # After `has_gradients`, `num_samples >= 1`, and each chunk has one sample or more.
     if on_raster:
         cumulative = np.cumsum(block_lengths)
         num_samples = int(cumulative[-1])
@@ -335,9 +330,11 @@ def pns_levels(
 
         bin_cursor = _store_bins(level_min, level_max, bin_cursor, total, bin_samples)
 
+    # With a peak of 0 (gradients that all have the amplitude 0) there is no peak time, and
+    # no second run.
     peak_time_s = None
     threshold = peak * (1 - PEAK_TOLERANCE)
-    for s0, state_before, chunk_max in chunk_records:
+    for s0, state_before, chunk_max in chunk_records if peak > 0 else ():
         if chunk_max < threshold:
             continue
         s1 = min(s0 + chunk_samples, num_samples)
@@ -359,9 +356,11 @@ def pns_levels(
             level_max_hz_per_t=level_max,
             peak_hz_per_t=peak,
             peak_time_s=peak_time_s,
-            axis_peaks_hz_per_t=dict(zip(_AXES3, axis_peak.tolist(), strict=True)),
+            axis_peaks_hz_per_t=FrozenDict(zip(_AXES3, axis_peak.tolist(), strict=True)),
             on_raster=on_raster,
-            above={key: finder.finish() for key, finder in zip(keys, finders, strict=True)},
+            above=FrozenDict(
+                {key: finder.finish() for key, finder in zip(keys, finders, strict=True)}
+            ),
         )
     )
 
@@ -384,24 +383,16 @@ def _read_only(levels: PnsLevels) -> PnsLevels:
 
 def _validated_thresholds(thresholds_hz_per_t: object) -> tuple[float, ...]:
     """`thresholds_hz_per_t` of `pns_levels` as the tuple of `float(t)`, in the same order.
-    The empty tuple is valid. Raises ValueError for a value that is not a tuple, an element
-    that is a `bool` or not an `int` or a `float`, an element that is not finite or not
-    above 0, and two elements that are equal as floats. `pns.pns_levels_for` uses it too."""
+    The empty tuple is valid. Raises TypeError for a value that is not a tuple and for an
+    element that is a `bool` or not a real number (`_validate.real`: an `int`, a `float`, a
+    `Fraction` and the NumPy real scalars are valid), and ValueError for an element that is
+    not finite, not above 0 or too large for a float, and for two elements that are equal
+    as floats. `pns.pns_levels_for` uses it too."""
     if not isinstance(thresholds_hz_per_t, tuple):
-        raise ValueError(  # noqa: TRY004
+        raise TypeError(
             f"thresholds_hz_per_t must be a tuple, not {type(thresholds_hz_per_t).__name__}"
         )
-    keys = []
-    for t in thresholds_hz_per_t:
-        if isinstance(t, bool) or not isinstance(t, int | float):
-            raise ValueError(f"each threshold must be an int or a float, not {t!r}")  # noqa: TRY004
-        try:
-            key = float(t)
-        except OverflowError:  # an int too large for a float
-            raise ValueError(f"each threshold must be finite, not {t!r}") from None
-        if not math.isfinite(key) or key <= 0:
-            raise ValueError(f"each threshold must be finite and above 0, not {t!r}")
-        keys.append(key)
+    keys = [real("each threshold", t, positive=True) for t in thresholds_hz_per_t]
     if len(set(keys)) != len(keys):
         raise ValueError(
             f"thresholds_hz_per_t must not repeat a value, got {thresholds_hz_per_t!r}"
@@ -409,20 +400,17 @@ def _validated_thresholds(thresholds_hz_per_t: object) -> tuple[float, ...]:
     return tuple(keys)
 
 
-def _has_gradients(index) -> bool:
-    """Whether `index` (a `SequenceIndex`) has a gradient event on any axis, from its
-    `gx`/`gy`/`gz` columns. Cheaper than `seq.get_gradients()`, which builds the
-    gradients of the whole file."""
-    return bool(index.gx.any() or index.gy.any() or index.gz.any())
-
-
-def _hw_to_dict(hw_ns) -> dict[str, dict[str, float]]:
-    """`hw_ns` (pypulseq's hardware `SimpleNamespace`, with `.x`, `.y`, `.z`) as a plain
-    dict of the 8 fields of `_HW_FIELDS` for each axis."""
-    return {
-        axis: {field: float(getattr(getattr(hw_ns, axis), field)) for field in _HW_FIELDS}
-        for axis in _AXES3
-    }
+def _hw_to_dict(hw_ns) -> FrozenDict[str, FrozenDict[str, float]]:
+    """`hw_ns` (pypulseq's hardware `SimpleNamespace`, with `.x`, `.y`, `.z`) as a
+    `FrozenDict` of the 8 fields of `_HW_FIELDS` for each axis, each a `FrozenDict`."""
+    return FrozenDict(
+        {
+            axis: FrozenDict(
+                {field: float(getattr(getattr(hw_ns, axis), field)) for field in _HW_FIELDS}
+            )
+            for axis in _AXES3
+        }
+    )
 
 
 def _read_block_range(

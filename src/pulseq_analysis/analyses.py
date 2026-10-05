@@ -15,8 +15,9 @@ An analysis is a pass that calculates information about a sequence and does not 
 A package gives its analyses as entry points of the group `GROUP`
 (`"pulseq_analysis.analyses"`): the name of an entry point is the ID, and the object is the
 analysis. `registry()` loads them and gives a dict from each ID to its analysis. Two analyses
-with one ID, an entry point that cannot load, and an object with no `spec.id` raise
-`RegistryError` with the names of the packages.
+with one ID, an entry point that cannot load, an object with no `spec.id`, and an entry point
+whose name is not the `spec.id` of its object raise `RegistryError` with the names of the
+packages.
 
 The analyses of this package:
 
@@ -47,11 +48,10 @@ import numpy as np
 import pypulseq as pp
 
 from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
-from .grad_spectrum import NO_GRADIENTS as NO_SPECTRUM_GRADIENTS
 from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
 from .pns import pns_levels_for
-from .pns_levels import BIN_S, NO_GRADIENTS, PnsLevels
-from .seq_index import SequenceIndex, sequence_index
+from .pns_levels import BIN_S, PnsLevels
+from .seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
 from .series import Series, SeriesKind
 
 GROUP = "pulseq_analysis.analyses"
@@ -356,7 +356,7 @@ class _GradientSpectrum:
         """The series of `spec.series`: the spectrum of `value` (`gradient_spectrum`), or
         `()` for a result with `reason == NO_GRADIENTS`. `meta` has the three arguments of the
         call that made `value` (the defaults for a value of `compute`)."""
-        if value.reason == NO_SPECTRUM_GRADIENTS:
+        if value.reason == NO_GRADIENTS:
             return ()
         return (
             Series(
@@ -390,7 +390,9 @@ GRADIENT_SPECTRUM = _GradientSpectrum()
 
 def registry() -> dict[str, Analysis]:
     """The installed analyses of `GROUP`, by `spec.id`. Two analyses with one ID are a
-    `RegistryError` that names both packages."""
+    `RegistryError` that names both packages. An entry point whose name is not the `spec.id`
+    of its object is a `RegistryError` that names the entry point, its package and the
+    `spec.id`."""
     found: dict[str, tuple[Analysis, str]] = {}
     for ep in importlib.metadata.entry_points(group=GROUP):
         analysis = _load(ep, GROUP)
@@ -401,6 +403,11 @@ def registry() -> dict[str, Analysis]:
                 f"the analysis entry point {ep.name!r} of the package {_package(ep)!r} "
                 "has no `spec.id`"
             ) from e
+        if ep.name != analysis_id:
+            raise RegistryError(
+                f"the name of the analysis entry point {ep.name!r} of the package "
+                f"{_package(ep)!r} is not the `spec.id` of its object, {analysis_id!r}"
+            )
         _add(found, analysis_id, analysis, ep, f"the analysis ID {analysis_id!r}")
     return {analysis_id: analysis for analysis_id, (analysis, _) in found.items()}
 

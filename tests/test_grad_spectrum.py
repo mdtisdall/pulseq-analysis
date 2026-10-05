@@ -19,7 +19,8 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis import grad_spectrum
+from pulseq_analysis import grad_spectrum, seq_index
+from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis.sampling import GradientSampler
 from pulseq_analysis.seq_index import sequence_index
 
@@ -89,6 +90,8 @@ def test_no_gradients():
     )
     s = grad_spectrum.gradient_spectrum(seq)
     assert s.reason == grad_spectrum.NO_GRADIENTS
+    assert s.reason is seq_index.NO_GRADIENTS
+    assert grad_spectrum.NO_GRADIENTS is seq_index.NO_GRADIENTS
     assert s.frequency_hz.shape == (0,)
     assert s.rss.shape == (0,)
     assert s.axes == {}
@@ -275,6 +278,32 @@ def test_the_arrays_of_a_spectrum_are_read_only(make_seq, num_arrays):
     converted = s.rss * 1e3 / GAMMA_1H
     assert converted.flags.writeable
     np.testing.assert_array_equal(s.rss, before)
+
+
+@pytest.mark.parametrize(
+    "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
+)
+def test_the_axes_of_a_spectrum_are_a_read_only_frozen_dict(make_seq):
+    """`axes` is a `FrozenDict` (so a `dict`), also for a sequence without gradients: a
+    change of an item, a new key, a deletion and `update` raise `TypeError`, and a spectrum
+    from `pickle` or `copy.deepcopy` is equal to the original."""
+    s = grad_spectrum.gradient_spectrum(make_seq())
+    assert isinstance(s.axes, FrozenDict)
+    assert isinstance(s.axes, dict)
+    before = dict(s.axes)
+    with pytest.raises(TypeError):
+        s.axes["w"] = s.rss
+    with pytest.raises(TypeError):
+        s.axes.update({"x": s.rss})
+    for key in before:
+        with pytest.raises(TypeError):
+            s.axes[key] = s.rss
+        with pytest.raises(TypeError):
+            del s.axes[key]
+    assert s.axes.keys() == before.keys()
+    for copied in (pickle.loads(pickle.dumps(s)), copy.deepcopy(s)):
+        assert copied == s
+        assert isinstance(copied.axes, FrozenDict)
 
 
 def test_spectra_compare_by_value():

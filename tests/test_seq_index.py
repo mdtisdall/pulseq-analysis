@@ -26,6 +26,7 @@ from pulseq_analysis.seq_index import (
     adc_events,
     block_cache_off,
     grad_events,
+    has_gradients,
     rf_events,
     sequence_index,
 )
@@ -241,6 +242,44 @@ def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
         assert copied.flags.writeable
         if copied.size:
             copied[0] = copied[0]
+
+
+def test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable():
+    first, second = sequence_index(gre_sequence()), sequence_index(gre_sequence())
+    assert first is not second
+    assert first == second
+    assert first != sequence_index(gre_sequence(num_trs=5))
+    assert first != sequence_index(spin_echo_sequence())
+    with pytest.raises(TypeError):
+        hash(first)
+
+
+def _one_trapezoid(channel: str) -> pp.Sequence:
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
+    return seq
+
+
+def _delay_only() -> pp.Sequence:
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_delay(1e-3))
+    return seq
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        (spin_echo_sequence, True),
+        (lambda: _one_trapezoid("x"), True),
+        (lambda: _one_trapezoid("y"), True),
+        (lambda: _one_trapezoid("z"), True),
+        (_delay_only, False),
+        (empty_sequence, False),
+    ],
+    ids=["spin echo", "x", "y", "z", "delay only", "empty"],
+)
+def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, expected):
+    assert has_gradients(sequence_index(build())) is expected
 
 
 def test_sequence_index_of_a_sequence_with_no_blocks():

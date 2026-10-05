@@ -24,12 +24,12 @@ from types import SimpleNamespace
 import pypulseq as pp
 
 from ._kept import _Entry, kept_results
+from ._validate import real
 from .pns_levels import (
     BIN_S,
     SAFE_FIELDS,
     PnsLevels,
     _require_hardware,
-    _validated_bin_s,
     _validated_thresholds,
     pns_levels,
 )
@@ -63,7 +63,7 @@ def pns_levels_for(
     """The `PnsLevels` of `seq` with `hardware` (a pair of a SAFE hardware struct and its
     label; `asc.hardware_from_asc` makes one from a Siemens gradient .asc file) and with
     `thresholds_hz_per_t` (in Hz/T, the same rules and the same default, `()`; a refused
-    value raises ValueError before the sequence is read) and with the bin `bin_s` (in
+    value raises TypeError or ValueError before the sequence is read) and with the bin `bin_s` (in
     seconds, the same rules and the same default, `BIN_S`; a refused value raises TypeError
     or ValueError before the sequence is read). `hardware` is necessary
     (`pns_levels.pns_levels` has the rules of the arguments): a call without it, or with a
@@ -82,11 +82,11 @@ def pns_levels_for(
     give one result. The kept results
     are built again after `add_block`, after a new read of a file into the object, and
     after a change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in
-    place is not seen (`seq_index.sequence_index`). The arrays of a result are read-only,
-    because all callers share them.
+    place is not seen (`seq_index.sequence_index`). The arrays of a result are read-only and
+    its dicts are `FrozenDict`s, because all callers share them.
     """
     _require_hardware(hardware)
-    bin_key = _validated_bin_s(bin_s)
+    bin_key = real("bin_s", bin_s, positive=True)
     threshold_keys = _validated_thresholds(thresholds_hz_per_t)
     key = _hardware_key(hardware)
 

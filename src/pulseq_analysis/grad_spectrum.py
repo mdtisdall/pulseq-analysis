@@ -38,7 +38,6 @@ three axes. This includes the RSS spectrum.
 """
 
 import math
-import numbers
 import weakref
 from dataclasses import dataclass
 
@@ -46,33 +45,33 @@ import numpy as np
 import pypulseq as pp
 from scipy.signal import get_window
 
-from ._equality import fields_equal
+from ._equality import FrozenDict, fields_equal
 from ._kept import _Entry, kept_results
+from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import GradientSampler
-from .seq_index import sequence_index
+from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
 
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05
 FREQUENCY_OVERSAMPLING = 3.0
 CHUNK_WINDOWS = 256  # windows in each chunk of samples
 
-NO_GRADIENTS = "no gradients"
-
 
 @dataclass(frozen=True, eq=False)
 class GradientSpectrum:
-    """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, so that
-    the callers of `gradient_spectrum_for` can share one result: convert to a new array
+    """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, and `axes` is
+    a read-only `_equality.FrozenDict` (a subclass of `dict`), so that the callers of
+    `gradient_spectrum_for` can share one result: convert to a new array
     (`s.rss * 1e3 / abs(gamma)`), not in place.
 
     `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
     shape and values, and `axes` with its keys in order. A `GradientSpectrum` is not
     hashable."""
 
-    reason: str | None  # why there is no spectrum, or None
+    reason: str | None  # why there is no spectrum (NO_GRADIENTS), or None
     frequency_hz: np.ndarray  # float64, F: 0 up to max_frequency_hz
-    axes: dict[str, np.ndarray]  # "x", "y", "z": float64, F, spectrum, Hz/m/sqrt(Hz)
+    axes: FrozenDict[str, np.ndarray]  # "x", "y", "z": float64, F, spectrum, Hz/m/sqrt(Hz)
     rss: np.ndarray  # float64, F: RSS of the axes in each window, then the maximum
     # The arguments of the call, as floats, so that the result says how it was made.
     max_frequency_hz: float
@@ -90,17 +89,6 @@ def _read_only(spectrum: GradientSpectrum) -> GradientSpectrum:
     return spectrum
 
 
-def _number(name: str, value) -> float:
-    """`value` as a float. Raises TypeError for a value that is not a real number (a bool
-    is not) and ValueError for one that is not finite."""
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        raise TypeError(f"{name} must be a number, not {type(value).__name__}")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite, not {value}")
-    return value
-
-
 def _validated_arguments(
     seq: pp.Sequence,
     max_frequency_hz: float,
@@ -110,11 +98,9 @@ def _validated_arguments(
     """The three arguments of `gradient_spectrum` as floats, in this order. Raises
     TypeError or ValueError for a refused value (the rules are in the docstring of
     `gradient_spectrum`). It reads the gradient raster of `seq`, and no block."""
-    max_frequency_hz = _number("max_frequency_hz", max_frequency_hz)
-    window_s = _number("window_s", window_s)
-    frequency_oversampling = _number("frequency_oversampling", frequency_oversampling)
-    if window_s <= 0:
-        raise ValueError(f"window_s must be above 0, not {window_s}")
+    max_frequency_hz = real("max_frequency_hz", max_frequency_hz)
+    window_s = real("window_s", window_s, positive=True)
+    frequency_oversampling = real("frequency_oversampling", frequency_oversampling)
     dt = seq.grad_raster_time
     nwin = round(window_s / dt)
     if nwin < 2:
@@ -158,7 +144,8 @@ def gradient_spectrum(
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`), TypeError for an argument that is not a number (a
-    bool is not), and ValueError for an argument that is not finite, for `window_s` not
+    bool is not), and ValueError for an argument that is not finite or is too large for a
+    float, for `window_s` not
     above 0 or less than 2 samples at the gradient raster of the file, for
     `frequency_oversampling` below 1, and for `max_frequency_hz` not above 0, above the
     Nyquist frequency `1 / (2 * dt)`, or below the frequency step `1 / (nfft * dt)`
@@ -170,11 +157,17 @@ def gradient_spectrum(
         seq, max_frequency_hz, window_s, frequency_oversampling
     )
     index = sequence_index(seq)
-    if not (index.gx.any() or index.gy.any() or index.gz.any()):
+    if not has_gradients(index):
         empty = np.zeros(0)
         return _read_only(
             GradientSpectrum(
-                NO_GRADIENTS, empty, {}, empty, max_frequency_hz, window_s, frequency_oversampling
+                NO_GRADIENTS,
+                empty,
+                FrozenDict(),
+                empty,
+                max_frequency_hz,
+                window_s,
+                frequency_oversampling,
             )
         )
     sampler = GradientSampler(seq, index)
@@ -222,7 +215,7 @@ def gradient_spectrum(
         GradientSpectrum(
             None,
             freq[:keep_n],
-            axes_max,
+            FrozenDict(axes_max),
             rss_max,
             max_frequency_hz,
             window_s,

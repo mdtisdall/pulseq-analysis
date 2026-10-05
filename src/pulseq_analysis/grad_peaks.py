@@ -40,8 +40,17 @@ from typing import NamedTuple
 import numpy as np
 import pypulseq as pp
 
+from ._equality import FrozenDict, fields_equal
+from ._validate import real
 from .extensions import refuse_rotations
-from .seq_index import SequenceIndex, block_cache_off, grad_events, sequence_index
+from .seq_index import (
+    NO_GRADIENTS,
+    NO_GRADIENTS_IN_WINDOW,
+    SequenceIndex,
+    block_cache_off,
+    grad_events,
+    sequence_index,
+)
 from .seq_utils import TIME_TOLERANCE, gradient_points
 
 _AXES = ("x", "y", "z")
@@ -78,13 +87,13 @@ class AxisResult:
 class GradientPeaks:
     """The result of `gradient_peaks`.
 
-    `reason` is None when the range has at least one gradient event on some axis. Otherwise it
-    is a short human-readable string, for example "no gradient events in the sequence", and
-    every numeric field is its zero value, except `whole_rms_hz_per_m`, which is the RMS of the
-    whole file when `window` is given. The zero value is 0.0 for an amplitude, slew or RMS
-    field, and 0.0 for a time field; every block field (`AxisResult.peak_block`,
-    `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that
-    was used.
+    `reason` is None when the range has at least one gradient event on some axis. Otherwise
+    it is `seq_index.NO_GRADIENTS` (`window` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW`
+    (`window` was given), and every numeric field is its zero value, except
+    `whole_rms_hz_per_m`, which is the RMS of the whole file when `window` is given. The
+    zero value is 0.0 for an amplitude, slew or RMS field, and 0.0 for a time field; every
+    block field (`AxisResult.peak_block`, `AxisResult.slew_block`, `vector_peak_block`) is
+    None. `range_s` still holds the range that was used.
 
     `vector_peak_hz_per_m` is the largest magnitude of the three-axis gradient vector over the
     range, `vector_peak_time_s` is the first time in the range where it is reached, and
@@ -97,15 +106,18 @@ class GradientPeaks:
     computed in the same call that computes `axes`, so that a caller that wants both the
     window's values and the whole file's RMS needs only one call. It is None when `window` was
     None (then `axes`' own RMS already is the whole file's).
+
+    `axes` and `whole_rms_hz_per_m` are `_equality.FrozenDict`s (read-only dicts): all callers
+    of a result share it, so a change of a dict would change it for all of them.
     """
 
     reason: str | None
     range_s: tuple[float, float]
-    axes: dict[str, AxisResult]
+    axes: dict[str, AxisResult]  # a FrozenDict
     vector_peak_hz_per_m: float
     vector_peak_time_s: float
     vector_peak_block: int | None
-    whole_rms_hz_per_m: dict[str, float] | None = None
+    whole_rms_hz_per_m: dict[str, float] | None = None  # a FrozenDict
 
 
 @dataclass(frozen=True, eq=False)
@@ -136,6 +148,12 @@ class BlockGradientValues:
     and the maximum of `junction_hz_per_m_per_s`. The first block with that value is its
     credited block, and for the slew the junction step of a block comes before the segments
     of that block.
+
+    Each array is read-only (`writeable` is False) and is its own array, not a view of the
+    index that `sequence_index` keeps. Each of the five dicts is a `_equality.FrozenDict`
+    (a read-only dict). A caller that needs a writable array makes a copy. Two results are
+    equal when each field is equal (`_equality.values_equal`), for example the results of
+    two reads of one file. A result is not hashable.
     """
 
     block_id: np.ndarray
@@ -147,6 +165,9 @@ class BlockGradientValues:
     junction_hz_per_m_per_s: dict[str, np.ndarray]
     vector_peak_hz_per_m: np.ndarray
     vector_peak_time_s: np.ndarray
+
+    __eq__ = fields_equal
+    __hash__ = None  # type: ignore[assignment]
 
 
 def _clip_polyline(
@@ -606,8 +627,11 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     With `window=None`, the range is the whole sequence, `(0.0, total_duration)`.
     Otherwise `window` is `(start_s, end_s)` in seconds from the sequence start; it
     must have `start_s < end_s` and lie within the sequence
-    (`0.0 <= start_s` and `end_s <= total_duration`, each within `TIME_TOLERANCE`),
-    or this function raises `ValueError`. A gradient piece that crosses a range edge
+    (`0.0 <= start_s` and `end_s <= total_duration`, each within `TIME_TOLERANCE`).
+    A `window` that is not a tuple or a list of two items raises `TypeError`, as does a
+    start or an end that is a `bool` or not a real number (`_validate.real`). A start or an
+    end that is NaN or an infinity, a window with no start before its end, and a window that
+    is not within the sequence raise `ValueError`. A gradient piece that crosses a range edge
     is cut at the edge, with the amplitude at the edge found by linear interpolation.
     With `window` given, `GradientPeaks.whole_rms_hz_per_m` also gives each axis's RMS
     over the whole sequence, computed in this same call.
@@ -636,7 +660,10 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         range_s = (0.0, total_duration)
         whole_rms_hz_per_m = None
     else:
-        start_s, end_s = window
+        if not isinstance(window, tuple | list) or len(window) != 2:
+            raise TypeError(f"window must be a pair (start_s, end_s), not {window!r}")
+        start_s = real("window start", window[0])
+        end_s = real("window end", window[1])
         if not start_s < end_s:
             raise ValueError(f"window {window!r} must have a start before its end")
         if start_s < -TIME_TOLERANCE or end_s > total_duration + TIME_TOLERANCE:
@@ -646,7 +673,7 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         # Clip to the sequence exactly: start_s/end_s can be off by a rounding error of
         # up to TIME_TOLERANCE and still pass the check above.
         range_s = (max(0.0, start_s), min(total_duration, end_s))
-        whole_rms_hz_per_m = _whole_file_rms(index, ev, total_duration)
+        whole_rms_hz_per_m = FrozenDict(_whole_file_rms(index, ev, total_duration))
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
@@ -656,14 +683,14 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     if has_event:
         reason = None
     elif window is not None:
-        reason = "no gradient events in the window"
+        reason = NO_GRADIENTS_IN_WINDOW
     else:
-        reason = "no gradient events in the sequence"
+        reason = NO_GRADIENTS
 
     return GradientPeaks(
         reason=reason,
         range_s=range_s,
-        axes=axes,
+        axes=FrozenDict(axes),
         vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=vector_peak_time_s,
         vector_peak_block=vector_peak_block,
@@ -733,14 +760,24 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
         junction_hz_per_m_per_s[axis] = _junction_steps(col, ev, grad_raster)
 
     vector_peak_hz_per_m, vector_offset = _block_vector_peaks(index, ev)
+    block_id = index.block_id.astype(np.int64)
+    result_start_s = start_s.copy()
+    vector_peak_time_s = start_s + vector_offset
+    dicts = (peak_hz_per_m, peak_time_s, slew_hz_per_m_per_s, slew_time_s, junction_hz_per_m_per_s)
+    arrays = (
+        block_id, result_start_s, vector_peak_hz_per_m, vector_peak_time_s,
+        *(array for values in dicts for array in values.values()),
+    )  # fmt: skip
+    for array in arrays:
+        array.flags.writeable = False  # each is its own array, shared by all callers of the result
     return BlockGradientValues(
-        block_id=index.block_id.astype(np.int64),
-        start_s=start_s.copy(),
-        peak_hz_per_m=peak_hz_per_m,
-        peak_time_s=peak_time_s,
-        slew_hz_per_m_per_s=slew_hz_per_m_per_s,
-        slew_time_s=slew_time_s,
-        junction_hz_per_m_per_s=junction_hz_per_m_per_s,
+        block_id=block_id,
+        start_s=result_start_s,
+        peak_hz_per_m=FrozenDict(peak_hz_per_m),
+        peak_time_s=FrozenDict(peak_time_s),
+        slew_hz_per_m_per_s=FrozenDict(slew_hz_per_m_per_s),
+        slew_time_s=FrozenDict(slew_time_s),
+        junction_hz_per_m_per_s=FrozenDict(junction_hz_per_m_per_s),
         vector_peak_hz_per_m=vector_peak_hz_per_m,
-        vector_peak_time_s=start_s + vector_offset,
+        vector_peak_time_s=vector_peak_time_s,
     )

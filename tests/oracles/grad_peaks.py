@@ -81,8 +81,8 @@ class GradientPeaks:
     """The result of `gradient_peaks`.
 
     `reason` is None when the range has at least one gradient event on some axis.
-    Otherwise it is a short human-readable string, for example "no gradient events in
-    the sequence", and every numeric field is its zero value: 0.0 for an amplitude,
+    Otherwise it is "no gradients" or "no gradients in the window" (the texts of
+    `seq_index.NO_GRADIENTS` and `NO_GRADIENTS_IN_WINDOW`, written here), and every numeric field is its zero value: 0.0 for an amplitude,
     slew or RMS field, and 0.0 for `vector_peak_time_s`; every block field
     (`AxisResult.peak_block`, `AxisResult.slew_block`) is None. `range_s` still holds
     the range that was used.
@@ -275,11 +275,7 @@ def gradient_peaks(
 
     has_event = any(state.has_event for state in axis_state.values())
     if not has_event:
-        reason = (
-            "no gradient events in the window"
-            if window is not None
-            else "no gradient events in the sequence"
-        )
+        reason = "no gradients in the window" if window is not None else "no gradients"
         axes = {axis: AxisResult(0.0, 0.0, None, 0.0, None, 0.0) for axis in _AXES}
         return GradientPeaks(reason, range_s, axes, 0.0, 0.0, limits)
 

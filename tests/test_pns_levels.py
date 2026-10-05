@@ -3,6 +3,7 @@ import dataclasses
 import itertools
 import math
 import pickle
+from fractions import Fraction
 
 import numpy as np
 import pypulseq as pp
@@ -23,6 +24,8 @@ from synthetic import (
     with_rotation_library,
 )
 
+from pulseq_analysis import grad_spectrum, seq_index
+from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.pns_levels import (
     BIN_S,
@@ -654,41 +657,58 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "thresholds",
+    ("thresholds", "error"),
     [
-        pytest.param([1.0], id="list"),
-        pytest.param(1.0, id="float"),
-        pytest.param(None, id="none"),
-        pytest.param((True,), id="bool"),
-        pytest.param((1.0, False), id="bool second"),
-        pytest.param(("1.0",), id="string"),
-        pytest.param((None,), id="none element"),
-        pytest.param((np.float32(1.0),), id="numpy float32"),
-        pytest.param((math.nan,), id="nan"),
-        pytest.param((math.inf,), id="inf"),
-        pytest.param((10**400,), id="int too large for a float"),
-        pytest.param((0.0,), id="zero"),
-        pytest.param((-1.0,), id="negative"),
-        pytest.param((1.0, -math.inf), id="minus inf"),
-        pytest.param((1.0, 1.0), id="equal floats"),
-        pytest.param((1, 1.0), id="equal int and float"),
-        pytest.param((1.0, 0.5, 1.0), id="equal, not next to each other"),
+        pytest.param([1.0], TypeError, id="list"),
+        pytest.param(1.0, TypeError, id="float"),
+        pytest.param(None, TypeError, id="none"),
+        pytest.param((True,), TypeError, id="bool"),
+        pytest.param((1.0, False), TypeError, id="bool second"),
+        pytest.param(("1.0",), TypeError, id="string"),
+        pytest.param((None,), TypeError, id="none element"),
+        pytest.param((1j,), TypeError, id="complex"),
+        pytest.param((math.nan,), ValueError, id="nan"),
+        pytest.param((math.inf,), ValueError, id="inf"),
+        pytest.param((10**400,), ValueError, id="int too large for a float"),
+        pytest.param((0.0,), ValueError, id="zero"),
+        pytest.param((-1.0,), ValueError, id="negative"),
+        pytest.param((1.0, -math.inf), ValueError, id="minus inf"),
+        pytest.param((1.0, 1.0), ValueError, id="equal floats"),
+        pytest.param((1, 1.0), ValueError, id="equal int and float"),
+        pytest.param((1.0, 0.5, 1.0), ValueError, id="equal, not next to each other"),
+        pytest.param((np.float32(1.0), 1.0), ValueError, id="equal numpy float and float"),
     ],
 )
-def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds):
-    """`pns_levels` raises `ValueError` for `thresholds_hz_per_t` that is not a tuple, has
-    a `bool` or an element that is not an `int` or a `float`, has an element that is not
-    finite or not above 0, or has two elements that are equal as floats. It does so before
-    the sequence is read: the functions that read the rotations and the block table of the
-    sequence are replaced by ones that fail, and the error is still the `ValueError`."""
+def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds, error):
+    """`pns_levels` raises `TypeError` for `thresholds_hz_per_t` that is not a tuple or has
+    an element that is a `bool` or not a real number, and `ValueError` for an element that
+    is not finite, not above 0 or too large for a float, or for two elements that are equal
+    as floats. It does so before the sequence is read: the functions that read the rotations
+    and the block table of the sequence are replaced by ones that fail, and the error is
+    still the one of the thresholds."""
 
     def fail(*args, **kwargs):
         raise RuntimeError("the sequence was read")
 
     monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(ValueError, match="threshold"):
+    with pytest.raises(error, match="threshold"):
         pns_levels(spin_echo_sequence(), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
+
+
+def test_pns_levels_takes_numpy_and_fraction_thresholds():
+    """A threshold that is a NumPy real scalar or a `Fraction` (any `numbers.Real`, not a
+    `bool`) is valid. The key of `above` is `float(t)`, and the result is that of the
+    thresholds as floats."""
+    seq = spin_echo_sequence()
+    thresholds = (np.float32(0.3 * _LIMIT), np.int64(12_345_678), Fraction(1, 3) * _LIMIT)
+    keys = tuple(float(t) for t in thresholds)
+    levels = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
+    assert list(levels.above) == list(keys)
+    assert all(type(key) is float for key in levels.above)
+    assert_levels_equal(
+        levels, pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=keys), ignore=()
+    )
 
 
 @pytest.mark.parametrize(
@@ -933,3 +953,84 @@ def test_the_default_has_no_thresholds():
         default = pns_levels(seq, **kwargs)
         assert default.above == {}
         assert_levels_equal(default, pns_levels(seq, thresholds_hz_per_t=(), **kwargs), ignore=())
+
+
+def _every_dict(levels: PnsLevels) -> list[dict]:
+    """The dicts of a `PnsLevels`: `hw`, each inner dict of `hw`, `axis_peaks_hz_per_t` and
+    `above`."""
+    return [levels.hw, *levels.hw.values(), levels.axis_peaks_hz_per_t, levels.above]
+
+
+@pytest.mark.parametrize(
+    "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
+)
+def test_the_dicts_of_the_levels_are_read_only_frozen_dicts(make_seq):
+    """`hw` (the outer dict and each inner dict), `axis_peaks_hz_per_t` and `above` are
+    `FrozenDict`s (and so `dict`s), also for a sequence without gradients: a change of an
+    item, a new key, a deletion and `update` raise `TypeError`, and the dict stays as it
+    was."""
+    levels = pns_levels(make_seq(), hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,))
+    dicts = _every_dict(levels)
+    assert len(dicts) == 6  # hw, three inner dicts, the axis peaks, above
+    for d in dicts:
+        assert isinstance(d, FrozenDict)
+        assert isinstance(d, dict)
+        key = next(iter(d))
+        before = dict(d)
+        with pytest.raises(TypeError):
+            d[key] = 0.0
+        with pytest.raises(TypeError):
+            d["new"] = 0.0
+        with pytest.raises(TypeError):
+            del d[key]
+        with pytest.raises(TypeError):
+            d.update({key: 0.0})
+        assert d == before
+
+
+def test_the_levels_from_pickle_and_deepcopy_equal_the_original():
+    """A `PnsLevels` from `pickle` or `copy.deepcopy` is equal to the original, and its
+    dicts are `FrozenDict`s (a `MappingProxyType` could not be pickled)."""
+    levels = pns_levels(
+        gre_sequence(num_trs=4), hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)
+    )
+    for copied in (pickle.loads(pickle.dumps(levels)), copy.deepcopy(levels)):
+        assert copied is not levels
+        assert copied == levels
+        assert all(isinstance(d, FrozenDict) for d in _every_dict(copied))
+
+
+def test_the_reason_without_gradients_is_the_object_of_seq_index():
+    """`pns_levels.NO_GRADIENTS` and `grad_spectrum.NO_GRADIENTS` are `seq_index.NO_GRADIENTS`
+    (one object), and the `reason` of a result is it."""
+    assert NO_GRADIENTS is seq_index.NO_GRADIENTS
+    assert grad_spectrum.NO_GRADIENTS is seq_index.NO_GRADIENTS
+    assert pns_levels(empty_sequence(), hardware=EXAMPLE_HW).reason is seq_index.NO_GRADIENTS
+
+
+def test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_run(monkeypatch):
+    """A sequence whose only gradient is a trapezoid of the amplitude 0 (long enough for
+    several chunks) has `reason` None, a peak of 0 and of each axis, `peak_time_s` None and
+    an empty tuple for a threshold. The model runs once for each chunk and no second time
+    for the peak time."""
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3, system=SYSTEM))
+    calls = []
+
+    def record(gwf, dt, hw_ns, state):
+        calls.append(gwf.shape[0])
+        return _chunk_total(gwf, dt, hw_ns, state)
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
+    levels = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,))
+    monkeypatch.undo()
+
+    assert levels.reason is None
+    assert levels.peak_hz_per_t == 0.0
+    assert levels.peak_time_s is None
+    assert levels.axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}
+    assert levels.above == {_LIMIT: ()}
+    num_chunks = math.ceil(levels.num_samples / levels.bin_samples)
+    assert num_chunks > 3
+    assert len(calls) == num_chunks
