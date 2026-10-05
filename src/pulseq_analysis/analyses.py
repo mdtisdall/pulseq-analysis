@@ -25,9 +25,9 @@ The analyses of this package:
   series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
-- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware` (necessary:
-  a pair of a SAFE hardware struct and its name) and `thresholds_hz_per_t`, and the series
-  of the level and of the runs above each threshold.
+- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware`
+  (necessary: a pair of a SAFE hardware struct and its name), `thresholds_hz_per_t` and
+  `bin_s`, and the series of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
   parameters, and the series of the spectrum.
 
@@ -50,7 +50,7 @@ from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_value
 from .grad_spectrum import NO_GRADIENTS as NO_SPECTRUM_GRADIENTS
 from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
 from .pns import pns_levels_for
-from .pns_levels import NO_GRADIENTS, PnsLevels
+from .pns_levels import BIN_S, NO_GRADIENTS, PnsLevels
 from .seq_index import SequenceIndex, sequence_index
 from .series import Series, SeriesKind
 
@@ -213,9 +213,14 @@ class _PnsSafeLevels:
             "default is `()`: no runs. A sequence with no gradient event has no "
             "prediction (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
-            "result is kept for the sequence object, the hardware and the thresholds."
+            "result is kept for the sequence object, the hardware, the thresholds and the bin "
+            "size. `bin_s` is the length of a bin of the level in seconds: it is rounded down "
+            "to whole samples, to at least one sample, and the bins are longer when the level "
+            "would have more than `MAX_BINS` bins. It is a finite number above 0; the default "
+            "is about 6.16 ms. A `bool` or a value that is not a number raises `TypeError`, "
+            "and a value that is not finite or not above 0 raises `ValueError`."
         ),
-        params=("hardware", "thresholds_hz_per_t"),
+        params=("hardware", "thresholds_hz_per_t", "bin_s"),
         rasters=_GRADIENT_RASTERS,
         cost="slow",
         series=(
@@ -242,15 +247,18 @@ class _PnsSafeLevels:
         *,
         hardware: tuple[SimpleNamespace, str],
         thresholds_hz_per_t: tuple[float, ...] = (),
+        bin_s: float = BIN_S,
     ) -> PnsLevels:
         """`pns.pns_levels_for(seq, hardware=hardware,
-        thresholds_hz_per_t=thresholds_hz_per_t)`: the kept result for the sequence object,
-        the hardware and the thresholds. `hardware` is necessary; a call without it, or
-        with a value that is not a pair, raises TypeError before the sequence is read."""
+        thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)`: the kept result for the
+        sequence object, the hardware, the thresholds and the bin size. `hardware` is
+        necessary; a call without it, or with a value that is not a pair, raises TypeError
+        before the sequence is read."""
         return pns_levels_for(
             seq,
             hardware=hardware,
             thresholds_hz_per_t=thresholds_hz_per_t,
+            bin_s=bin_s,
         )
 
     def to_series(self, value: PnsLevels) -> tuple[Series, ...]:

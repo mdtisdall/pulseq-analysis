@@ -424,21 +424,66 @@ not arranged, only overwhelmingly likely for uniform random values.
 
 #### `test_bin_samples_for_matches_the_formula`
 
-**Checks:** `bin_samples_for` follows `max(floor(EXACT_MAX_S / (2 * DISPLAY_BINS) /
-dt), ceil(num_samples / MAX_BINS), 1)`: 615 samples at the 10 us raster for any file
-of up to 1,230,000,000 samples, and a coarser bin above that size or at a coarser
-`dt`. A `pns_levels` call on a real sequence follows the same formula and gives that
-many bins.
+**Checks:** `bin_samples_for` follows `max(floor(bin_s / dt), ceil(num_samples /
+MAX_BINS), 1)`. With the default `bin_s`, `BIN_S`: 615 samples at the 10 us raster for any
+file of up to 1,230,000,000 samples, and a coarser bin above that size or at a coarser
+`dt`. `BIN_S` is the float `10.0 / (2 * 812)`, the bin of 0.1.0rc5. With another `bin_s`:
+the bin rounded down to whole samples, one sample for a `bin_s` shorter than `dt` or equal
+to it, and the coarser bin of a file with more than `bin_samples * MAX_BINS` samples. A
+`pns_levels` call on a real sequence follows the same formula and gives that many bins.
 
 **How:** Direct calls: `bin_samples_for(0, 1e-5) == 615`,
 `bin_samples_for(1_230_000_000, 1e-5) == 615`, `bin_samples_for(1_230_000_001, 1e-5)
 == 616`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(0, 2e-5) ==
-307`. Then `pns_levels(gre_sequence(num_trs=6))`'s `bin_samples` is compared with
+307`, and `bin_samples_for(0, 1e-5, BIN_S)` equal to the call without `bin_s`. Then, at
+`dt = 1e-5`: `bin_s = 1e-3` gives 100, `1.055e-3` and `1.059e-3` give 105, `1e-6` and `dt`
+give 1, `bin_samples_for(0, 0.25, 1) == 4` (an `int` is a number of seconds),
+`bin_samples_for(100 * MAX_BINS, 1e-5, 1e-3) == 100` and with one more sample 101, and
+`bin_samples_for(2 * MAX_BINS, 1e-5, 1e-6) == 2`. Then
+`pns_levels(gre_sequence(num_trs=6))`'s `bin_samples` is compared with
 `bin_samples_for(levels.num_samples, levels.dt_s)`, and `len(levels.level_min_hz_per_t) ==
 len(levels.level_max_hz_per_t)` equals the ceiling division of `num_samples` by
 `bin_samples`.
 
-**Assumptions:** None.
+**Assumptions:** The expected values are for floats that divide with no rounding trouble
+(`1.05e-3 / 1e-5` is 104.99999999999999, so the test uses `1.055e-3`).
+
+#### `test_bin_s_sets_the_bin_of_the_level_and_holds_every_total`
+
+**Checks:** `bin_s=1e-3` at the 10 us raster gives `bin_samples == 100` (so
+`bin_samples * dt_s` is the bin, which is not that of the default) and `ceil(num_samples /
+100)` bins. Each total of a bin is in `[level_min_hz_per_t, level_max_hz_per_t]` of that
+bin, and the two ends are the minimum and the maximum of the totals of the bin cast
+outward (`_cast_outward`). Every other field (the summary, the intervals, the hardware)
+equals that of the default `bin_s`. A `bin_s` of `1e-9` gives one sample in each bin, and
+the minimum of the first 100 bins of that level is the minimum of the first bin of the level
+of `1e-3`.
+
+**How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(seq, 1.5)` and
+`thresholds_hz_per_t=(_LIMIT,)`. The default call is first. For `bin_s=1e-3` the test sets
+`CHUNK_SAMPLES` to `10**9` (one chunk) and replaces `_chunk_total` with a function that
+records its total, so the first recorded total is that of the whole sequence. It takes the
+minimum and the maximum of each 100 samples with `numpy.minimum.reduceat` and
+`numpy.maximum.reduceat`, and compares with `<=`, `>=` and `numpy.array_equal` to the
+outward cast. Then `assert_levels_equal` with the three fields of the bins ignored.
+
+**Assumptions:** The minimum of the outward casts of samples equals the outward cast of
+their minimum, because the cast is monotone, so the test can use exact equality.
+
+#### `test_max_bins_still_limits_the_bins_for_a_short_bin_s`
+
+**Checks:** With `MAX_BINS` small, a `bin_s` that would give more bins gets a longer bin:
+`bin_samples == ceil(num_samples / MAX_BINS)` and no more than `MAX_BINS` bins. The
+minimum of the whole level and the maximum of the whole level are those of the level with
+one sample in each bin, and every other field equals that of the call with `MAX_BINS` not
+changed. A `bin_s` of the whole duration gives one bin of `num_samples` samples.
+
+**How:** `gre_sequence(num_trs=6)` with `EXAMPLE_HW`. The first call has `bin_s=1e-9` and
+the real `MAX_BINS`. Then the test sets `pulseq_analysis.pns_levels.MAX_BINS` to 50 with
+`monkeypatch`, calls again, and compares. A last call has `bin_s = num_samples * 1e-5`.
+
+**Assumptions:** `pns_levels` reads `MAX_BINS` as a module global (`bin_samples_for` does),
+so the replacement is used.
 
 #### `test_result_does_not_depend_on_chunk_samples`
 
@@ -693,6 +738,34 @@ started before the check. The empty tuple is not a case: it is valid (the defaul
 **Assumptions:** `pns_levels` calls `refuse_rotations` and `sequence_index` as module
 globals, so the replacements are used when it reads the sequence.
 
+#### `test_pns_levels_refuses_a_bad_bin_s_before_any_work`
+
+**Checks:** `pns_levels` raises `TypeError` (the message names `bin_s`) for a `bin_s` that
+is a `bool` (`True`, `False`) or not a real number (a string, `None`, a tuple, a complex
+number), and `ValueError` for one that is not finite (NaN, the two infinities, an `int` too
+large for a float) or not above 0 (0 as an `int` and as a `float`, a negative `int` and a
+negative `float`). The refusal is before the sequence is read.
+
+**How:** Parametrized on the value and the error. The test replaces `refuse_rotations` and
+`sequence_index` of `pulseq_analysis.pns_levels` with functions that raise `RuntimeError`,
+and calls `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=value)` inside
+`pytest.raises(error, match="bin_s")`. A `RuntimeError` would show that the work started
+before the check.
+
+**Assumptions:** `pns_levels` calls `refuse_rotations` and `sequence_index` as module
+globals, so the replacements are used when it reads the sequence.
+
+#### `test_pns_levels_takes_an_int_or_a_numpy_bin_s`
+
+**Checks:** A `bin_s` that is an `int` (`1`) or a NumPy float (`numpy.float64(1.0)`) gives
+exactly the levels of the equal `float` (`1.0`), every field. A `bin_s` of 1 s holds the
+whole spin echo in one bin.
+
+**How:** `spin_echo_sequence()` with `EXAMPLE_HW`. Three calls, compared with
+`assert_levels_equal` and `ignore=()`.
+
+**Assumptions:** None.
+
 #### `test_asc_hardware_file_is_used_for_the_levels`
 
 **Checks:** `pns_levels` with `hardware_from_asc(path)` has the hardware name and the 8
@@ -712,6 +785,7 @@ are checked, then its `level_min_hz_per_t`, `level_max_hz_per_t`, `peak_hz_per_t
 (`numpy.array_equal` for the arrays, `==` for the scalars).
 
 **Assumptions:** None.
+
 #### `test_pns_levels_refuses_rotations`
 
 **Checks:** `pns_levels` raises `NotImplementedError` for a sequence with a
@@ -806,6 +880,7 @@ of `pns_levels` with functions that raise `RuntimeError`, and calls
 `pytest.raises(TypeError, match="hardware")`.
 
 **Assumptions:** None.
+
 #### `test_the_levels_do_not_depend_on_the_gamma_of_the_system`
 
 **Checks:** The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of
@@ -2432,6 +2507,7 @@ fixture of `tests/conftest.py`, in the order a, a, b, a. It checks the call coun
 results).
 
 **Assumptions:** None.
+
 #### `test_pns_levels_for_alternating_two_hardwares_runs_the_model_two_times`
 
 **Checks:** Two hardwares of one sequence alternated (a, b, a, b) run the SAFE model two
@@ -2456,6 +2532,7 @@ as `asc_to_hw(asc)`, and that `vars` of each axis (`x`, `y`, `z`) equals `vars` 
 axis of `asc_to_hw(asc)`.
 
 **Assumptions:** None.
+
 #### `test_pns_levels_for_keeps_one_result_for_equal_hardware_pairs`
 
 **Checks:** Two `hardware` pairs with the same label and the same field values, with two
@@ -2494,6 +2571,7 @@ call count 1. It then calls two times the pair `(struct of the file, "OTHER")` a
 `EXAMPLE_HW`, and checks that there were 3 calls.
 
 **Assumptions:** None.
+
 #### `test_pns_levels_for_needs_hardware`
 
 **Checks:** `pns_levels_for` without `hardware` raises `TypeError` (the message names
@@ -2518,6 +2596,7 @@ functions that raise `RuntimeError`, and calls
 `pytest.raises(TypeError, match="hardware")`.
 
 **Assumptions:** None.
+
 #### `test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds`
 
 **Checks:** The thresholds are part of the key of a kept result: other thresholds, or
@@ -2534,6 +2613,36 @@ after the default, 2 after the two thresholds and still 2 after the repeats, the
 second result is not the first, that the repeated results are the same objects as the kept
 ones (the `int` call gives the second result), and that `list(result.above)` is `[]`,
 `[_LIMIT, 0.5 * _LIMIT]` and `[0.5 * _LIMIT, _LIMIT]`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_for_keeps_one_result_for_each_bin_s`
+
+**Checks:** `bin_s` is part of the key of a kept result: another `bin_s` runs the model and
+does not give the result of the default; the same `bin_s` again gives the kept result (the
+same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s` and the equal
+`float` are one key; the same `bin_s` with thresholds is another result. The bins of each
+result are those of its `bin_s` (`bin_samples` 615 for the default and 600 for `0.006` at
+the 10 us raster).
+
+**How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)` with
+`EXAMPLE_HW` (the default, then `bin_s=BIN_S`), `bin_s=0.006` two times, the default again,
+`bin_s=1` and `bin_s=1.0`, and `bin_s=0.006` with `thresholds_hz_per_t=(_LIMIT,)`. The call
+counts are 1, 1, 2, 2, 3, 3 and 4. It checks the identities (`is`) of the repeats and
+`bin_samples` of the default and of the `0.006` result.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_for_refuses_a_bad_bin_s_before_any_work`
+
+**Checks:** `pns_levels_for` raises `TypeError` for a `bin_s` that is a `bool` (`True`), a
+string or `None`, and `ValueError` for NaN, infinity, 0 and a negative number (the message
+names `bin_s`), before the sequence is read and before the kept results are touched.
+
+**How:** Parametrized on the value and the error. The test replaces `refuse_rotations` and
+`sequence_index` of `pns_levels`, and `kept_results` of `pns`, with functions that raise
+`RuntimeError`, and calls `pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW,
+bin_s=value)` in `pytest.raises(error, match="bin_s")`.
 
 **Assumptions:** None.
 
@@ -2971,9 +3080,9 @@ of `series`: they are for a reader.
 
 **Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
 `spec.params` in order, and their defaults are those of the function that `compute` calls
-(for `pns.safe.levels`, whose parameters are `hardware` and `thresholds_hz_per_t`:
-`hardware` has no default, `inspect.Parameter.empty`, and `thresholds_hz_per_t` has the
-default `()`). `seq.index`, `gradient.peaks`,
+(for `pns.safe.levels`, whose parameters are `hardware`, `thresholds_hz_per_t` and `bin_s`:
+`hardware` has no default, `inspect.Parameter.empty`, `thresholds_hz_per_t` has the
+default `()` and `bin_s` has the default `BIN_S`). `seq.index`, `gradient.peaks`,
 `gradient.blocks` and `gradient.spectrum` have no parameter, so no default: there are no gamma
 defaults. A keyword that is not a parameter is a `TypeError`.
 
@@ -2987,7 +3096,8 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 **Checks:** `compute` of each analysis gives the value of the function that it calls, with
 the same arguments, with the defaults and with others. `pns.safe.levels` always gets a
 hardware: `hardware=EXAMPLE_HW` for the defaults of the other arguments, and a scaled
-hardware with `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)` for the others. `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
+hardware with `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, and with `bin_s=1e-3`, for the
+others. `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
 object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
 result for the sequence object. `gradient.spectrum` has no other arguments. The gradient
 analyses have no arguments after `seq`: `gradient_peaks(seq)` and `block_gradient_values(seq)`
@@ -3015,6 +3125,20 @@ two results with `is`.
 
 **Assumptions:** The file has the PNS parameters of pypulseq's example hardware (the real
 files are confidential).
+
+#### `test_compute_of_pns_safe_levels_passes_bin_s_on`
+
+**Checks:** `PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
+object (`is`) as `pns_levels_for` with that `bin_s`, and not the object of the default. Its
+`bin_samples` is 100 (615 for the default), and the `coord_step` of its `pns_total` series
+is `bin_samples * dt_s`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
+raises `ValueError`, both before the sequence is read.
+
+**How:** `gre_sequence(num_trs=4)`. For the two refusals, `compute` gets an object that
+raises `AssertionError` when the code reads any attribute of it.
+
+**Assumptions:** None.
+
 #### `test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read`
 
 **Checks:** `PNS_SAFE_LEVELS.compute(seq)` without `hardware` raises Python's own
@@ -3029,6 +3153,7 @@ the sequence gives another error.
 
 **Assumptions:** A read of the sequence goes through an attribute of the object
 (`__getattr__` is not called for the special methods that Python looks up on the type).
+
 #### `test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call`
 
 **Checks:** For a sequence with more than one run above `_LIMIT` and `thresholds_hz_per_t=(_LIMIT,)`,
@@ -3573,6 +3698,7 @@ the first pair and the call with the second pair must give one object (`is`).
 
 - The file is not changed or replaced between the calls (the pairs are made before the
   calls).
+
 #### `test_a_change_of_the_last_block_id_with_the_same_number_of_blocks_gives_a_new_index`
 
 **Checks:** `sequence_index` makes the index again when the last block ID changes and the

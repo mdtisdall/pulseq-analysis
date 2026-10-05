@@ -183,9 +183,10 @@ value that is not 0.
 
 ## 3. `pns` and `pns_levels`: SAFE PNS
 
-`pns.pns_levels_for(seq, *, hardware, thresholds_hz_per_t=()) -> PnsLevels`
+`pns.pns_levels_for(seq, *, hardware, thresholds_hz_per_t=(), bin_s=BIN_S) -> PnsLevels`
 runs the SAFE model of the pinned pypulseq fork on the gradients of `seq`, and
-keeps the result for the sequence object, the hardware and the thresholds. The
+keeps the result for the sequence object, the hardware, the thresholds and the
+bin size. The
 hardware is necessary: `hardware` is a required keyword argument. It is the
 vendor-neutral pair `(struct, label)`: a SAFE hardware struct in the form of
 pypulseq's `asc_to_hw`, and a name for it. The package does not take a file
@@ -207,6 +208,20 @@ is `()`: `above` is `{}`. For a fraction f of the stimulation limit, give
 another order are another kept result, because the order of `above` is the
 order of `thresholds_hz_per_t`. `pns_levels.pns_levels` has the same
 arguments, and keeps nothing.
+
+`bin_s` is the length of a bin of the level, in seconds. The default,
+`pns_levels.BIN_S`, is `10.0 / 1624`: about 6.16 ms, the bin of 0.1.0rc5 (615
+samples at the 10 µs raster). `bin_samples_for(num_samples, dt, bin_s)` rounds it
+down to whole samples, to at least one sample, so a `bin_s` shorter than `dt`
+gives bins of one sample. When the level would have more than
+`pns_levels.MAX_BINS` (2,000,000) bins, the bins are longer, so that the level
+has at most that many. `bin_s` is a finite `int` or `float` above 0 (any real
+number, not a `bool`). A `bool` or a value that is not a real number raises
+`TypeError`, and a value that is not finite or not above 0 raises
+`ValueError`, both before the sequence is read. Only the level depends on
+`bin_s`: the summary and the intervals do not. A different `bin_s` is another
+kept result, also when it gives the same `bin_samples`. The bin of a result is
+`bin_samples * dt_s`.
 
 The stimulation limit is the fraction 1. In Hz/T, the limit is `abs(gamma)`.
 
@@ -235,8 +250,8 @@ the output of the model for that axis, and the total of a sample is
 | `bin_samples`, `level_min_hz_per_t`, `level_max_hz_per_t` | The level, for a plot: read-only float32 arrays with the minimum and the maximum total of each bin of `bin_samples` samples (the last bin can have fewer), in Hz/T. Each total of a bin is in `[level_min_hz_per_t, level_max_hz_per_t]` of the bin. |
 | `on_raster` | `True` when the duration of each block is a whole number of samples. Otherwise the samples come from the waveform of the whole file at the same times (`GradientSampler.sample`). |
 
-All the callers of `pns_levels_for` with the same sequence object, hardware
-and thresholds share the kept result. For this reason, `level_min_hz_per_t`
+All the callers of `pns_levels_for` with the same sequence object, hardware,
+thresholds and `bin_s` share the kept result. For this reason, `level_min_hz_per_t`
 and `level_max_hz_per_t` are read-only, also for `NO_GRADIENTS` and also in
 the result of `pns_levels`: a change in place raises `ValueError`. Convert to a
 new array:
@@ -424,10 +439,11 @@ The analyses of this package (each `version` is 1):
 | `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | fast | `()` |
 | `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq)`, the whole file | none | fast | `()` |
 | `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | fast | `()` |
-| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t)` | `hardware`, `thresholds_hz_per_t` | slow | below |
+| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)` | `hardware`, `thresholds_hz_per_t`, `bin_s` | slow | below |
 | `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum_for(seq)`, with the defaults | none | slow | below |
 
-`hardware` has no default, and `thresholds_hz_per_t` has the default `()`.
+`hardware` has no default, `thresholds_hz_per_t` has the default `()`, and `bin_s` has
+the default `pns_levels.BIN_S` ([section 3](#3-pns-and-pns_levels-safe-pns)).
 `compute` without `hardware` raises `TypeError`, before the sequence is read. No analysis has a gamma. All the analyses except
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 

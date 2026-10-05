@@ -43,7 +43,7 @@ from pulseq_analysis.grad_spectrum import (
     gradient_spectrum_for,
 )
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import pns_levels
+from pulseq_analysis.pns_levels import BIN_S, pns_levels
 from pulseq_analysis.seq_index import sequence_index
 from pulseq_analysis.series import Series, SeriesKind
 
@@ -58,7 +58,7 @@ _SPECS = [
     (
         PNS_SAFE_LEVELS,
         "pns.safe.levels",
-        ("hardware", "thresholds_hz_per_t"),
+        ("hardware", "thresholds_hz_per_t", "bin_s"),
         _RASTERS,
         "slow",
     ),
@@ -205,7 +205,11 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
         (GRADIENT_BLOCKS, {}),
         (
             PNS_SAFE_LEVELS,
-            {"hardware": inspect.Parameter.empty, "thresholds_hz_per_t": ()},
+            {
+                "hardware": inspect.Parameter.empty,
+                "thresholds_hz_per_t": (),
+                "bin_s": BIN_S,
+            },
         ),
         (GRADIENT_SPECTRUM, {}),
     ],
@@ -248,6 +252,9 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
         pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
     )
     assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware) is pns_levels_for(seq, hardware=hardware)
+    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, bin_s=1e-3) is (
+        pns_levels_for(seq, hardware=hardware, bin_s=1e-3)
+    )
     assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum_for(seq)
 
 
@@ -290,6 +297,34 @@ def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_
     for bad in (None, struct, (struct,), (struct, 3), [struct, "label"], (struct, "label", 1)):
         with pytest.raises(TypeError, match=re.escape("asc.hardware_from_asc(path)")):
             PNS_SAFE_LEVELS.compute(Unreadable(), hardware=bad)
+
+
+def test_compute_of_pns_safe_levels_passes_bin_s_on():
+    """`PNS_SAFE_LEVELS.compute(seq, hardware=..., bin_s=...)` is the object (`is`) that
+    `pns_levels_for` gives with that `bin_s` (and not the object of the default), its
+    `bin_samples` is that of the `bin_s`, and `to_series` gives `pns_total` with the
+    `coord_step` of that bin. A `bin_s` that `pns_levels_for` refuses raises the same
+    error before the sequence is read."""
+    seq = gre_sequence(num_trs=4)
+
+    default = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW)
+    levels = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)
+
+    assert levels is pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=1e-3)
+    assert levels is not default
+    assert default.bin_samples == 615
+    assert levels.bin_samples == 100
+    (total,) = PNS_SAFE_LEVELS.to_series(levels)
+    assert total.coord_step == levels.bin_samples * levels.dt_s
+
+    class Unreadable:
+        def __getattr__(self, name):
+            raise AssertionError(f"the sequence was read: {name}")
+
+    with pytest.raises(TypeError, match="bin_s"):
+        PNS_SAFE_LEVELS.compute(Unreadable(), hardware=EXAMPLE_HW, bin_s=True)
+    with pytest.raises(ValueError, match="bin_s"):
+        PNS_SAFE_LEVELS.compute(Unreadable(), hardware=EXAMPLE_HW, bin_s=0)
 
 
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):

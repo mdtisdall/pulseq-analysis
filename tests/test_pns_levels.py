@@ -25,7 +25,9 @@ from synthetic import (
 
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.pns_levels import (
+    BIN_S,
     CHUNK_SAMPLES,
+    MAX_BINS,
     NO_GRADIENTS,
     PEAK_TOLERANCE,
     PnsInterval,
@@ -162,17 +164,31 @@ def test_cast_outward_bounds_every_input_value():
 
 
 def test_bin_samples_for_matches_the_formula():
-    """`bin_samples_for` follows `max(floor(EXACT_MAX_S / (2 * DISPLAY_BINS) / dt),
-    ceil(num_samples / MAX_BINS), 1)`: 615 samples at the 10 us raster for any file of
-    up to 1,230,000,000 samples (`615 * MAX_BINS`), and a coarser bin for a larger
-    file, computed from `num_samples` alone. A `pns_levels` call on a real sequence
-    also follows the same formula, and gives that many bins."""
+    """`bin_samples_for` follows `max(floor(bin_s / dt), ceil(num_samples / MAX_BINS), 1)`.
+    With the default `BIN_S`: 615 samples at the 10 us raster for any file of up to
+    1,230,000,000 samples (`615 * MAX_BINS`), and a coarser bin for a larger file, computed
+    from `num_samples` alone. With another `bin_s`: the bin rounded down to whole samples,
+    one sample for a `bin_s` shorter than `dt`, and the coarser bin of a large file. A
+    `pns_levels` call on a real sequence also follows the same formula, and gives that many
+    bins."""
     dt = 1e-5
     assert bin_samples_for(0, dt) == 615
     assert bin_samples_for(1_230_000_000, dt) == 615
     assert bin_samples_for(1_230_000_001, dt) == 616
     assert bin_samples_for(2_000_000_000, dt) == 1000
     assert bin_samples_for(0, 2e-5) == 307
+    assert bin_samples_for(0, dt, BIN_S) == bin_samples_for(0, dt)
+    assert BIN_S == 10.0 / (2 * 812)  # the bin of 0.1.0rc5, as the same float
+
+    assert bin_samples_for(0, dt, 1e-3) == 100
+    assert bin_samples_for(0, dt, 1.055e-3) == 105
+    assert bin_samples_for(0, dt, 1.059e-3) == 105  # rounded down to whole samples
+    assert bin_samples_for(0, dt, 1e-6) == 1  # shorter than dt: one sample
+    assert bin_samples_for(0, dt, dt) == 1
+    assert bin_samples_for(0, 0.25, 1) == 4  # an int is a number of seconds
+    assert bin_samples_for(100 * MAX_BINS, dt, 1e-3) == 100
+    assert bin_samples_for(100 * MAX_BINS + 1, dt, 1e-3) == 101
+    assert bin_samples_for(2 * MAX_BINS, dt, 1e-6) == 2
 
     levels = pns_levels(gre_sequence(num_trs=6), hardware=EXAMPLE_HW)
     assert levels.bin_samples == bin_samples_for(levels.num_samples, levels.dt_s)
@@ -180,6 +196,75 @@ def test_bin_samples_for_matches_the_formula():
         -levels.num_samples // levels.bin_samples
     )  # ceil division
     assert len(levels.level_max_hz_per_t) == len(levels.level_min_hz_per_t)
+
+
+def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
+    """`bin_s=1e-3` at the 10 us raster gives `bin_samples == 100` (`bin_samples * dt_s` is
+    the bin) and `ceil(num_samples / 100)` bins, and each total of a bin (the totals of the
+    model, recorded from `_chunk_total`) is in `[level_min_hz_per_t, level_max_hz_per_t]` of
+    that bin, with the minimum and the maximum of the bin as its ends. Every other field
+    (the summary and the intervals) equals that of the default `bin_s`. The levels of a
+    `bin_s` shorter than `dt` have one sample in each bin, and so one bin for each sample."""
+    seq = gre_sequence(num_trs=6)
+    hardware = hardware_for_peak(seq, 1.5)
+    default = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
+    totals = []
+
+    def record(gwf, dt, hw_ns, state):
+        result = _chunk_total(gwf, dt, hw_ns, state)
+        totals.append(result[0])
+        return result
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
+    levels = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(_LIMIT,), bin_s=1e-3)
+    monkeypatch.undo()
+
+    assert levels.dt_s == 1e-5
+    assert levels.bin_samples == 100
+    assert levels.bin_samples * levels.dt_s == pytest.approx(1e-3)
+    assert len(levels.level_min_hz_per_t) == math.ceil(levels.num_samples / 100)
+    assert levels.bin_samples != default.bin_samples
+    total = totals[0]  # one chunk; the rerun for the peak time records the same total
+    assert total.shape[0] == levels.num_samples
+    starts = np.arange(0, levels.num_samples, 100)  # the last bin can be shorter
+    bin_min, bin_max = np.minimum.reduceat(total, starts), np.maximum.reduceat(total, starts)
+    assert np.all(levels.level_min_hz_per_t <= bin_min)
+    assert np.all(levels.level_max_hz_per_t >= bin_max)
+    assert np.array_equal(levels.level_min_hz_per_t, _cast_outward(bin_min, down=True))
+    assert np.array_equal(levels.level_max_hz_per_t, _cast_outward(bin_max, down=False))
+    ignore = ("bin_samples", "level_min_hz_per_t", "level_max_hz_per_t")
+    assert_levels_equal(levels, default, ignore=ignore)
+
+    fine = pns_levels(seq, hardware=hardware, bin_s=1e-9)
+    assert fine.bin_samples == 1
+    assert len(fine.level_min_hz_per_t) == fine.num_samples
+    assert np.array_equal(fine.level_min_hz_per_t[:100].min(), levels.level_min_hz_per_t[0])
+
+
+def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
+    """With `MAX_BINS` set small, a `bin_s` that would give more bins gets a longer bin:
+    `bin_samples == ceil(num_samples / MAX_BINS)` and no more than `MAX_BINS` bins, the
+    level still holds every total (its range of the whole file is that of the finest
+    level), and a `bin_s` that gives fewer bins keeps its own bin."""
+    seq = gre_sequence(num_trs=6)
+    fine = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=1e-9)  # one sample in each bin
+    assert fine.bin_samples == 1
+    num_samples = fine.num_samples
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.MAX_BINS", 50)
+    limited = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=1e-9)
+    assert limited.bin_samples == math.ceil(num_samples / 50)
+    assert len(limited.level_min_hz_per_t) <= 50
+    assert limited.level_min_hz_per_t.min() == fine.level_min_hz_per_t.min()
+    assert limited.level_max_hz_per_t.max() == fine.level_max_hz_per_t.max()
+    assert_levels_equal(
+        limited, fine, ignore=("bin_samples", "level_min_hz_per_t", "level_max_hz_per_t")
+    )
+
+    long_bin = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=num_samples * 1e-5)  # one bin
+    assert long_bin.bin_samples == num_samples
+    assert len(long_bin.level_min_hz_per_t) == 1
 
 
 def test_result_does_not_depend_on_chunk_samples(monkeypatch):
@@ -604,6 +689,54 @@ def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, threshol
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
     with pytest.raises(ValueError, match="threshold"):
         pns_levels(spin_echo_sequence(), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
+
+
+@pytest.mark.parametrize(
+    ("bin_s", "error"),
+    [
+        pytest.param(True, TypeError, id="bool"),
+        pytest.param(False, TypeError, id="false"),
+        pytest.param("0.006", TypeError, id="string"),
+        pytest.param(None, TypeError, id="none"),
+        pytest.param((0.006,), TypeError, id="tuple"),
+        pytest.param(1j, TypeError, id="complex"),
+        pytest.param(math.nan, ValueError, id="nan"),
+        pytest.param(math.inf, ValueError, id="inf"),
+        pytest.param(-math.inf, ValueError, id="minus inf"),
+        pytest.param(10**400, ValueError, id="int too large for a float"),
+        pytest.param(0, ValueError, id="zero int"),
+        pytest.param(0.0, ValueError, id="zero"),
+        pytest.param(-1, ValueError, id="negative int"),
+        pytest.param(-1e-3, ValueError, id="negative"),
+    ],
+)
+def test_pns_levels_refuses_a_bad_bin_s_before_any_work(monkeypatch, bin_s, error):
+    """`pns_levels` raises `TypeError` for a `bin_s` that is a `bool` or not a real number
+    (a string, `None`, a tuple, a complex number) and `ValueError` for one that is not
+    finite or not above 0 (NaN, infinity, an `int` too large for a float, 0, a negative
+    value). It does so before the sequence is read: the functions that read the rotations
+    and the block table of the sequence are replaced by ones that fail, and the error is
+    still the one of `bin_s`."""
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("the sequence was read")
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    with pytest.raises(error, match="bin_s"):
+        pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
+
+
+def test_pns_levels_takes_an_int_or_a_numpy_bin_s():
+    """A `bin_s` that is an `int` or a NumPy float (any real number, not a `bool`) is
+    accepted and gives the levels of the equal `float`."""
+    seq = spin_echo_sequence()
+    expected = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=1.0)
+    assert len(expected.level_min_hz_per_t) == 1  # a bin of 1 s holds the whole sequence
+    assert_levels_equal(pns_levels(seq, hardware=EXAMPLE_HW, bin_s=1), expected, ignore=())
+    assert_levels_equal(
+        pns_levels(seq, hardware=EXAMPLE_HW, bin_s=np.float64(1.0)), expected, ignore=()
+    )
 
 
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
