@@ -37,6 +37,10 @@ class SequenceIndex:
     The event columns hold dense indexes: 0 is no event, and 1 to K number the K unique
     events of that kind in the order of their first use. Their dtype is the smallest of
     uint8, uint16 and uint32 that holds K (one dtype for the three gradient columns).
+
+    The arrays are read-only (`writeable` is False): all callers share the index that
+    `sequence_index` keeps, so a change in place would change it for all of them. A caller
+    that needs a writable array makes a copy, for example `np.array(index.start_s)`.
     """
 
     num_blocks: int
@@ -114,7 +118,7 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
     durations = seq.block_durations
     duration_s = np.fromiter((durations[b] for b in block_events), dtype=np.float64, count=n)
     # The sequential sum start += duration, the same float operations as
-    # waveforms._timed_blocks: numpy's cumsum adds in order.
+    # tests/oracles/blocks.py:iter_blocks: numpy's cumsum adds in order.
     start_s = np.zeros(n, dtype=np.float64)
     if n > 1:
         np.cumsum(duration_s[:-1], out=start_s[1:])
@@ -128,6 +132,15 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
     # One index space for the three axes: block by block, then gx, gy, gz in one block.
     (gx, gy, gz), grad_key = _dense([column(_GX), column(_GY), column(_GZ)])
 
+    grad_first = grad_key // 3
+    grad_first_axis = (grad_key % 3).astype(np.uint8)
+    arrays = (
+        block_id, start_s, duration_s, rf, gx, gy, gz, adc,
+        rf_first, grad_first, grad_first_axis, adc_first,
+    )  # fmt: skip
+    for array in arrays:
+        array.flags.writeable = False  # shared by all callers through the kept index
+
     return SequenceIndex(
         num_blocks=n,
         block_id=block_id,
@@ -140,8 +153,8 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
         gz=gz,
         adc=adc,
         rf_first=rf_first,
-        grad_first=grad_key // 3,
-        grad_first_axis=(grad_key % 3).astype(np.uint8),
+        grad_first=grad_first,
+        grad_first_axis=grad_first_axis,
         adc_first=adc_first,
     )
 

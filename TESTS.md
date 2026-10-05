@@ -1015,6 +1015,21 @@ and `gz` have dtype `uint16`.
   once combined with the readout and spoiler events; this is read from that script,
   not re-derived here.
 
+#### `test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable`
+
+**Checks:** Each of the twelve array fields of `sequence_index(seq)` has `writeable`
+False, a write into it raises `ValueError`, and `np.array(a)` of it is writable, for a
+gradient echo sequence and for an empty one.
+
+**How:** The test is parametrized over `gre_sequence` and `empty_sequence`. It finds the
+array fields with `dataclasses.fields` and `isinstance(np.ndarray)` and checks that
+there are twelve. For each, it checks the flag. For an array with elements it writes
+one value inside `pytest.raises(ValueError)`. It then copies the array and checks that
+the copy is writable (and takes a write when it has elements). An empty array has no
+element to write, so only its flag is checked.
+
+**Assumptions:** None.
+
 #### `test_sequence_index_of_a_sequence_with_no_blocks`
 
 **Checks:** `sequence_index` of a `pp.Sequence` with no blocks added has `num_blocks`
