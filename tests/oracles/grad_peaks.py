@@ -12,8 +12,8 @@ orientation, so on an oblique slice one physical axis can see amplitude up to th
 vector peak, `GradientPeaks.vector_peak_mt_per_m`, even when no single logical axis
 is near the limit.
 
-Oracle: the implementation before phase 4 of docs/plans/cards-at-scale.md. Do not
-change it.
+Oracle: the earlier implementation, which reads every block with `get_block` and has no
+junction steps. Do not change it.
 """
 
 import math

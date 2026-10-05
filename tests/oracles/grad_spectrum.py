@@ -1,8 +1,8 @@
 """Gradient spectrum of a Pulseq sequence, and its largest values in the acoustic
 resonance bands that the caller gives.
 
-Oracle: the implementation before phase 5 of docs/plans/cards-at-scale.md. Do not
-change its method. A resonance is a pair (frequency_hz, bandwidth_hz), the centre
+Oracle: the earlier implementation, which samples through `Sequence.get_gradients()`. Do
+not change its method. A resonance is a pair (frequency_hz, bandwidth_hz), the centre
 frequency and the full width of its band in Hz, as in the library; the default is no
 resonance.
 

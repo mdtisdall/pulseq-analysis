@@ -1064,8 +1064,7 @@ new, empty `EventLibrary`, and calls `refuse_rotations` on it.
 
 ### 2.4 Sequence index (`test_seq_index.py`)
 
-`test_seq_index.py` tests `seq_index.py` (section 4.1 of
-`docs/plans/cards-at-scale.md` of pulseq-reports): the dense RF, gradient and ADC event numbering of
+`test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
 `sequence_index`, its block times, its dtypes and its cache; `block_cache_off`; and
 `rf_events`, `grad_events` and `adc_events`, which read each unique event one time with
 the block cache off. The
@@ -1316,12 +1315,12 @@ tests. It checks the call count is 1, that the recorded cache flag is `False`, t
 
 ### 2.5 Raster sampler (`test_sampling.py`)
 
-`test_sampling.py` tests `sampling.py` (section 4.3 of
-`docs/plans/cards-at-scale.md` of pulseq-reports): `GradientSampler`, which gives the gradient waveform of one axis at sorted times, from
+`test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
+waveform of one axis at sorted times, from
 the sequence index and the unique gradient events. The reference is pypulseq's
 `seq.get_gradients()`: `_assert_matches_pypulseq` compares `sample(axis, t)` with the
 `PPoly` of each axis at the same times, within a relative 1e-12 and an absolute 1e-12
-times the largest |value| of the reference (section 3.5, item 2, of the plan). They are
+times the largest |value| of the reference. They are
 not bit-exact: `seq_utils.gradient_offsets` adds a trapezoid's corner times in a
 different order than pypulseq's `waveforms()`, and `PPoly` evaluates a line segment with
 a different formula than `numpy.interp`. The comparison checks `GradientSampler`, not
@@ -1753,17 +1752,17 @@ itself for the expected value. The values are in Hz/m and Hz/m/s, the units of p
 with no gamma, so the hand-computed values have no conversion. Only the comparisons with the
 oracle convert the values (`GAMMA_1H` from `tests/synthetic.py`).
 
-Since phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports, `grad_peaks.py` computes its values from
+`grad_peaks.py` computes its values from
 the per-event values of `seq_index.grad_events` and the columns of `seq_index.sequence_index`,
-instead of reading every block with `get_block`, and its slew also includes the step at each
-block junction (decision 6 of section 2.5 of that plan). The tests below the first group add:
+instead of reading every block with `get_block` as the earlier implementation did, and its
+slew also includes the step at each block junction. The tests below the first group add:
 the largest slew of an arbitrary gradient and of an extended trapezoid (computed from the
 event's own corner points, the same way as the peak amplitude tests above), the credited block
 for a value that several blocks and axes share, a window that keeps only part of a ramp's
 slew, the vector peak of two blocks with different triples of active gradients, the three
-junction-step cases of section 4.6 item 6, a window that starts inside a block after a
+junction-step cases, a window that starts inside a block after a
 junction step, and comparisons with the oracle
-(`tests/oracles/grad_peaks.py`, the implementation from before phase 4).
+(`tests/oracles/grad_peaks.py`, the earlier implementation).
 
 The last group tests `block_gradient_values` (`docs/plans/gradient-pns-findings.md` of
 pulseq-checks, section 3.1): the values of each block, in play order. Its
@@ -2102,7 +2101,7 @@ is credited for either (`peak_block` and `slew_block` are None).
 #### `test_matches_oracle_on_synthetic_sequences`
 
 **Checks:** `gradient_peaks` matches the oracle (`tests/oracles/grad_peaks.py`, the
-implementation from before phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports) on the whole file, and
+earlier implementation) on the whole file, and
 on a window covering the first half of the sequence, for each of `tests/synthetic.py`'s
 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`).
@@ -3655,8 +3654,7 @@ within a relative 1e-12 or an absolute 1e-12 times the array's own peak.
 - The sampler builds the waveform from each block's own corner points and
   `numpy.interp`, a different order of float operations than
   `Sequence.get_gradients()`'s one whole-axis `PPoly`, so the values are not
-  always bit-for-bit equal (section 3.5, item 2 of
-  `docs/plans/cards-at-scale.md` of pulseq-reports).
+  always bit-for-bit equal.
 - The multiplication by `1e3 / gamma` is exact only to the float rounding, and
   the tolerance allows for it.
 - The long sequences are in `test_matches_oracle_on_long_sequences`, with a
