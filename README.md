@@ -60,3 +60,5 @@ it, the model uses pypulseq's example hardware, which is not a real scanner.
   plan of the coordinate unit of a series (`0.1.0rc3`).
 - [`docs/plans/gradient-spectrum.md`](docs/plans/gradient-spectrum.md): the
   plan of the gradient spectrum analysis (`0.1.0rc4`).
+- [`docs/plans/gamma-free-units.md`](docs/plans/gamma-free-units.md): the
+  plan of the values with no gamma (`0.1.0rc5`).
