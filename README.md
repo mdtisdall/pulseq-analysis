@@ -71,3 +71,5 @@ fraction of the stimulation limit.
   plan of the values with no gamma (`0.1.0rc5`).
 - [`docs/reviews/2026-10-04-code-review.md`](docs/reviews/2026-10-04-code-review.md):
   a review of the code at `0.1.0rc5`, with the findings to fix.
+- [`docs/plans/review-fixes.md`](docs/plans/review-fixes.md): the plan of
+  the fixes of that review (`0.1.0rc6`).
