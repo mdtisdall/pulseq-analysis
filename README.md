@@ -80,3 +80,5 @@ fraction of the stimulation limit.
   the fixes of that review (`0.1.0rc6`).
 - [`docs/reviews/2026-10-05-code-review.md`](docs/reviews/2026-10-05-code-review.md):
   a review of the code after those fixes.
+- [`docs/plans/second-review-fixes.md`](docs/plans/second-review-fixes.md):
+  the plan of the fixes of that second review (`0.1.0rc6`).
