@@ -23,6 +23,7 @@ from synthetic import (
 
 from pulseq_analysis.asc import EXAMPLE_HARDWARE, read_gradient_asc
 from pulseq_analysis.pns_levels import (
+    CHUNK_SAMPLES,
     NO_GRADIENTS,
     PEAK_TOLERANCE,
     PNS_LIMIT,
@@ -33,6 +34,7 @@ from pulseq_analysis.pns_levels import (
     bin_samples_for,
     pns_levels,
 )
+from pulseq_analysis.seq_index import sequence_index
 
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
 _LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
@@ -272,6 +274,62 @@ def test_off_raster_block_falls_back_to_sampling():
         )
 
 
+def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(monkeypatch):
+    """An off-raster sequence (the samples come from `GradientSampler.sample` at the file
+    times, chunk by chunk) of more than three chunks gives the result of one chunk, every
+    field and every interval, `==`, and `num_samples` is `ceil((end_s - 1e-10) / dt)` with
+    `end_s` the end of `sequence_index(seq)`. A chunk that read the samples of the first
+    chunk again, or a `num_samples` that rounds down, gives another result."""
+    seq = gre_sequence(num_trs=3)
+    seq.add_block(pp.make_delay(1.5 * seq.grad_raster_time))  # off the raster
+    hardware = _hardware_for_peak(seq, 1.5)
+    thresholds = (_LIMIT,)
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    reference = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+
+    assert reference.on_raster is False
+    assert math.ceil(reference.num_samples / reference.bin_samples) > 3  # chunks of 1 bin
+    assert reference.above[_LIMIT]
+    assert got == reference
+    dt = reference.dt_s
+    assert reference.num_samples == math.ceil((sequence_index(seq).end_s - 1e-10) / dt)
+
+
+def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns():
+    """An off-raster sequence of more than one chunk at the real `CHUNK_SAMPLES` (a small
+    trapezoid on x, a delay of 0.35 s, a larger trapezoid on y, a delay of 1.5 gradient-raster
+    steps) has its peak, its peak time and its axis peaks equal to `seq.calculate_pns` within
+    the relative 1e-9 of `test_off_raster_block_falls_back_to_sampling`, each divided by
+    `seq.system.gamma` as there. The peak is in the second chunk, so a chunk that read the
+    samples of the first chunk again gives another peak time."""
+    dt = SYSTEM.grad_raster_time
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_trapezoid(channel="x", area=200, system=SYSTEM))
+    seq.add_block(pp.make_delay(0.35))
+    seq.add_block(pp.make_trapezoid(channel="y", area=1000, system=SYSTEM))
+    seq.add_block(pp.make_delay(1.5 * dt))
+    _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
+    ref_peak = float(norm.max())
+    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
+    tol = 1e-9 * ref_peak
+
+    levels = pns_levels(seq)
+    gamma = seq.system.gamma
+    chunk = levels.bin_samples * math.ceil(CHUNK_SAMPLES / levels.bin_samples)
+    assert levels.on_raster is False
+    assert levels.num_samples > chunk
+    assert levels.peak_time_s > chunk * dt  # the peak is in the second chunk
+    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
+    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
+    for i, axis in enumerate("xyz"):
+        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
+            float(comp[:, i].max()), abs=tol
+        )
+
+
 def _scaled_hardware(factor: float) -> tuple[SimpleNamespace, str]:
     """The example hardware with the stimulation limit of each axis multiplied by `factor`
     (a smaller limit gives a larger total: the total is the percent of the limit), as the
@@ -344,6 +402,30 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", across)
     got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
     assert got.above[_LIMIT] == reference.above[_LIMIT]
+
+
+def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkeypatch):
+    """A threshold far below the peak gives an interval that covers three chunks or more of
+    1 bin (the open run goes over more than one chunk end, with a chunk that is all above the
+    threshold), and `above` of the chunks of 1 bin equals `above` of one chunk: the same
+    intervals, each with the same start, end, peak, peak time and number of samples."""
+    seq = gre_sequence(num_trs=3)
+    thresholds = (1e-5 * _LIMIT,)
+
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    reference = pns_levels(seq, thresholds_hz_per_t=thresholds)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    got = pns_levels(seq, thresholds_hz_per_t=thresholds)
+
+    chunk = reference.bin_samples
+    intervals = reference.above[thresholds[0]]
+    assert intervals
+    spans = [
+        last // chunk - first // chunk
+        for first, last in (_sample_range(i, reference.dt_s) for i in intervals)
+    ]
+    assert max(spans) >= 2  # an interval has samples in three chunks or more
+    assert got.above == reference.above
 
 
 @pytest.mark.parametrize(
@@ -562,8 +644,12 @@ def test_pns_levels_refuses_rotations():
 
 def test_pns_levels_is_a_frozen_dataclass():
     """`pns_levels` returns a `PnsLevels` instance (a smoke test of the interface, not
-    of a specific field: the other tests of this module check the fields)."""
-    assert isinstance(pns_levels(spin_echo_sequence()), PnsLevels)
+    of a specific field: the other tests of this module check the fields), and the
+    assignment of a field raises `dataclasses.FrozenInstanceError`."""
+    levels = pns_levels(spin_echo_sequence())
+    assert isinstance(levels, PnsLevels)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        levels.num_samples = 0  # type: ignore[misc]
 
 
 @pytest.mark.parametrize(

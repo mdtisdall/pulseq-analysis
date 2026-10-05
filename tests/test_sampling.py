@@ -108,6 +108,56 @@ def _junction_sequence(step_hz_per_m: float) -> tuple[pp.Sequence, float]:
     return seq, base.rise_time + half_flat
 
 
+def _step_then_gap_sequence() -> tuple[pp.Sequence, np.ndarray]:
+    """A step at a block junction, then a gap, then a second event, all on x: the
+    trapezoid of `_junction_sequence` in two blocks, with a step of half of
+    `max_slew * grad_raster_time` at the junction and a last value of the same size
+    (not 0), a delay block with no gradient, and a trapezoid. Returns the sequence and
+    a sorted grid of sample times (s): around the junction, around the end of the
+    second block, inside the gap (where the waveform is the line from that last value
+    to the first value of the trapezoid) and around the start of the trapezoid."""
+    raster = SYSTEM.grad_raster_time
+    small = 0.5 * SYSTEM.max_slew * raster
+    base = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
+    half_flat = round((base.flat_time / 2) / raster) * raster
+    amp = base.amplitude
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(
+        pp.make_extended_trapezoid(
+            channel="x",
+            amplitudes=np.array([0.0, amp, amp]),
+            times=np.array([0.0, base.rise_time, base.rise_time + half_flat]),
+            system=SYSTEM,
+        )
+    )
+    seq.add_block(
+        pp.make_extended_trapezoid(
+            channel="x",
+            amplitudes=np.array([amp - small, amp - small, small]),
+            times=np.array(
+                [0.0, base.flat_time - half_flat, base.flat_time - half_flat + base.fall_time]
+            ),
+            system=SYSTEM,
+        )
+    )
+    seq.add_block(pp.make_delay(2e-3))
+    seq.add_block(pp.make_trapezoid(channel="x", area=-500, system=SYSTEM))
+    index = sequence_index(seq)
+    assert index.num_blocks == 4
+    junction_s = float(index.start_s[1])
+    gap_start_s = float(index.start_s[2])
+    trapezoid_start_s = float(index.start_s[3])
+    t = np.concatenate(
+        [
+            junction_s + np.arange(-4, 5) * (raster / 2),
+            gap_start_s + np.arange(-2, 3) * (raster / 2),
+            gap_start_s + np.linspace(0.1, 0.9, 7) * (trapezoid_start_s - gap_start_s),
+            trapezoid_start_s + np.arange(-2, 5) * (raster / 2),
+        ]
+    )
+    return seq, np.unique(t)
+
+
 @pytest.mark.parametrize(
     "seq",
     [spin_echo_sequence(), gre_sequence(), arbitrary_gradient_sequence(), empty_sequence()],
@@ -141,6 +191,21 @@ def test_subrange_inside_a_gap_matches_pypulseq():
     margin = 50e-6
     t = np.linspace(gap_start + margin, gap_end - margin, 200)
     _assert_matches_pypulseq(seq, t)
+
+
+def test_range_across_a_step_and_a_gap_equals_the_same_slice_of_the_whole_grid():
+    seq, t = _step_then_gap_sequence()
+    index = sequence_index(seq)
+    sampler = GradientSampler(seq, index)
+    whole = sampler.sample("gx", t)
+    # The gap has a nonzero waveform (the line from the last value of block 1), so a
+    # range that starts in the gap needs the event before it.
+    in_gap = (t > index.start_s[2]) & (t < index.start_s[3])
+    assert in_gap.sum() >= 7
+    assert np.all(whole[in_gap] != 0.0)
+    for i in range(t.size):
+        for j in range(i + 1, t.size + 1):
+            assert np.array_equal(sampler.sample("gx", t[i:j]), whole[i:j]), (i, j)
 
 
 def test_single_sample_matches_pypulseq():

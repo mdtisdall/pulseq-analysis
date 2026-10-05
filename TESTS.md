@@ -533,6 +533,39 @@ covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
 **Assumptions:** None.
 
+#### `test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples`
+
+**Checks:** An off-raster sequence of more than three chunks gives the result of one
+chunk (`==`, each field and each interval), and its `num_samples` is
+`ceil((end_s - 1e-10) / dt)`, with `end_s` the end of `sequence_index(seq)`. A chunk
+that reads the samples of the first chunk again, or a `num_samples` that rounds down,
+gives another result.
+
+**How:** `gre_sequence(num_trs=3)` and then `pp.make_delay(1.5 * dt)`, so that the
+sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
+(`_hardware_for_peak`), and `thresholds_hz_per_t=(_LIMIT,)`. `monkeypatch` sets
+`CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
+for the second call. The test checks `on_raster is False`, more than three chunks, an
+interval above `_LIMIT`, `got == reference`, and `num_samples`.
+
+**Assumptions:** The sequence has an interval above `_LIMIT`.
+
+#### `test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns`
+
+**Checks:** An off-raster sequence that is longer than one chunk at the real
+`CHUNK_SAMPLES` has the peak, the peak time and the axis peaks of `seq.calculate_pns`,
+within the tolerances of `test_off_raster_block_falls_back_to_sampling` (each value
+divided by `seq.system.gamma`). The peak is in the second chunk.
+
+**How:** A trapezoid on x (area 200), `pp.make_delay(0.35)`, a trapezoid on y (area
+1000) and `pp.make_delay(1.5 * dt)`. The reference is
+`seq.calculate_pns(safe_example_hw(), do_plots=False)`. The test checks
+`on_raster is False`, `num_samples` more than one chunk
+(`bin_samples * ceil(CHUNK_SAMPLES / bin_samples)`), a peak time after the first chunk,
+and then the peak, the peak time and the axis peaks.
+
+**Assumptions:** None.
+
 #### `test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some`
 
 **Checks:** `above[_LIMIT]` is empty if and only if `peak_hz_per_t < _LIMIT`. For a
@@ -567,6 +600,22 @@ reference (`numpy.array_equal` for the arrays, `==` for the rest).
 **Assumptions:** The test checks that the second size has an interval across a chunk
 end and the third has none. Setting a chunk of 1 sample gives chunks of 1 bin
 (`pns_levels` rounds the chunk up to a whole number of bins).
+
+#### `test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples`
+
+**Checks:** An interval with samples in three chunks or more (the open run goes over
+more than one chunk end) is the same interval with chunks of one bin and with one
+chunk.
+
+**How:** `gre_sequence(num_trs=3)` with the example hardware and
+`thresholds_hz_per_t=(1e-5 * _LIMIT,)`, a threshold far below the peak. `monkeypatch`
+sets `CHUNK_SAMPLES` to `10**9` for the reference and to 1 (a chunk of one bin) for the
+second call. The test checks that an interval of the reference has
+`last // chunk - first // chunk >= 2` (with `_sample_range`), and that the two `above`
+are equal.
+
+**Assumptions:** The interval of the threshold `1e-5 * _LIMIT` is longer than two
+bins.
 
 #### `test_the_intervals_match_the_runs_of_the_totals`
 
@@ -676,10 +725,12 @@ technique of `test_extensions.py`'s `_with_rotation_library`), inside
 
 #### `test_pns_levels_is_a_frozen_dataclass`
 
-**Checks:** `pns_levels` returns a `PnsLevels` instance.
+**Checks:** `pns_levels` returns a `PnsLevels` instance, and an assignment to a field
+raises `dataclasses.FrozenInstanceError`.
 
-**How:** `isinstance(pns_levels(spin_echo_sequence()), PnsLevels)`. A smoke test of
-the interface; the other tests of this section check individual fields.
+**How:** `isinstance(pns_levels(spin_echo_sequence()), PnsLevels)`, then
+`levels.num_samples = 0` in `pytest.raises(dataclasses.FrozenInstanceError)`. A smoke
+test of the interface; the other tests of this section check individual fields.
 
 **Assumptions:** None.
 
@@ -1143,6 +1194,29 @@ is 200 evenly spaced points strictly inside the delay block, 50 µs in from each
 Compares with `_assert_matches_pypulseq`.
 
 **Assumptions:** None.
+
+#### `test_range_across_a_step_and_a_gap_equals_the_same_slice_of_the_whole_grid`
+
+**Checks:** `GradientSampler.sample` of each sub-range of a sorted grid of times, around
+a step at a block junction and in a gap after it, gives exactly the matching slice of
+`sample` of the whole grid. A range that starts in the gap uses the last point of the
+event before the gap, and a range that ends in the gap uses the first point of the
+event after it.
+
+**How:** `_step_then_gap_sequence` has four blocks with events on x: the rise and half
+of the flat top of a trapezoid (area 1000), the rest of the flat top and the fall
+(`make_extended_trapezoid`), `make_delay(2e-3)` (the gap), and a trapezoid (area
+-500). The second block starts `0.5 * max_slew * grad_raster_time` below the end of the
+first (a step that `add_block` accepts) and ends at the same value above 0, so the
+waveform in the gap is not 0. The grid has 28 times: steps of half a raster time around
+the junction, the start of the gap and the start of the last trapezoid, and 7 times in
+the gap. The test checks that the 7 or more values in the gap are not 0, then compares
+`sample("gx", t[i:j])` with `whole[i:j]` (`numpy.array_equal`) for each of the 406
+pairs `i < j`.
+
+**Assumptions:** With a last value of 0 for the second block, the gap is 0 with and
+without the neighbour events, and the test cannot find their removal. The value that is
+not 0 lets it.
 
 #### `test_single_sample_matches_pypulseq`
 
@@ -1932,6 +2006,39 @@ library.
 **How:** The same as `test_gradient_limits_refuses_rotations`: the `_with_rotation_library`
 sequence of `test_extensions.py`, inside `pytest.raises(NotImplementedError, match="rotation
 extension")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_limits_refuses_a_window_with_no_start_before_its_end`
+
+**Checks:** `gradient_limits` raises `ValueError` for a `window` whose start is not
+before its end.
+
+**How:** The synthetic spin echo, with three cases: a start equal to the end, a start
+after the end, and a NaN start. Each call is in
+`pytest.raises(ValueError, match="must have a start before its end")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_limits_refuses_a_window_outside_the_sequence`
+
+**Checks:** `gradient_limits` raises `ValueError` for a `window` that is outside the
+sequence by more than `TIME_TOLERANCE`.
+
+**How:** The synthetic spin echo, with two cases: a start of `-2 * TIME_TOLERANCE`, and
+an end of `total_duration + 2 * TIME_TOLERANCE`. Each call is in
+`pytest.raises(ValueError, match="is not within the sequence")`.
+
+**Assumptions:** None.
+
+#### `test_gradient_limits_accepts_a_window_within_the_tolerance_of_the_sequence`
+
+**Checks:** `gradient_limits` accepts a `window` that is outside the sequence by less
+than `TIME_TOLERANCE`, and `range_s` is the sequence.
+
+**How:** The synthetic spin echo and the window
+`(-TIME_TOLERANCE / 2, total_duration + TIME_TOLERANCE / 2)`. The call does not raise,
+and `range_s` equals `(0.0, total_duration)`.
 
 **Assumptions:** None.
 
@@ -3182,13 +3289,17 @@ below 0 and of one sample, for a `frequency_oversampling` of 0.5, and for a
 `max_frequency_hz` of 0, below 0, above the Nyquist frequency (60 kHz) and
 below the frequency step. One case has a `max_frequency_hz` of 10 Hz with
 `frequency_oversampling=1`: it is above the step of the defaults and below the
-step of 20 Hz of the arguments.
+step of 20 Hz of the arguments. The case of one sample also gives
+`match="samples at the gradient raster"`, the text of the check `nwin < 2`. The
+other cases give no `match`.
 
 **Assumptions:**
 
 - The synthetic sequence has the default gradient raster of 10 µs, so the
   Nyquist frequency is 50 kHz and the step of the defaults is 6.67 Hz.
-- The test does not check the message text.
+- The test checks the message text only for the case of one sample. Without it,
+  the check of the frequency step (also a `ValueError`) hides a missing check
+  `nwin < 2`.
 
 #### `test_gradient_spectrum_for_keeps_one_result_for_each_set_of_arguments`
 
