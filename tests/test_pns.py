@@ -1,8 +1,7 @@
-import dataclasses
-
 import numpy as np
 import pypulseq as pp
 import pytest
+from asserts import assert_levels_equal
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from synthetic import GAMMA_1H, SYSTEM, block_pulse, empty_sequence, spin_echo_sequence
@@ -11,7 +10,7 @@ from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import EXAMPLE_HARDWARE, hardware_name, read_gradient_asc
 from pulseq_analysis.pns import pns_levels_for
-from pulseq_analysis.pns_levels import NO_GRADIENTS, PNS_LIMIT, PnsLevels
+from pulseq_analysis.pns_levels import NO_GRADIENTS, PNS_LIMIT
 
 _LIMIT = PNS_LIMIT * GAMMA_1H  # Hz/T: the stimulation limit for 1H
 
@@ -265,19 +264,6 @@ def test_pns_levels_for_alternating_two_hardwares_runs_the_model_two_times(
     assert len(calls) == 2
 
 
-def _assert_levels_equal(a: PnsLevels, b: PnsLevels, *, ignore: tuple[str, ...]) -> None:
-    """Every field of `a` and `b` is exactly equal, except the fields named in `ignore`
-    (`numpy.array_equal` for the arrays, `==` for the rest)."""
-    for field in dataclasses.fields(PnsLevels):
-        if field.name in ignore:
-            continue
-        x, y = getattr(a, field.name), getattr(b, field.name)
-        if isinstance(x, np.ndarray):
-            assert np.array_equal(x, y), field.name
-        else:
-            assert x == y, field.name
-
-
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 def test_pns_levels_for_hardware_from_an_asc_file_gives_the_levels_of_the_file(
     write_gradient_asc, split
@@ -292,7 +278,7 @@ def test_pns_levels_for_hardware_from_an_asc_file_gives_the_levels_of_the_file(
     assert from_file.asc_file == path.name
     assert levels.hardware == "LABEL"
     assert levels.asc_file is None
-    _assert_levels_equal(levels, from_file, ignore=("hardware", "asc_file"))
+    assert_levels_equal(levels, from_file, ignore=("hardware", "asc_file"))
 
 
 def test_pns_levels_for_refuses_both_gradient_asc_and_hardware(monkeypatch, write_gradient_asc):

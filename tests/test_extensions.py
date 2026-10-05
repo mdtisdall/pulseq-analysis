@@ -6,21 +6,10 @@ from synthetic import (
     empty_sequence,
     gre_sequence,
     spin_echo_sequence,
+    with_rotation_library,
 )
 
 from pulseq_analysis.extensions import refuse_rotations
-
-# A scalar-first unit quaternion (angle 45 deg about z): q0=cos(22.5deg), qz=sin(22.5deg).
-_QUATERNION = (0.9238795325112867, 0.0, 0.0, 0.3826834323650898)
-
-
-def _with_rotation_library() -> pp.Sequence:
-    """A `gre_sequence` with one rotation stored the way pypulseq draft PR #372 stores
-    it: a `rotation_library` (an `EventLibrary` of scalar-first unit quaternions)."""
-    seq = gre_sequence(num_trs=2)
-    seq.rotation_library = EventLibrary()
-    seq.rotation_library.insert(1, _QUATERNION)
-    return seq
 
 
 def _with_rotations_extension_type() -> pp.Sequence:
@@ -74,7 +63,7 @@ def test_refuse_rotations_raises_for_a_rotation_library():
     """A non-empty `seq.rotation_library` (as PR #372 stores rotations in memory) is
     refused."""
     with pytest.raises(NotImplementedError, match="rotation extension"):
-        refuse_rotations(_with_rotation_library())
+        refuse_rotations(with_rotation_library())
 
 
 def test_refuse_rotations_raises_for_a_rotations_extension_type():

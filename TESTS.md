@@ -498,7 +498,7 @@ intervals of a threshold below the peak. Each chunk reads only its part of the b
 a delay event of 10,000 samples, then a trapezoid block on y. The threshold is `0.05 *
 _LIMIT`. `CHUNK_SAMPLES` is set to `10**9` for the reference (the test checks that
 four bins are fewer than 10,000 samples, and that the reference has an interval), then
-to 1 and `bin_samples + 1`. `_assert_levels_equal` compares each result with the
+to 1 and `bin_samples + 1`. `assert_levels_equal` (`tests/asserts.py`) compares each result with the
 reference, every field.
 
 **Assumptions:** None.
@@ -511,7 +511,7 @@ reference, every field.
 
 **How:** Two sequences with the same trapezoid on x. The threshold is `0.1 * _LIMIT`.
 The test checks that the long sequence has more than `3 * CHUNK_SAMPLES` samples and
-that the result of the short blocks has an interval. `_assert_levels_equal` compares
+that the result of the short blocks has an interval. `assert_levels_equal` (`tests/asserts.py`) compares
 every field. The samples of a delay are 0 in both, so the totals are equal.
 
 **Assumptions:** None.
@@ -572,7 +572,7 @@ gives another result.
 
 **How:** `gre_sequence(num_trs=3)` and then `pp.make_delay(1.5 * dt)`, so that the
 sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
-(`_hardware_for_peak`), and `thresholds_hz_per_t=(_LIMIT,)`. `monkeypatch` sets
+(`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. `monkeypatch` sets
 `CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
 for the second call. The test checks `on_raster is False`, more than three chunks, an
 interval above `_LIMIT`, `got == reference`, and `num_samples`.
@@ -606,7 +606,7 @@ one sample below the limit between two of them.
 **How:** `pns_levels(seq, thresholds_hz_per_t=(_LIMIT,))` for
 `gre_sequence(num_trs=20)` with the example hardware has a peak below `_LIMIT` and no
 interval. Then the stimulation limit of each axis is scaled with the peak of the example
-hardware, so that the peak is 1.5 times `_LIMIT` (`_hardware_for_peak`; the total is the
+hardware, so that the peak is 1.5 times `_LIMIT` (`hardware_for_peak` of `tests/pns_hardware.py`; the total is the
 percent of the limit), and `pns_levels` runs with that hardware as `hardware`. The sample of a time is `round(t / dt - 0.5)`.
 
 **Assumptions:** The sequence gives more than one interval at that peak.
@@ -696,7 +696,7 @@ and for each threshold the first of 1 to 19 bins with an interval across its end
 as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
 `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
 have the keys `[_LIMIT, 0.5 * _LIMIT]`, the same tuple as `single` for each threshold, and
-every other field equal (`_assert_levels_equal` with `ignore=("above",)`). After the chunk
+every other field equal (`assert_levels_equal` (`tests/asserts.py`) with `ignore=("above",)`). After the chunk
 sizes are restored, the thresholds in the other order give the keys in that order and the
 same tuples, and the `int` `round(_LIMIT)` in place of `_LIMIT` (the test checks that it
 equals `_LIMIT` as a float) gives the key `_LIMIT` as a `float`.
@@ -729,9 +729,8 @@ from a given gradient .asc file, instead of the example hardware, and its stored
 level and summary then equal the default (example-hardware) call exactly, because
 this .asc file encodes the example hardware's own numbers.
 
-**How:** A local `write_gradient_asc` fixture (the technique of `test_pns.py`'s
-fixture of the same name, not its confidential data: real .asc files are
-confidential, so this one is built from pypulseq's own public
+**How:** The `write_gradient_asc` fixture of `tests/conftest.py` (not confidential
+data: real .asc files are confidential, so this one is built from pypulseq's own public
 `safe_example_hw()`) writes an `asCOMP.tName` line and the `flGSWDTau*`,
 `flGSWDA*`, `flGSWDStimulationLimit*`/`Threshold*` and `flGScaleFactor*` fields for
 each axis. `pns_levels(spin_echo_sequence(), path)`'s `hardware`, `asc_file` and
@@ -747,7 +746,7 @@ each axis. `pns_levels(spin_echo_sequence(), path)`'s `hardware`, `asc_file` and
 rotation library, as `gradient_limits` does.
 
 **How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
-technique of `test_extensions.py`'s `_with_rotation_library`), inside
+`with_rotation_library` helper of `tests/synthetic.py`), inside
 `pytest.raises(NotImplementedError, match="rotation extension")`.
 
 **Assumptions:** None.
@@ -815,7 +814,7 @@ the raster, the test calls both and compares each field of the `PnsLevels` but
 gives the levels of `pns_levels(seq, gradient_asc=path)`, except `hardware` (the label)
 and `asc_file` (None).
 
-**How:** The local `write_gradient_asc` fixture of this file writes the `.asc` file (the
+**How:** The `write_gradient_asc` fixture of `tests/conftest.py` writes the `.asc` file (the
 plain layout; `test_pns.py` tests the layout of a scanner file). The test compares each
 field but the two with `numpy.array_equal` and `==`.
 
@@ -837,13 +836,13 @@ field but the two with `numpy.array_equal` and `==`.
 `SYSTEM` with another gamma, gives exactly equal levels in every field, including the
 intervals. The model runs on the Hz/m samples and reads no gamma.
 
-**How:** `_waveform_sequence` builds a trapezoid on x and an arbitrary gradient on y, each
+**How:** `waveform_sequence` (`tests/synthetic.py`) builds a trapezoid on x and an arbitrary gradient on y, each
 with an explicit amplitude in Hz/m (the arbitrary gradient has `first=0.0, last=0.0`), in
 three blocks. One sequence has `SYSTEM`, and the other has `copy.copy(SYSTEM)` with
 `gamma = 0.9 * SYSTEM.gamma`. The hardware gives a peak of 1.5 times `_LIMIT`
-(`_hardware_for_peak`), and `thresholds_hz_per_t=(_LIMIT,)`. The test checks that the two
+(`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. The test checks that the two
 gammas differ, that there is no reason and that `above[_LIMIT]` is not empty. Then
-`_assert_levels_equal` with `ignore=()` compares the two results.
+`assert_levels_equal` (`tests/asserts.py`) with `ignore=()` compares the two results.
 
 **Assumptions:** None.
 
@@ -855,7 +854,7 @@ the axis peaks of `pns_levels`, divided by `seq.system.gamma`, and its peak time
 1H does not equal it. Thus the conversion of `docs/usage.md` section 8 uses the gamma of
 the caller.
 
-**How:** The sequence of `_waveform_sequence` with a copy of `SYSTEM` with
+**How:** The sequence of `waveform_sequence` (`tests/synthetic.py`) with a copy of `SYSTEM` with
 `gamma = 0.9 * SYSTEM.gamma`. The reference peak, peak time and axis peaks come from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
 `test_summary_matches_calculate_pns_within_the_fork_tolerance`, with the same tolerances.
@@ -871,10 +870,10 @@ factor of 0.9 does).
 every field, including the intervals of two thresholds. The model of `-g` is equal to the
 model of `g`, bit for bit.
 
-**How:** `_waveform_sequence(SYSTEM)` and `_waveform_sequence(SYSTEM, sign=-1.0)`, with the
+**How:** `waveform_sequence(SYSTEM)` and `waveform_sequence(SYSTEM, sign=-1.0)` (`tests/synthetic.py`), with the
 hardware of a peak of 1.5 times `_LIMIT` and `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`.
 The test checks that each threshold has intervals, then compares the two results with
-`_assert_levels_equal` and `ignore=()`.
+`assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
@@ -886,7 +885,7 @@ same result in every field. This is also so with hardware for a peak above the l
 **How:** `gre_sequence(num_trs=4)`, with the example hardware and with the hardware of a
 peak of 1.5 times `_LIMIT`. For each, the test calls `pns_levels` with no threshold argument
 and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two results with
-`_assert_levels_equal` and `ignore=()`.
+`assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
@@ -953,7 +952,7 @@ new, empty `EventLibrary`, and calls `refuse_rotations` on it.
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py` (section 4.1 of
-`docs/plans/cards-at-scale.md`): the dense RF, gradient and ADC event numbering of
+`docs/plans/cards-at-scale.md` of pulseq-reports): the dense RF, gradient and ADC event numbering of
 `sequence_index`, its block times, its dtypes and its cache; `block_cache_off`; and
 `rf_events`, `grad_events` and `adc_events`, which read each unique event one time with
 the block cache off. The
@@ -1182,7 +1181,7 @@ tests. It checks the call count is 1, that the recorded cache flag is `False`, t
 ### 2.5 Raster sampler (`test_sampling.py`)
 
 `test_sampling.py` tests `sampling.py` (section 4.3 of
-`docs/plans/cards-at-scale.md`): `GradientSampler`, which gives the gradient waveform of one axis at sorted times, from
+`docs/plans/cards-at-scale.md` of pulseq-reports): `GradientSampler`, which gives the gradient waveform of one axis at sorted times, from
 the sequence index and the unique gradient events. The reference is pypulseq's
 `seq.get_gradients()`: `_assert_matches_pypulseq` compares `sample(axis, t)` with the
 `PPoly` of each axis at the same times, within a relative 1e-12 and an absolute 1e-12
@@ -1618,7 +1617,7 @@ itself for the expected value. The values are in Hz/m and Hz/m/s, the units of p
 with no gamma, so the hand-computed values have no conversion. Only the comparisons with the
 oracle convert the values (`GAMMA_1H` from `tests/synthetic.py`).
 
-Since phase 4 of `docs/plans/cards-at-scale.md`, `grad_limits.py` computes its values from
+Since phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports, `grad_limits.py` computes its values from
 the per-event values of `seq_index.grad_events` and the columns of `seq_index.sequence_index`,
 instead of reading every block with `get_block`, and its slew also includes the step at each
 block junction (decision 6 of section 2.5 of that plan). The tests below the first group add:
@@ -1967,7 +1966,7 @@ is credited for either (`peak_block` and `slew_block` are None).
 #### `test_matches_oracle_on_synthetic_sequences`
 
 **Checks:** `gradient_limits` matches the oracle (`tests/oracles/grad_limits.py`, the
-implementation from before phase 4 of `docs/plans/cards-at-scale.md`) on the whole file, and
+implementation from before phase 4 of `docs/plans/cards-at-scale.md` of pulseq-reports) on the whole file, and
 on a window covering the first half of the sequence, for each of `tests/synthetic.py`'s
 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`).
@@ -2024,7 +2023,7 @@ the same block-attribution exception and the same conversion to the units of the
 rotation library.
 
 **How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
-`_with_rotation_library` helper of `test_extensions.py`), inside
+`with_rotation_library` helper of `tests/synthetic.py`), inside
 `pytest.raises(NotImplementedError, match="rotation extension")`.
 
 **Assumptions:** None.
@@ -2135,8 +2134,8 @@ float arrays and that `start_s` increases.
 **Checks:** `block_gradient_values` raises `NotImplementedError` for a sequence with a rotation
 library.
 
-**How:** The same as `test_gradient_limits_refuses_rotations`: the `_with_rotation_library`
-sequence of `test_extensions.py`, inside `pytest.raises(NotImplementedError, match="rotation
+**How:** The same as `test_gradient_limits_refuses_rotations`: the `with_rotation_library`
+sequence of `tests/synthetic.py`, inside `pytest.raises(NotImplementedError, match="rotation
 extension")`.
 
 **Assumptions:** None.
@@ -2961,7 +2960,7 @@ points (an object with a `name`, a `dist` with the package name, and a `load`). 
 the real registry uses the entry points that `uv sync` installs from `pyproject.toml`. The
 tests of the series use `gre_sequence(num_trs=20)` with the example hardware of pypulseq, with
 the stimulation limit multiplied so that the peak is 1.5 times `_LIMIT`, so that the total is
-above `_LIMIT` in several runs (`_hardware_for_peak`, as in `test_pns_levels.py`). `_LIMIT` is
+above `_LIMIT` in several runs (`hardware_for_peak` of `tests/pns_hardware.py`). `_LIMIT` is
 `PNS_LIMIT * GAMMA_1H`, the stimulation limit for 1H in Hz/T: a PNS value and a threshold are
 in Hz/T. The test of the spectrum series
 uses `spin_echo_sequence()`.
@@ -3076,7 +3075,7 @@ in this order, with one entry for each interval of `above[_LIMIT]` (`start` and 
 `{"threshold": _LIMIT}`. For a `PnsLevels` of a gradient `.asc` file, `meta["hardware"]` is the
 name in the file and `meta["asc_file"]` is the file name.
 
-**How:** The test calls `compute` with the hardware of `_hardware_for_peak(seq, 1.5)` and
+**How:** The test calls `compute` with the hardware of `hardware_for_peak(seq, 1.5)` (`tests/pns_hardware.py`) and
 `thresholds_hz_per_t=(_LIMIT,)`, and compares each field of `to_series` with the field of the same `PnsLevels` (`numpy.array_equal`
 for the arrays, `tolist` for the intervals). For the file it writes a gradient `.asc` file with
 the `write_gradient_asc` fixture and calls `pns_levels` with it.
@@ -3382,7 +3381,7 @@ frequencies, each axis spectrum and the RSS must be exactly equal.
 with the rotation extension.
 
 **How:** The test gives `gradient_spectrum` a GRE sequence with a rotation
-library (`_with_rotation_library` of `test_extensions.py`). The error message
+library (`with_rotation_library` of `tests/synthetic.py`). The error message
 must contain "rotation extension".
 
 **Assumptions:**

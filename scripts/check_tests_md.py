@@ -61,12 +61,17 @@ def read_node_ids(path: Path) -> list[str]:
     return [line for line in text.splitlines() if "::" in line]
 
 
+def _unparametrized(node_id: str) -> str:
+    """`node_id` without its parametrize ID, which can contain `::` (`test_y[a::b]`)."""
+    return node_id.split("[", 1)[0]
+
+
 def collected_tests(node_ids: list[str]) -> set[tuple[str, str]]:
     """(file name, test name) of each test named by `node_ids`.
 
     `node_ids` is in the format of `pytest --collect-only -q`.
     """
-    paths = {node_id.split("::")[0] for node_id in node_ids}
+    paths = {_unparametrized(node_id).split("::")[0] for node_id in node_ids}
     names = Counter(Path(path).name for path in paths)
     duplicates = sorted(name for name, count in names.items() if count > 1)
     if duplicates:
@@ -77,8 +82,8 @@ def collected_tests(node_ids: list[str]) -> set[tuple[str, str]]:
         )
     tests = set()
     for node_id in node_ids:
-        path, *_, name = node_id.split("::")
-        tests.add((Path(path).name, name.split("[")[0]))
+        path, *_, name = _unparametrized(node_id).split("::")
+        tests.add((Path(path).name, name))
     return tests
 
 
