@@ -570,8 +570,8 @@ def test_pns_levels_is_a_frozen_dataclass():
     "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
 def test_the_arrays_of_the_levels_are_read_only(make_seq):
-    """`level_min` and `level_max` are read-only, also for a sequence without gradients. A
-    conversion to a new array works."""
+    """`level_min_hz_per_t` and `level_max_hz_per_t` are read-only, also for a sequence
+    without gradients. A conversion to a new array works."""
     levels = pns_levels(make_seq())
     for a in (levels.level_min_hz_per_t, levels.level_max_hz_per_t):
         assert not a.flags.writeable
