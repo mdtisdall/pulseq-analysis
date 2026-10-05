@@ -7,6 +7,7 @@ lists hold play indexes, as `SequenceIndex` does (the old loop kept block ids).
 """
 
 import copy
+import dataclasses
 from types import SimpleNamespace
 
 import numpy as np
@@ -220,6 +221,26 @@ def test_dtype_widens_to_uint16_past_255_unique_gradient_events():
     assert index.gx.dtype == np.uint16
     assert index.gy.dtype == np.uint16
     assert index.gz.dtype == np.uint16
+
+
+@pytest.mark.parametrize("build", [gre_sequence, empty_sequence])
+def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
+    index = sequence_index(build())
+    arrays = [
+        getattr(index, f.name)
+        for f in dataclasses.fields(index)
+        if isinstance(getattr(index, f.name), np.ndarray)
+    ]
+    assert len(arrays) == 12
+    for array in arrays:
+        assert not array.flags.writeable
+        if array.size:
+            with pytest.raises(ValueError):
+                array[0] = array[0]
+        copied = np.array(array)
+        assert copied.flags.writeable
+        if copied.size:
+            copied[0] = copied[0]
 
 
 def test_sequence_index_of_a_sequence_with_no_blocks():

@@ -95,6 +95,11 @@ number of unique events of one kind.
 The event columns use the smallest of uint8, uint16 and uint32 that holds K.
 Convert a value with `int(x)` when you need a Python `int`.
 
+The arrays of a `SequenceIndex` are read-only: a change in place, such as
+`index.start_s[0] = 1.0`, raises `ValueError`. All callers share the index that
+`sequence_index` keeps for a sequence object, so a change would reach all of them.
+Make a copy to change one: `np.array(index.start_s)`.
+
 `rf_events(seq, index)`, `grad_events(seq, index)` and `adc_events(seq, index)`
 give `(number, event)` for each unique event, in the order of the numbers.
 The event is the pypulseq event of the first block that uses it. They read
