@@ -55,6 +55,12 @@ CHUNK_SAMPLES = 30_000
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
+# The nine fields of each axis of a SAFE hardware struct, in the order of `safe_example_hw`
+# and `asc_to_hw`. `pns.pns_levels_for` keys its results on them too.
+SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
+# The largest distance of `a1 + a2 + a3` from 1 for an axis (the rule of pypulseq's
+# `safe_hw_check`).
+_A_SUM_TOLERANCE = 0.001
 
 
 @dataclass(frozen=True)
@@ -140,10 +146,21 @@ def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
     return max(wanted, coarsest_for_size, 1)
 
 
-def _require_hardware(hardware: object) -> None:
-    """Raise TypeError unless `hardware` is a tuple of two items whose second item is a
-    `str`. `pns_levels` and `pns.pns_levels_for` call it before they read the sequence. It
-    does not check the fields of the struct."""
+def _check_hardware(hardware: object) -> None:
+    """Raise unless `hardware` is a pair `(struct, label)` of a SAFE hardware struct and its
+    `str` label. `pns_levels` and `pns.pns_levels_for` call it first, before they read the
+    sequence or the kept results, also for a sequence with no gradient event. It raises:
+
+    - TypeError, when `hardware` is not a tuple of two items with a `str` second item;
+    - ValueError, when the struct has no `x`, `y` or `z`, or an axis has no field of
+      `SAFE_FIELDS` (the message names it, for example "'x.stim_thresh' missing in the
+      hardware struct");
+    - TypeError, when a field is not a real number, and ValueError, when it is not finite
+      (`_validate.real`);
+    - ValueError, when `stim_limit` is not above 0, or when `a1 + a2 + a3` of an axis is
+      more than 0.001 from 1 (the rule of pypulseq's `safe_hw_check`, which the package does
+      not call: it raises AttributeError for a struct with no `x`).
+    """
     if not (isinstance(hardware, tuple) and len(hardware) == 2 and isinstance(hardware[1], str)):
         raise TypeError(
             "hardware must be a tuple (struct, label): a SAFE hardware struct in the form of "
@@ -151,6 +168,25 @@ def _require_hardware(hardware: object) -> None:
             "give hardware=asc.hardware_from_asc(path); for pypulseq's example hardware (not "
             'a real scanner), give hardware=(safe_example_hw(), "<a label>")'
         )
+    struct = hardware[0]
+    for axis in _AXES3:
+        axis_struct = getattr(struct, axis, None)
+        if axis_struct is None:
+            raise ValueError(f"'{axis}' missing in the hardware struct")
+        values = {}
+        for field in SAFE_FIELDS:
+            if not hasattr(axis_struct, field):
+                raise ValueError(f"'{axis}.{field}' missing in the hardware struct")
+            values[field] = real(
+                f"hardware {axis}.{field}",
+                getattr(axis_struct, field),
+                positive=field == "stim_limit",
+            )
+        if abs(values["a1"] + values["a2"] + values["a3"] - 1) > _A_SUM_TOLERANCE:
+            raise ValueError(
+                f"hardware {axis}.a1 + {axis}.a2 + {axis}.a3 must be 1 (within "
+                f"{_A_SUM_TOLERANCE}), not {values['a1'] + values['a2'] + values['a3']!r}"
+            )
 
 
 def pns_levels(
@@ -168,9 +204,15 @@ def pns_levels(
     `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), and `label` is the string that
     `PnsLevels.hardware` gives. `asc.hardware_from_asc(path)` makes the pair from a Siemens
     gradient .asc file. For pypulseq's example hardware, which is not a real scanner, give
-    `hardware=(safe_example_hw(), "<a label>")`. Anything that is not a tuple of two items
-    with a `str` second item raises TypeError, before the sequence is read; the call
-    without `hardware` raises Python's own TypeError.
+    `hardware=(safe_example_hw(), "<a label>")`. `_check_hardware` checks it first, before
+    the sequence is read, also for a sequence with no gradient event. Anything that is not
+    a tuple of two items with a `str` second item raises TypeError; the call without
+    `hardware` raises Python's own TypeError. A struct with no `x`, `y` or `z`, or an axis
+    with no field of `SAFE_FIELDS` (`stim_thresh` too), raises ValueError that names it.
+    Each field is a finite real number (`_validate.real`: not a real number raises
+    TypeError, not finite raises ValueError); `stim_limit` is above 0; and `a1 + a2 + a3`
+    of each axis is within 0.001 of 1 (the rule of pypulseq's `safe_hw_check`), or
+    ValueError.
 
     `thresholds_hz_per_t` is a tuple of the totals, in Hz/T, whose intervals
     `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
@@ -241,13 +283,16 @@ def pns_levels(
     interval; it does not grow with the length of a block. The arrays of the result are
     read-only.
 
-    Raises TypeError when `hardware` is not a pair, `thresholds_hz_per_t` is not a tuple or
-    has an element that is a `bool` or not a real number, or `bin_s` is a `bool` or not a
-    real number, ValueError when a threshold or `bin_s` is not finite or not above 0 or two
-    thresholds are equal, and NotImplementedError for a sequence with the rotation extension
+    Raises TypeError when `hardware` is not a pair or has a field that is not a real number,
+    `thresholds_hz_per_t` is not a tuple or has an element that is a `bool` or not a real
+    number, or `bin_s` is a `bool` or not a real number; ValueError when the struct of
+    `hardware` lacks an axis or a field, has a field that is not finite, a `stim_limit` not
+    above 0, or an axis with `a1 + a2 + a3` not within 0.001 of 1, when a threshold or
+    `bin_s` is not finite or not above 0, or when two thresholds are equal; and
+    NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
     """
-    _require_hardware(hardware)
+    _check_hardware(hardware)
     bin_s = real("bin_s", bin_s, positive=True)
     keys = _validated_thresholds(thresholds_hz_per_t)
     refuse_rotations(seq)
@@ -560,8 +605,3 @@ def _cast_outward(values: np.ndarray, *, down: bool) -> np.ndarray:
         cast = cast.copy()
         cast[wrong_side] = np.nextafter(cast[wrong_side], direction)
     return cast
-
-
-# The nine fields of each axis of a SAFE hardware struct, in the order of
-# `safe_example_hw` and `asc_to_hw`. `pns.pns_levels_for` keys its results on them too.
-SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")

@@ -351,8 +351,8 @@ which is necessary and keyword-only; `struct` is a SAFE hardware struct in the f
 pypulseq's `asc_to_hw`. The tests give pypulseq's example hardware as the pair `EXAMPLE_HW`
 of `tests/synthetic.py` (`safe_example_hw()` and a label), and the hardware of a gradient
 `.asc` file as `hardware_from_asc(path)`. The last tests of this section check the
-`hardware` keyword against `EXAMPLE_HW`, a missing `hardware` and a `hardware` that is not
-a pair. They compare the results
+`hardware` keyword against `EXAMPLE_HW`, a missing `hardware`, a `hardware` that is not
+a pair and a struct that `_check_hardware` refuses. They compare the results
 exactly: the same struct values give the same float operations.
 
 #### `test_summary_matches_calculate_pns_within_the_fork_tolerance`
@@ -939,6 +939,37 @@ second item raises `TypeError` (the message names `hardware`), before the sequen
 of `pns_levels` with functions that raise `RuntimeError`, and calls
 `pns_levels(spin_echo_sequence(), hardware=hardware)` in
 `pytest.raises(TypeError, match="hardware")`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_refuses_a_bad_struct_before_any_work`
+
+**Checks:** `pns_levels` with a pair whose struct is bad raises the error of the defect,
+with a message that names it, before the sequence is read: `ValueError` for a struct with no
+`x` (`'x' missing`), with no `x.stim_thresh`, with `x.a1 = 5.0` (`a1 + a2 + a3` is not 1)
+and with `x.stim_limit = 0.0`; and for `x.tau1 = nan` (not finite); `TypeError` for
+`x.tau1 = "0.2"` (not a real number).
+
+**How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
+one defect. The test replaces `refuse_rotations` and `sequence_index` of `pns_levels` with
+functions that raise `RuntimeError`, and calls
+`pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))` in
+`pytest.raises(error, match=match)`. A read of the sequence would give the `RuntimeError`
+instead.
+
+**Assumptions:** The rule of the check is that of `_check_hardware`: the nine fields of
+`SAFE_FIELDS` on each of the axes `x`, `y` and `z`, real and finite, `stim_limit` above 0,
+and `a1 + a2 + a3` within 0.001 of 1.
+
+#### `test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients`
+
+**Checks:** The bad structs of the test above raise the same errors, with the same
+messages, for a sequence with no gradient event, which gives a `NO_GRADIENTS` result for
+a good struct.
+
+**How:** Parametrized on `BAD_STRUCTS`. The test calls
+`pns_levels(empty_sequence(), hardware=(struct, "BAD"))` in
+`pytest.raises(error, match=match)`, with the real sequence (no replaced function).
 
 **Assumptions:** None.
 
@@ -2778,6 +2809,36 @@ read and before the kept results are touched.
 functions that raise `RuntimeError`, and calls
 `pns_levels_for(spin_echo_sequence(), hardware=hardware)` in
 `pytest.raises(TypeError, match="hardware")`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_for_refuses_a_bad_struct_before_any_work`
+
+**Checks:** `pns_levels_for` with a pair whose struct is bad raises the error of the
+defect, with a message that names it, before the sequence is read and before the kept
+results are touched: `ValueError` for a struct with no `x`, with no `x.stim_thresh`, with
+`x.a1 = 5.0` and with `x.stim_limit = 0.0`, and for `x.tau1 = nan`; `TypeError` for
+`x.tau1 = "0.2"`. Without the check, the missing field gave `AttributeError` from
+`_hardware_key`.
+
+**How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
+one defect. The test replaces `refuse_rotations` and `sequence_index` of `pns_levels`, and
+`kept_results` of `pns`, with functions that raise `RuntimeError`, and calls
+`pns_levels_for(spin_echo_sequence(), hardware=(struct, "BAD"))` in
+`pytest.raises(error, match=match)`.
+
+**Assumptions:** The rule of the check is that of `pns_levels._check_hardware`, as in the
+tests of section 2.2.
+
+#### `test_pns_levels_for_refuses_a_bad_struct_for_a_sequence_without_gradients`
+
+**Checks:** The bad structs of the test above raise the same errors, with the same
+messages, for a sequence with no gradient event, which gives a `NO_GRADIENTS` result for
+a good struct.
+
+**How:** Parametrized on `BAD_STRUCTS`. The test calls
+`pns_levels_for(empty_sequence(), hardware=(struct, "BAD"))` in
+`pytest.raises(error, match=match)`, with the real sequence.
 
 **Assumptions:** None.
 

@@ -233,8 +233,16 @@ path here. `asc.hardware_from_asc(path)` makes the pair from a Siemens gradient
 
 A call without `hardware` raises Python's own `TypeError`. A value that is not
 a tuple of two items with a `str` second item raises `TypeError` with a message
-that says how to make a hardware, before the sequence is read. The fields of
-the struct are not checked. There is no default hardware. For pypulseq's
+that says how to make a hardware. The struct is checked too. A struct with no
+`x`, `y` or `z`, or an axis with no field of `pns_levels.SAFE_FIELDS`
+(`stim_thresh` too), raises `ValueError` that names it, for example `'x.stim_thresh'
+missing in the hardware struct`. Each field is a finite real number: a value
+that is not a real number raises `TypeError`, and one that is not finite raises
+`ValueError`. `stim_limit` must be above 0, and `a1 + a2 + a3` of each axis must
+be within 0.001 of 1 (the rule of pypulseq's `safe_hw_check`), or `ValueError`.
+Each of these is raised before the sequence is read, also for a sequence with no
+gradient event, and `pns_levels_for` raises it before it reads the kept
+results. There is no default hardware. For pypulseq's
 example hardware, which is not a real scanner, make the pair with
 `safe_example_hw()` (in `pypulseq.utils.safe_pns_prediction`):
 `hardware=(safe_example_hw(), "a label")`. `thresholds_hz_per_t` is a tuple of the

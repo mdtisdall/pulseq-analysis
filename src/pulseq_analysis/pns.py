@@ -11,7 +11,10 @@ gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software
 files are confidential, so this library does not include any. The hardware is necessary,
 and is the vendor-neutral pair `(struct, label)`: the package has no default. A caller makes
 the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
-hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
+hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`. A struct
+with a missing field, a field that is not a finite real number, a `stim_limit` not above 0
+or an axis with `a1 + a2 + a3` not within 0.001 of 1 raises an error before anything is read
+(`pns_levels._check_hardware`).
 
 A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of gamma.
 Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fraction (1 is
@@ -29,7 +32,7 @@ from .pns_levels import (
     BIN_S,
     SAFE_FIELDS,
     PnsLevels,
-    _require_hardware,
+    _check_hardware,
     _validated_thresholds,
     pns_levels,
 )
@@ -45,7 +48,8 @@ _LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKe
 def _hardware_key(hardware: _Hardware) -> tuple:
     """The key of a `hardware` pair: its label and the 27 values of its struct as floats
     (`SAFE_FIELDS` of `x`, `y` and `z`, in this order). Two pairs with the same label and
-    the same values have one key, whatever their structs are."""
+    the same values have one key, whatever their structs are. `_check_hardware` has found
+    each field before this reads it."""
     struct, label = hardware
     values = tuple(
         float(getattr(getattr(struct, axis), field)) for axis in "xyz" for field in SAFE_FIELDS
@@ -67,8 +71,11 @@ def pns_levels_for(
     seconds, the same rules and the same default, `BIN_S`; a refused value raises TypeError
     or ValueError before the sequence is read). `hardware` is necessary
     (`pns_levels.pns_levels` has the rules of the arguments): a call without it, or with a
-    value that is not a pair, raises TypeError, before the sequence is read and before the
-    kept results are read.
+    value that is not a pair, raises TypeError, and a struct with a missing axis or field, a
+    field that is not a finite real number, a `stim_limit` not above 0 or an axis with
+    `a1 + a2 + a3` not within 0.001 of 1 raises TypeError or ValueError
+    (`pns_levels._check_hardware`), all before the sequence is read and before the kept
+    results are read, also for a sequence with no gradient event.
 
     The result is kept for the sequence object, the hardware, the thresholds and the bin
     size, so that a caller that needs the levels of one sequence for one hardware, one tuple
@@ -85,7 +92,7 @@ def pns_levels_for(
     place is not seen (`seq_index.sequence_index`). The arrays of a result are read-only and
     its dicts are `FrozenDict`s, because all callers share them.
     """
-    _require_hardware(hardware)
+    _check_hardware(hardware)
     bin_key = real("bin_s", bin_s, positive=True)
     threshold_keys = _validated_thresholds(thresholds_hz_per_t)
     key = _hardware_key(hardware)

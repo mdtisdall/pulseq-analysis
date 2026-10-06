@@ -207,7 +207,10 @@ class _PnsSafeLevels:
             "a Siemens gradient .asc file). There is no default hardware; for "
             "pypulseq's example hardware, which is not a real scanner, give "
             '`hardware=(safe_example_hw(), "<a label>")`. A value that is not such a pair '
-            "raises `TypeError`. "
+            "raises `TypeError`. A struct with a missing axis or field, a field that is not a "
+            "finite real number, a `stim_limit` not above 0 or an axis with `a1 + a2 + a3` "
+            "not within 0.001 of 1 raises `TypeError` or `ValueError`, before the sequence is "
+            "read. "
             "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
             "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
             "default is `()`: no runs. A sequence with no gradient event has no "
