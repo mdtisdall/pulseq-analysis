@@ -11,16 +11,14 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis import grad_peaks, grad_spectrum, pns, pns_levels
+from pulseq_analysis import grad_peaks, grad_spectrum, pns_levels
 from pulseq_analysis.extensions import refuse_rotations, refuse_unsigned
 
 _MEASUREMENTS = {
     "gradient_peaks": grad_peaks.gradient_peaks,
     "block_gradient_values": grad_peaks.block_gradient_values,
-    "pns_levels_for": lambda seq: pns.pns_levels_for(seq, hardware=EXAMPLE_HW),
     "pns_levels": lambda seq: pns_levels.pns_levels(seq, hardware=EXAMPLE_HW),
     "gradient_spectrum": grad_spectrum.gradient_spectrum,
-    "gradient_spectrum_for": grad_spectrum.gradient_spectrum_for,
 }
 
 

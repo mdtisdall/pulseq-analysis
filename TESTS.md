@@ -319,7 +319,9 @@ passes, showing the report if it does not.
 
 ### 2.2 PNS levels (`test_pns_levels.py`)
 
-`test_pns_levels.py` tests `pns_levels.py`: `pns_levels`, which samples the gradients block by
+`test_pns_levels.py` tests `pns_levels.py`: `pns_levels`, which keeps its result for the
+sequence object (section 2.7 tests the keep) and, for a result that is not kept, calls
+`_compute_levels`, which samples the gradients block by
 block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypulseq
 fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
@@ -344,6 +346,15 @@ difference, except for a file with a block off the gradient raster, where both
 sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradients by
 `seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
 `seq.system.gamma` before they compare it with `calc_pns`.
+
+A second call of `pns_levels` with the same sequence object and the same arguments gives the
+kept object. A test that changes `CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
+the change), or that compares two calculations of one sequence, calls `_compute_levels` through
+the helper `_compute` of the test file. It checks the hardware, the thresholds and `bin_s` as
+`pns_levels` does and gives `_compute_levels` the checked values, so each call runs the model
+and gives a new object. Where such a test has two results of the same arguments, it asserts
+that they are not the same object (`first is not second`): with `pns_levels` the second
+result would be the first and the test could not fail.
 
 `pns_levels` takes the hardware of the SAFE model as a pair `(struct, label)` (`hardware`),
 which is necessary and keyword-only; `struct` is a SAFE hardware struct in the form of
@@ -509,7 +520,8 @@ the minimum of the first 100 bins of that level is the minimum of the first bin 
 of `1e-3`.
 
 **How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(seq, 1.5)` and
-`thresholds_hz_per_t=(_LIMIT,)`. The default call is first. For `bin_s=1e-3` the test sets
+`thresholds_hz_per_t=(_LIMIT,)`. The calls are `_compute` calls (`_compute_levels`), and
+the result of `bin_s=1e-3` must not be the object of the default one. The default call is first. For `bin_s=1e-3` the test sets
 `CHUNK_SAMPLES` to `10**9` (one chunk) and replaces `_chunk_total` with a function that
 records its total, so the first recorded total is that of the whole sequence. It takes the
 minimum and the maximum of each 100 samples with `numpy.minimum.reduceat` and
@@ -527,9 +539,11 @@ minimum of the whole level and the maximum of the whole level are those of the l
 one sample in each bin, and every other field equals that of the call with `MAX_BINS` not
 changed. A `bin_s` of the whole duration gives one bin of `num_samples` samples.
 
-**How:** `gre_sequence(num_trs=6)` with `EXAMPLE_HW`. The first call has `bin_s=1e-9` and
-the real `MAX_BINS`. Then the test sets `pulseq_analysis.pns_levels.MAX_BINS` to 50 with
-`monkeypatch`, calls again, and compares. A last call has `bin_s = num_samples * 1e-5`.
+**How:** `gre_sequence(num_trs=6)` with `EXAMPLE_HW`. Each call is a `_compute` call
+(`_compute_levels`): the first has `bin_s=1e-9` and the real `MAX_BINS`. Then the test sets
+`pulseq_analysis.pns_levels.MAX_BINS` to 50 with `monkeypatch`, calls again with the same
+arguments, checks that the result is not the object of the first call, and compares. A last
+call has `bin_s = num_samples * 1e-5`.
 
 **Assumptions:** `pns_levels` reads `MAX_BINS` as a module global (`bin_samples_for` does),
 so the replacement is used.
@@ -540,11 +554,12 @@ so the replacement is used.
 equality for chunks of 1, 2 and 7 bins and one chunk larger than the whole file.
 
 **How:** `gre_sequence(num_trs=20)`, long enough that the smallest case (1 bin per
-chunk) still has more than one chunk. `reference = pns_levels(seq)` (with the
-`CHUNK_SAMPLES` of the module); then, for each size in `1`, `bin_samples + 1`,
+chunk) still has more than one chunk. `reference` is a `_compute` call (`_compute_levels`,
+with the `CHUNK_SAMPLES` of the module); then, for each size in `1`, `bin_samples + 1`,
 `7 * bin_samples - 1` and `bin_samples * (num_samples // bin_samples + 10)`,
-`monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_reports.pns_levels` to it and
-`pns_levels(seq)` runs again. `pns_levels` rounds the chunk up to a whole number of
+`monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to it and
+`_compute` runs again; its result must not be the object of the reference. `_compute_levels`
+rounds the chunk up to a whole number of
 bins, so the sizes give chunks of 1, 2 and 7 bins and one chunk bigger than the file.
 `level_min_hz_per_t`/`level_max_hz_per_t` are compared with `numpy.array_equal`;
 `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t`, `num_samples` and `bin_samples`
@@ -561,10 +576,11 @@ intervals of a threshold below the peak. Each chunk reads only its part of the b
 
 **How:** A block with a trapezoid on x (`delay` of 2000 samples), a trapezoid on z and
 a delay event of 10,000 samples, then a trapezoid block on y. The threshold is `0.05 *
-_LIMIT`. `CHUNK_SAMPLES` is set to `10**9` for the reference (the test checks that
-four bins are fewer than 10,000 samples, and that the reference has an interval), then
-to 1 and `bin_samples + 1`. `assert_levels_equal` (`tests/asserts.py`) compares each result with the
-reference, every field.
+_LIMIT`. The calls are `_compute` calls (`_compute_levels`). `CHUNK_SAMPLES` is set to
+`10**9` for the reference (the test checks that four bins are fewer than 10,000 samples, and
+that the reference has an interval), then to 1 and `bin_samples + 1`. Each result must not be
+the object of the reference, and `assert_levels_equal` (`tests/asserts.py`) compares it with
+the reference, every field.
 
 **Assumptions:** None.
 
@@ -637,9 +653,11 @@ gives another result.
 
 **How:** `gre_sequence(num_trs=3)` and then `pp.make_delay(1.5 * dt)`, so that the
 sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
-(`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. `monkeypatch` sets
+(`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. Both
+calls are `_compute` calls (`_compute_levels`). `monkeypatch` sets
 `CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
-for the second call. The test checks `on_raster is False`, more than three chunks, an
+for the second call. The test checks that the second result is not the object of the
+reference, `on_raster is False`, more than three chunks, an
 interval above `_LIMIT`, `got == reference`, and `num_samples`.
 
 **Assumptions:** The sequence has an interval above `_LIMIT`.
@@ -683,14 +701,16 @@ chunk of 1 bin, for a chunk with an interval across its end (the interval is one
 interval, not two), and for one chunk larger than the whole file.
 
 **How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`,
-and `thresholds_hz_per_t=(_LIMIT,)`, and every `pns_levels` call has `bin_s=10.0 / 1624`
-(615 samples at the 10 us raster; see the assumptions). `reference` is `pns_levels` with
+and `thresholds_hz_per_t=(_LIMIT,)`, and every call has `bin_s=10.0 / 1624`
+(615 samples at the 10 us raster; see the assumptions). Every call is a `_compute` call
+(`_compute_levels`). `reference` is the one with
 the `CHUNK_SAMPLES` of the module.
 The test searches the chunks of 1 to 19 bins for the first one where the last sample of
 an interval is in a later chunk than its first sample, and fails if there is none. Then
 `monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
-size and to a size larger than the file, and the whole `PnsLevels` is compared with the
-reference (`numpy.array_equal` for the arrays, `==` for the rest).
+size and to a size larger than the file, each result must not be the object of the
+reference, and the whole `PnsLevels` is compared with the reference
+(`numpy.array_equal` for the arrays, `==` for the rest).
 
 **Assumptions:** The test checks that the second size has an interval across a chunk
 end and the third has none. Setting a chunk of 1 sample gives chunks of 1 bin
@@ -707,9 +727,11 @@ more than one chunk end) is the same interval with chunks of one bin and with on
 chunk.
 
 **How:** `gre_sequence(num_trs=3)` with the example hardware and
-`thresholds_hz_per_t=(1e-5 * _LIMIT,)`, a threshold far below the peak. `monkeypatch`
+`thresholds_hz_per_t=(1e-5 * _LIMIT,)`, a threshold far below the peak. Both calls are
+`_compute` calls (`_compute_levels`). `monkeypatch`
 sets `CHUNK_SAMPLES` to `10**9` for the reference and to 1 (a chunk of one bin) for the
-second call. The test checks that an interval of the reference has
+second call. The test checks that the second result is not the object of the reference,
+that an interval of the reference has
 `last // chunk - first // chunk >= 2` (with `_sample_range`), and that the two `above`
 are equal.
 
@@ -726,7 +748,8 @@ sequence on the raster and for one with a block off it (the path of
 **How:** Parametrized with `gre_sequence(num_trs=20)` and `_off_raster_sequence()`, each
 with hardware that gives a peak of 1.5 times `_LIMIT`, and
 `thresholds_hz_per_t=(_LIMIT,)`. The test sets `CHUNK_SAMPLES` to `10**9` (one chunk) and
-wraps `_chunk_total` to keep the totals it returns. It finds the runs of
+wraps `_chunk_total` to keep the totals it returns. The call is a `_compute` call
+(`_compute_levels`), so that the model runs and the wrapper records the totals. It finds the runs of
 `total >= _LIMIT` with `itertools.groupby`, and takes the peak as the maximum of the run
 and the peak time as its first sample with that value. The expected `PnsInterval` tuple is
 compared with `above[_LIMIT]` with `==` (exact).
@@ -759,18 +782,20 @@ that has an interval of each threshold across a chunk end.
 
 **How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`.
 `single` has one call with `thresholds_hz_per_t=(t,)` for each of `_LIMIT` and
-`0.5 * _LIMIT`. Every `pns_levels` call of the test has `bin_s=10.0 / 1624` (615
-samples). The test checks that the intervals of `_LIMIT` are more than one and that
+`0.5 * _LIMIT`. Every `_compute` call (`_compute_levels`) of the test has `bin_s=10.0 / 1624`
+(615 samples). The test checks that the intervals of `_LIMIT` are more than one and that
 those of `0.5 * _LIMIT` have more samples in total (so the two thresholds do not give the
 same runs). For each chunk size (the normal one, 1,
 and for each threshold the first of 1 to 19 bins with an interval across its end, found
 as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
 `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
 have the keys `[_LIMIT, 0.5 * _LIMIT]`, the same tuple as `single` for each threshold, and
-every other field equal (`assert_levels_equal` (`tests/asserts.py`) with `ignore=("above",)`). After the chunk
-sizes are restored, the thresholds in the other order give the keys in that order and the
-same tuples, and the `int` `round(_LIMIT)` in place of `_LIMIT` (the test checks that it
-equals `_LIMIT` as a float) gives the key `_LIMIT` as a `float`.
+every other field equal (`assert_levels_equal` (`tests/asserts.py`) with `ignore=("above",)`).
+The results of the chunk sizes must be different objects (each size ran the model). After
+the chunk sizes are restored, the thresholds in the other order (a `_compute` call) give the
+keys in that order and the same tuples, and the `int` `round(_LIMIT)` in place of `_LIMIT`
+(the test checks that it equals `_LIMIT` as a float; a `pns_levels` call, so that the
+public function takes the `int`) gives the key `_LIMIT` as a `float`.
 
 **Assumptions:** The intervals of 1.0 and of 0.5 each cross a chunk end for a chunk of 1
 to 19 bins of 615 samples (`_chunk_across_an_interval` fails if there is none). With the
@@ -832,8 +857,10 @@ globals, so the replacements are used when it reads the sequence.
 exactly the levels of the equal `float` (`1.0`), every field. A `bin_s` of 1 s holds the
 whole spin echo in one bin.
 
-**How:** `spin_echo_sequence()` with `EXAMPLE_HW`. Three calls, compared with
-`assert_levels_equal` and `ignore=()`.
+**How:** `spin_echo_sequence()` with `EXAMPLE_HW`. `expected` is a `_compute` call
+(`_compute_levels`, a new calculation) with `bin_s=1.0`; the two `pns_levels` calls with
+`bin_s=1` and `bin_s=numpy.float64(1.0)` are compared with it with `assert_levels_equal`
+and `ignore=()`.
 
 **Assumptions:** None.
 
@@ -934,7 +961,8 @@ runs one time for each chunk, and not a second time for the peak time.
 
 **How:** `pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3)` in one block.
 `CHUNK_SAMPLES` is set to 1 (a chunk of one bin), and `_chunk_total` is replaced by a
-recorder. The number of calls must equal `ceil(num_samples / bin_samples)`, which is more
+recorder. The call is a `_compute` call (`_compute_levels`), so that the model runs. The
+number of calls of the recorder must equal `ceil(num_samples / bin_samples)`, which is more
 than 3.
 
 **Assumptions:** `pns_levels` calls `_chunk_total` as a module global. pypulseq accepts a
@@ -1081,12 +1109,14 @@ The test checks that each threshold has intervals, then compares the two results
 #### `test_the_default_has_no_thresholds`
 
 **Checks:** `pns_levels(seq, hardware=...)` with no threshold argument has `above == {}`,
-and `thresholds_hz_per_t=()` gives the same result in every field. This is also so with hardware for a peak above the limit.
+and a new calculation with `thresholds_hz_per_t=()` gives the same result in every field.
+This is also so with hardware for a peak above the limit.
 
 **How:** `gre_sequence(num_trs=4)`, with `EXAMPLE_HW` and with the hardware of a
 peak of 1.5 times `_LIMIT`. For each, the test calls `pns_levels` with no threshold argument
-and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two results with
-`assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
+and checks `above == {}`. It calls `_compute` (`_compute_levels`) with
+`thresholds_hz_per_t=()`, checks that the result is not the object of the first, and compares
+the two results with `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
@@ -1229,18 +1259,18 @@ the check passes with the old hash, which `refuse_unsigned` documents as a limit
 
 **Checks:** Each public measurement raises `ValueError`, with "no [SIGNATURE] hash" in the
 message, for a sequence that has no hash: `gradient_peaks`, `block_gradient_values`,
-`pns_levels_for`, `pns_levels`, `gradient_spectrum` and `gradient_spectrum_for`.
+`pns_levels` and `gradient_spectrum`.
 
-**How:** The test is parametrized over the six functions (the PNS ones with `EXAMPLE_HW`).
+**How:** The test is parametrized over the four functions (`pns_levels` with `EXAMPLE_HW`).
 For each, it builds a sequence in memory and calls the function inside `pytest.raises`.
 
 **Assumptions:** None. Each measurement reaches the check through `sequence_index`.
 
 #### `test_each_measurement_accepts_a_sequence_after_write`
 
-**Checks:** After `write` signs a sequence, each of the six measurements gives a result.
+**Checks:** After `write` signs a sequence, each of the four measurements gives a result.
 
-**How:** The test is parametrized over the same six functions. For each, it builds a
+**How:** The test is parametrized over the same four functions. For each, it builds a
 sequence in memory, calls `seq.write` for a file in `tmp_path`, calls the function on the
 same object, and checks that the result is not `None`.
 
@@ -2738,13 +2768,16 @@ that the groups are those of `np.unique(..., axis=0)`.
 
 **Assumptions:** int64 arithmetic of numpy wraps around without an error.
 
-### 2.7 The kept PNS levels (`test_pns.py`)
+### 2.7 The kept PNS levels (`test_pns_levels_kept.py`)
 
-`test_pns.py` tests `pns.py`, which holds `pns_levels_for`. It gives the `PnsLevels` of a
+`test_pns_levels_kept.py` tests the keep of `pns_levels.pns_levels`, the one public function
+of the SAFE model. It gives the `PnsLevels` of a
 sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 `peak_time_s`, `axis_peaks_hz_per_t`) and the level. The SAFE model itself
-(`pns_levels.pns_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs there.
-`pns_levels_for` keeps one `PnsLevels` for each (sequence object, hardware, thresholds),
+(`pns_levels._compute_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs on a
+result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
+of `pulseq_analysis.pns_levels` with a wrapper that counts its calls.
+`pns_levels` keeps one `PnsLevels` for each (sequence object, hardware, thresholds, `bin_s`),
 the hardware being a pair `(struct, label)` (its key is the label and the 27 values of
 the struct, so two pairs with the same label and values are one hardware, whatever their
 structs are or where they came from), so that a caller that needs
@@ -2754,7 +2787,7 @@ kept results are made again (section 2.12). The thresholds of the key are the tu
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
 1H in Hz/T (a fraction of 1 times `GAMMA_1H`). The `hardware` pair is necessary: without
-it, `pns_levels_for` raises `TypeError`. The tests give pypulseq's example hardware, which is not a real scanner, as the pair `EXAMPLE_HW` of
+it, `pns_levels` raises `TypeError`. The tests give pypulseq's example hardware, which is not a real scanner, as the pair `EXAMPLE_HW` of
 `tests/synthetic.py`. The tests of `hardware` are the last ones of this section.
 
 The real `.asc` files are confidential, so the tests write a test `.asc` file
@@ -2780,24 +2813,26 @@ Most of the tests use the synthetic spin echo sequence
 #### `test_example_hardware_for_spin_echo`
 
 **Checks:** For the synthetic spin echo sequence on the example hardware, the summary
-fields of `pns_levels_for` equal those of `pns_levels.pns_levels` of the same sequence
-and hardware, are below the
+fields of `pns_levels` equal those of a new calculation (`_compute_levels`) of the same
+sequence and hardware, are below the
 stimulation limit, and are highest on y.
 
-**How:** The test calls `pns_levels_for` with `hardware=EXAMPLE_HW` (the module-scoped
-`example` fixture) and, separately, `pns_levels.pns_levels` on the same sequence
-object. It checks that there is no reason, that the hardware is the label of `EXAMPLE_HW`.
+**How:** The test calls `pns_levels` with `hardware=EXAMPLE_HW` (the module-scoped
+`example` fixture) and, separately, `_compute_levels` on the same sequence
+object with the checked values `EXAMPLE_HW`, `()` and `BIN_S`. It checks that the new result is
+not the object of the kept one, that there is no reason, that the hardware is the label of
+`EXAMPLE_HW`.
 It checks that the axis peaks are keyed x, y and
 z, and that the peak is more than 0 and less than `_LIMIT` (100 % of the limit, in Hz/T).
 The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t`,
-`peak_time_s` and `axis_peaks_hz_per_t` must equal `pns_levels`'s own fields exactly.
+`peak_time_s` and `axis_peaks_hz_per_t` must equal the fields of the new calculation exactly.
 
 **Assumptions:**
 
 - "Below the limit" is for the example hardware only.
 - The crushers (on y) give the synthetic sequence's highest per-axis PNS. This was
   checked against a direct run of the model, not derived by hand.
-- `pns_levels_for` and a fresh `pns_levels.pns_levels` call on the same sequence and
+- `pns_levels` and a new `_compute_levels` calculation on the same sequence and
   hardware give bit-identical numbers (no randomness in the pipeline), so the
   comparison is exact equality, not a tolerance.
 
@@ -2807,7 +2842,7 @@ The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t
 result as the example hardware, and the file's hardware name.
 
 **How:** The test writes a test `.asc` file with scale factor 1 and calls
-`pns_levels_for` with `hardware=hardware_from_asc(path)`. There must be no reason, and the
+`pns_levels` with `hardware=hardware_from_asc(path)`. There must be no reason, and the
 hardware name must be the name in the file. `peak_hz_per_t`, `peak_time_s` and
 each axis of `axis_peaks_hz_per_t` must equal the example hardware's own summary within a
 relative 10⁻⁹.
@@ -2824,7 +2859,7 @@ with `$INCLUDE` gives the same result as the example hardware, and the hardware
 name in `asCOMP[0].tName`.
 
 **How:** The test writes a test `.asc` file with the scanner layout and scale factor
-1, and calls `pns_levels_for` with `hardware=hardware_from_asc(main file)`. There must be
+1, and calls `pns_levels` with `hardware=hardware_from_asc(main file)`. There must be
 no reason, and the hardware name must be the name in the main file. `peak_hz_per_t`, `peak_time_s` and each axis of `axis_peaks_hz_per_t` must equal the
 example hardware's own summary within a relative 10⁻⁹.
 
@@ -2877,7 +2912,7 @@ cases and checks the name.
 higher, above the limit.
 
 **How:** The test writes a test `.asc` file with scale factor 0.1 and calls
-`pns_levels_for`. The peak must be 10 times the example hardware peak within a
+`pns_levels`. The peak must be 10 times the example hardware peak within a
 relative 10⁻⁹, and more than `_LIMIT`.
 
 **Assumptions:**
@@ -2906,7 +2941,7 @@ and checks the reason.
 
 **Assumptions:**
 
-- `pns.py` finds "no gradients" from the gradient columns of
+- `pns_levels` finds "no gradients" from the gradient columns of
   `seq.block_events`. This test and `test_no_gradients` check that other
   events do not count as gradients.
 
@@ -2926,28 +2961,28 @@ more than 0.
 
 #### `test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence`
 
-**Checks:** `pns_levels_for` never calls `seq.get_gradients()` for an on-raster sequence.
+**Checks:** `pns_levels` never calls `seq.get_gradients()` for an on-raster sequence.
 
 **How:** The test replaces `get_gradients` of a synthetic spin echo sequence with a
-wrapper that counts the calls, and calls `pns_levels_for`. There must be no calls.
+wrapper that counts the calls, and calls `pns_levels`. There must be no calls.
 
 **Assumptions:**
 
-- `pns_levels.pns_levels` samples an on-raster sequence with
+- `_compute_levels` samples an on-raster sequence with
   `GradientSampler.block_samples`, not `seq.get_gradients()`/`seq.calculate_pns` (that
   was the old, now-removed, implementation, which is why the old test expected exactly
   one call). `test_pns_levels.py` and `test_sampling.py` test `block_samples` and its
   agreement with `sample`/`get_gradients()` directly; this test only checks that the
-  fast path is actually taken from `pns_levels_for`.
+  fast path is actually taken from `pns_levels`.
 
 #### `test_prediction_keeps_no_blocks_and_gives_back_the_cache_setting`
 
-**Checks:** `pns_levels_for` does not fill pypulseq's block cache, and the
+**Checks:** `pns_levels` does not fill pypulseq's block cache, and the
 cache setting of the sequence is the same after the call.
 
 **How:** For `use_block_cache` True and False, the test sets it on a
 synthetic spin echo sequence, empties `seq.block_cache`, and calls
-`pns_levels_for`. After it, `use_block_cache` must have the same value and
+`pns_levels`. After it, `use_block_cache` must have the same value and
 `seq.block_cache` must be empty.
 
 **Assumptions:**
@@ -2958,7 +2993,7 @@ synthetic spin echo sequence, empties `seq.block_cache`, and calls
 
 #### `test_prediction_propagates_an_error_and_keeps_the_cache_setting`
 
-**Checks:** An error deep inside the SAFE model propagates out of `pns_levels_for`, and
+**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`, and
 the sequence's block-cache setting and contents are unaffected.
 
 **How:** The test sets `use_block_cache` to True on a synthetic spin echo sequence and
@@ -2972,17 +3007,18 @@ function that raises `RuntimeError`. The call must raise the error,
   `try`/`finally`, which has already restored `use_block_cache` by the time the chunk
   function runs (`GradientSampler` is built, with the block cache off, before the
   chunk loop starts). So this test checks that the error propagates and that nothing
-  else in `pns_levels_for` touches the cache setting outside that
+  else in `pns_levels` touches the cache setting outside that
   narrower guarantee, not that the guarantee itself is new.
 
-#### `test_pns_levels_for_keeps_one_result_for_each_asc_file`
+#### `test_pns_levels_keeps_one_result_for_each_asc_file`
 
-**Checks:** `pns_levels_for` keeps one result for each (sequence, `hardware_from_asc` of a
+**Checks:** `pns_levels` keeps one result for each (sequence, `hardware_from_asc` of a
 gradient `.asc` file): a different `.asc` file for the same sequence computes once, and
 going back to an earlier file does not compute again.
 
-**How:** The test patches `pns.pns_levels` the same way as the test above, and calls
-`pns.pns_levels_for(seq, hardware=hardware_a)` and `hardware_b`, the pairs that
+**How:** The test replaces `_compute_levels` of `pns_levels` with a wrapper that counts its
+calls, and calls
+`pns_levels(seq, hardware=hardware_a)` and `hardware_b`, the pairs that
 `hardware_from_asc` gives for two different `.asc` files built by the `write_gradient_asc`
 fixture of `tests/conftest.py`, in the order a, a, b, a. It checks the call count is 1, 1
 (cached), 2 (a different hardware), 2 (back to `hardware_a`, restored from the kept
@@ -2990,13 +3026,13 @@ results).
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_alternating_two_hardwares_runs_the_model_two_times`
+#### `test_pns_levels_alternating_two_hardwares_runs_the_model_two_times`
 
 **Checks:** Two hardwares of one sequence alternated (a, b, a, b) run the SAFE model two
 times, not four: the cache keeps one result for each hardware.
 
-**How:** The test patches `pns.pns_levels` as above, and calls
-`pns.pns_levels_for` with `hardware=EXAMPLE_HW`, `hardware_from_asc` of a `.asc` file,
+**How:** The test counts the calls of `_compute_levels` as above, and calls
+`pns_levels` with `hardware=EXAMPLE_HW`, `hardware_from_asc` of a `.asc` file,
 `EXAMPLE_HW`, the same pair of the file. It checks there were 2 calls.
 
 **Assumptions:** None.
@@ -3015,30 +3051,30 @@ axis of `asc_to_hw(asc)`.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_keeps_one_result_for_equal_hardware_pairs`
+#### `test_pns_levels_keeps_one_result_for_equal_hardware_pairs`
 
 **Checks:** Two `hardware` pairs with the same label and the same field values, with two
 different struct objects, are one hardware: the second call runs no model and gives the
 kept result.
 
-**How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq,
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq,
 hardware=(safe_example_hw(), "LABEL"))` two times, each with a new struct. It checks
 that there was 1 call and that the second result `is` the first.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_computes_again_for_another_label_or_value`
+#### `test_pns_levels_computes_again_for_another_label_or_value`
 
 **Checks:** A `hardware` pair with another label, or with one other field value, runs
 the model; going back to an earlier pair does not run it again.
 
-**How:** The test patches `pns.pns_levels` as above and calls with the pairs a, a, b (the
+**How:** The test counts the calls of `_compute_levels` as above and calls with the pairs a, a, b (the
 label "B"), c (`z.stim_thresh` plus 1), a, c, each with a new struct where the values are
 the same. It checks the call count after each change: 1, 1, 2, 3, 3.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_keys_a_hardware_from_an_asc_file_by_its_label_and_values`
+#### `test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values`
 
 **Checks:** The key of a pair from a file is its label and its values, as for any pair:
 the pair of `hardware_from_asc`, a second call of `hardware_from_asc`, and a pair made by
@@ -3046,7 +3082,7 @@ hand from the same file are one hardware; the same values with another label are
 hardware, and `EXAMPLE_HW` (the same values, another label) is a third. Each runs the
 model one time.
 
-**How:** The test patches `pns.pns_levels` as above, calls `pns_levels_for` with the pair
+**How:** The test counts the calls of `_compute_levels` as above, calls `pns_levels` with the pair
 of the file, and then two times with `hardware_from_asc(path)` and with
 `(asc_to_hw(asc), hardware_name(asc))`; each result must be the first one (`is`) and the
 call count 1. It then calls two times the pair `(struct of the file, "OTHER")` and
@@ -3054,34 +3090,34 @@ call count 1. It then calls two times the pair `(struct of the file, "OTHER")` a
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_needs_hardware`
+#### `test_pns_levels_needs_hardware`
 
-**Checks:** `pns_levels_for` without `hardware` raises `TypeError` (the message names
+**Checks:** `pns_levels` without `hardware` raises `TypeError` (the message names
 `hardware`), before the model reads the sequence.
 
 **How:** The test replaces `refuse_rotations` and `sequence_index` of `pns_levels` with
-functions that raise `RuntimeError`, and calls `pns_levels_for(spin_echo_sequence())` in
+functions that raise `RuntimeError`, and calls `pns_levels(spin_echo_sequence())` in
 `pytest.raises(TypeError, match="hardware")`.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_refuses_a_hardware_that_is_not_a_pair_before_any_work`
+#### `test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_any_work`
 
-**Checks:** `pns_levels_for` with a `hardware` that is not a tuple of two items with a
+**Checks:** `pns_levels` with a `hardware` that is not a tuple of two items with a
 `str` second item raises `TypeError` (the message names `hardware`), before the sequence is
 read and before the kept results are touched.
 
 **How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py`. The test replaces
-`refuse_rotations` and `sequence_index` of `pns_levels`, and `kept_results` of `pns`, with
+`refuse_rotations` and `sequence_index` of `pns_levels`, and `kept_results` of `pns_levels`, with
 functions that raise `RuntimeError`, and calls
-`pns_levels_for(spin_echo_sequence(), hardware=hardware)` in
+`pns_levels(spin_echo_sequence(), hardware=hardware)` in
 `pytest.raises(TypeError, match="hardware")`.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_refuses_a_bad_struct_before_any_work`
+#### `test_pns_levels_refuses_a_bad_struct_before_any_work`
 
-**Checks:** `pns_levels_for` with a pair whose struct is bad raises the error of the
+**Checks:** `pns_levels` with a pair whose struct is bad raises the error of the
 defect, with a message that names it, before the sequence is read and before the kept
 results are touched: `ValueError` for a struct with no `x`, with no `x.stim_thresh`, with
 `x.a1 = 5.0` and with `x.stim_limit = 0.0`, and for `x.tau1 = nan`; `TypeError` for
@@ -3090,33 +3126,33 @@ results are touched: `ValueError` for a struct with no `x`, with no `x.stim_thre
 
 **How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
 one defect. The test replaces `refuse_rotations` and `sequence_index` of `pns_levels`, and
-`kept_results` of `pns`, with functions that raise `RuntimeError`, and calls
-`pns_levels_for(spin_echo_sequence(), hardware=(struct, "BAD"))` in
+`kept_results` of `pns_levels`, with functions that raise `RuntimeError`, and calls
+`pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))` in
 `pytest.raises(error, match=match)`.
 
 **Assumptions:** The rule of the check is that of `pns_levels._check_hardware`, as in the
 tests of section 2.2.
 
-#### `test_pns_levels_for_refuses_a_bad_struct_for_a_sequence_without_gradients`
+#### `test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients`
 
 **Checks:** The bad structs of the test above raise the same errors, with the same
 messages, for a sequence with no gradient event, which gives a `NO_GRADIENTS` result for
 a good struct.
 
 **How:** Parametrized on `BAD_STRUCTS`. The test calls
-`pns_levels_for(empty_sequence(), hardware=(struct, "BAD"))` in
+`pns_levels(empty_sequence(), hardware=(struct, "BAD"))` in
 `pytest.raises(error, match=match)`, with the real sequence.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_keeps_one_result_for_each_tuple_of_thresholds`
+#### `test_pns_levels_keeps_one_result_for_each_tuple_of_thresholds`
 
 **Checks:** The thresholds are part of the key of a kept result: other thresholds, or
 the same ones in another order, run the model and do not give the result of the default
 (no threshold, the key `()`); the same thresholds again give the kept result (the same
 object); an `int` threshold is the key of the equal `float`.
 
-**How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)`, then
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq)`, then
 `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, again the same, the default again, `()`,
 `(round(_LIMIT), 0.5 * _LIMIT)` (an `int` that equals `_LIMIT` as a float, which the test
 checks), and the two thresholds in the other order. It checks that the call count is 1
@@ -3128,7 +3164,7 @@ ones (the `int` call gives the second result), and that `list(result.above)` is 
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_keeps_one_result_for_each_bin_s`
+#### `test_pns_levels_keeps_one_result_for_each_bin_s`
 
 **Checks:** `bin_s` is part of the key of a kept result: another `bin_s` runs the model and
 does not give the result of the default; the same `bin_s` again gives the kept result (the
@@ -3137,7 +3173,7 @@ same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s` and th
 result are those of its `bin_s` (`bin_samples` 500 for the default and 600 for `0.006` at
 the 10 us raster).
 
-**How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)` with
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq)` with
 `EXAMPLE_HW` (the default, then `bin_s=BIN_S`), `bin_s=0.006` two times, the default again,
 `bin_s=1` and `bin_s=1.0`, and `bin_s=0.006` with `thresholds_hz_per_t=(_LIMIT,)`. The call
 counts are 1, 1, 2, 2, 3, 3 and 4. It checks the identities (`is`) of the repeats and
@@ -3145,45 +3181,73 @@ counts are 1, 1, 2, 2, 3, 3 and 4. It checks the identities (`is`) of the repeat
 
 **Assumptions:** None.
 
-#### `test_pns_levels_for_refuses_a_bad_bin_s_before_any_work`
+#### `test_pns_levels_refuses_a_bad_bin_s_before_any_work`
 
-**Checks:** `pns_levels_for` raises `TypeError` for a `bin_s` that is a `bool` (`True`), a
+**Checks:** `pns_levels` raises `TypeError` for a `bin_s` that is a `bool` (`True`), a
 string or `None`, and `ValueError` for NaN, infinity, 0 and a negative number (the message
 names `bin_s`), before the sequence is read and before the kept results are touched.
 
 **How:** Parametrized on the value and the error. The test replaces `refuse_rotations` and
-`sequence_index` of `pns_levels`, and `kept_results` of `pns`, with functions that raise
-`RuntimeError`, and calls `pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW,
+`sequence_index` of `pns_levels`, and `kept_results` of `pns_levels`, with functions that raise
+`RuntimeError`, and calls `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW,
 bin_s=value)` in `pytest.raises(error, match="bin_s")`.
 
 **Assumptions:** None.
 
 
-#### `test_pns_levels_for_refuses_bad_thresholds_before_any_work`
+#### `test_pns_levels_refuses_bad_thresholds_before_any_work`
 
-**Checks:** `pns_levels_for` raises `TypeError` for thresholds that are a list, or that contain a
+**Checks:** `pns_levels` raises `TypeError` for thresholds that are a list, or that contain a
 `bool` or a string, and `ValueError` for 0 and for two equal values (the message names the
 threshold), before the sequence is read and before the kept results are read.
 
-**How:** Parametrized on the value and the error. The test replaces `pns.kept_results` and
+**How:** Parametrized on the value and the error. The test replaces `pulseq_analysis.pns_levels.kept_results` and
 `pulseq_analysis.pns_levels.sequence_index` with functions that raise `RuntimeError`, and
-calls `pns_levels_for(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=value)`
+calls `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=value)`
 in `pytest.raises(error, match="threshold")`.
 
-**Assumptions:** `pns_levels_for` calls `kept_results` as a global of `pulseq_analysis.pns`.
-#### `test_pns_levels_for_shares_a_read_only_result`
+**Assumptions:** `pns_levels` calls `kept_results` as a global of `pulseq_analysis.pns_levels`.
 
-**Checks:** Two callers of `pns_levels_for` get the same kept result. A change in place
+#### `test_pns_levels_shares_a_read_only_result`
+
+**Checks:** Two callers of `pns_levels` get the same kept result. A change in place
 of its level by the first caller raises `ValueError`, and the second caller gets the
 level as it was.
 
-**How:** The test calls `pns_levels_for` for the synthetic spin echo and keeps a copy of
+**How:** The test calls `pns_levels` for the synthetic spin echo and keeps a copy of
 `level_min_hz_per_t` and `level_max_hz_per_t`. `level_max *= 100` (through a local name,
 so that the statement does not also assign the field of the frozen dataclass) and
 `level_min_hz_per_t[0] = 0.0` must each raise `ValueError`. A second call must give the same
 object, with arrays equal to the copies.
 
 **Assumptions:** None.
+
+#### `test_pns_levels_gives_the_same_object_for_a_second_call_with_the_same_arguments`
+
+**Checks:** A second call of `pns_levels` for the same sequence object with the same
+arguments gives the kept object and runs no model.
+
+**How:** The test counts the calls of `_compute_levels` as above, and calls
+`pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,), bin_s=0.002)` two times
+for the synthetic spin echo. The second result must be the first (`is`), the call count must
+be 1, and the first result has no reason.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_gives_a_new_object_after_add_block`
+
+**Checks:** After `add_block` to the sequence object, `pns_levels` with the same arguments
+runs the model again and gives a new object with the samples of the new block; a call after
+that gives the new kept object.
+
+**How:** The test counts the calls of `_compute_levels` as above. It builds a signed sequence
+with a trapezoid on x, calls `pns_levels(seq, hardware=EXAMPLE_HW)`, adds a trapezoid on y
+and calls again. The second result must not be the first (`is not`) and must have more
+samples, and the call count must be 2. A third call must give the second result (`is`) and
+leave the count at 2.
+
+**Assumptions:** `add_block` changes the number of blocks of the object, which is a part of
+the stamp of `_kept` (section 2.12).
 
 ### 2.8 Series (`test_series.py`)
 
@@ -3658,24 +3722,23 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 the same arguments, with the defaults and with others. `pns.safe.levels` always gets a
 hardware: `hardware=EXAMPLE_HW` for the defaults of the other arguments, and a scaled
 hardware with `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, and with `bin_s=1e-3`, for the
-others. `seq.index`, `pns.safe.levels` and `gradient.spectrum` give the same
-object as `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`, which keep their
-result for the sequence object. `gradient.spectrum` has no other arguments. The gradient
-analyses have no arguments after `seq`: `gradient_peaks(seq)` and `block_gradient_values(seq)`
-give an equal value.
+others. Each analysis gives the same object as its function: `seq.index` as
+`sequence_index`, `gradient.peaks` as `gradient_peaks`, `gradient.blocks` as
+`block_gradient_values`, `pns.safe.levels` as `pns_levels` and `gradient.spectrum` as
+`gradient_spectrum`. Each of these functions keeps its result for the sequence object.
+`gradient.spectrum` and the gradient analyses have no other arguments after `seq`.
 
-**How:** The test builds `gre_sequence(num_trs=4)` and compares `compute` with the function:
-`is` for the kept results, `==` for `GradientPeaks`, and `numpy.array_equal` for each array of
-`BlockGradientValues` (the block IDs, the starts, the vector peak and its time, and for each
-axis the peak, the slew, the junction step and the times of the peak and of the slew).
+**How:** The test builds `gre_sequence(num_trs=4)` and asserts `is` between `compute` and the
+function for each analysis.
 
-**Assumptions:** `BlockGradientValues` has no `__eq__` for its arrays, so the test compares
-each array one by one. `GradientSpectrum` is compared by identity only.
+**Assumptions:** `is` is the stronger check because the results are kept: an analysis that
+calculated its value again would give an equal object that is not the same. The test does not
+check the values of the functions; their own tests do.
 
 #### `test_compute_of_pns_safe_levels_with_a_hardware_from_asc_gives_the_kept_result`
 
 **Checks:** `PNS_SAFE_LEVELS.compute(seq, hardware=hardware_from_asc(path))` gives the same
-object (`is`) as `pns_levels_for(seq, hardware=hardware_from_asc(path))` for the same file,
+object (`is`) as `pns_levels(seq, hardware=hardware_from_asc(path))` for the same file,
 with no threshold and with `thresholds_hz_per_t=(_LIMIT,)`. Two calls of
 `hardware_from_asc` on one file give one key. `hardware` of the result is the name in the
 file.
@@ -3690,7 +3753,7 @@ files are confidential).
 #### `test_compute_of_pns_safe_levels_passes_bin_s_on`
 
 **Checks:** `PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
-object (`is`) as `pns_levels_for` with that `bin_s`, and not the object of the default. Its
+object (`is`) as `pns_levels` with that `bin_s`, and not the object of the default. Its
 `bin_samples` is 100 (500 for the default), and the `coord_step` of its `pns_total` series
 is `bin_samples * dt_s`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
 raises `ValueError`, both before the sequence is read.
@@ -3795,7 +3858,7 @@ arrays are `value`, `x`, `y` and `z` in this order, all float64, equal to `rss` 
 axes of the same spectrum. `coord_start` is 0.0 and `coord_step` is `frequency_hz[1]`, and
 `coord_start + k * coord_step` is `frequency_hz` bit for bit. The `meta` is
 `max_frequency_hz`, `window_s` and `frequency_oversampling`, with the defaults of
-`gradient_spectrum_for`. For a spectrum of `window_s=0.1`, the `meta` has `window_s` 0.1: the
+`gradient_spectrum`. For a spectrum of `window_s=0.1`, the `meta` has `window_s` 0.1: the
 `meta` comes from the value, not from the defaults.
 
 **How:** The test calls `compute` and `to_series` and compares each field by itself.
@@ -3927,9 +3990,10 @@ object.
 **Checks:** The spectrum does not depend on the chunk size.
 
 **How:** The test makes a synthetic GRE sequence of 30 TRs of 20 ms (600 ms,
-25 windows). It calculates the spectrum with `CHUNK_WINDOWS` set to 1,000,000
-(one chunk) and to 4 (7 chunks, the last one shorter). The frequencies must be
-equal, and each axis spectrum and the RSS must agree with a relative tolerance
+25 windows). It calls `_compute_spectrum` (the calculation without the kept
+result) with the default arguments as plain floats, with `CHUNK_WINDOWS` set to
+1,000,000 (one chunk) and to 4 (7 chunks, the last one shorter). The two results
+must not be the same object. The frequencies must be equal, and each axis spectrum and the RSS must agree with a relative tolerance
 of 1e-12.
 
 **Assumptions:**
@@ -3947,7 +4011,8 @@ that pypulseq's `calculate_gradient_spectrum` uses, on the synthetic spin echo,
 a GRE of 30 TRs and the arbitrary-gradient sequence.
 
 **How:** The test sets `CHUNK_WINDOWS` to 4, so the sequences make several
-chunks, and calculates the spectrum. For the reference, it samples each axis
+chunks, and calls `_compute_spectrum` with the default arguments as plain floats
+(the calculation without the kept result). For the reference, it samples each axis
 with `GradientSampler` at the sample times of the module, pads half a window of
 zeros at each end, and calls `scipy.signal.spectrogram` on the whole padded
 waveform with `mode="magnitude"`, `nperseg=nwin`, `noverlap=nwin // 2`,
@@ -4045,12 +4110,12 @@ must contain "rotation extension".
 - pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
   library by hand, as `test_gradient_peaks_refuses_rotations` does.
 
-#### `test_gradient_spectrum_for_keeps_the_result`
+#### `test_gradient_spectrum_keeps_the_result`
 
-**Checks:** `gradient_spectrum_for` gives the same object for two calls on one
+**Checks:** `gradient_spectrum` gives the same object for two calls on one
 sequence, and a new object after the sequence changed.
 
-**How:** The test calls `gradient_spectrum_for` two times on a GRE sequence of
+**How:** The test calls `gradient_spectrum` two times on a GRE sequence of
 2 TRs, and checks that the objects are the same (`is`). It then adds a delay
 block and checks that the next call gives another object.
 
@@ -4154,10 +4219,10 @@ tolerance.
 
 #### `test_gradient_spectrum_refuses_bad_arguments`
 
-**Checks:** `gradient_spectrum` and `gradient_spectrum_for` refuse each bad
-argument with the right error type, before they read the blocks.
+**Checks:** `gradient_spectrum` refuses each bad argument with the right error
+type, before it reads the blocks or the kept results.
 
-**How:** The test runs for both functions. It replaces `sequence_index` of the
+**How:** It replaces `sequence_index` of the
 module with a function that fails, so a call that reads the blocks fails the
 test. Each case gives one bad argument to the synthetic spin echo. The error
 must be `TypeError` for a string and for a bool, in each argument. It must be
@@ -4180,12 +4245,12 @@ pass on an error from another check.
   the check of the frequency step (also a `ValueError`) hides a missing check
   `nwin < 2`.
 
-#### `test_gradient_spectrum_for_keeps_one_result_for_each_set_of_arguments`
+#### `test_gradient_spectrum_keeps_one_result_for_each_set_of_arguments`
 
-**Checks:** `gradient_spectrum_for` keeps one result for each tuple of the
+**Checks:** `gradient_spectrum` keeps one result for each tuple of the
 three arguments, as floats.
 
-**How:** For a GRE sequence of 2 TRs, the test calls `gradient_spectrum_for`
+**How:** For a GRE sequence of 2 TRs, the test calls `gradient_spectrum`
 with no arguments, and then with `max_frequency_hz=1000.0`. The two objects
 must be different, and the second has no frequency above 1000 Hz. A call with
 no arguments again must give the first object. A call with
@@ -4312,31 +4377,32 @@ dict made a `FrozenDict`. The `FrozenDict` and a list are not equal.
 ### 2.12 Kept results (`test_kept.py`)
 
 `test_kept.py` tests `_kept.py`, the rule that says when the kept results of a sequence
-object are old, through `sequence_index`, `event_points`, `pns_levels_for` and
-`gradient_spectrum_for`.
+object are old, through `sequence_index`, `event_points`, `gradient_peaks`,
+`block_gradient_values`, `pns_levels` and `gradient_spectrum`.
 The tests use small sequences that they write with pypulseq or that
 `tests/synthetic.py` builds.
 
 #### `test_a_second_read_into_one_object_gives_the_values_of_a_new_object`
 
-**Checks:** After a second file is read into one `Sequence`, the four measurements give
+**Checks:** After a second file is read into one `Sequence`, the five measurements give
 the values of that file, not the kept values of the first file.
 
 **How:** The test writes two files with pypulseq. Both have 6 blocks. File A has three
 times an x trapezoid and a delay of 15 ms. File B has three times a y trapezoid of
 another area and a delay of 22 ms. The test reads A into an object, and calls
-`sequence_index`, `pns_levels_for` (with pypulseq's example hardware), `gradient_spectrum_for`
-and `gradient_peaks`. It then reads B into the same object, and reads B into a new
+`sequence_index`, `pns_levels` (with pypulseq's example hardware), `gradient_spectrum`,
+`gradient_peaks` and `block_gradient_values`. It then reads B into the same object, and reads B into a new
 object. The index of the new object must have another `end_s` than the index of A. For the
 object that read both files, the index must have the same values as the index of the new
-object (each array with `array_equal`), and the levels, the spectrum and the limits must
-be equal (`==`) to those of the new object and not equal to those of A.
+object (each array with `array_equal`), and the levels, the spectrum, the limits and the
+block values must be equal (`==`) to those of the new object and not equal to those of A.
 
 **Assumptions:**
 
-- A and B are different in the values that the four results hold, so a kept result of A
+- A and B are different in the values that the five results hold, so a kept result of A
   is not equal to the result of B.
-- `GradientPeaks`, `PnsLevels` and `GradientSpectrum` compare by value.
+- `GradientPeaks`, `BlockGradientValues`, `PnsLevels` and `GradientSpectrum` compare by
+  value.
 
 #### `test_event_points_are_kept_and_made_again_after_a_second_read_into_one_object`
 
@@ -4352,9 +4418,9 @@ object that read B only. The `amp` arrays of B and A must differ.
 **Assumptions:** A and B have gradients with other amplitudes, so a kept result of A is
 not equal to the points of B.
 
-#### `test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_a_change`
+#### `test_pns_levels_gives_a_new_result_after_add_block_and_the_same_without_a_change`
 
-**Checks:** `pns_levels_for` keeps its result until a block is added, and then makes it
+**Checks:** `pns_levels` keeps its result until a block is added, and then makes it
 again.
 
 **How:** For the synthetic spin echo, two calls with the same arguments must give one
@@ -4364,9 +4430,67 @@ the result for a second sequence built with the same blocks.
 
 **Assumptions:** None.
 
+#### `test_gradient_peaks_and_block_gradient_values_give_a_new_result_after_add_block_and_the_same_without_a_change`
+
+**Checks:** `gradient_peaks(seq)` and `block_gradient_values(seq)` keep their result until a
+block is added, and then make it again.
+
+**How:** For the synthetic spin echo, two calls of each function must give one object (`is`).
+The test then adds a z trapezoid with `add_block`. The next call of each must give a new
+object, a second call must give that object again, and the new results must be equal (`==`)
+to the results for a second sequence built with the same blocks. The new block values must
+not be equal to the old ones.
+
+**Assumptions:** None.
+
+#### `test_gradient_peaks_with_a_window_is_a_new_object_for_each_call_and_is_not_kept`
+
+**Checks:** A result of `gradient_peaks` with a window is not kept: a caller that asks for
+many windows does not fill the kept results. A call with a window does not change the kept
+result of `window=None`.
+
+**How:** For the synthetic spin echo and the window of its first half, the test calls
+`gradient_peaks(seq)`, then `gradient_peaks(seq, window=window)` two times. The two windowed
+results are equal and are not the same object (`is not`); neither is the whole-file result,
+and the windowed one has `whole_rms_hz_per_m` set. A new call of `gradient_peaks(seq)` gives
+the first whole-file object (`is`). For a new sequence object, a call with the window comes
+first: the next call of `gradient_peaks(fresh)` is not that object and has no
+`whole_rms_hz_per_m`.
+
+**Assumptions:** The window gives a result that is equal each time, so `==` between the two
+windowed results is meaningful (`GradientPeaks` compares by value).
+
+#### `test_a_windowed_gradient_peaks_uses_the_kept_per_event_values`
+
+**Checks:** The per-event values (`_EventData`) of a sequence object are built one time, and a
+call with a window uses them. A new sequence object, and an object after `add_block`, build
+them again.
+
+**How:** The test replaces `grad_peaks._event_values` with a function that counts its calls
+and calls the original. For the synthetic spin echo it calls `gradient_peaks` with a window
+(the count is 1), then with another window, `gradient_peaks(seq)` and
+`block_gradient_values(seq)` (the count is still 1). A call for a new spin echo makes the
+count 2, and a windowed call after `add_block` on the first object makes it 3.
+
+**Assumptions:** `_event_values` is the one function that builds the per-event values, and
+`gradient_peaks` and `block_gradient_values` look it up in the module when they call it.
+
+#### `test_a_kept_gradient_peaks_cannot_be_changed_in_place`
+
+**Checks:** A caller cannot change a kept result of `gradient_peaks(seq)` or
+`block_gradient_values(seq)`, which all callers of one sequence share.
+
+**How:** For the synthetic spin echo, the assignment of a field of the `GradientPeaks` and of
+an `AxisResult` raises `FrozenInstanceError`, a change of `axes` raises `TypeError`, a write
+to an array of the block values raises `ValueError` ("read-only") and a change of one of its
+dicts raises `TypeError`. After the refusals the next call of each function gives the same
+object, and the peaks are equal to those of a new sequence.
+
+**Assumptions:** The tests of `test_grad_peaks.py` cover every array and dict of the results.
+
 #### `test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result`
 
-**Checks:** `pns_levels_for` has one kept result for `hardware_from_asc` of the relative
+**Checks:** `pns_levels` has one kept result for `hardware_from_asc` of the relative
 path and `hardware_from_asc` of the absolute path of one gradient `.asc` file.
 
 **How:** The test writes an `.asc` file, changes the working directory to its directory,
@@ -4427,7 +4551,7 @@ first use, so the swap gives these numbers.
 
 #### `test_a_new_grad_library_object_with_other_amplitudes_gives_new_levels`
 
-**Checks:** `pns_levels_for` makes its result again when `seq.grad_library` is a new
+**Checks:** `pns_levels` makes its result again when `seq.grad_library` is a new
 object and nothing else of the stamp changes.
 
 **How:** For the synthetic spin echo, two calls with pypulseq's example hardware give one
@@ -4452,14 +4576,14 @@ ID is 6 as before. The next call gives a new object with one block less and the 
 **Assumptions:** Block 3 is not the last block, and the dicts keep their order, as in the
 pinned pypulseq fork.
 
-#### `test_a_change_of_the_gradient_raster_time_gives_a_new_index_and_new_levels`
+#### `test_a_change_of_the_gradient_raster_time_gives_new_kept_results`
 
-**Checks:** A change of `seq.grad_raster_time` makes the three kept results again.
+**Checks:** A change of `seq.grad_raster_time` makes the five kept results again.
 
-**How:** For the synthetic spin echo, the test calls `sequence_index`, `pns_levels_for`
-and `gradient_spectrum_for`, and calls each again: each must give the same object. It
-then halves `seq.grad_raster_time`. Each of the three must give a new object, and a call
-again must give that new object.
+**How:** For the synthetic spin echo, the test calls `sequence_index`, `gradient_peaks`,
+`block_gradient_values`, `pns_levels` and `gradient_spectrum`, and calls each again: each
+must give the same object. It then halves `seq.grad_raster_time`. Each of the five must give
+a new object, and a call again must give that new object.
 
 **Assumptions:**
 
@@ -4468,8 +4592,8 @@ again must give that new object.
 
 #### `test_a_kept_result_does_not_keep_the_sequence_alive`
 
-**Checks:** The kept results of `sequence_index`, `event_points`, `pns_levels_for` and
-`gradient_spectrum_for` do not keep a reference to the sequence, so the sequence can be
+**Checks:** The kept results of `sequence_index`, `event_points`, `gradient_peaks`,
+`block_gradient_values`, `pns_levels` and `gradient_spectrum` do not keep a reference to the sequence, so the sequence can be
 collected.
 
 **How:** For each function, the test calls it for the synthetic spin echo, keeps a

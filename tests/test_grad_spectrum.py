@@ -52,6 +52,16 @@ def _assert_same_spectrum(a, b):
     np.testing.assert_allclose(a.rss, b.rss, rtol=1e-12, atol=0)
 
 
+def _compute_default(seq):
+    """A new calculation with the defaults, which `gradient_spectrum` would keep."""
+    return grad_spectrum._compute_spectrum(
+        seq,
+        grad_spectrum.MAX_FREQUENCY_HZ,
+        grad_spectrum.FFT_WINDOW_S,
+        grad_spectrum.FREQUENCY_OVERSAMPLING,
+    )
+
+
 def test_spin_echo_spectrum():
     s = grad_spectrum.gradient_spectrum(spin_echo_sequence())
     assert s.reason is None
@@ -104,9 +114,10 @@ def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     # windows make 7 chunks, and the last chunk is shorter than the others.
     seq = gre_sequence(num_trs=30)
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 1_000_000)
-    whole = grad_spectrum.gradient_spectrum(seq)
+    whole = _compute_default(seq)
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
-    chunked = grad_spectrum.gradient_spectrum(seq)
+    chunked = _compute_default(seq)
+    assert chunked is not whole
     _assert_same_spectrum(chunked, whole)
 
 
@@ -124,7 +135,7 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     `(i + 0.5) * dt`, half a window of zeros at each end). `CHUNK_WINDOWS` is 4, so the
     comparison also covers the joins of the chunks and a shorter last chunk."""
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
-    got = grad_spectrum.gradient_spectrum(seq)
+    got = _compute_default(seq)
 
     sampler = GradientSampler(sequence_index(seq), event_points(seq))
     dt = seq.grad_raster_time
@@ -252,12 +263,12 @@ def test_gradient_spectrum_refuses_rotations():
         grad_spectrum.gradient_spectrum(with_rotation_library())
 
 
-def test_gradient_spectrum_for_keeps_the_result():
+def test_gradient_spectrum_keeps_the_result():
     seq = gre_sequence(num_trs=2)
-    first = grad_spectrum.gradient_spectrum_for(seq)
-    assert grad_spectrum.gradient_spectrum_for(seq) is first
+    first = grad_spectrum.gradient_spectrum(seq)
+    assert grad_spectrum.gradient_spectrum(seq) is first
     seq.add_block(pp.make_delay(1e-3))
-    assert grad_spectrum.gradient_spectrum_for(seq) is not first
+    assert grad_spectrum.gradient_spectrum(seq) is not first
 
 
 @pytest.mark.parametrize(
@@ -387,9 +398,6 @@ _NAN, _INF = float("nan"), float("inf")
 
 
 @pytest.mark.parametrize(
-    "function", [grad_spectrum.gradient_spectrum, grad_spectrum.gradient_spectrum_for]
-)
-@pytest.mark.parametrize(
     ("arguments", "error", "match"),
     [
         pytest.param(
@@ -499,21 +507,21 @@ _NAN, _INF = float("nan"), float("inf")
         ),
     ],
 )
-def test_gradient_spectrum_refuses_bad_arguments(function, arguments, error, match, monkeypatch):
+def test_gradient_spectrum_refuses_bad_arguments(arguments, error, match, monkeypatch):
     def fail(seq):
         raise AssertionError("the sequence was read")
 
     monkeypatch.setattr(grad_spectrum, "sequence_index", fail)
     with pytest.raises(error, match=match):
-        function(spin_echo_sequence(), **arguments)
+        grad_spectrum.gradient_spectrum(spin_echo_sequence(), **arguments)
 
 
-def test_gradient_spectrum_for_keeps_one_result_for_each_set_of_arguments():
+def test_gradient_spectrum_keeps_one_result_for_each_set_of_arguments():
     seq = gre_sequence(num_trs=2)
-    default = grad_spectrum.gradient_spectrum_for(seq)
-    low = grad_spectrum.gradient_spectrum_for(seq, max_frequency_hz=1000.0)
+    default = grad_spectrum.gradient_spectrum(seq)
+    low = grad_spectrum.gradient_spectrum(seq, max_frequency_hz=1000.0)
     assert low is not default
     assert low.frequency_hz[-1] <= 1000.0
-    assert grad_spectrum.gradient_spectrum_for(seq) is default
+    assert grad_spectrum.gradient_spectrum(seq) is default
     # The key is the arguments as floats, so 1000 and 1000.0 are one set.
-    assert grad_spectrum.gradient_spectrum_for(seq, max_frequency_hz=1000) is low
+    assert grad_spectrum.gradient_spectrum(seq, max_frequency_hz=1000) is low

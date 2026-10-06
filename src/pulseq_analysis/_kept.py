@@ -1,7 +1,8 @@
 """The kept results of one sequence object, and the rule that makes them old.
 
-`sequence_index`, `_events.event_points`, `pns.pns_levels_for` and
-`grad_spectrum.gradient_spectrum_for` keep their results for the sequence object, so that
+`seq_index.sequence_index`, `_events.event_points`, `grad_peaks.gradient_peaks` (for
+`window=None`) and `grad_peaks.block_gradient_values`, `pns_levels.pns_levels` and
+`grad_spectrum.gradient_spectrum` keep their results for the sequence object, so that
 several measurements of one sequence build each result one time. `kept_results` is the one
 place of the rule that says when the kept results of an object are old.
 
@@ -17,8 +18,8 @@ A different stamp empties the kept results of that object. A change that keeps t
 whole stamp (a block replaced in place, with the same ID) is not seen.
 
 The stamp holds a reference to the three objects, not to the sequence, so the
-`WeakKeyDictionary` still lets the sequence go. Each of the three modules has its own
-`WeakKeyDictionary`, so the keys of the three modules cannot collide, and each module
+`WeakKeyDictionary` still lets the sequence go. Each of these modules has its own
+`WeakKeyDictionary`, so the keys of the modules cannot collide, and each module
 uses the keys that fit its results.
 """
 

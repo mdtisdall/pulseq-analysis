@@ -41,14 +41,14 @@ The SAFE PNS peak of a `.seq` file:
 import pypulseq as pp
 
 from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.pns import pns_levels_for
+from pulseq_analysis.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
 seq = pp.Sequence()
 seq.read("sequence.seq")
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
-levels = pns_levels_for(seq, hardware=hardware)
+levels = pns_levels(seq, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)
 print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```

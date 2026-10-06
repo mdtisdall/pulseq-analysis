@@ -10,7 +10,7 @@ Contents:
 
 1. [`seq_index`: the block table](#1-seq_index-the-block-table)
 2. [`grad_peaks`: gradient amplitude and slew](#2-grad_peaks-gradient-amplitude-and-slew)
-3. [`pns` and `pns_levels`: SAFE PNS](#3-pns-and-pns_levels-safe-pns)
+3. [`pns_levels`: SAFE PNS](#3-pns_levels-safe-pns)
 4. [The other modules](#4-the-other-modules)
 5. [`series`: values for JSON](#5-series-values-for-json)
 6. [`analyses`: the analyses and their registry](#6-analyses-the-analyses-and-their-registry)
@@ -21,7 +21,7 @@ Contents:
 |---|---|
 | `pulseq_analysis.seq_index` | The block table of a sequence, and the unique events. |
 | `pulseq_analysis.grad_peaks` | The peak amplitude, peak slew and RMS of the gradients, for the whole file and for each block. |
-| `pulseq_analysis.pns` and `pulseq_analysis.pns_levels` | The SAFE PNS prediction. |
+| `pulseq_analysis.pns_levels` | The SAFE PNS prediction. |
 | `pulseq_analysis.grad_spectrum` | The spectrum of the gradients (section 7). |
 | `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. |
 | `pulseq_analysis.seq_utils` | The points of one gradient event, and the constant. |
@@ -64,11 +64,14 @@ These rules apply to all the modules:
 - **Units.** No value uses a gamma. The gradient values are in Hz/m and
   Hz/m/s, the spectrum in Hz/m/√Hz, and the PNS values in Hz/T. Divide a value
   by |γ| to get the unit with tesla ([section 8](#8-units-and-gamma)).
-- **Kept results.** `sequence_index`, `pns.pns_levels_for` and
-  `grad_spectrum.gradient_spectrum_for` keep their result for the sequence
-  object (`pns_levels_for` for each hardware, each tuple of thresholds and
-  each `bin_s` of that object, `gradient_spectrum_for` for each set of its
-  arguments). They build it again after `add_block`, after a new read of a
+- **Kept results.** Each measurement is one public function, and it keeps its
+  result for the sequence object: `sequence_index`; `gradient_peaks` for
+  `window=None` (a result with a window is not kept, because a caller can ask
+  for many windows, but it uses the kept per-event values);
+  `block_gradient_values`; `pns_levels` for each hardware, each tuple of
+  thresholds and each `bin_s` of that object; and `gradient_spectrum` for each
+  set of its arguments. A second call with the same arguments gives the same
+  object. They build the result again after `add_block`, after a new read of a
   file into the object (`seq.read`), and after a change of
   `seq.grad_raster_time`.
   A block replaced in place is not seen: make a new sequence object for it.
@@ -191,6 +194,14 @@ Hz/m/s, the units of pypulseq, with no gamma. To get T/m and T/m/s, divide
 them by |γ| ([section 8](#8-units-and-gamma)). The function does not compare the values
 with limits: a caller that has the limits of a scanner compares them.
 
+`gradient_peaks(seq)` (`window=None`) keeps its result for the sequence object,
+by the rule "Kept results" at the top of this document: a second call gives the
+same object, and `add_block`, a new read of a file into the object and a change
+of `seq.grad_raster_time` give a new one. A result with a window is a new
+object for each call and is not kept, because a caller can ask for many
+windows. A call with a window uses the per-event values that the object keeps,
+so it does not read the unique gradient events again.
+
 `GradientPeaks`, a frozen dataclass:
 
 | Field | Meaning |
@@ -220,7 +231,8 @@ its callers, so a change of a dict would change it for all of them.
 each block, not only the largest, in the same units. The largest of each
 amplitude array is the value of `gradient_peaks` for the whole file. Its slew
 is the larger of the largest segment slew and the largest junction step. The
-first play index of a largest value is the block of that value. It reads one
+first play index of a largest value is the block of that value. It keeps its
+result for the sequence object, as `gradient_peaks(seq)` does. It reads one
 block with `get_block` for each unique gradient event, and no other block.
 `gradient_peaks` does the same, and also reads the blocks that a window edge
 cuts.
@@ -246,12 +258,14 @@ A block with no event on an axis has the peak and the slope 0 there, at the
 time `start_s`. Its junction step is not 0 when the block before it ends at a
 value that is not 0.
 
-## 3. `pns` and `pns_levels`: SAFE PNS
+## 3. `pns_levels`: SAFE PNS
 
-`pns.pns_levels_for(seq, *, hardware, thresholds_hz_per_t=(), bin_s=BIN_S) -> PnsLevels`
+`pns_levels.pns_levels(seq, *, hardware, thresholds_hz_per_t=(), bin_s=BIN_S) -> PnsLevels`
 runs the SAFE model of the pinned pypulseq fork on the gradients of `seq`, and
 keeps the result for the sequence object, the hardware, the thresholds and the
-bin size. The
+bin size. It is the one entry point of the SAFE model: there is no module `pns`
+and no second function, and a second call with the same arguments gives the
+kept object. The
 hardware is necessary: `hardware` is a required keyword argument. It is the
 vendor-neutral pair `(struct, label)`: a SAFE hardware struct in the form of
 pypulseq's `asc_to_hw`, and a name for it. The package does not take a file
@@ -268,7 +282,7 @@ that is not a real number raises `TypeError`, and one that is not finite raises
 `ValueError`. `stim_limit` must be above 0, and `a1 + a2 + a3` of each axis must
 be within 0.001 of 1 (the rule of pypulseq's `safe_hw_check`), or `ValueError`.
 Each of these is raised before the sequence is read, also for a sequence with no
-gradient event, and `pns_levels_for` raises it before it reads the kept
+gradient event, and `pns_levels` raises it before it reads the kept
 results. There is no default hardware. For pypulseq's
 example hardware, which is not a real scanner, make the pair with
 `safe_example_hw()` (in `pypulseq.utils.safe_pns_prediction`):
@@ -282,8 +296,7 @@ a float, and two elements that are equal as floats, raise `ValueError`. Both
 are raised before the sequence is read. The default is `()`: `above` is `{}`. For a fraction f of the stimulation limit, give
 `f * abs(gamma)` ([section 8](#8-units-and-gamma)). The same thresholds in
 another order are another kept result, because the order of `above` is the
-order of `thresholds_hz_per_t`. `pns_levels.pns_levels` has the same
-arguments, and keeps nothing.
+order of `thresholds_hz_per_t`.
 
 `bin_s` is the length of a bin of the level, in seconds. The default,
 `pns_levels.BIN_S`, is 5 ms (500 samples at the 10 µs raster).
@@ -329,20 +342,20 @@ the output of the model for that axis, and the total of a sample is
 | `bin_samples`, `level_min_hz_per_t`, `level_max_hz_per_t` | The level, for a plot: read-only float32 arrays with the minimum and the maximum total of each bin of `bin_samples` samples (the last bin can have fewer), in Hz/T. Each total of a bin is in `[level_min_hz_per_t, level_max_hz_per_t]` of the bin. |
 | `on_raster` | `True` when the duration of each block is a whole number of samples. Otherwise the samples come from the waveform of the whole file at the same times (`GradientSampler.sample`). |
 
-All the callers of `pns_levels_for` with the same sequence object, hardware,
+All the callers of `pns_levels` with the same sequence object, hardware,
 thresholds and `bin_s` share the kept result. For this reason, `level_min_hz_per_t`
 and `level_max_hz_per_t` are read-only, also for `NO_GRADIENTS` and also in
-the result of `pns_levels`: a change in place raises `ValueError`. Convert to a
+the kept result: a change in place raises `ValueError`. Convert to a
 new array:
 
 ```python
 from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.pns import pns_levels_for
+from pulseq_analysis.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
-levels = pns_levels_for(seq, hardware=hardware)
+levels = pns_levels(seq, hardware=hardware)
 level_max_percent = levels.level_max_hz_per_t / abs(gamma) * 100  # a new array
 ```
 
@@ -414,7 +427,7 @@ file; the PNS functions take only the pair. Two parts of it are public.
 `asc.read_gradient_asc(path)` gives the fields of the file, with the fields of
 each file that an `$INCLUDE` line names. `asc.hardware_name(asc)` gives the name
 of the component in those fields. Two pairs of one file, whatever the spelling
-of its path, have the same label and values, so `pns_levels_for` keeps one
+of its path, have the same label and values, so `pns_levels` keeps one
 result for them.
 
 `extensions.refuse_rotations(seq)` raises `NotImplementedError` when `seq`
@@ -529,18 +542,21 @@ name is not the `spec.id` of its object raise `analyses.RegistryError`, with
 the names of the packages (and, for the name that is not the `spec.id`, the
 name of the entry point and the `spec.id`).
 
-The analyses of this package (each `version` is 1):
+The analyses of this package (each `version` is 1). Each `compute` gives the
+result that its function keeps for the sequence object (the rule "Kept results"
+at the top of this document), so a second call for one sequence gives the same
+object:
 
 | ID | Object | `compute` | `params` | `cost` | `to_series` |
 |---|---|---|---|---|---|
 | `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | fast | `()` |
 | `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq)`, the whole file | none | fast | `()` |
 | `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | fast | `()` |
-| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels_for(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)` | `hardware`, `thresholds_hz_per_t`, `bin_s` | slow | below |
-| `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum_for(seq)`, with the defaults | none | slow | below |
+| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)` | `hardware`, `thresholds_hz_per_t`, `bin_s` | slow | below |
+| `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum(seq)`, with the defaults | none | slow | below |
 
 `hardware` has no default, `thresholds_hz_per_t` has the default `()`, and `bin_s` has
-the default `pns_levels.BIN_S` ([section 3](#3-pns-and-pns_levels-safe-pns)).
+the default `pns_levels.BIN_S` ([section 3](#3-pns_levels-safe-pns)).
 `compute` without `hardware` raises `TypeError`, before the sequence is read. No analysis has a gamma. All the analyses except
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 
@@ -568,8 +584,8 @@ and last sample.
 seconds.
 
 `gradient.spectrum` has no parameters. It uses the defaults of
-`gradient_spectrum_for`, which are the defaults of pypulseq. A caller that
-needs other values calls `gradient_spectrum_for` with them. This is as
+`gradient_spectrum`, which are the defaults of pypulseq. A caller that
+needs other values calls `gradient_spectrum` with them. This is as
 `gradient.peaks`, which has no `window`.
 
 `to_series` of `gradient.spectrum` gives `()` for a sequence with no gradient
@@ -630,8 +646,7 @@ method is that of pypulseq's `calculate_gradient_spectrum`:
 
 `gradient_spectrum(seq, *, max_frequency_hz=MAX_FREQUENCY_HZ,
 window_s=FFT_WINDOW_S, frequency_oversampling=FREQUENCY_OVERSAMPLING) ->
-GradientSpectrum` measures the whole sequence. `gradient_spectrum_for(seq, *,
-...)` has the same arguments and the same result, and keeps the result.
+GradientSpectrum` measures the whole sequence, and keeps its result (below).
 
 | Argument | Default | Argument of pypulseq | Meaning |
 |---|---|---|---|
@@ -642,7 +657,8 @@ GradientSpectrum` measures the whole sequence. `gradient_spectrum_for(seq, *,
 The three arguments are keyword-only. A value that the function refuses
 raises `ValueError`, or `TypeError` for a value that is not a real number (an
 `int`, a `float`, a `Fraction` or a numpy real scalar are valid) or is a
-`bool`. The function raises before it reads the blocks. The rules:
+`bool`. The function raises before it reads the blocks and before it looks up
+the kept result. The rules:
 
 - Each argument is a finite number, and not too large for a float.
 - `window_s` is above 0, and `nwin` is 2 or more at the gradient raster of the
@@ -665,7 +681,7 @@ These arguments of pypulseq are not arguments here:
 `gradient_spectrum` calls `extensions.refuse_rotations` first, so it raises
 `NotImplementedError` for a file with the Pulseq rotation extension.
 
-`gradient_spectrum_for` keeps its result for the sequence object, with one
+`gradient_spectrum` keeps its result for the sequence object, with one
 result for each set of the three arguments. It builds the result again after
 `add_block`, after a new read of a file into the object, and after a change of
 `seq.grad_raster_time` (the rule "Kept results" at the top of this document).
@@ -713,8 +729,8 @@ pypulseq's `Opts` also converts with `abs(gamma)`.
 | The spectrum: `GradientSpectrum.axes`, `GradientSpectrum.rss`, the series `gradient_spectrum` | Hz/m/√Hz | T/m/√Hz (times 1e3: mT/m/√Hz) | 1 Hz/m/√Hz is 2.3487 × 10⁻⁵ mT/m/√Hz |
 | PNS: `PnsLevels.peak_hz_per_t`, `PnsLevels.axis_peaks_hz_per_t`, `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t`, `PnsInterval.peak_hz_per_t`, the series `pns_total` and `pns_above_<k>` | Hz/T | The fraction of the stimulation limit (1 is 100 %) | The limit is 4.2576 × 10⁷ Hz/T |
 
-**The thresholds, an input.** `thresholds_hz_per_t` of `pns_levels`,
-`pns_levels_for` and `pns.safe.levels` is in Hz/T. For a fraction f of the
+**The thresholds, an input.** `thresholds_hz_per_t` of `pns_levels`
+and `pns.safe.levels` is in Hz/T. For a fraction f of the
 stimulation limit, give `f * abs(gamma)`. The limit is the fraction 1, so it is
 `abs(gamma)`. The keys of `PnsLevels.above` and `meta["threshold"]` of
 `pns_above_<k>` are the Hz/T values that you gave.
@@ -740,7 +756,6 @@ Thus the `Opts` of a target gives limits in the units of the values.
 ```python
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.grad_peaks import gradient_peaks
-from pulseq_analysis.pns import pns_levels_for
 from pulseq_analysis.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
@@ -750,7 +765,7 @@ peak_mt_per_m = limits.axes["x"].peak_hz_per_m / abs(gamma) * 1e3
 slew_t_per_m_per_s = limits.axes["x"].max_slew_hz_per_m_per_s / abs(gamma)
 
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")  # the .asc file of the scanner
-fraction = pns_levels_for(seq, hardware=hardware).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
+fraction = pns_levels(seq, hardware=hardware).peak_hz_per_t / abs(gamma)  # 1.0 is the limit
 
 limit_hz_per_t = abs(gamma)
 levels = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(limit_hz_per_t,))

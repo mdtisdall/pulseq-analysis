@@ -64,7 +64,7 @@ CHUNK_WINDOWS = 256  # windows in each chunk of samples
 class GradientSpectrum:
     """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, and `axes` is
     a read-only `_equality.FrozenDict` (a subclass of `dict`), so that the callers of
-    `gradient_spectrum_for` can share one result: convert to a new array
+    `gradient_spectrum` can share one result: convert to a new array
     (`s.rss * 1e3 / abs(gamma)`), not in place.
 
     `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
@@ -128,6 +128,12 @@ def _validated_arguments(
     return max_frequency_hz, window_s, frequency_oversampling
 
 
+# For each sequence object: the kept results (`_kept.kept_results`), which hold one
+# `GradientSpectrum` for each tuple of (max_frequency_hz, window_s,
+# frequency_oversampling) as floats.
+_SPECTRUM_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
+
+
 def gradient_spectrum(
     seq: pp.Sequence,
     *,
@@ -144,6 +150,14 @@ def gradient_spectrum(
     `frequency_oversampling` gives the FFT length, `nfft = round(frequency_oversampling *
     nwin)` for a window of `nwin` samples. The overlap is `nwin // 2`.
 
+    The result is kept for the sequence object and for each tuple of the three arguments as
+    floats, so that callers of one sequence that need the same spectrum (for example the
+    analysis of each target of one sequence) calculate it one time. The kept results are
+    built again after `add_block`, after a new read of a file into the object, and after a
+    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not
+    seen (`seq_index.sequence_index`). The arrays of a result are read-only, because all
+    callers share them.
+
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`), TypeError for an argument that is not a number (a
     bool is not), and ValueError for an argument that is not finite or is too large for a
@@ -152,12 +166,24 @@ def gradient_spectrum(
     `frequency_oversampling` below 1, and for `max_frequency_hz` not above 0, above the
     Nyquist frequency `1 / (2 * dt)`, or below the frequency step `1 / (nfft * dt)`
     (the result then has fewer than two frequencies). The arguments are checked before the
-    blocks are read.
+    blocks are read and before the kept result is looked up.
     """
     refuse_rotations(seq)
-    max_frequency_hz, window_s, frequency_oversampling = _validated_arguments(
-        seq, max_frequency_hz, window_s, frequency_oversampling
-    )
+    key = _validated_arguments(seq, max_frequency_hz, window_s, frequency_oversampling)
+    by_key = kept_results(_SPECTRUM_CACHE, seq)
+    if key not in by_key:
+        by_key[key] = _compute_spectrum(seq, *key)
+    return by_key[key]
+
+
+def _compute_spectrum(
+    seq: pp.Sequence,
+    max_frequency_hz: float,
+    window_s: float,
+    frequency_oversampling: float,
+) -> GradientSpectrum:
+    """The spectrum of `seq` for three arguments that `_validated_arguments` has checked
+    (as floats). It does not check them again and does not keep the result."""
     index = sequence_index(seq)
     if not has_gradients(index):
         empty = np.zeros(0)
@@ -224,42 +250,6 @@ def gradient_spectrum(
             frequency_oversampling,
         )
     )
-
-
-# For each sequence object: the kept results (`_kept.kept_results`), which hold one
-# `GradientSpectrum` for each tuple of (max_frequency_hz, window_s,
-# frequency_oversampling) as floats.
-_SPECTRUM_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
-
-
-def gradient_spectrum_for(
-    seq: pp.Sequence,
-    *,
-    max_frequency_hz: float = MAX_FREQUENCY_HZ,
-    window_s: float = FFT_WINDOW_S,
-    frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
-) -> GradientSpectrum:
-    """The `GradientSpectrum` of `seq` (`gradient_spectrum`, which has the rules of the
-    arguments: a refused value raises before the kept result is looked up).
-
-    The result is kept for the sequence object and for each tuple of the three arguments as
-    floats, so that callers of one sequence that need the same spectrum (for example the
-    analysis of each target of one sequence) calculate it one time. The kept results are
-    built again after `add_block`, after a new read of a file into the object, and after a
-    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not
-    seen (`seq_index.sequence_index`). The arrays of a result are read-only, because all
-    callers share them.
-    """
-    key = _validated_arguments(seq, max_frequency_hz, window_s, frequency_oversampling)
-    by_key = kept_results(_SPECTRUM_CACHE, seq)
-    if key not in by_key:
-        by_key[key] = gradient_spectrum(
-            seq,
-            max_frequency_hz=key[0],
-            window_s=key[1],
-            frequency_oversampling=key[2],
-        )
-    return by_key[key]
 
 
 def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep_n, window):
