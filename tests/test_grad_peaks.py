@@ -339,6 +339,37 @@ def test_slew_time_is_the_start_of_the_steepest_segment():
     assert result.axes["x"].slew_time_s == pytest.approx(900e-6)
 
 
+def test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit():
+    """Block 1 ends at A. Block 2 starts at 0 and its steepest segment (0 to A in one
+    raster) has the slope of the junction step A to 0. The two slews are equal and the
+    junction is at the block start, before the segment: the slew time is the start of
+    block 2 and not a time in block 2, and the slew block is block 2."""
+    raster = SYSTEM.grad_raster_time
+    a = 0.5 * SYSTEM.max_slew * raster
+    one = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([0.0, a, a]),
+        times=np.array([0.0, 2, 3]) * raster,
+        system=SYSTEM,
+    )
+    two = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([0.0, 0.0, a, a, 0.0]),
+        times=np.array([0.0, 1, 2, 6, 8]) * raster,
+        system=SYSTEM,
+    )
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(one)
+    seq.add_block(two)
+    block_ids = list(seq.block_events)
+
+    x = gradient_peaks(seq).axes["x"]
+
+    assert x.max_slew_hz_per_m_per_s == pytest.approx(a / raster)
+    assert x.slew_time_s == pytest.approx(3 * raster)
+    assert x.slew_block == block_ids[1]
+
+
 def test_vector_peak_of_g_compares_different_triples_across_blocks():
     """Two blocks with different triples of active gradients: the vector peak of `|G|`
     is the largest magnitude found across the two different triples, not just the

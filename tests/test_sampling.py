@@ -585,6 +585,33 @@ def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
     np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=1, count=1), [0.0])
 
 
+def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point():
+    """With `dt` of two raster steps, a ramp from 0 to 1000 Hz/m over 27 raster steps ends
+    exactly at the time of sample 13, `(13 + 0.5) * dt`, which the test asserts with the same
+    float product that the sampler uses. The sample is the value of the last point, the
+    sample after it is 0, and no sample before it is above it."""
+    raster = SYSTEM.grad_raster_time
+    amp = 1000.0  # Hz/m
+    n_ramp = 27
+    dt = 2 * raster
+    last = (n_ramp - 1) // 2
+    assert (last + 0.5) * dt == n_ramp * raster
+    ramp = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([0.0, amp]),
+        times=np.array([0.0, n_ramp * raster]),
+        system=SYSTEM,
+    )
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(ramp, pp.make_delay((n_ramp + 3) * raster))
+    sampler = GradientSampler(seq, sequence_index(seq))
+    got = sampler.block_samples("gx", 0, 1, dt)
+    assert got.shape == (last + 2,)
+    assert got[last] == amp
+    assert got[last + 1] == 0.0
+    assert np.all(got[:last] < amp)
+
+
 @pytest.mark.parametrize(
     "skip,count",
     [(-1, 1), (0, -1), (-1, None), (1, 10**9), (10**9, 0), (10**9, None)],

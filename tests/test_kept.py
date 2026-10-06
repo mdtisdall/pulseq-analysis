@@ -2,6 +2,7 @@
 `gradient_spectrum_for` keep a result for a sequence object, and when they make it again.
 """
 
+import copy
 import dataclasses
 import gc
 import weakref
@@ -134,6 +135,75 @@ def test_a_change_of_the_last_block_id_with_the_same_number_of_blocks_gives_a_ne
     assert second is not first
     assert second.num_blocks == first.num_blocks
     assert second.block_id.tolist() == [*first.block_id.tolist()[1:], new_id]
+
+
+def test_a_new_block_durations_object_with_the_same_keys_gives_a_new_index():
+    """`seq.block_durations` is replaced by a new dict with the same IDs and each duration
+    doubled. The other two objects, the number of blocks, the last block ID and the raster
+    time are the same: `sequence_index` gives a new index, whose durations are doubled."""
+    seq = spin_echo_sequence()
+    first = sequence_index(seq)
+    assert sequence_index(seq) is first
+    seq.block_durations = {block_id: 2 * d for block_id, d in seq.block_durations.items()}
+
+    second = sequence_index(seq)
+    assert second is not first
+    assert second.end_s == 2 * first.end_s
+    assert np.array_equal(second.duration_s, 2 * first.duration_s)
+
+
+def test_a_new_block_events_object_with_the_same_keys_gives_a_new_index():
+    """`seq.block_events` is replaced by a new dict with the same IDs, in which blocks 2 and
+    3 have changed events: block 2 has the gradient event of block 3, and block 3 has that
+    of block 2. The other two objects, the number of blocks, the last block ID and the
+    raster time are the same: `sequence_index` gives a new index, in which the gradient
+    columns have changed."""
+    seq = spin_echo_sequence()
+    first = sequence_index(seq)
+    assert sequence_index(seq) is first
+    events = {block_id: event.copy() for block_id, event in seq.block_events.items()}
+    events[2], events[3] = events[3], events[2]
+    seq.block_events = events
+
+    second = sequence_index(seq)
+    assert second is not first
+    assert second.num_blocks == first.num_blocks
+    assert first.gx.tolist()[:3] == [0, 1, 0]
+    assert first.gy.tolist()[:3] == [0, 0, 2]
+    assert second.gx.tolist()[:3] == [0, 0, 2]
+    assert second.gy.tolist()[:3] == [0, 1, 0]
+
+
+def test_a_new_grad_library_object_with_other_amplitudes_gives_new_levels():
+    """`seq.grad_library` is replaced by a copy with each amplitude doubled. The other two
+    objects, the number of blocks, the last block ID and the raster time are the same:
+    `pns_levels_for` gives a new result, whose peak level is the double of the old one."""
+    seq = spin_echo_sequence()
+    first = pns_levels_for(seq, hardware=_HARDWARE)
+    assert pns_levels_for(seq, hardware=_HARDWARE) is first
+    library = copy.deepcopy(seq.grad_library)
+    library.data = {k: (2 * v[0], *v[1:]) for k, v in library.data.items()}
+    seq.grad_library = library
+
+    second = pns_levels_for(seq, hardware=_HARDWARE)
+    assert second is not first
+    assert second.peak_hz_per_t == pytest.approx(2 * first.peak_hz_per_t)
+
+
+def test_a_removed_block_with_the_same_last_block_id_gives_a_new_index():
+    """Block 3 is removed from `seq.block_events` and `seq.block_durations` in place. The
+    three objects, the last block ID and the raster time are the same, and there is one
+    block less: `sequence_index` gives a new index, without block 3."""
+    seq = spin_echo_sequence()
+    first = sequence_index(seq)
+    assert sequence_index(seq) is first
+    del seq.block_events[3]
+    del seq.block_durations[3]
+
+    second = sequence_index(seq)
+    assert second is not first
+    assert second.num_blocks == first.num_blocks - 1
+    assert second.block_id.tolist() == [1, 2, 4, 5, 6]
 
 
 def test_a_change_of_the_gradient_raster_time_gives_a_new_index_and_new_levels():
