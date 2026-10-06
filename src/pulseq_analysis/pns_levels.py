@@ -36,6 +36,7 @@ import pypulseq as pp
 from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 
 from ._equality import FrozenDict, fields_equal
+from ._events import event_points
 from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import ON_RASTER_TOLERANCE, GradientSampler, raster_block_lengths
@@ -333,7 +334,7 @@ def pns_levels(
             )
         )
 
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
 
     # After `has_gradients`, `num_samples >= 1`, and each chunk has one sample or more.
     if on_raster:

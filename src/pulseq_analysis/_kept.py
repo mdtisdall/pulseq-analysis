@@ -1,9 +1,9 @@
 """The kept results of one sequence object, and the rule that makes them old.
 
-`sequence_index`, `pns.pns_levels_for` and `grad_spectrum.gradient_spectrum_for` keep
-their results for the sequence object, so that several measurements of one sequence
-build each result one time. `kept_results` is the one place of the rule that says when
-the kept results of an object are old.
+`sequence_index`, `_events.event_points`, `pns.pns_levels_for` and
+`grad_spectrum.gradient_spectrum_for` keep their results for the sequence object, so that
+several measurements of one sequence build each result one time. `kept_results` is the one
+place of the rule that says when the kept results of an object are old.
 
 The stamp of a sequence has these parts:
 

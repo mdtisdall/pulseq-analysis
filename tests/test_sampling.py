@@ -10,6 +10,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis._events import event_points
 from pulseq_analysis.sampling import GradientSampler, raster_block_lengths
 from pulseq_analysis.seq_index import sequence_index
 
@@ -34,7 +35,7 @@ def _assert_matches_pypulseq(seq: pp.Sequence, t: np.ndarray) -> None:
     rounding only.
     """
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     pp_gradients = seq.get_gradients()
     for axis_index, axis in enumerate(_AXES):
         ppoly = pp_gradients[axis_index]
@@ -196,7 +197,7 @@ def test_subrange_inside_a_gap_matches_pypulseq():
 def test_range_across_a_step_and_a_gap_equals_the_same_slice_of_the_whole_grid():
     seq, t = _step_then_gap_sequence()
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     whole = sampler.sample("gx", t)
     # The gap has a nonzero waveform (the line from the last value of block 1), so a
     # range that starts in the gap needs the event before it.
@@ -292,7 +293,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     truth = np.interp(grid, tt, vv)
     peak = np.abs(truth).max()
 
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     got = sampler.sample("gx", grid)
     np.testing.assert_allclose(got, truth, rtol=0, atol=1e-12 * peak)
 
@@ -303,7 +304,7 @@ def test_axis_without_events_is_zero():
     index = sequence_index(seq)
     assert seq.get_gradients()[2] is None
     t = _raster_centers(index.end_s)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     got = sampler.sample("gz", t)
     assert got.dtype == np.float64
     np.testing.assert_array_equal(got, np.zeros(t.shape, dtype=np.float64))
@@ -312,7 +313,7 @@ def test_axis_without_events_is_zero():
 def test_zero_before_the_first_event_and_after_the_last():
     seq = _delay_padded_sequence()
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     before = np.linspace(0.0, index.start_s[1] - 1e-6, 50)
     after = np.linspace(index.start_s[2] + 1e-6, index.end_s, 50)
     got_before = sampler.sample("gx", before)
@@ -324,7 +325,7 @@ def test_zero_before_the_first_event_and_after_the_last():
 def test_empty_sequence_is_zero_for_any_t():
     seq = empty_sequence()
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     t = np.array([0.0, 1e-3, 5.0])  # 5.0 s is well past the sequence's own duration
     for axis in _AXES:
         got = sampler.sample(axis, t)
@@ -334,7 +335,7 @@ def test_empty_sequence_is_zero_for_any_t():
 
 def test_empty_times_gives_empty_output():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     got = sampler.sample("gx", np.array([]))
     assert got.dtype == np.float64
     assert got.shape == (0,)
@@ -342,7 +343,7 @@ def test_empty_times_gives_empty_output():
 
 def test_invalid_axis_name_raises_value_error():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     with pytest.raises(ValueError):
         sampler.sample("gw", np.array([0.0]))
 
@@ -371,7 +372,7 @@ def test_block_samples_matches_sample_at_file_raster_times(seq):
     assert on_raster
     total = int(n.sum())
     t_file = (np.arange(total, dtype=np.float64) + 0.5) * dt
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     for axis in _AXES:
         got = sampler.block_samples(axis, 0, index.num_blocks, dt)
         ref = sampler.sample(axis, t_file)
@@ -408,7 +409,7 @@ def test_hand_made_ramp_and_no_event_block():
     seq.add_block(gx, gz)
     seq.add_block(pp.make_delay(n_block * dt))
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
 
     j = np.arange(n_block, dtype=np.float64)
     t = (j + 0.5) * dt
@@ -434,7 +435,7 @@ def test_range_inside_the_file_equals_the_same_slice_of_the_whole_file():
     seq = gre_sequence(num_trs=3)
     dt = SYSTEM.grad_raster_time
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     n, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     first, stop = 2, index.num_blocks - 1
@@ -502,7 +503,7 @@ def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
     n_all, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     assert n_all[2] == n_all[4] == 120  # the event of block 2 stops 60 samples before its end
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     checked = 0
     for first, stop in [(0, 5), (1, 5), (2, 5), (1, 4), (2, 3), (3, 5), (0, 2), (4, 5)]:
         n = n_all[first:stop]
@@ -513,7 +514,7 @@ def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
                 got = sampler.block_samples(axis, first, stop, dt, skip=skip, count=count)
                 assert got.dtype == np.float64
                 assert np.array_equal(got, expected), (axis, first, stop, skip, count)
-                fresh = GradientSampler(seq, index)
+                fresh = GradientSampler(index, event_points(seq))
                 got = fresh.block_samples(axis, first, stop, dt, skip=skip, count=count)
                 assert np.array_equal(got, expected), (axis, first, stop, skip, count)
                 checked += 1
@@ -543,7 +544,7 @@ def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
     n, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     assert n[0] == n_block
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     whole = sampler.block_samples("gx", 0, 2, dt)
     nonzero = np.flatnonzero(whole[:n_block])
     assert 0 < nonzero.size < 1000
@@ -578,7 +579,7 @@ def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
     )
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay(4 * raster))
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     dt = 2 * raster
     assert 0.5 * dt == raster
     np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt), [amp, 0.0])
@@ -605,7 +606,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
     )
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay((n_ramp + 3) * raster))
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     got = sampler.block_samples("gx", 0, 1, dt)
     assert got.shape == (last + 2,)
     assert got[last] == amp
@@ -627,7 +628,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
 )
 def test_block_samples_bad_skip_or_count_raises_value_error(skip, count):
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     with pytest.raises(ValueError, match="skip"):
         sampler.block_samples("gx", 1, 3, SYSTEM.grad_raster_time, skip=skip, count=count)
 
@@ -638,7 +639,7 @@ def test_skip_plus_count_up_to_the_range_end_is_accepted():
     seq = gre_sequence(num_trs=1)
     dt = SYSTEM.grad_raster_time
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     n, _ = raster_block_lengths(index, dt)
     total = int(n[1:3].sum())
     assert sampler.block_samples("gx", 1, 3, dt, skip=total, count=0).size == 0
@@ -650,7 +651,7 @@ def test_skip_plus_count_up_to_the_range_end_is_accepted():
 
 def test_block_samples_invalid_axis_name_raises_value_error():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     with pytest.raises(ValueError):
         sampler.block_samples("gw", 0, 1, SYSTEM.grad_raster_time)
 
@@ -662,7 +663,7 @@ def test_block_samples_invalid_axis_name_raises_value_error():
 )
 def test_block_samples_bad_range_raises_value_error(first, stop):
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     with pytest.raises(ValueError):
         sampler.block_samples("gx", first, stop, SYSTEM.grad_raster_time)
 
@@ -674,7 +675,7 @@ def test_block_samples_off_raster_block_raises_value_error():
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
     index = sequence_index(seq)
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
     with pytest.raises(ValueError):
         sampler.block_samples("gx", 0, 1, dt)
 

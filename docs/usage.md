@@ -370,8 +370,11 @@ pulseq-checks).
 
 ## 4. The other modules
 
-`sampling.GradientSampler(seq, index)` gives the gradient waveform of one axis
-(`"gx"`, `"gy"` or `"gz"`), in Hz/m:
+`sampling.GradientSampler(index, points)` gives the gradient waveform of one
+axis (`"gx"`, `"gy"` or `"gz"`), in Hz/m. `index` is `sequence_index(seq)`, and
+`points` is `_events.event_points(seq)`: the points of the unique gradient
+events, read one time for each sequence object and kept (the rule of the kept
+results above). A `GradientSampler` does not copy them.
 
 - `sample(axis, t)`: the values at the sorted times `t`. They are the straight
   lines between the points of all the events of the axis, also across a gap

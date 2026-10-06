@@ -32,7 +32,7 @@ Contents:
 2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
    index, the raster sampler and the sequence extensions; the analyses (PNS and
    the PNS levels, and the gradient peaks); the series; the analyses and their registry;
-   the gradient spectrum; the kept results; the number arguments
+   the gradient spectrum; the kept results; the number arguments; the kept event points
 
 ---
 
@@ -1527,7 +1527,8 @@ the test would fail.
 
 `test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
 waveform of one axis at sorted times, from
-the sequence index and the unique gradient events. The reference is pypulseq's
+the sequence index and the kept points of the unique gradient events
+(`_events.event_points`; `GradientSampler(index, event_points(seq))`). The reference is pypulseq's
 `seq.get_gradients()`: `_assert_matches_pypulseq` compares `sample(axis, t)` with the
 `PPoly` of each axis at the same times, within a relative 1e-12 and an absolute 1e-12
 times the largest |value| of the reference. They are
@@ -4311,7 +4312,8 @@ dict made a `FrozenDict`. The `FrozenDict` and a list are not equal.
 ### 2.12 Kept results (`test_kept.py`)
 
 `test_kept.py` tests `_kept.py`, the rule that says when the kept results of a sequence
-object are old, through `sequence_index`, `pns_levels_for` and `gradient_spectrum_for`.
+object are old, through `sequence_index`, `event_points`, `pns_levels_for` and
+`gradient_spectrum_for`.
 The tests use small sequences that they write with pypulseq or that
 `tests/synthetic.py` builds.
 
@@ -4335,6 +4337,20 @@ be equal (`==`) to those of the new object and not equal to those of A.
 - A and B are different in the values that the four results hold, so a kept result of A
   is not equal to the result of B.
 - `GradientPeaks`, `PnsLevels` and `GradientSpectrum` compare by value.
+
+#### `test_event_points_are_kept_and_made_again_after_a_second_read_into_one_object`
+
+**Checks:** `event_points` keeps its result for a sequence object until a new file is read
+into the object, and then makes it again.
+
+**How:** The test writes the two files of the first test of this section and reads A into
+an object. Two calls of `event_points` must give one object (`is`). It then reads B into
+the same object. The next call must give a new object, a second call must give that object
+again, and its arrays must be equal (`array_equal`) to those of `event_points` of a new
+object that read B only. The `amp` arrays of B and A must differ.
+
+**Assumptions:** A and B have gradients with other amplitudes, so a kept result of A is
+not equal to the points of B.
 
 #### `test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_a_change`
 
@@ -4452,7 +4468,7 @@ again must give that new object.
 
 #### `test_a_kept_result_does_not_keep_the_sequence_alive`
 
-**Checks:** The kept results of `sequence_index`, `pns_levels_for` and
+**Checks:** The kept results of `sequence_index`, `event_points`, `pns_levels_for` and
 `gradient_spectrum_for` do not keep a reference to the sequence, so the sequence can be
 collected.
 
@@ -4535,3 +4551,81 @@ an infinity is returned and NaN raises `ValueError`.
 raise `ValueError`.
 
 **Assumptions:** None.
+
+### 2.14 Kept event points (`test_events.py`)
+
+`test_events.py` tests `_events.py`: `event_points`, which reads the points of the unique
+gradient events of a sequence one time and keeps them for the sequence object, and the two
+users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The tests
+use the synthetic spin echo, gradient echo and arbitrary gradient sequences (and, for the
+types of the arrays, the empty sequence). That the kept result is made again after a new
+read is tested in section 2.12.
+
+#### `test_the_measurements_of_one_sequence_read_each_unique_gradient_event_once`
+
+**Checks:** `gradient_peaks`, `block_gradient_values`, `pns_levels` and
+`gradient_spectrum` of one sequence read each unique gradient event one time in total, not
+one time for each measurement.
+
+**How:** Parametrized over the three sequences. The test takes the number K of unique
+gradient events from the sequence index (`grad_first.size`), replaces `pp.Sequence.get_block`
+with a wrapper that counts its calls, and calls the four functions on one new sequence
+(`pns_levels` with pypulseq's example hardware). The count must be K.
+
+**Assumptions:**
+
+- The measurements call `get_block` only for the unique gradient events and for the
+  blocks that a window cuts. `gradient_peaks` is called without a window, so no block is
+  cut.
+- The wrapper counts the calls of the class, so a call from inside pypulseq counts too.
+
+#### `test_event_points_arrays_are_read_only_and_have_the_documented_types`
+
+**Checks:** The five arrays of `EventPoints` are read-only, have the documented dtypes and
+have the documented sizes.
+
+**How:** Parametrized over the three sequences and the empty sequence. For each array the
+test checks the dtype (float64 for `delay`, `offsets` and `amp`; int64 for `count` and
+`at`), that `flags.writeable` is False, and that a write raises `ValueError`. `delay`,
+`count` and `at` must have K items, and `offsets` and `amp` the sum of `count`.
+
+**Assumptions:** None.
+
+#### `test_event_points_has_the_points_that_grad_events_gives`
+
+**Checks:** `event_points` has the points of `grad_events` and `gradient_offsets`, in the
+dense order of the events.
+
+**How:** Parametrized over the three sequences. The test reads each event from
+`grad_events`, makes the five arrays with Python lists and `numpy.cumsum`, and compares
+each with the array of `event_points` (`array_equal`, so bit for bit).
+
+**Assumptions:** None.
+
+#### `test_a_gradient_sampler_from_event_points_gives_the_samples_of_the_points_from_grad_events`
+
+**Checks:** `GradientSampler(index, event_points(seq))` samples the same as a sampler of the
+points that were read from `grad_events` in the test, and does not copy the points.
+
+**How:** Parametrized over the three sequences. The test makes the two samplers on one
+index. For each axis it compares `sample` at the raster centres `(k + 0.5) * dt` and
+`block_samples` of all the blocks, each with `array_equal`. It also checks that the
+sampler's `offsets` and `amp` arrays share memory with the arrays of the points.
+
+**Assumptions:** The test reads the private arrays of the sampler (`_offsets`, `_amp`) for
+the check of the copy.
+
+#### `test_event_values_of_the_points_equal_the_values_of_gradient_points`
+
+**Checks:** `grad_peaks._event_values(event_points(seq))` has the values that the earlier
+calculation from `gradient_points(g, 0.0)` of each event gives, bit for bit.
+
+**How:** Parametrized over the three sequences. For each event of `grad_events`, the test
+makes `t, amp = gradient_points(g, 0.0)` and the values of `_polyline_values(t, amp)`. The
+`t_rel` and `amp` arrays must be equal (`array_equal`). The peak, its offset, the slew, its
+offset, the integral, and the first, the first offset and the last value must be equal
+(`==`).
+
+**Assumptions:** `_polyline_values` is the calculation of the earlier `_event_values`; it
+is tested with the results of `gradient_peaks` in section 2.6.
+

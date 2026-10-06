@@ -10,12 +10,12 @@ scanner rotates the logical axes onto the physical ones for the prescribed orien
 an oblique slice one physical axis can see amplitude up to the vector peak,
 `GradientPeaks.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
 
-This computes the per-event values one time for each unique gradient event
-(`seq_index.grad_events`, which reads one block with `get_block` for each unique event),
-then combines them over the blocks of `seq_index.sequence_index` with numpy, instead of
-reading every block with `get_block`. Thus its cost grows with the number of unique events
-and the number of blocks, but it makes no pypulseq call for each block. `gradient_peaks`
-also reads the blocks that a window edge cuts.
+This computes the per-event values one time for each unique gradient event, from the points
+of `_events.event_points` (which reads one block with `get_block` for each unique event, one
+time for each sequence), then combines them over the blocks of `seq_index.sequence_index`
+with numpy, instead of reading every block with `get_block`. Thus its cost grows with the
+number of unique events and the number of blocks, but it makes no pypulseq call for each
+block. `gradient_peaks` also reads the blocks that a window edge cuts.
 
 The peak slew rate is the largest of two kinds of value: the slope of each straight segment
 of each gradient event, and the step at each block junction divided by the gradient raster
@@ -47,6 +47,7 @@ import numpy as np
 import pypulseq as pp
 
 from ._equality import FrozenDict, fields_equal
+from ._events import EventPoints, event_points
 from ._validate import real
 from .extensions import refuse_rotations
 from .seq_index import (
@@ -54,7 +55,6 @@ from .seq_index import (
     NO_GRADIENTS_IN_WINDOW,
     SequenceIndex,
     block_cache_off,
-    grad_events,
     sequence_index,
 )
 from .seq_utils import AXES, TIME_TOLERANCE, gradient_points
@@ -268,11 +268,11 @@ class _EventData:
     amp: list[np.ndarray]  # K arrays: the corner point amplitudes
 
 
-def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
-    """`_EventData` for every unique gradient event of `seq`, computed one time for each event
-    (`seq_index.grad_events`, which calls `get_block` only for the event's first block, with the
-    block cache off)."""
-    k = index.grad_first.size
+def _event_values(points: EventPoints) -> _EventData:
+    """`_EventData` for every unique gradient event of `points` (`_events.event_points`, which
+    reads each event one time). The corner times of event `k` are `points.delay[k] +
+    points.offsets[...]`, the same values as `seq_utils.gradient_points(g, 0.0)`."""
+    k = points.delay.size
     peak = np.zeros(k)
     peak_offset = np.zeros(k)
     slew = np.zeros(k)
@@ -284,9 +284,9 @@ def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
     t_rel: list[np.ndarray] = [np.array([])] * k
     amp_list: list[np.ndarray] = [np.array([])] * k
 
-    for dense_k, g in grad_events(seq, index):
-        t, amp = gradient_points(g, 0.0)
-        i = dense_k - 1
+    for i, (start, count) in enumerate(zip(points.at.tolist(), points.count.tolist(), strict=True)):
+        t = points.delay[i] + points.offsets[start : start + count]
+        amp = points.amp[start : start + count]
         values = _polyline_values(t, amp)
         peak[i] = values.peak
         peak_offset[i] = values.peak_time
@@ -667,9 +667,9 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     This checks `window` first (its form, its numbers and their order), before it reads the
     sequence. Then it builds `seq_index.sequence_index(seq)` and checks the window against the
     length of the sequence. Only then does it build the per-event values of
-    `seq_index.grad_events` one time (`_event_values`, which reads one block with `get_block`
-    for each unique gradient event), and combine them with numpy over the blocks of the
-    range. It also reads the few blocks that a range edge cuts with `get_block`, so its
+    `_events.event_points` one time (`_event_values`, which uses the points of the unique
+    gradient events and calls no `get_block`), and combine them with numpy over the blocks of
+    the range. It also reads the few blocks that a range edge cuts with `get_block`, so its
     cost does not grow with the number of blocks the way that reading every block would.
 
     Raises NotImplementedError for a sequence with the rotation extension
@@ -703,7 +703,7 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
             min(max(end_s, 0.0), total_duration),
         )
 
-    ev = _event_values(seq, index)
+    ev = _event_values(event_points(seq))
     grad_raster = seq.grad_raster_time
     whole_rms_hz_per_m = (
         None if window is None else FrozenDict(_whole_file_rms(index, ev, total_duration))
@@ -767,17 +767,17 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     The values are in Hz/m and Hz/m/s, with no gamma, as for `gradient_peaks`.
 
     This builds `seq_index.sequence_index(seq)` and the per-event values of
-    `seq_index.grad_events` one time (`_event_values`), then combines them with numpy over the
+    `_events.event_points` one time (`_event_values`), then combines them with numpy over the
     blocks. It computes the peak of |G| one time for each distinct triple of events. It reads
-    one block with `get_block` for each unique gradient event (in `_event_values`), and no
-    other block.
+    one block with `get_block` for each unique gradient event (in `_events.event_points`,
+    one time for each sequence), and no other block.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the values are of the logical axes as they are stored.
     """
     refuse_rotations(seq)
     index = sequence_index(seq)
-    ev = _event_values(seq, index)
+    ev = _event_values(event_points(seq))
     grad_raster = seq.grad_raster_time
     start_s = index.start_s
 
