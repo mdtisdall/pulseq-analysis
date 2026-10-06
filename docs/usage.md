@@ -130,6 +130,13 @@ two reads of one file are equal. An index is not hashable (`hash(index)` raises
 The event columns use the smallest of uint8, uint16 and uint32 that holds K.
 Convert a value with `int(x)` when you need a Python `int`.
 
+The layout of `SequenceIndex` is the contract of the analysis `seq.index`
+version 1 ([section 6](#6-analyses-the-analyses-and-their-registry)): its
+fields, the dense numbers from 1 in the order of first use, one number space
+for the three gradient axes, and the dtype rule above. A caller that reads
+the index through the registry (for example pulseq-checks) can rely on them. A
+change of the layout raises `spec.version` of `seq.index`.
+
 The arrays of a `SequenceIndex` are read-only: a change in place, such as
 `index.start_s[0] = 1.0`, raises `ValueError`. All callers share the index that
 `sequence_index` keeps for a sequence object, so a change would reach all of them.
@@ -524,14 +531,28 @@ An *analysis* calculates information about a sequence and does not change it.
 It has:
 
 - `spec`, an `AnalysisSpec` (a frozen dataclass): `id`, `version`, `title`,
-  `description` (the contract of the value), `params` (the names of the
-  keyword arguments of `compute`), `rasters` (the rasters of the sequence that
-  it uses), `cost` (`"fast"` or `"slow"`) and `series` (what `to_series`
+  `description` (the contract of the value), `params` (the names of all the
+  keyword arguments of `compute`), `necessary` (the names of `params` that
+  have no default), `defaults` (a pair `(name, default)` for each other name of
+  `params`, in the order of `params`), `rasters` (the rasters of the sequence
+  that it uses), `cost` (`"fast"` or `"slow"`) and `series` (what `to_series`
   gives, or `None`).
 - `compute(seq, **params)`: the full Python value. The parameters are
-  keyword-only.
+  keyword-only. A runner gives the necessary parameters (`spec.necessary`) and
+  can leave out the others, which then have the values of `spec.defaults`.
 - `to_series(value)`: a tuple of `Series`, the part of the value that can go
   into JSON. An analysis with nothing for JSON gives `()`.
+
+Each name of `params` is in `necessary` or in `defaults`, and not in both. A
+default is `None`, a `bool`, an `int`, a `float`, a `str` or a tuple of these
+(recursively), so `AnalysisSpec` stays hashable. `AnalysisSpec(...)` raises
+`ValueError` for a `necessary` name that is not in `params`, a name that has
+both a default and a place in `necessary`, a name of `params` with neither, a
+default for a name that is not in `params` or is repeated, defaults not in
+the order of `params`, and a default of another kind. The signature of
+`compute` agrees with the spec (a test checks it): the names of `params` are
+its keyword-only parameters in the same order, the names of `necessary` have no
+default, and each default of `defaults` is the default of the signature.
 
 A package gives its analyses as entry points of the group
 `pulseq_analysis.analyses` (`analyses.GROUP`). The name of an entry point is
@@ -547,18 +568,31 @@ result that its function keeps for the sequence object (the rule "Kept results"
 at the top of this document), so a second call for one sequence gives the same
 object:
 
-| ID | Object | `compute` | `params` | `cost` | `to_series` |
-|---|---|---|---|---|---|
-| `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | fast | `()` |
-| `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq)`, the whole file | none | fast | `()` |
-| `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | fast | `()` |
-| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)` | `hardware`, `thresholds_hz_per_t`, `bin_s` | slow | below |
-| `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum(seq)`, with the defaults | none | slow | below |
+| ID | Object | `compute` | `necessary` | `defaults` | `cost` | `to_series` |
+|---|---|---|---|---|---|---|
+| `seq.index` | `SEQ_INDEX` | `sequence_index(seq)` | none | none | fast | `()` |
+| `gradient.peaks` | `GRADIENT_PEAKS` | `gradient_peaks(seq, window=window)` | none | `window=None` | fast | `()` |
+| `gradient.blocks` | `GRADIENT_BLOCKS` | `block_gradient_values(seq)` | none | none | fast | `()` |
+| `pns.safe.levels` | `PNS_SAFE_LEVELS` | `pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)` | `hardware` | `thresholds_hz_per_t=()`, `bin_s=pns_levels.BIN_S` | slow | below |
+| `gradient.spectrum` | `GRADIENT_SPECTRUM` | `gradient_spectrum(seq, max_frequency_hz=..., window_s=..., frequency_oversampling=...)` | none | the three defaults of `grad_spectrum` | slow | below |
+
+`spec.params` is `necessary` and the names of `defaults`, in the order of the
+signature of `compute`: `hardware`, `thresholds_hz_per_t`, `bin_s` for
+`pns.safe.levels`; `window` for `gradient.peaks`; `max_frequency_hz`,
+`window_s`, `frequency_oversampling` for `gradient.spectrum`; none for the
+other two.
 
 `hardware` has no default, `thresholds_hz_per_t` has the default `()`, and `bin_s` has
 the default `pns_levels.BIN_S` ([section 3](#3-pns_levels-safe-pns)).
 `compute` without `hardware` raises `TypeError`, before the sequence is read. No analysis has a gamma. All the analyses except
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
+
+`gradient.peaks` with `window=None` (the default) gives the kept result of the
+whole sequence. With `window=(start_s, end_s)` it gives the values of that
+range, as `gradient_peaks(seq, window=window)` does ([section
+2](#2-grad_peaks-gradient-amplitude-and-slew)), and the result is not kept.
+`seq.index` has the layout of the contract of version 1 ([section
+1](#1-seq_index-the-block-table)): a change of it raises its `spec.version`.
 
 `to_series` of `pns.safe.levels` gives `()` for a sequence with no gradient
 event (`reason == NO_GRADIENTS`, the constant of `seq_index`). Else it gives:
@@ -583,10 +617,11 @@ and last sample.
 `peak_time_s` and the `meta` keys `dt_s` and `peak_time_s` are times in
 seconds.
 
-`gradient.spectrum` has no parameters. It uses the defaults of
-`gradient_spectrum`, which are the defaults of pypulseq. A caller that
-needs other values calls `gradient_spectrum` with them. This is as
-`gradient.peaks`, which has no `window`.
+`gradient.spectrum` has the three arguments of `gradient_spectrum`
+([section 7](#7-grad_spectrum-the-gradient-spectrum)), each with its default
+(`MAX_FREQUENCY_HZ`, `FFT_WINDOW_S` and `FREQUENCY_OVERSAMPLING` of
+`grad_spectrum`, the defaults of pypulseq). Its result is kept for each tuple of
+the three values.
 
 `to_series` of `gradient.spectrum` gives `()` for a sequence with no gradient
 event (`reason == NO_GRADIENTS`, the constant of `seq_index`). Else it gives one

@@ -5,10 +5,13 @@ An analysis is a pass that calculates information about a sequence and does not 
 (the analysis passes of a compiler are the model). Each analysis has:
 
 - `spec`, an `AnalysisSpec`: its ID, its version, a title, the description of its value, the
-  names of its parameters, the rasters of the sequence that it uses, its cost and the text
-  of its series.
+  names of its parameters (`params`), which of them are necessary (`necessary`) and the
+  default of each other one (`defaults`), the rasters of the sequence that it uses, its cost
+  and the text of its series.
 - `compute(seq, **params)`, which gives the full Python value (for example `PnsLevels`).
-  The parameters are keyword-only arguments, and their names are `spec.params`.
+  The parameters are keyword-only arguments, and their names are `spec.params`. A runner
+  gives the necessary parameters (`spec.necessary`) and can leave out the others, which then
+  have the values of `spec.defaults`.
 - `to_series(value)`, which gives the part of the value that can go into JSON, as a tuple of
   `series.Series`. An analysis with nothing for JSON gives `()`.
 
@@ -21,22 +24,24 @@ packages.
 
 The analyses of this package:
 
-- `seq.index` (`SEQ_INDEX`): `seq_index.sequence_index`, no parameters, no series.
-- `gradient.peaks` (`GRADIENT_PEAKS`): `grad_peaks.gradient_peaks`, no parameters, no
-  series.
+- `seq.index` (`SEQ_INDEX`): `seq_index.sequence_index`, no parameters, no series. The
+  layout of `SequenceIndex` is the contract of version 1.
+- `gradient.peaks` (`GRADIENT_PEAKS`): `grad_peaks.gradient_peaks`, the parameter `window`
+  (default None: the whole sequence), no series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
 - `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns_levels.pns_levels`, the parameters `hardware`
   (necessary: a pair of a SAFE hardware struct and its name), `thresholds_hz_per_t` and
   `bin_s`, and the series of the level and of the runs above each threshold.
-- `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum`, no
-  parameters, and the series of the spectrum.
+- `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum`, the
+  parameters `max_frequency_hz`, `window_s` and `frequency_oversampling`, and the series of
+  the spectrum.
 
 Each of these functions keeps its result for the sequence object (`_kept`), so `compute`
-of a second call for one sequence gives the kept object. `gradient_peaks` has a `window`
-argument, but `gradient.peaks` is of the whole sequence and has no such parameter (a result
-with a window is not kept). `grad_spectrum.gradient_spectrum` has the arguments of the
-method, but `gradient.spectrum` has no parameters and uses the defaults.
+of a second call for one sequence gives the kept object. `gradient.peaks` with a `window`
+gives the result of `gradient_peaks(seq, window=window)`, which is not kept (a caller can
+ask for many windows); with the default `window=None` it gives the kept result of the whole
+sequence.
 """
 
 import importlib.metadata
@@ -48,7 +53,13 @@ import numpy as np
 import pypulseq as pp
 
 from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
-from .grad_spectrum import GradientSpectrum, gradient_spectrum
+from .grad_spectrum import (
+    FFT_WINDOW_S,
+    FREQUENCY_OVERSAMPLING,
+    MAX_FREQUENCY_HZ,
+    GradientSpectrum,
+    gradient_spectrum,
+)
 from .pns_levels import BIN_S, PnsLevels, pns_levels
 from .seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
 from .series import Series, SeriesKind
@@ -61,9 +72,26 @@ class RegistryError(Exception):
     ID."""
 
 
+def _is_default_value(value: Any) -> bool:
+    """True when `value` is None, a `bool`, an `int`, a `float`, a `str`, or a tuple of
+    these (recursively)."""
+    if isinstance(value, tuple):
+        return all(_is_default_value(item) for item in value)
+    return value is None or isinstance(value, (bool, int, float, str))
+
+
 @dataclass(frozen=True)
 class AnalysisSpec:
-    """The specification of an analysis."""
+    """The specification of an analysis.
+
+    `params` is the names of all the keyword arguments of `compute`, in order. `necessary`
+    is the names of `params` that have no default: a runner gives them. `defaults` gives
+    each other name of `params` with its default, in the order of `params`: a runner can
+    leave these out. Each default is None, a `bool`, an `int`, a `float`, a `str` or a tuple
+    of these (recursively), so that the spec is hashable and its defaults can go into JSON.
+    Every name of `params` is in `necessary` or in `defaults`, and not in both. A spec that
+    breaks one of these rules raises `ValueError`.
+    """
 
     id: str  # for example "pns.safe.levels"
     version: int
@@ -73,6 +101,33 @@ class AnalysisSpec:
     rasters: tuple[str, ...]  # the rasters of the sequence that it uses
     cost: str = "slow"  # "fast" or "slow"
     series: str | None = None  # what to_series gives: names, kinds, units, coordinates
+    necessary: tuple[str, ...] = ()  # the names of params with no default
+    defaults: tuple[tuple[str, Any], ...] = ()  # (name, default) for the other names of params
+
+    def __post_init__(self) -> None:
+        for name in self.necessary:
+            if name not in self.params:
+                raise ValueError(f"necessary {name!r} is not in params {self.params!r}")
+        names = [name for name, _ in self.defaults]
+        for name in names:
+            if name not in self.params:
+                raise ValueError(f"the default of {name!r}, which is not in params {self.params!r}")
+        if len(set(names)) != len(names):
+            raise ValueError(f"a name is repeated in defaults {names!r}")
+        for name in names:
+            if name in self.necessary:
+                raise ValueError(f"{name!r} has a default and is in necessary")
+        for name in self.params:
+            if name not in names and name not in self.necessary:
+                raise ValueError(f"{name!r} of params has no default and is not in necessary")
+        if names != [name for name in self.params if name in names]:
+            raise ValueError(f"defaults {names!r} are not in the order of params {self.params!r}")
+        for name, value in self.defaults:
+            if not _is_default_value(value):
+                raise ValueError(
+                    f"the default of {name!r} is {value!r}, which is not None, a bool, an "
+                    "int, a float, a str or a tuple of these"
+                )
 
 
 class Analysis(Protocol):
@@ -99,8 +154,12 @@ class _SeqIndex:
             "the start of the sequence, and the number of the unique RF, ADC and gradient "
             "events (x, y, z) of the block, 0 for no event. It also gives the play index of "
             "the first block of each unique event, and the end of the sequence. The numbers "
-            "of the events start at 1, in the order of their first use. It reads no block "
-            "with `get_block`."
+            "of the events start at 1, in the order of their first use, and the three "
+            "gradient axes share one number space. The event columns use the smallest of "
+            "uint8, uint16 and uint32 that holds the number of unique events. It reads no "
+            "block with `get_block`. The layout of the `SequenceIndex` (its fields, these "
+            "numbers and this dtype rule) is the contract of version 1 of this analysis: a "
+            "change of it raises `spec.version`."
         ),
         params=(),
         rasters=(),
@@ -123,7 +182,7 @@ class _GradientPeaks:
         version=1,
         title="Gradient peaks",
         description=(
-            "A `GradientPeaks`: for each logical axis (x, y, z) of the whole sequence, the "
+            "A `GradientPeaks`: for each logical axis (x, y, z) of the range, the "
             "largest absolute amplitude (Hz/m), the largest slew (Hz/m/s) and the RMS "
             "amplitude (Hz/m), each with its block ID and its time (seconds from the start "
             "of the sequence), and the largest magnitude of the three-axis vector. The slew "
@@ -134,17 +193,26 @@ class _GradientPeaks:
             "they are not compared with a limit. The values are in the units of pypulseq, "
             "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
             "T/m/s. A sequence with the rotation extension raises `NotImplementedError`. The "
-            "result is read-only, and it is kept for the sequence object."
+            "result is read-only. `window` is None or `(start_s, end_s)` in seconds from the "
+            "start of the sequence. With a window, the values are those of that range, as "
+            "`gradient_peaks(seq, window=window)` gives them, and the result is not kept. "
+            "With the default None, the values are those of the whole sequence, and the "
+            "result is kept for the sequence object."
         ),
-        params=(),
+        params=("window",),
         rasters=_GRADIENT_RASTERS,
         cost="fast",
         series=None,
+        defaults=(("window", None),),
     )
 
-    def compute(self, seq: pp.Sequence) -> GradientPeaks:
-        """`grad_peaks.gradient_peaks(seq)`: the kept result for the sequence object."""
-        return gradient_peaks(seq)
+    def compute(
+        self, seq: pp.Sequence, *, window: tuple[float, float] | None = None
+    ) -> GradientPeaks:
+        """`grad_peaks.gradient_peaks(seq, window=window)`: for `window=None`, the kept result
+        of the whole sequence for the sequence object; for a window, the result of that range,
+        which is not kept."""
+        return gradient_peaks(seq, window=window)
 
     def to_series(self, value: GradientPeaks) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""
@@ -229,6 +297,8 @@ class _PnsSafeLevels:
         params=("hardware", "thresholds_hz_per_t", "bin_s"),
         rasters=_GRADIENT_RASTERS,
         cost="slow",
+        necessary=("hardware",),
+        defaults=(("thresholds_hz_per_t", ()), ("bin_s", BIN_S)),
         series=(
             "A sequence with no gradient event gives (). Else: "
             '`pns_total`, ENVELOPE, unit "Hz/T", arrays `min` and `max` (float32: '
@@ -336,13 +406,18 @@ class _GradientSpectrum:
             "them by 1e3 / abs(gamma), with gamma in Hz/T. A sequence with no gradient event has "
             "no spectrum (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
-            "result is kept for the sequence object. This analysis has no parameters and "
-            "uses the defaults of pypulseq. A caller that needs other values calls "
-            "`grad_spectrum.gradient_spectrum` with them."
+            "result is kept for the sequence object, for each tuple of the three arguments. "
+            "The parameters `max_frequency_hz`, `window_s` and `frequency_oversampling` are "
+            "the arguments of `grad_spectrum.gradient_spectrum`, with its defaults."
         ),
-        params=(),
+        params=("max_frequency_hz", "window_s", "frequency_oversampling"),
         rasters=_GRADIENT_RASTERS,
         cost="slow",
+        defaults=(
+            ("max_frequency_hz", MAX_FREQUENCY_HZ),
+            ("window_s", FFT_WINDOW_S),
+            ("frequency_oversampling", FREQUENCY_OVERSAMPLING),
+        ),
         series=(
             "A sequence with no gradient event gives (). Else one series: "
             '`gradient_spectrum`, SAMPLES, unit "Hz/m/sqrt(Hz)", arrays `value` (`rss`), '
@@ -353,10 +428,23 @@ class _GradientSpectrum:
         ),
     )
 
-    def compute(self, seq: pp.Sequence) -> GradientSpectrum:
-        """`grad_spectrum.gradient_spectrum(seq)`: the kept result for the sequence
-        object, with the defaults."""
-        return gradient_spectrum(seq)
+    def compute(
+        self,
+        seq: pp.Sequence,
+        *,
+        max_frequency_hz: float = MAX_FREQUENCY_HZ,
+        window_s: float = FFT_WINDOW_S,
+        frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
+    ) -> GradientSpectrum:
+        """`grad_spectrum.gradient_spectrum(seq, max_frequency_hz=max_frequency_hz,
+        window_s=window_s, frequency_oversampling=frequency_oversampling)`: the kept result
+        for the sequence object and the three arguments."""
+        return gradient_spectrum(
+            seq,
+            max_frequency_hz=max_frequency_hz,
+            window_s=window_s,
+            frequency_oversampling=frequency_oversampling,
+        )
 
     def to_series(self, value: GradientSpectrum) -> tuple[Series, ...]:
         """The series of `spec.series`: the spectrum of `value` (`gradient_spectrum`), or
