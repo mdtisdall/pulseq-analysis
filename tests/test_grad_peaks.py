@@ -23,8 +23,10 @@ from synthetic import (
     with_rotation_library,
 )
 
+from pulseq_analysis import grad_peaks
 from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis.grad_peaks import (
+    AxisResult,
     GradientPeaks,
     _distinct_triples,
     block_gradient_values,
@@ -508,6 +510,48 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_junction_before_it()
     assert junction_result.axes["x"].slew_block == block_b_id
 
 
+def test_junction_step_of_a_delayed_event_has_the_time_of_its_first_point():
+    """An x extended trapezoid with a delay and a first value that is not 0, after a block
+    that ends at 0: the step from 0 is at the end of the delay, so its time is the block start
+    plus the delay, not the block start. It is the largest slew, credited to the block of the
+    event."""
+    seq = _delayed_junction_sequence()
+    _block_a_id, block_b_id = seq.block_events
+    block_start = float(sequence_index(seq).start_s[1])
+    assert block_start > 0.0
+
+    result = gradient_peaks(seq)
+
+    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(0.9 * _MAX_STEP / _RASTER)
+    assert result.axes["x"].slew_block == block_b_id
+    assert result.axes["x"].slew_time_s == pytest.approx(block_start + _DELAY, abs=1e-12)
+
+
+def test_window_with_the_junction_time_inside_it_has_the_step_of_a_delayed_event():
+    """For the sequence of the test above, a window that starts after the block start and
+    before the end of the delay has the step: its time is the block start plus the delay, and
+    that time is in the window. A window that ends at that time does not have the step (a step
+    counts for `lo <= time < hi`), so its slew is the slope of a line of the first block."""
+    seq = _delayed_junction_sequence()
+    block_a_id, block_b_id = seq.block_events
+    index = sequence_index(seq)
+    block_start = float(index.start_s[1])
+    junction_time = block_start + _DELAY
+    segment_slope = 0.3 * SYSTEM.max_grad / 100e-6  # the ramps of block 1
+    assert segment_slope < 0.9 * _MAX_STEP / _RASTER
+
+    inside = gradient_peaks(seq, window=(block_start + _DELAY / 2, index.end_s))
+    assert inside.reason is None
+    assert inside.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(0.9 * _MAX_STEP / _RASTER)
+    assert inside.axes["x"].slew_block == block_b_id
+    assert inside.axes["x"].slew_time_s == pytest.approx(junction_time, abs=1e-12)
+
+    ends_at_it = gradient_peaks(seq, window=(0.0, junction_time))
+    assert ends_at_it.reason is None
+    assert ends_at_it.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(segment_slope)
+    assert ends_at_it.axes["x"].slew_block == block_a_id
+
+
 def _tie_trapezoid(channel: str):
     """A trapezoid of 0.8 ms: rise 0 to 0.2 ms, flat to 0.6 ms, fall to 0.8 ms."""
     return pp.make_trapezoid(
@@ -852,6 +896,33 @@ def _gradient_ends_non_zero_before_delay_sequence() -> pp.Sequence:
     return seq
 
 
+_DELAY = 100e-6  # the delay of the extended trapezoid of `_delayed_junction_sequence`
+
+
+def _delayed_junction_sequence() -> pp.Sequence:
+    """An x trapezoid that ends at 0, then an x extended trapezoid with a delay and a first
+    value that is not 0 (`add_block` accepts it): the step from 0 to the first value is at
+    the end of the delay. The step is 90% of the largest step, larger than every slope here
+    (block 1 has ramps of 100 us)."""
+    step = 0.9 * _MAX_STEP
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(
+        pp.make_trapezoid(
+            channel="x",
+            amplitude=0.3 * SYSTEM.max_grad,
+            rise_time=100e-6,
+            flat_time=100e-6,
+            system=SYSTEM,
+        )
+    )
+    delayed = pp.make_extended_trapezoid(
+        channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[step, step, 0.0], system=SYSTEM
+    )
+    delayed.delay = _DELAY
+    seq.add_block(delayed)
+    return seq
+
+
 def _first_block_starts_non_zero_sequence() -> pp.Sequence:
     start_value = 0.9 * _MAX_STEP
     seq = pp.Sequence(SYSTEM)
@@ -1170,6 +1241,17 @@ def test_block_gradient_values_refuses_rotations():
         block_gradient_values(with_rotation_library())
 
 
+def _fail_if_read(monkeypatch, *names: str) -> None:
+    """Make each of the functions `names` of `grad_peaks` fail the test when it is called: the
+    sequence or its events must not be read before a bad `window` is refused."""
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the sequence was read before the window was refused")
+
+    for name in names:
+        monkeypatch.setattr(grad_peaks, name, fail)
+
+
 @pytest.mark.parametrize(
     "window_of",
     [
@@ -1177,10 +1259,12 @@ def test_block_gradient_values_refuses_rotations():
         pytest.param(lambda total: (total / 2, total / 4), id="start_after_end"),
     ],
 )
-def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of):
-    """A `window` with a start equal to its end or after its end raises `ValueError`."""
+def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of, monkeypatch):
+    """A `window` with a start equal to its end or after its end raises `ValueError`, before
+    `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
+    _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="must have a start before its end"):
         gradient_peaks(seq, window=window)
 
@@ -1194,11 +1278,13 @@ def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of)
         pytest.param(lambda total: (-math.inf, total / 2), id="start_minus_inf"),
     ],
 )
-def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_of):
+def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_of, monkeypatch):
     """A `window` with a start or an end that is NaN or an infinity raises `ValueError`
-    ("finite"), before the rules of the order and of the range."""
+    ("finite"), before the rules of the order and of the range, and before `gradient_peaks`
+    reads the sequence index or the events."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
+    _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="finite"):
         gradient_peaks(seq, window=window)
 
@@ -1214,11 +1300,12 @@ def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_o
         pytest.param(lambda total: (0.0, None), id="end_none"),
     ],
 )
-def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of):
+def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of, monkeypatch):
     """A `window` with a start or an end that is a `bool`, a string or `None` raises
-    `TypeError`."""
+    `TypeError`, before `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
+    _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(TypeError, match="window (start|end)"):
         gradient_peaks(seq, window=window)
 
@@ -1234,10 +1321,12 @@ def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of
         pytest.param(lambda total: {0.0, total / 2}, id="a_set"),
     ],
 )
-def test_gradient_peaks_refuses_a_window_that_is_not_a_pair(window_of):
-    """A `window` that is not a tuple or a list of two items raises `TypeError`."""
+def test_gradient_peaks_refuses_a_window_that_is_not_a_pair(window_of, monkeypatch):
+    """A `window` that is not a tuple or a list of two items raises `TypeError`, before
+    `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
+    _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(TypeError, match="must be a pair"):
         gradient_peaks(seq, window=window)
 
@@ -1260,11 +1349,13 @@ def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
         pytest.param(lambda total: (0.0, total + 2 * TIME_TOLERANCE), id="end_after_the_end"),
     ],
 )
-def test_gradient_peaks_refuses_a_window_outside_the_sequence(window_of):
+def test_gradient_peaks_refuses_a_window_outside_the_sequence(window_of, monkeypatch):
     """A `window` that starts more than `TIME_TOLERANCE` before 0 or ends more than
-    `TIME_TOLERANCE` after the end of the sequence raises `ValueError`."""
+    `TIME_TOLERANCE` after the end of the sequence raises `ValueError`, before
+    `gradient_peaks` reads the events (it needs the sequence index for the length)."""
     seq = spin_echo_sequence()
     window = window_of(sequence_index(seq).end_s)
+    _fail_if_read(monkeypatch, "_event_values")
     with pytest.raises(ValueError, match="is not within the sequence"):
         gradient_peaks(seq, window=window)
 
@@ -1276,6 +1367,26 @@ def test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence():
     total = sequence_index(seq).end_s
     result = gradient_peaks(seq, window=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
     assert result.range_s == (0.0, total)
+
+
+@pytest.mark.parametrize("at_end", [True, False], ids=["past_the_end", "before_zero"])
+def test_a_window_outside_the_sequence_within_the_tolerance_gives_an_empty_range(at_end):
+    """A window that lies past the end of the sequence, or before 0, by less than
+    `TIME_TOLERANCE` is accepted, and its range is clipped to a range of length 0 at that end,
+    never with its start after its end. It has no gradient event and the zero values."""
+    seq = spin_echo_sequence()
+    total = sequence_index(seq).end_s
+    window = (total + 5e-10, total + 9e-10) if at_end else (-9e-10, -5e-10)
+    edge = total if at_end else 0.0
+
+    result = gradient_peaks(seq, window=window)
+
+    assert result.range_s == (edge, edge)
+    assert result.reason == NO_GRADIENTS_IN_WINDOW
+    assert result.vector_peak_hz_per_m == 0.0
+    assert result.vector_peak_block is None
+    for axis in ("x", "y", "z"):
+        assert result.axes[axis] == AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0)
 
 
 def _assert_same_triple_groups(gx, gy, gz, num_events):

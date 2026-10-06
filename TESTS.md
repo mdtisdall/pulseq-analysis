@@ -1863,9 +1863,10 @@ the largest slew of an arbitrary gradient and of an extended trapezoid (computed
 event's own corner points, the same way as the peak amplitude tests above), the credited block
 for a value that several blocks and axes share, a window that keeps only part of a ramp's
 slew, the vector peak of two blocks with different triples of active gradients, the three
-junction-step cases, a window that starts inside a block after a
-junction step, and comparisons with the oracle
-(`tests/oracles/grad_peaks.py`, the earlier implementation).
+junction-step cases, the time of the junction step of an event with a delay, a window that starts
+inside a block after a junction step, the refusal of a bad window before the sequence is read, the
+range of a window past an end of the sequence, and comparisons with the oracle
+(`tests/oracles/grad_peaks.py`, the earlier implementation, which has no junction steps).
 
 The last group tests `block_gradient_values`: the values of each block, in play order. Its
 main test compares the maxima over the blocks with the whole-file result of `gradient_peaks`.
@@ -2173,6 +2174,37 @@ block.
 
 **Assumptions:** None.
 
+#### `test_junction_step_of_a_delayed_event_has_the_time_of_its_first_point`
+
+**Checks:** For an x extended trapezoid with a delay and a first value that is not 0, after a
+block that ends at 0, the junction step is at the end of the delay: its time is the block start
+plus the delay, not the block start. It is the largest slew and is credited to the block of the
+event.
+
+**How:** Block 1 is an x trapezoid with ramps of 100 us. Block 2 is an x extended trapezoid with
+the amplitudes `[step, step, 0]` and `delay = 100 us`, with `step` 0.9 of the largest step that
+`add_block` accepts, so the step divided by the raster is larger than the ramps of block 1. The
+test checks that the start of block 2 is above 0, then the `max_slew_hz_per_m_per_s`,
+`slew_block` and `slew_time_s` of `gradient_peaks` against the hand-computed values (the start of
+block 2 plus the delay). The oracle is not used: it has no junction steps.
+
+**Assumptions:** `add_block` accepts a delayed extended trapezoid with a first value that is not
+0, after a block that ends at 0. The times are compared to 1e-12 s, because the
+package adds the start of the block and the delay, and the test adds the durations by hand.
+
+#### `test_window_with_the_junction_time_inside_it_has_the_step_of_a_delayed_event`
+
+**Checks:** For the sequence of the test above, a window that starts after the block start and
+before the end of the delay has the junction step, at the time block start plus delay. A window
+that ends at that time does not have the step, because a step counts for `lo <= time < hi`.
+
+**How:** The window from the start of block 2 plus half the delay to the end of the sequence
+gives the step, credited to block 2, at the time of the junction. The window from 0 to the time
+of the junction gives the slope of the ramps of block 1 (0.3 of the largest amplitude in 100 us),
+credited to block 1.
+
+**Assumptions:** The step is larger than the slope of the ramps, which the test checks.
+
 #### `test_window_that_cuts_a_block_credits_it_on_a_tie_with_a_later_block`
 
 **Checks:** When a block that the window start cuts and a later block fully inside the
@@ -2461,7 +2493,9 @@ before its end.
 
 **How:** The synthetic spin echo, with two cases: a start equal to the end, and a start
 after the end. Each call is in
-`pytest.raises(ValueError, match="must have a start before its end")`.
+`pytest.raises(ValueError, match="must have a start before its end")`. The test replaces
+`grad_peaks.sequence_index` and `grad_peaks._event_values` (`monkeypatch`) with functions that
+fail the test, so it also checks that the error comes before the sequence is read.
 
 **Assumptions:** None.
 
@@ -2472,7 +2506,10 @@ sequence by more than `TIME_TOLERANCE`.
 
 **How:** The synthetic spin echo, with two cases: a start of `-2 * TIME_TOLERANCE`, and
 an end of `total_duration + 2 * TIME_TOLERANCE`. Each call is in
-`pytest.raises(ValueError, match="is not within the sequence")`.
+`pytest.raises(ValueError, match="is not within the sequence")`. The test replaces
+`grad_peaks._event_values` (`monkeypatch`) with a function that fails the test, so it also
+checks that the error comes before the events are read. It does not replace `sequence_index`,
+because the check needs the length of the sequence.
 
 **Assumptions:** None.
 
@@ -2483,7 +2520,9 @@ an end of `total_duration + 2 * TIME_TOLERANCE`. Each call is in
 infinity, before the rules of the order and of the range.
 
 **How:** The synthetic spin echo, with four cases: a NaN start, a NaN end, an infinite end and a
-start of minus infinity. Each call is in `pytest.raises(ValueError, match="finite")`.
+start of minus infinity. Each call is in `pytest.raises(ValueError, match="finite")`. The test
+replaces `grad_peaks.sequence_index` and `grad_peaks._event_values` (`monkeypatch`) with
+functions that fail the test, so it also checks that the error comes before the sequence is read.
 
 **Assumptions:** None.
 
@@ -2493,7 +2532,9 @@ start of minus infinity. Each call is in `pytest.raises(ValueError, match="finit
 a string or None.
 
 **How:** The spin echo, with six cases (a `bool`, a `str` and `None`, each as the start and as the
-end), in `pytest.raises(TypeError, match="window (start|end)")`.
+end), in `pytest.raises(TypeError, match="window (start|end)")`. The test replaces
+`grad_peaks.sequence_index` and `grad_peaks._event_values` (`monkeypatch`) with functions that
+fail the test, so it also checks that the error comes before the sequence is read.
 
 **Assumptions:** None.
 
@@ -2503,7 +2544,9 @@ end), in `pytest.raises(TypeError, match="window (start|end)")`.
 items.
 
 **How:** The spin echo, with six cases: 3 items, 1 item, no items, a number, a string and a set.
-Each call is in `pytest.raises(TypeError, match="must be a pair")`.
+Each call is in `pytest.raises(TypeError, match="must be a pair")`. The test replaces
+`grad_peaks.sequence_index` and `grad_peaks._event_values` (`monkeypatch`) with functions that
+fail the test, so it also checks that the error comes before the sequence is read.
 
 **Assumptions:** None.
 
@@ -2527,6 +2570,19 @@ than `TIME_TOLERANCE`, and `range_s` is the sequence.
 and `range_s` equals `(0.0, total_duration)`.
 
 **Assumptions:** None.
+
+#### `test_a_window_outside_the_sequence_within_the_tolerance_gives_an_empty_range`
+
+**Checks:** A window that is past the end of the sequence, or before 0, by less than
+`TIME_TOLERANCE` is accepted. Its `range_s` is the range of length 0 at that end, `(T, T)` or
+`(0.0, 0.0)`, and not a range with its start after its end. The result has the `reason`
+`seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values.
+
+**How:** The synthetic spin echo, with two cases: the window `(T + 5e-10, T + 9e-10)` and the
+window `(-9e-10, -5e-10)`, for `T` the length of the sequence. The test checks `range_s` with `==`,
+the `reason`, the vector peak and its block, and each `AxisResult` against all zero values.
+
+**Assumptions:** `TIME_TOLERANCE` is 1e-9, so both windows pass the check of the range.
 
 #### `test_distinct_triples_are_the_groups_of_np_unique_with_up_to_3_million_events`
 

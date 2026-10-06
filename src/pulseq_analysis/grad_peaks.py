@@ -28,6 +28,12 @@ scanner, so it is a slew like the slope of a segment. A junction step is legal i
 (`Sequence.add_block` accepts one up to `max_slew * grad_raster_time`), so a sequence can
 have its largest slew there.
 
+The time of a junction step is the time of the first point of the block's event on the axis:
+the block start plus the delay of the event. It is the block start for a block with no event
+on the axis. An event with a delay and a first value that is not 0 has its step from 0 at the
+end of the delay. A junction step is in a range `[lo, hi]` when its time `t` has
+`lo <= t < hi`.
+
 `block_gradient_values` gives the same measurements for each block of the whole file, in play
 order, instead of the one largest value for each axis that `gradient_peaks` gives. It is for a
 caller that needs each place where a value is above a limit. `gradient_peaks` does not call it.
@@ -65,7 +71,8 @@ class AxisResult:
     the block after the junction when the peak slew is a junction step (see the module
     docstring), otherwise the block whose event has the segment. `peak_time_s` is the time of
     the peak, and `slew_time_s` the start of the steepest segment (the start of the range
-    when a range edge cuts that segment), or the time of the junction for a junction step;
+    when a range edge cuts that segment), or the time of the junction for a junction step (the
+    block start plus the delay of the block's event on the axis, see the module docstring);
     both are in seconds from the sequence start. When several blocks reach the same largest
     value, the credited block is the first of them in play order, and the time is the first
     time in that block where the value is reached (a junction step is before every segment
@@ -138,7 +145,9 @@ class BlockGradientValues:
     step at the start of the block, `|last value of the previous block - first value of this
     block|` divided by `seq.grad_raster_time`, as the module docstring describes it. For the
     first block it is the step from 0 to the first value of the block, which is not 0 when
-    the first event starts at a value that is not 0. Its time is `start_s`.
+    the first event starts at a value that is not 0. Its time is `start_s` plus the delay of the
+    block's event on the axis (`start_s` for a block with no event on the axis); this class has
+    no field for it.
     `vector_peak_hz_per_m` is the largest magnitude of the three-axis vector in the block, and
     `vector_peak_time_s` the first time in the block where it is reached (0 and `start_s` for
     a block without gradients).
@@ -254,6 +263,7 @@ class _EventData:
     slew: np.ndarray  # K: the largest slope between neighbouring corner points
     slew_offset: np.ndarray  # K: the start time (from the block start) of the first such segment
     first: np.ndarray  # K: the value of the event's first corner point
+    first_offset: np.ndarray  # K: the time (from the block start) of that point: the delay
     last: np.ndarray  # K: the value of the event's last corner point
     integral: np.ndarray  # K: the integral of amplitude^2 dt over the whole event
     t_rel: list[np.ndarray]  # K arrays: the corner point times, from the block start
@@ -270,6 +280,7 @@ def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
     slew = np.zeros(k)
     slew_offset = np.zeros(k)
     first = np.zeros(k)
+    first_offset = np.zeros(k)
     last = np.zeros(k)
     integral = np.zeros(k)
     t_rel: list[np.ndarray] = [np.array([])] * k
@@ -282,6 +293,7 @@ def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
         peak[i] = values.peak
         peak_offset[i] = values.peak_time
         first[i] = float(amp[0])
+        first_offset[i] = float(t[0])
         last[i] = float(amp[-1])
         integral[i] = values.integral
         slew[i] = values.slew
@@ -290,7 +302,9 @@ def _event_values(seq: pp.Sequence, index: SequenceIndex) -> _EventData:
         t_rel[i] = t
         amp_list[i] = amp
 
-    return _EventData(peak, peak_offset, slew, slew_offset, first, last, integral, t_rel, amp_list)
+    return _EventData(
+        peak, peak_offset, slew, slew_offset, first, first_offset, last, integral, t_rel, amp_list
+    )
 
 
 def _event_column(col: np.ndarray, values: np.ndarray) -> np.ndarray:
@@ -310,6 +324,14 @@ def _junction_steps(col: np.ndarray, ev: _EventData, grad_raster: float) -> np.n
     last_vals = _event_column(col, ev.last)
     prev_last = np.concatenate(([0.0], last_vals[:-1]))
     return np.abs(prev_last - first_vals) / grad_raster
+
+
+def _junction_times(col: np.ndarray, ev: _EventData, start_s: np.ndarray) -> np.ndarray:
+    """For each block, the time of its incoming junction step on one axis, in seconds from the
+    sequence start: the block start plus the delay of the block's event on the axis (the time of
+    its first point), and the block start for a block without an event on the axis. `col` is the
+    dense event column of the axis. `_range_result` uses it."""
+    return start_s + _event_column(col, ev.first_offset)
 
 
 def _distinct_triples(
@@ -448,7 +470,7 @@ def _range_result(
     The slice is computed before the edge blocks, and its triples are not in play order, so
     each candidate for a credit (an edge block, a triple of the slice) is compared with
     `_credit_goes_to`, which gives the result of a single pass over the blocks in play order.
-    The junction steps follow the same rule.
+    The junction steps follow the same rule. A range with `hi <= lo` has no event.
     """
     n = index.num_blocks
     start_s = index.start_s
@@ -467,7 +489,7 @@ def _range_result(
         for axis in _AXES
     }
 
-    if n == 0:
+    if n == 0 or not lo < hi:
         axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in _AXES}
         return axes, 0.0, 0.0, None, False
 
@@ -554,16 +576,18 @@ def _range_result(
             vector_peak_hz, vector_peak_time, vector_peak_play = block_peak, block_time, play
 
     # The junction steps (see the module docstring): for each axis, the step at the
-    # incoming junction of each processed block that starts at or after the range
-    # start (0 before the very first block of the file, or where either side has no
-    # event on the axis). The junction of a block that the range start cuts is before
-    # the range, so it is not used. A junction at the range end belongs to the block
-    # after it, which is not processed.
-    junction_in_range = processed & (start_s >= lo)
+    # incoming junction of each processed block whose junction time is in `[lo, hi)`
+    # (0 before the very first block of the file, or where either side has no event on
+    # the axis). The time is the block start plus the delay of the block's event on the
+    # axis. The junction of a block that the range start cuts, before the first point of
+    # its event, is before the range, so it is not used. A junction at the range end
+    # belongs to the block after it, which is not processed.
     axes: dict[str, AxisResult] = {}
     has_event_any = False
     for axis in _AXES:
         steps = _junction_steps(axis_cols[axis], ev, grad_raster)
+        times = _junction_times(axis_cols[axis], ev, start_s)
+        junction_in_range = processed & (times >= lo) & (times < hi)
 
         junction_max, junction_play = 0.0, None
         if np.any(junction_in_range):
@@ -579,15 +603,15 @@ def _range_result(
 
         st = state[axis]
         seg_max, seg_play = st["slew"], st["slew_play"]
-        # A junction is at its block's start, before every segment of that block, so it
-        # also takes the credit from a segment of equal slew in the same block.
+        # A junction is at the first point of its block's event, before every segment of that
+        # block, so it also takes the credit from a segment of equal slew in the same block.
         if junction_play is not None and (
             seg_play is None
             or junction_max > seg_max
             or (junction_max == seg_max and junction_play <= seg_play)
         ):
             final_slew, final_slew_play = junction_max, junction_play
-            final_slew_time = float(start_s[junction_play])
+            final_slew_time = float(times[junction_play])
         else:
             final_slew, final_slew_play, final_slew_time = seg_max, seg_play, st["slew_time"]
 
@@ -598,8 +622,7 @@ def _range_result(
         # event" too.
         has_event = st["has_event"] or final_slew_play is not None
         has_event_any = has_event_any or has_event
-        range_length = hi - lo
-        rms = math.sqrt(st["rms_sum"] / range_length) if has_event and range_length > 0 else 0.0
+        rms = math.sqrt(st["rms_sum"] / (hi - lo)) if has_event else 0.0
         axes[axis] = AxisResult(
             peak_hz_per_m=st["peak"],
             peak_time_s=st["peak_time"],
@@ -633,6 +656,9 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     end that is NaN or an infinity, a window with no start before its end, and a window that
     is not within the sequence raise `ValueError`. A gradient piece that crosses a range edge
     is cut at the edge, with the amplitude at the edge found by linear interpolation.
+    `range_s` is the window clipped to `(0.0, total_duration)`, so its start is never after its
+    end: a window that lies past an end of the sequence by less than `TIME_TOLERANCE` gives a
+    range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and zero values.
     With `window` given, `GradientPeaks.whole_rms_hz_per_m` also gives each axis's RMS
     over the whole sequence, computed in this same call.
 
@@ -640,9 +666,11 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
     section 8).
 
-    This builds `seq_index.sequence_index(seq)` and the per-event values of
+    This checks `window` first (its form, its numbers and their order), before it reads the
+    sequence. Then it builds `seq_index.sequence_index(seq)` and checks the window against the
+    length of the sequence. Only then does it build the per-event values of
     `seq_index.grad_events` one time (`_event_values`, which reads one block with `get_block`
-    for each unique gradient event), then combines them with numpy over the blocks of the
+    for each unique gradient event), and combine them with numpy over the blocks of the
     range. It also reads the few blocks that a range edge cuts with `get_block`, so its
     cost does not grow with the number of blocks the way that reading every block would.
 
@@ -651,29 +679,37 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     """
     refuse_rotations(seq)
 
-    index = sequence_index(seq)
-    ev = _event_values(seq, index)
-    total_duration = index.end_s
-    grad_raster = seq.grad_raster_time
-
-    if window is None:
-        range_s = (0.0, total_duration)
-        whole_rms_hz_per_m = None
-    else:
+    if window is not None:
         if not isinstance(window, tuple | list) or len(window) != 2:
             raise TypeError(f"window must be a pair (start_s, end_s), not {window!r}")
         start_s = real("window start", window[0])
         end_s = real("window end", window[1])
         if not start_s < end_s:
             raise ValueError(f"window {window!r} must have a start before its end")
+
+    index = sequence_index(seq)
+    total_duration = index.end_s
+
+    if window is None:
+        range_s = (0.0, total_duration)
+    else:
         if start_s < -TIME_TOLERANCE or end_s > total_duration + TIME_TOLERANCE:
             raise ValueError(
                 f"window {window!r} is not within the sequence (0.0, {total_duration})"
             )
         # Clip to the sequence exactly: start_s/end_s can be off by a rounding error of
-        # up to TIME_TOLERANCE and still pass the check above.
-        range_s = (max(0.0, start_s), min(total_duration, end_s))
-        whole_rms_hz_per_m = FrozenDict(_whole_file_rms(index, ev, total_duration))
+        # up to TIME_TOLERANCE and still pass the check above. Each end is clipped to
+        # `[0.0, total_duration]`, so the start is never after the end.
+        range_s = (
+            min(max(start_s, 0.0), total_duration),
+            min(max(end_s, 0.0), total_duration),
+        )
+
+    ev = _event_values(seq, index)
+    grad_raster = seq.grad_raster_time
+    whole_rms_hz_per_m = (
+        None if window is None else FrozenDict(_whole_file_rms(index, ev, total_duration))
+    )
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
