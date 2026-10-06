@@ -4,6 +4,7 @@ The registry of the entry-point group `pulseq_analysis.analyses`, the specificat
 analysis of the package, `compute`, and `to_series` of `pns.safe.levels` (design section 4.4).
 """
 
+import dataclasses
 import importlib.metadata
 import inspect
 import json
@@ -48,20 +49,36 @@ from pulseq_analysis.series import Series, SeriesKind
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
-# The specification of each analysis of the package: the ID, `params`, `rasters` and `cost`.
+# The specification of each analysis of the package: the ID, `params`, `necessary`,
+# `defaults`, `rasters` and `cost`.
 _SPECS = [
-    (SEQ_INDEX, "seq.index", (), (), "fast"),
-    (GRADIENT_PEAKS, "gradient.peaks", (), _RASTERS, "fast"),
-    (GRADIENT_BLOCKS, "gradient.blocks", (), _RASTERS, "fast"),
+    (SEQ_INDEX, "seq.index", (), (), (), (), "fast"),
+    (GRADIENT_PEAKS, "gradient.peaks", ("window",), (), (("window", None),), _RASTERS, "fast"),
+    (GRADIENT_BLOCKS, "gradient.blocks", (), (), (), _RASTERS, "fast"),
     (
         PNS_SAFE_LEVELS,
         "pns.safe.levels",
         ("hardware", "thresholds_hz_per_t", "bin_s"),
+        ("hardware",),
+        (("thresholds_hz_per_t", ()), ("bin_s", BIN_S)),
         _RASTERS,
         "slow",
     ),
-    (GRADIENT_SPECTRUM, "gradient.spectrum", (), _RASTERS, "slow"),
+    (
+        GRADIENT_SPECTRUM,
+        "gradient.spectrum",
+        ("max_frequency_hz", "window_s", "frequency_oversampling"),
+        (),
+        (
+            ("max_frequency_hz", MAX_FREQUENCY_HZ),
+            ("window_s", FFT_WINDOW_S),
+            ("frequency_oversampling", FREQUENCY_OVERSAMPLING),
+        ),
+        _RASTERS,
+        "slow",
+    ),
 ]
+_IDS = [analysis_id for _, analysis_id, *_ in _SPECS]
 
 
 class _EntryPoint:
@@ -187,22 +204,25 @@ def test_an_entry_point_whose_name_is_not_the_spec_id_raises_an_error_that_names
 
 
 @pytest.mark.parametrize(
-    ("analysis", "analysis_id", "params", "rasters", "cost"),
+    ("analysis", "analysis_id", "params", "necessary", "defaults", "rasters", "cost"),
     _SPECS,
-    ids=[analysis_id for _, analysis_id, *_ in _SPECS],
+    ids=_IDS,
 )
 def test_the_spec_of_each_analysis_has_the_documented_values(
-    analysis, analysis_id, params, rasters, cost
+    analysis, analysis_id, params, necessary, defaults, rasters, cost
 ):
-    """The ID, the version 1, `params`, `rasters` and `cost` of each analysis, and a title
-    and a description that are text with something in it. `series` is None for the three
-    analyses that give `()`, and text for `pns.safe.levels` and `gradient.spectrum`."""
+    """The ID, the version 1, `params`, `necessary`, `defaults`, `rasters` and `cost` of each
+    analysis, and a title and a description that are text with something in it. `series` is
+    None for the three analyses that give `()`, and text for `pns.safe.levels` and
+    `gradient.spectrum`."""
     spec = analysis.spec
 
     assert isinstance(spec, AnalysisSpec)
     assert spec.id == analysis_id
     assert spec.version == 1
     assert spec.params == params
+    assert spec.necessary == necessary
+    assert spec.defaults == defaults
     assert spec.rasters == rasters
     assert spec.cost == cost
     assert spec.title.strip()
@@ -213,37 +233,151 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
         assert spec.series is None
 
 
-@pytest.mark.parametrize(
-    ("analysis", "defaults"),
-    [
-        (SEQ_INDEX, {}),
-        (GRADIENT_PEAKS, {}),
-        (GRADIENT_BLOCKS, {}),
-        (
-            PNS_SAFE_LEVELS,
-            {
-                "hardware": inspect.Parameter.empty,
-                "thresholds_hz_per_t": (),
-                "bin_s": BIN_S,
-            },
-        ),
-        (GRADIENT_SPECTRUM, {}),
-    ],
-    ids=["seq.index", "gradient.peaks", "gradient.blocks", "pns.safe.levels", "gradient.spectrum"],
-)
-def test_params_name_the_keyword_only_parameters_of_compute(analysis, defaults):
-    """The parameters of `compute` after `seq` are all keyword-only, their names are
-    `spec.params` in order, and their defaults are those of the function that `compute`
-    calls. An unknown keyword is a `TypeError`."""
+@pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
+def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis):
+    """For each analysis of `registry()`: after `seq`, the parameters of `compute` are all
+    keyword-only and their names are `spec.params` in order; each name of `spec.necessary`
+    has no default; and each default of `spec.defaults` equals the default of the signature,
+    with the same type. Each name of `params` is in one of the two. An unknown keyword is a
+    `TypeError`."""
+    spec = analysis.spec
     parameters = list(inspect.signature(analysis.compute).parameters.values())
 
     assert parameters[0].name == "seq"
     assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters[1:])
-    assert tuple(p.name for p in parameters[1:]) == analysis.spec.params
-    assert {p.name: p.default for p in parameters[1:]} == defaults
+    assert tuple(p.name for p in parameters[1:]) == spec.params
+    by_name = {p.name: p for p in parameters[1:]}
+    for name in spec.necessary:
+        assert by_name[name].default is inspect.Parameter.empty
+    assert [name for name, _ in spec.defaults] == [
+        name for name in spec.params if name not in spec.necessary
+    ]
+    for name, value in spec.defaults:
+        default = by_name[name].default
+        assert default == value
+        assert type(default) is type(value)
     with pytest.raises(TypeError):
         analysis.compute(empty_sequence(), unknown=1)
+
+
+_SPEC_ARGS = {
+    "id": "t.a",
+    "version": 1,
+    "title": "t",
+    "description": "d",
+    "rasters": (),
+}
+
+
+@pytest.mark.parametrize(
+    ("params", "necessary", "defaults"),
+    [
+        (("a",), ("b",), (("a", 1),)),  # a necessary name that is not in params
+        (("a",), ("a",), (("a", 1),)),  # a name that has a default and is necessary
+        (("a", "b"), ("a",), ()),  # a name with neither
+        (("a",), (), (("b", 1),)),  # a default name that is not in params
+        (("a",), (), (("a", 1), ("a", 2))),  # a default name that is repeated
+        (("a", "b"), (), (("b", 1), ("a", 2))),  # defaults not in the order of params
+        (("a",), (), (("a", {"k": 1}),)),  # a default that is a dict
+        (("a",), (), (("a", [1, 2]),)),  # a default that is a list
+        (("a",), (), (("a", (1, [2])),)),  # a tuple with a list in it
+        (("a",), (), (("a", object()),)),  # a default that is none of the types
+    ],
+    ids=[
+        "necessary-not-in-params",
+        "default-and-necessary",
+        "neither",
+        "default-not-in-params",
+        "repeated-default",
+        "defaults-out-of-order",
+        "dict-default",
+        "list-default",
+        "tuple-with-list",
+        "object-default",
+    ],
+)
+def test_analysis_spec_raises_for_params_that_disagree_with_necessary_and_defaults(
+    params, necessary, defaults
+):
+    """`AnalysisSpec` raises `ValueError` for a name of `necessary` that is not in `params`, a
+    name with a default that is also in `necessary`, a name of `params` with neither, a
+    default name that is not in `params` or is repeated, defaults that are not in the order of
+    `params`, and a default that is not None, a `bool`, an `int`, a `float`, a `str` or a
+    tuple of these."""
+    with pytest.raises(ValueError):
+        AnalysisSpec(**_SPEC_ARGS, params=params, necessary=necessary, defaults=defaults)
+
+
+def test_analysis_spec_accepts_the_defaults_of_each_json_type_and_stays_hashable():
+    """`AnalysisSpec` accepts a default that is None, a `bool`, an `int`, a `float`, a `str`,
+    an empty tuple, and a tuple of these with a tuple in it; the necessary names may be in any
+    place of `params`; and the spec is hashable and frozen."""
+    values = (None, True, 3, 0.5, "s", (), (1, "a", (None, 2.5)))
+    params = ("n", *(f"p{k}" for k in range(len(values))))
+    spec = AnalysisSpec(
+        **_SPEC_ARGS,
+        params=params,
+        necessary=("n",),
+        defaults=tuple((f"p{k}", v) for k, v in enumerate(values)),
+    )
+
+    assert hash(spec) == hash(spec)
+    assert spec.necessary == ("n",)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        spec.params = ()  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("fractions", [(0.0, 0.5), (0.25, 0.5), (0.5, 1.0)])
+def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(fractions):
+    """`GRADIENT_PEAKS.compute(seq, window=w)` equals `gradient_peaks(seq, window=w)`, and it
+    is not the result of the whole sequence: the window reaches the function."""
+    seq = gre_sequence(num_trs=4)
+    end_s = sequence_index(seq).end_s
+    window = (fractions[0] * end_s, fractions[1] * end_s)
+
+    result = GRADIENT_PEAKS.compute(seq, window=window)
+
+    assert result == gradient_peaks(seq, window=window)
+    assert result != gradient_peaks(seq)
+
+
+def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
+    """`GRADIENT_PEAKS.compute(seq)` and `compute(seq, window=None)` are the object (`is`) that
+    `gradient_peaks(seq)` keeps, and a result with a window is not that object and not kept."""
+    seq = gre_sequence(num_trs=4)
+    end_s = sequence_index(seq).end_s
+    window = (0.0, end_s / 2)
+
+    whole = GRADIENT_PEAKS.compute(seq)
+
+    assert whole is gradient_peaks(seq)
+    assert GRADIENT_PEAKS.compute(seq, window=None) is whole
+    first = GRADIENT_PEAKS.compute(seq, window=window)
+    assert first is not whole
+    assert first == gradient_peaks(seq, window=window)
+    assert first is not GRADIENT_PEAKS.compute(seq, window=window)
+    assert GRADIENT_PEAKS.compute(seq) is whole
+
+
+def test_compute_of_gradient_spectrum_passes_its_arguments_on():
+    """`GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)` is the object (`is`) that
+    `gradient_spectrum(seq, max_frequency_hz=1000.0)` keeps, and it is not the object of the
+    defaults and has other frequencies. Each of the three arguments reaches the function: the
+    `to_series` meta gives them."""
+    seq = spin_echo_sequence()
+
+    default = GRADIENT_SPECTRUM.compute(seq)
+    spectrum = GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)
+
+    assert spectrum is gradient_spectrum(seq, max_frequency_hz=1000.0)
+    assert spectrum is not default
+    assert default is gradient_spectrum(seq)
+    assert not np.array_equal(spectrum.frequency_hz, default.frequency_hz)
+    assert spectrum.max_frequency_hz == 1000.0
+    both = GRADIENT_SPECTRUM.compute(seq, window_s=0.1, frequency_oversampling=2.0)
+    assert both is gradient_spectrum(seq, window_s=0.1, frequency_oversampling=2.0)
+    assert (both.window_s, both.frequency_oversampling) == (0.1, 2.0)
 
 
 def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
@@ -267,6 +401,7 @@ def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
         pns_levels(seq, hardware=hardware, bin_s=1e-3)
     )
     assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum(seq)
+    assert GRADIENT_SPECTRUM.compute(seq, window_s=0.1) is gradient_spectrum(seq, window_s=0.1)
 
 
 def test_compute_of_pns_safe_levels_with_a_hardware_from_asc_gives_the_kept_result(

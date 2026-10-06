@@ -3733,9 +3733,14 @@ analysis has the ID `t.a`, and checks the message of the error that `registry()`
 **Assumptions:** None.
 #### `test_the_spec_of_each_analysis_has_the_documented_values`
 
-**Checks:** The ID, the version 1, `params`, `rasters` and `cost` of each analysis are the
-values of section 8.3 of `docs/plans/implementation.md`. The title and the description are not
-empty. `series` is None for `seq.index`, `gradient.peaks` and `gradient.blocks`, and a text
+**Checks:** The ID, the version 1, `params`, `necessary`, `defaults`, `rasters` and `cost` of
+each analysis are the values of section 8.3 of `docs/plans/implementation.md` and of the
+parameters of the plan `docs/plans/second-review-fixes.md` (D13): `seq.index` and
+`gradient.blocks` have no parameter; `gradient.peaks` has `window` with the default None;
+`pns.safe.levels` has `hardware` as the only necessary name, and the defaults `()` and `BIN_S`
+for `thresholds_hz_per_t` and `bin_s`; `gradient.spectrum` has the three names
+`max_frequency_hz`, `window_s` and `frequency_oversampling`, all with the defaults of
+`grad_spectrum`. The title and the description are not empty. `series` is None for `seq.index`, `gradient.peaks` and `gradient.blocks`, and a text
 for `pns.safe.levels` and `gradient.spectrum`.
 
 **How:** Parametrized over the five analyses. The test compares each field with the table of
@@ -3744,20 +3749,81 @@ the plan, which the test file holds as a list.
 **Assumptions:** The test does not check the words of the title, the description or the text
 of `series`: they are for a reader.
 
-#### `test_params_name_the_keyword_only_parameters_of_compute`
+#### `test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute`
 
-**Checks:** The parameters of `compute` after `seq` are all keyword-only, their names are
-`spec.params` in order, and their defaults are those of the function that `compute` calls
-(for `pns.safe.levels`, whose parameters are `hardware`, `thresholds_hz_per_t` and `bin_s`:
-`hardware` has no default, `inspect.Parameter.empty`, `thresholds_hz_per_t` has the
-default `()` and `bin_s` has the default `BIN_S`). `seq.index`, `gradient.peaks`,
-`gradient.blocks` and `gradient.spectrum` have no parameter, so no default: there are no gamma
-defaults. A keyword that is not a parameter is a `TypeError`.
+**Checks:** For each analysis, the parameters of `compute` after `seq` are all keyword-only,
+and their names are `spec.params` in order. Each name of `spec.necessary` has no default in the
+signature. `spec.defaults` has each other name of `params`, in the order of `params`, and each
+default equals the default of the signature and has the same type (so `0.5` does not stand for
+`1`, and `False` does not stand for `0`). A keyword that is not a parameter is a `TypeError`.
 
 **How:** Parametrized over the five analyses. The test reads `inspect.signature(compute)`, and
 calls `compute` on `empty_sequence()` with `unknown=1`.
 
+**Assumptions:** The five analyses of the test are the ones that `registry()` gives (the test
+of the registry checks the identity of each).
+
+#### `test_analysis_spec_raises_for_params_that_disagree_with_necessary_and_defaults`
+
+**Checks:** `AnalysisSpec` raises `ValueError` for each of: a name of `necessary` that is not
+in `params`; a name that has a default and is in `necessary`; a name of `params` with neither;
+a default name that is not in `params`; a default name that is repeated; defaults that are not
+in the order of `params`; a default that is a dict, a list, a tuple with a list in it, or an
+object.
+
+**How:** Parametrized over ten specs, each with the fields that are valid except one. Each is
+built in `pytest.raises(ValueError)`.
+
+**Assumptions:** The test does not check the text of the message.
+
+#### `test_analysis_spec_accepts_the_defaults_of_each_json_type_and_stays_hashable`
+
+**Checks:** `AnalysisSpec` accepts the defaults None, `True`, `3`, `0.5`, `"s"`, `()` and
+`(1, "a", (None, 2.5))`, with a necessary name before them in `params`. The spec is hashable
+(`hash` works), and `spec.params = ()` raises `FrozenInstanceError`.
+
+**How:** The test builds one spec with these seven defaults and one necessary name.
+
 **Assumptions:** None.
+
+#### `test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window`
+
+**Checks:** `GRADIENT_PEAKS.compute(seq, window=w)` equals `gradient_peaks(seq, window=w)`,
+and is not equal to the result of the whole sequence, for the windows `(0, T/2)`,
+`(T/4, T/2)` and `(T/2, T)` of a sequence of length `T`.
+
+**How:** Parametrized over the three windows of `gre_sequence(num_trs=4)`, in fractions of
+`sequence_index(seq).end_s`. The test compares the results with `==` (the equality of
+`GradientPeaks`).
+
+**Assumptions:** The three windows have values (the RMS, at least) that differ from those of
+the whole sequence, so that a `compute` that does not pass the window on fails the test.
+
+#### `test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result`
+
+**Checks:** `GRADIENT_PEAKS.compute(seq)` and `compute(seq, window=None)` are the object
+(`is`) that `gradient_peaks(seq)` gives. A result with a window is not that object, equals
+`gradient_peaks(seq, window=window)`, and is not kept: a second call gives another object.
+The kept result of the whole sequence is still the same object after the calls with a window.
+
+**How:** `gre_sequence(num_trs=4)` and the window `(0, T/2)`.
+
+**Assumptions:** None.
+
+#### `test_compute_of_gradient_spectrum_passes_its_arguments_on`
+
+**Checks:** `GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)` is the object (`is`)
+that `gradient_spectrum(seq, max_frequency_hz=1000.0)` gives, and it is not the object of the
+defaults (which is `gradient_spectrum(seq)`). Its `frequency_hz` differs from that of the
+defaults, and its `max_frequency_hz` is 1000.0. A call with `window_s=0.1` and
+`frequency_oversampling=2.0` is the object of `gradient_spectrum` with those two arguments, and
+the result has both values.
+
+**How:** `spin_echo_sequence()`. The test compares the objects with `is` and the fields of the
+results.
+
+**Assumptions:** `is` is the check because the function keeps its result for each tuple of
+the three arguments.
 
 #### `test_compute_gives_the_value_of_its_function_with_the_same_arguments`
 
@@ -3765,11 +3831,11 @@ calls `compute` on `empty_sequence()` with `unknown=1`.
 the same arguments, with the defaults and with others. `pns.safe.levels` always gets a
 hardware: `hardware=EXAMPLE_HW` for the defaults of the other arguments, and a scaled
 hardware with `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, and with `bin_s=1e-3`, for the
-others. Each analysis gives the same object as its function: `seq.index` as
+others (and `gradient.spectrum` with `window_s=0.1`). Each analysis gives the same object as
+its function: `seq.index` as
 `sequence_index`, `gradient.peaks` as `gradient_peaks`, `gradient.blocks` as
 `block_gradient_values`, `pns.safe.levels` as `pns_levels` and `gradient.spectrum` as
 `gradient_spectrum`. Each of these functions keeps its result for the sequence object.
-`gradient.spectrum` and the gradient analyses have no other arguments after `seq`.
 
 **How:** The test builds `gre_sequence(num_trs=4)` and asserts `is` between `compute` and the
 function for each analysis.
