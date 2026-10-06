@@ -55,10 +55,11 @@ These rules apply to all the modules:
   by |γ| to get the unit with tesla ([section 8](#8-units-and-gamma)).
 - **Kept results.** `sequence_index`, `pns.pns_levels_for` and
   `grad_spectrum.gradient_spectrum_for` keep their result for the sequence
-  object (`pns_levels_for` for each hardware and each tuple of thresholds of
-  that object, `gradient_spectrum_for` for each set of its arguments). They
-  build it again after `add_block`, after a new read of a file into the object
-  (`seq.read`), and after a change of `seq.grad_raster_time`.
+  object (`pns_levels_for` for each hardware, each tuple of thresholds and
+  each `bin_s` of that object, `gradient_spectrum_for` for each set of its
+  arguments). They build it again after `add_block`, after a new read of a
+  file into the object (`seq.read`), and after a change of
+  `seq.grad_raster_time`.
   A block replaced in place is not seen: make a new sequence object for it.
   The other functions keep nothing.
 - **Equality.** `SequenceIndex`, `BlockGradientValues`, `PnsLevels`,

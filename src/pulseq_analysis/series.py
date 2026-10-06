@@ -1,5 +1,4 @@
-"""`Series`: the JSON-ready form of an analysis value (section 4.2 of the design in
-pulseq-checks, `docs/plans/pulseq-analysis.md`).
+"""`Series`: the JSON-ready form of an analysis value.
 
 A series is a named set of one-dimensional numpy arrays with a kind that says what the
 arrays mean. The coordinate of a series is the quantity of its horizontal axis, for example
@@ -16,7 +15,7 @@ the time (unit "s") or the frequency (unit "Hz"). `coord_unit` is the unit of th
 `Series.from_obj` reads it back. Each array is one dict `{"dtype", "length", "data"}`
 (`encode_array`, `decode_array`), where `data` is the little-endian bytes of the array,
 gzipped and base64-encoded. This is the same text as `encode_tables` of pulseq-reports
-(`pulseq_reports.diagram_data`, commit `a322517`), so a report can put the text into its
+(`pulseq_reports.diagram_data`), so a report can put the text into its
 page with no new encoding. The encoding is deterministic: one array always gives the same
 text.
 
@@ -83,7 +82,10 @@ def _check_array(name: str, a: Any) -> None:
 
 def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
     """A new dict with the values of `meta`, in the same order, as plain `str`, `int`,
-    `float`, `bool` or None. It raises by the rules of `Finding.data` (pulseq-checks)."""
+    `float`, `bool` or None. A key must be a `str`. A value must be a `str`, an `int`, a
+    `float`, a `bool` or None, and a `str` value cannot be "inf", "-inf" or "nan", because
+    the JSON form uses these strings for a float that is not finite. Another key or value
+    raises `TypeError` or `ValueError`."""
     if not isinstance(meta, Mapping):
         raise TypeError(f"the meta of a series must be a mapping, not {meta!r}")
     out: dict[str, str | int | float | bool | None] = {}
@@ -114,14 +116,13 @@ def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
 
 @dataclass(frozen=True, eq=False)
 class Series:
-    """One named series of an analysis value (section 4.2 of the design in pulseq-checks,
-    `docs/plans/pulseq-analysis.md`).
+    """One named series of an analysis value.
 
     The coordinate of a series is the quantity of its horizontal axis, for example the time
     (unit "s") or the frequency (unit "Hz").
 
-    `name` is a short, stable name, as `Finding.code` is: for example "pns_total". `unit` is
-    the unit of the values, for example "Hz/T", "Hz/m" or "s". `coord_unit` is the
+    `name` is a short, stable name that a caller can match on: for example "pns_total".
+    `unit` is the unit of the values, for example "Hz/T", "Hz/m" or "s". `coord_unit` is the
     unit of the coordinate, and it is not empty. `arrays` maps a name to a one-dimensional
     numpy array of a bool, integer, float or complex dtype. All arrays of one series have the
     same length. The kind says which arrays are necessary:
@@ -141,8 +142,7 @@ class Series:
 
     `meta` holds the values of the series by name, for a machine: only JSON
     scalars. A string value of `meta` cannot be "inf", "-inf" or "nan", because the JSON form
-    writes a float that is not finite as one of these strings (as for `Finding.data` in
-    pulseq-checks).
+    writes a float that is not finite as one of these strings.
 
     A series raises `TypeError` for a value of a wrong type and `ValueError` for a wrong
     value. It keeps a new dict for `arrays` and one for `meta`, so a change to the caller's
