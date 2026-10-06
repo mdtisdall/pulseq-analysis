@@ -1,11 +1,12 @@
 """Value equality for the frozen dataclasses of results that hold numpy arrays
-(`pns_levels.PnsLevels` and `grad_spectrum.GradientSpectrum`).
+(`seq_index.SequenceIndex`, `grad_peaks.BlockGradientValues`, `pns_levels.PnsLevels` and
+`grad_spectrum.GradientSpectrum`).
 
 The `__eq__` that `dataclasses` makes compares the fields as one tuple, and a numpy array
 with more than one element raises `ValueError` in that comparison. `fields_equal` compares
 each field with `values_equal` instead, and finds the fields with `dataclasses.fields`, so
 that a new or a renamed field needs no change here. A class that uses it sets
-`eq=False`, `__eq__ = fields_equal` and `__hash__ = None`, as `series.Series` does.
+`eq=False`, `__eq__ = fields_equal` and `__hash__ = None`, as `seq_index.SequenceIndex` does.
 
 The rules of `values_equal`:
 
