@@ -37,6 +37,7 @@ from pulseq_analysis.pns_levels import (
     PnsLevels,
     _cast_outward,
     _chunk_total,
+    _IntervalFinder,
     bin_samples_for,
     pns_levels,
 )
@@ -164,6 +165,44 @@ def test_cast_outward_bounds_every_input_value():
     assert up.dtype == np.float32
     assert np.all(down.astype(np.float64) <= values)
     assert np.all(up.astype(np.float64) >= values)
+
+
+def test_cast_outward_keeps_zero_at_zero():
+    """`_cast_outward` of float64 values that the float32 cast holds exactly (zeros) gives
+    the same zeros, for the downward and for the upward cast: a bin of zeros has no level
+    below or above 0."""
+    values = np.zeros(4)
+    for down in (True, False):
+        cast = _cast_outward(values, down=down)
+        assert cast.dtype == np.float32
+        assert np.array_equal(cast, np.zeros(4, dtype=np.float32)), down
+
+
+def test_interval_finder_tie_across_a_chunk_boundary_keeps_the_earlier_peak_sample():
+    """One run over a chunk boundary, with the same largest total on each side (1.0 at
+    sample 1, the end of the first chunk, and at sample 2, the start of the second), is one
+    interval of samples 1 and 2 whose peak is the first of the two samples: the peak time is
+    `(1 + 0.5) * dt`, not `(2 + 0.5) * dt`."""
+    finder = _IntervalFinder(1.0, 0.5)
+    finder.add_chunk(0, np.array([0.0, 1.0]))
+    finder.add_chunk(2, np.array([1.0, 0.0]))
+    (interval,) = finder.finish()
+    assert (interval.start_s, interval.end_s) == (1.5, 2.5)
+    assert interval.num_samples == 2
+    assert interval.peak_time_s == 1.5
+
+
+def test_interval_finder_gap_at_the_start_of_a_chunk_does_not_join_the_open_run():
+    """A run that ends at the end of a chunk, and a run in the next chunk that starts after
+    one sample below the threshold (not at the first sample), are two intervals."""
+    finder = _IntervalFinder(1.0, 0.5)
+    finder.add_chunk(0, np.array([0.0, 1.0]))
+    finder.add_chunk(2, np.array([0.0, 1.0]))
+    intervals = finder.finish()
+    assert [(i.start_s, i.end_s, i.num_samples) for i in intervals] == [
+        (1.5, 1.5, 1),
+        (3.5, 3.5, 1),
+    ]
 
 
 def test_bin_samples_for_matches_the_formula():

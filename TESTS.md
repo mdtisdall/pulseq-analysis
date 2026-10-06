@@ -421,6 +421,41 @@ down=False).astype(float64) >= values` elementwise, and that both results are
 in float32 for every one of them (which would make the nudging branch untested);
 not arranged, only overwhelmingly likely for uniform random values.
 
+#### `test_cast_outward_keeps_zero_at_zero`
+
+**Checks:** `_cast_outward` of a float64 array that the float32 cast holds exactly (zeros)
+gives the same zeros, for the downward and the upward cast. A bin of zeros gets no level
+below or above 0.
+
+**How:** `numpy.zeros(4)`. For `down=True` and `down=False`, the result is `float32` and
+`numpy.array_equal` to four float32 zeros.
+
+**Assumptions:** The float32 cast of 0.0 is exact, so the nudge by `numpy.nextafter` does
+not apply to it.
+
+#### `test_interval_finder_tie_across_a_chunk_boundary_keeps_the_earlier_peak_sample`
+
+**Checks:** One run that crosses a chunk boundary, with the same largest total on both
+sides, is one interval whose peak sample is the earlier one (the tie rule of the join of
+two chunks).
+
+**How:** `_IntervalFinder(1.0, 0.5)`, `add_chunk(0, [0, 1])`, `add_chunk(2, [1, 0])`.
+`finish()` gives one interval with `start_s == 1.5`, `end_s == 2.5`, `num_samples == 2` and
+`peak_time_s == 1.5`.
+
+**Assumptions:** The time of sample `s` is `(s + 0.5) * dt`.
+
+#### `test_interval_finder_gap_at_the_start_of_a_chunk_does_not_join_the_open_run`
+
+**Checks:** A run that is open at the end of a chunk is not joined to a run of the next
+chunk that does not start at its first sample.
+
+**How:** `_IntervalFinder(1.0, 0.5)`, `add_chunk(0, [0, 1])`, `add_chunk(2, [0, 1])`.
+`finish()` gives two intervals, with `(start_s, end_s, num_samples)` of `(1.5, 1.5, 1)` and
+`(3.5, 3.5, 1)`.
+
+**Assumptions:** None.
+
 #### `test_bin_samples_for_matches_the_formula`
 
 **Checks:** `bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
@@ -1680,6 +1715,21 @@ must be `[0.0]`, with `numpy.testing.assert_array_equal`.
 **Assumptions:** The ramp's last point is at exactly `raster` (the event stores the
 times that it is given).
 
+#### `test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point`
+
+**Checks:** A sample at exactly the time of the last point of an event, many steps into
+the block, has the value of that point (not 0). The sample after it is 0, and each earlier
+sample is below that value.
+
+**How:** `dt` is two raster steps. A ramp from 0 to 1000.0 Hz/m over 27 raster steps
+(`pp.make_extended_trapezoid`) in a block of 30 raster steps (a delay event). The test
+asserts `(13 + 0.5) * dt == 27 * raster` in floats. `block_samples("gx", 0, 1, dt)` has 15
+samples. Sample 13 equals 1000.0, sample 14 equals 0.0, and samples 0 to 12 are below
+1000.0.
+
+**Assumptions:** The float product `(13 + 0.5) * dt` equals `27 * raster`. This is why the
+test uses 27 steps, and the test asserts it.
+
 #### `test_block_samples_bad_skip_or_count_raises_value_error`
 
 **Checks:** `block_samples` raises `ValueError`, with a message that names `skip`,
@@ -1978,6 +2028,21 @@ largest segment slope, and that `slew_time_s` is the window start (100 µs).
 computed by hand, and that `slew_time_s` is 900 µs.
 
 **Assumptions:** None.
+
+#### `test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit`
+
+**Checks:** A junction step that equals the steepest segment slope of the next block gives
+the slew credit to the junction: `slew_time_s` is the start of that block, and
+`slew_block` is that block.
+
+**How:** Block 1 ramps x from 0 to A in 2 raster steps and holds A for 1. Block 2 is an
+extended trapezoid with the amplitudes `[0, 0, A, A, 0]` at `[0, 1, 2, 6, 8]` raster steps,
+so its steepest segment (0 to A in one step) has the slope of the junction step (A to 0).
+The test checks the slew (`A / raster`), `slew_time_s` (3 raster steps, the start of block
+2) and `slew_block` (the second block ID).
+
+**Assumptions:** A is `0.5 * max_slew * grad_raster_time`, so `add_block` accepts the
+step. The two slews are equal in floats for these values.
 
 #### `test_vector_peak_of_g_compares_different_triples_across_blocks`
 
@@ -3821,6 +3886,20 @@ at 600 Hz. With `frequency_oversampling=1`, the step is `1 / 0.05` Hz. With
 - The sine has a whole number of cycles in a 0.1 s window, so its peak stays on
   a frequency bin.
 
+#### `test_gradient_spectrum_keeps_the_bin_at_the_maximum_frequency_on_a_4_us_raster`
+
+**Checks:** At a 4 us gradient raster and `window_s=0.01`, the bin at 2000 Hz is the last
+frequency of the result: the tolerance of `keep_n` keeps a bin that float rounding puts
+just above `max_frequency_hz`.
+
+**How:** A sequence on a 4 us raster (gradient, RF and block duration rasters) with one
+trapezoid. `gradient_spectrum(seq, window_s=0.01)`, and `frequency_hz[-1]` is 2000.0
+(`approx`, `abs=1e-9`).
+
+**Assumptions:** 2500 samples and an `nfft` of 7500 put a bin at 2000 Hz, and the float
+rounding of `rfftfreq` puts that bin just above 2000 Hz, so the test fails without the
+tolerance.
+
 #### `test_gradient_spectrum_refuses_bad_arguments`
 
 **Checks:** `gradient_spectrum` and `gradient_spectrum_for` refuse each bad
@@ -3836,14 +3915,16 @@ below 0 and of one sample, for a `frequency_oversampling` of 0.5, and for a
 below the frequency step. One case has a `max_frequency_hz` of 10 Hz with
 `frequency_oversampling=1`: it is above the step of the defaults and below the
 step of 20 Hz of the arguments. The case of one sample also gives
-`match="samples at the gradient raster"`, the text of the check `nwin < 2`. The
-other cases give no `match`.
+`match="samples at the gradient raster"`, the text of the check `nwin < 2`. Each
+other case also has a `match=`, a part of the message of its own check (for example
+"window_s must be above 0" or "below the frequency step"), so that a case cannot
+pass on an error from another check.
 
 **Assumptions:**
 
 - The synthetic sequence has the default gradient raster of 10 µs, so the
   Nyquist frequency is 50 kHz and the step of the defaults is 6.67 Hz.
-- The test checks the message text only for the case of one sample. Without it,
+- The `match=` of each case matters most for the case of one sample: without it,
   the check of the frequency step (also a `ValueError`) hides a missing check
   `nwin < 2`.
 
@@ -4045,6 +4126,64 @@ then the new ID.
 
 - `seq.block_events` and `seq.block_durations` are dicts that keep their order, as in the
   pinned pypulseq fork.
+
+#### `test_a_new_block_durations_object_with_the_same_keys_gives_a_new_index`
+
+**Checks:** `sequence_index` makes the index again when `seq.block_durations` is a new
+object and nothing else of the stamp changes.
+
+**How:** For the synthetic spin echo, two calls give one object. The test then sets
+`seq.block_durations` to a new dict with the same block IDs and each duration doubled.
+`seq.block_events` and `seq.grad_library` are the same objects, and the number of blocks,
+the last block ID and the raster time are the same. The next call gives a new object,
+with an `end_s` of 2 times the old `end_s` and a `duration_s` equal (`array_equal`) to 2
+times the old `duration_s`.
+
+**Assumptions:** Doubling a float duration is exact, so the doubled values compare with
+`==`.
+
+#### `test_a_new_block_events_object_with_the_same_keys_gives_a_new_index`
+
+**Checks:** `sequence_index` makes the index again when `seq.block_events` is a new object
+and nothing else of the stamp changes.
+
+**How:** For the synthetic spin echo, two calls give one object. The test then sets
+`seq.block_events` to a new dict with the same block IDs and copies of the event arrays, in
+which blocks 2 and 3 have swapped events (block 2 had the x prephaser, block 3 the y
+crusher). `seq.block_durations` and `seq.grad_library` are the same objects, and the number
+of blocks, the last block ID and the raster time are the same. The next call gives a new
+object with the same number of blocks. Its `gx` column is `[0, 0, 2]` and its `gy` column
+`[0, 1, 0]` for the first three blocks (the old index has `[0, 1, 0]` and `[0, 0, 2]`).
+
+**Assumptions:** The columns of the index number the events from 1 in the order of their
+first use, so the swap gives these numbers.
+
+#### `test_a_new_grad_library_object_with_other_amplitudes_gives_new_levels`
+
+**Checks:** `pns_levels_for` makes its result again when `seq.grad_library` is a new
+object and nothing else of the stamp changes.
+
+**How:** For the synthetic spin echo, two calls with pypulseq's example hardware give one
+object. The test then sets `seq.grad_library` to a deep copy in which each amplitude is
+doubled. `seq.block_events` and `seq.block_durations` are the same objects, and the number
+of blocks, the last block ID and the raster time are the same. The next call gives a new
+object, whose `peak_hz_per_t` is 2 times the old one (`approx`).
+
+**Assumptions:** `EventLibrary.data` maps an ID to a tuple whose first item is the
+amplitude, and `get_block` reads it.
+
+#### `test_a_removed_block_with_the_same_last_block_id_gives_a_new_index`
+
+**Checks:** `sequence_index` makes the index again when the number of blocks changes and
+the last block ID and the three objects do not.
+
+**How:** For the synthetic spin echo, two calls give one object. The test then deletes
+block 3 from `seq.block_events` and from `seq.block_durations`, in place. The last block
+ID is 6 as before. The next call gives a new object with one block less and the block IDs
+1, 2, 4, 5 and 6.
+
+**Assumptions:** Block 3 is not the last block, and the dicts keep their order, as in the
+pinned pypulseq fork.
 
 #### `test_a_change_of_the_gradient_raster_time_gives_a_new_index_and_new_levels`
 
