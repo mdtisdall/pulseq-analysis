@@ -1448,3 +1448,109 @@ def test_distinct_triples_keep_apart_two_triples_that_one_int64_key_gives_one_nu
     assert inverse[0] != inverse[1]
     assert inverse[0] == inverse[2]
     _assert_same_triple_groups(gx, gy, gz, num_events)
+
+
+def _zero_duration_blocks_sequence() -> pp.Sequence:
+    """Trapezoids on x and y with blocks of zero duration (labels) before, between and after
+    them, so a window edge can fall on the time of a block of zero duration."""
+    seq = pp.Sequence(SYSTEM)
+    label = pp.make_label(label="LIN", type="SET", value=1)
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
+    seq.add_block(label)
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="y", area=500, system=SYSTEM))
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="x", area=700, system=SYSTEM))
+    seq.add_block(label)
+    return signed(seq)
+
+
+def _random_windows(seq: pp.Sequence, rng: np.random.Generator, count: int) -> list:
+    """`count` windows of `seq`: half have each end on a start or an end of a block (so a window
+    edge and a block edge are equal, also for a block of zero duration), half have random ends."""
+    index = sequence_index(seq)
+    edges = np.unique(
+        np.concatenate(([0.0, index.end_s], index.start_s, index.start_s + index.duration_s))
+    )
+    windows = []
+    for i in range(count):
+        pool = edges if i % 2 == 0 else rng.uniform(0.0, index.end_s, size=edges.size)
+        start, end = np.sort(rng.choice(pool, size=2))
+        if start < end:
+            windows.append((float(start), float(end)))
+    return windows
+
+
+@pytest.mark.parametrize(
+    "make_seq",
+    [
+        lambda: build_repeating(30),
+        _zero_duration_blocks_sequence,
+        _junction_sequence,
+        lambda: _random_gradient_sequence(np.random.default_rng(3)),
+        lambda: _random_gradient_sequence(np.random.default_rng(4)),
+    ],
+    ids=["build_repeating_30", "zero_duration_blocks", "junction", "random_3", "random_4"],
+)
+def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq):
+    """For 100 random windows, `gradient_peaks` of a sequence that has its kept data (from the
+    windows before) gives a result equal (`==`) to the result when the kept data of the
+    sequence is empty and is built by this call."""
+    seq = make_seq()
+    for window in _random_windows(seq, np.random.default_rng(20261006), 100):
+        grad_peaks._CACHE.pop(seq, None)
+        fresh = gradient_peaks(seq, window=window)
+        assert gradient_peaks(seq, window=window) == fresh, window
+
+
+@pytest.mark.parametrize(
+    ("first_play", "last_play", "cut"),
+    [
+        pytest.param(2503, 2507, True, id="edges_in_blocks"),
+        pytest.param(2500, 2510, False, id="edges_on_block_edges"),
+    ],
+)
+def test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_cut(
+    monkeypatch, first_play, last_play, cut
+):
+    """In `build_repeating(1000)` (5000 blocks), with the kept data built by a first call, a
+    window over several TRs reads with `get_block` only the blocks that one of its edges cuts:
+    two blocks for an edge in the middle of a block, none for an edge on a block edge. It also
+    calculates no junction step, junction time or whole-file RMS again."""
+    seq = build_repeating(1000)
+    index = sequence_index(seq)
+    gradient_peaks(seq, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
+    start, end = float(index.start_s[first_play]), float(index.start_s[last_play])
+    if cut:
+        start += float(index.duration_s[first_play]) / 3
+        end += float(index.duration_s[last_play]) / 2
+    block_end = index.start_s + index.duration_s
+    expected = {
+        int(index.block_id[play])
+        for edge in (start, end)
+        for play in np.flatnonzero((index.start_s < edge) & (edge < block_end))
+    }
+    assert len(expected) == (2 if cut else 0)
+
+    read = []
+    get_block = pp.Sequence.get_block
+
+    def record(self, block_index):
+        read.append(int(block_index))
+        return get_block(self, block_index)
+
+    monkeypatch.setattr(pp.Sequence, "get_block", record)
+    # The values over all the blocks are kept, so a window does not calculate them again.
+
+    def fail(*args, **kwargs):
+        raise AssertionError("a value over all the blocks was calculated again")
+
+    for name in ("_junction_steps", "_junction_times", "_whole_file_rms"):
+        monkeypatch.setattr(grad_peaks, name, fail)
+
+    result = gradient_peaks(seq, window=(start, end))
+
+    assert result.reason is None
+    assert set(read) == expected
+    assert len(read) == len(expected)

@@ -199,8 +199,10 @@ by the rule "Kept results" at the top of this document: a second call gives the
 same object, and `add_block`, a new read of a file into the object and a change
 of `seq.grad_raster_time` give a new one. A result with a window is a new
 object for each call and is not kept, because a caller can ask for many
-windows. A call with a window uses the per-event values that the object keeps,
-so it does not read the unique gradient events again.
+windows. A call with a window uses the per-event values and the values over the
+blocks (the junction steps and the RMS of the whole file) that the object keeps,
+so it does not read the unique gradient events again, and its cost is the
+number of blocks in the window, not the number of blocks of the file.
 
 `GradientPeaks`, a frozen dataclass:
 

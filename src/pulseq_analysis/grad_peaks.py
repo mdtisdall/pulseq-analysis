@@ -40,9 +40,9 @@ caller that needs each place where a value is above a limit. `gradient_peaks` do
 
 Both public functions keep their results for the sequence object (`_kept.kept_results`):
 `gradient_peaks` for `window=None`, and `block_gradient_values`. The per-event values
-(`_EventData`) are kept too, so a call of `gradient_peaks` with a window uses them. A result
-with a window is not kept, because a caller can ask for many windows. The kept results are
-built again after `add_block`, after a new read of a file into the object, and after a change
+(`_EventData`) are kept too, with the values over the blocks that a window needs (`_BlockData`),
+so a call of `gradient_peaks` with a window uses them. A result with a window is not kept,
+because a caller can ask for many windows. The kept results are built again after `add_block`, after a new read of a file into the object, and after a change
 of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
 (`seq_index.sequence_index`). Each kept result is read-only, because all callers share it.
 """
@@ -316,8 +316,8 @@ def _event_values(points: EventPoints) -> _EventData:
 
 
 # For each sequence object: the kept results (`_kept.kept_results`), under the keys "events" (the
-# `_EventData`), "peaks" (the `GradientPeaks` of `window=None`) and "block_values" (the
-# `BlockGradientValues`).
+# `_EventData`), "block_data" (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`)
+# and "block_values" (the `BlockGradientValues`).
 _CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
@@ -410,6 +410,41 @@ def _whole_file_rms(
     return result
 
 
+@dataclass
+class _BlockData:
+    """The values over all the blocks that `_range_result` and `gradient_peaks` take from for each
+    window, built one time for each sequence object (`_kept_block_data`), so that a window does
+    not calculate them again. The arrays are read-only and the dicts are `FrozenDict`s, because
+    all callers share them."""
+
+    end_s: np.ndarray  # N: the end of each block, `start_s + duration_s`
+    junction_steps: dict[str, np.ndarray]  # for each axis, `_junction_steps` over all the blocks
+    junction_times: dict[str, np.ndarray]  # for each axis, `_junction_times` over all the blocks
+    whole_rms: dict[str, float]  # for each axis, `_whole_file_rms`
+
+
+def _kept_block_data(
+    seq: pp.Sequence, kept: dict, index: SequenceIndex, ev: _EventData
+) -> _BlockData:
+    """The `_BlockData` of `seq`, built one time for the kept results `kept` of `seq`. `index` and
+    `ev` are the index and the `_EventData` of `seq`."""
+    if "block_data" not in kept:
+        grad_raster = seq.grad_raster_time
+        axis_cols = {"x": index.gx, "y": index.gy, "z": index.gz}
+        end_s = index.start_s + index.duration_s
+        steps = {axis: _junction_steps(col, ev, grad_raster) for axis, col in axis_cols.items()}
+        times = {axis: _junction_times(col, ev, index.start_s) for axis, col in axis_cols.items()}
+        for array in (end_s, *steps.values(), *times.values()):
+            array.flags.writeable = False
+        kept["block_data"] = _BlockData(
+            end_s,
+            FrozenDict(steps),
+            FrozenDict(times),
+            FrozenDict(_whole_file_rms(index, ev, index.end_s)),
+        )
+    return kept["block_data"]
+
+
 def _credit_goes_to(value: float, play: int, best: float, best_play: int | None) -> bool:
     """Whether a candidate `value` at play index `play` takes the credit from the current
     `best` at `best_play`: it is larger, or equal (and not 0) at a smaller play index. This
@@ -471,22 +506,31 @@ def _range_result(
     seq: pp.Sequence,
     index: SequenceIndex,
     ev: _EventData,
+    blocks: _BlockData,
     lo: float,
     hi: float,
-    grad_raster: float,
 ) -> tuple[dict[str, AxisResult], float, float, int | None, bool]:
     """`axes`, `vector_peak_hz_per_m`, `vector_peak_time_s`, `vector_peak_block` and whether any
     axis has an event, for the range `[lo, hi]`.
+
+    The blocks of the range are the play indexes `[a, b)` that `np.searchsorted` finds in the
+    start and the end of the blocks (both are non-decreasing, because a block starts where the
+    one before it ends): `a` is the first block whose end is after `lo`, and `b` is the first
+    block whose start is not before `hi`. A block of zero duration at `lo` or at `hi`, or
+    outside the range, is not in `[a, b)`. Every mask, the selection of the junction steps and
+    the slices are of `[a, b)` only, and index the arrays of `blocks` (`_BlockData`, kept for the
+    sequence), so the cost of a range is the number of blocks in it, not the number of blocks of
+    the file.
 
     Blocks fully inside the range use the per-event values (`_axis_slice_stats`,
     `_triple_vector_peak`), over the contiguous play-index range that
     `seq_index.SequenceIndex.start_s` gives (blocks are in time order, so the "fully inside"
     blocks are one contiguous run). The few blocks that a range edge cuts (at most two: a
-    block of zero duration at a range edge is skipped) are read with `get_block` and clipped
-    exactly as the oracle (`tests/oracles/grad_peaks.py`) clips every block. Passing
+    block of zero duration at a range edge is not in `[a, b)`) are read with `get_block` and
+    clipped exactly as the oracle (`tests/oracles/grad_peaks.py`) clips every block. Passing
     `lo=0.0, hi=index.end_s` (`window=None`) makes every block of non-zero duration fully
-    inside (a block of zero duration at 0 or at the end is skipped, and it has no gradient), so
-    this same code computes the whole-file result too.
+    inside (a block of zero duration at 0 or at the end is not in `[a, b)`, and it has no
+    gradient), so this same code computes the whole-file result too.
 
     The slice is computed before the edge blocks, and its triples are not in play order, so
     each candidate for a credit (an edge block, a triple of the slice) is compared with
@@ -514,12 +558,14 @@ def _range_result(
         axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in AXES}
         return axes, 0.0, 0.0, None, False
 
-    end_s = start_s + index.duration_s
-    skip = (end_s <= lo) | (start_s >= hi)
-    processed = ~skip
-    fully_inside = processed & (start_s >= lo) & (end_s <= hi)
+    end_s = blocks.end_s
+    a = int(np.searchsorted(end_s, lo, side="right"))
+    b = int(np.searchsorted(start_s, hi, side="left"))
+    # The blocks of the range, `[a, b)`; the masks are of these blocks only, so `fully_inside[j]`
+    # is of the play index `a + j`. `b < a` is an empty range, which `a:b` slices as empty.
+    fully_inside = (start_s[a:b] >= lo) & (end_s[a:b] <= hi)
     inside_idx = np.flatnonzero(fully_inside)
-    i0, i1 = (int(inside_idx[0]), int(inside_idx[-1]) + 1) if inside_idx.size else (0, 0)
+    i0, i1 = (a + int(inside_idx[0]), a + int(inside_idx[-1]) + 1) if inside_idx.size else (0, 0)
 
     if i1 > i0:
         for axis in AXES:
@@ -529,7 +575,7 @@ def _range_result(
                 state[axis]["has_event"] = True
 
     # The blocks a range edge cuts: read individually and clipped, as the oracle does.
-    edge_positions = np.flatnonzero(processed & ~fully_inside)
+    edge_positions = a + np.flatnonzero(~fully_inside)
     axis_points_by_play: dict[int, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
     if edge_positions.size:
         with block_cache_off(seq):
@@ -597,7 +643,7 @@ def _range_result(
             vector_peak_hz, vector_peak_time, vector_peak_play = block_peak, block_time, play
 
     # The junction steps (see the module docstring): for each axis, the step at the
-    # incoming junction of each processed block whose junction time is in `[lo, hi)`
+    # incoming junction of each block of the range whose junction time is in `[lo, hi)`
     # (0 before the very first block of the file, or where either side has no event on
     # the axis). The time is the block start plus the delay of the block's event on the
     # axis. The junction of a block that the range start cuts, before the first point of
@@ -606,13 +652,14 @@ def _range_result(
     axes: dict[str, AxisResult] = {}
     has_event_any = False
     for axis in AXES:
-        steps = _junction_steps(axis_cols[axis], ev, grad_raster)
-        times = _junction_times(axis_cols[axis], ev, start_s)
-        junction_in_range = processed & (times >= lo) & (times < hi)
+        steps = blocks.junction_steps[axis]
+        times = blocks.junction_times[axis]
+        range_times = times[a:b]
+        junction_in_range = (range_times >= lo) & (range_times < hi)
 
         junction_max, junction_play = 0.0, None
         if np.any(junction_in_range):
-            masked = np.where(junction_in_range, steps, -np.inf)
+            masked = np.where(junction_in_range, steps[a:b], -np.inf)
             j = int(np.argmax(masked))
             candidate = float(masked[j])
             # Only a strictly positive step is a real junction, matching the segment
@@ -620,7 +667,7 @@ def _range_result(
             # exactly 0.0 everywhere (for example an axis with no event at all) must
             # stay uncredited (slew_block None).
             if candidate > junction_max:
-                junction_max, junction_play = candidate, j
+                junction_max, junction_play = candidate, a + j
 
         st = state[axis]
         seg_max, seg_play = st["slew"], st["slew_play"]
@@ -685,9 +732,10 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
 
     The result for `window=None` is kept for the sequence object, so that callers of one
     sequence calculate it one time. A result with a window is not kept, because a caller can
-    ask for many windows, but it uses the kept per-event values. The kept results are built
-    again after `add_block`, after a new read of a file into the object, and after a change of
-    `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
+    ask for many windows, but it uses the kept per-event values and the kept values over the
+    blocks (`_BlockData`), so its cost is the number of blocks in the window. The kept results
+    are built again after `add_block`, after a new read of a file into the object, and after a
+    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
     (`seq_index.sequence_index`). The kept result is read-only: `axes` and
     `whole_rms_hz_per_m` are `FrozenDict`s and the result is a frozen dataclass.
 
@@ -700,9 +748,11 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     `window=None` when there is one, and checks the window against the length of the
     sequence. Only then does it take the per-event values (`_event_values` of
     `_events.event_points`, which uses the points of the unique gradient events and calls no
-    `get_block`, built one time for each sequence), and combine them with numpy over the blocks
-    of the range. It also reads the few blocks that a range edge cuts with `get_block`, so its
-    cost does not grow with the number of blocks the way that reading every block would.
+    `get_block`, built one time for each sequence) and the values over the blocks (the end of
+    each block, the junction steps and times, and the RMS of the whole file, built one time for
+    each sequence), and combine them with numpy over the blocks of the range. It also reads the
+    few blocks that a range edge cuts with `get_block`, so its cost does not grow with the
+    number of blocks of the file the way that reading every block would.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
@@ -739,14 +789,12 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         )
 
     ev = _kept_event_values(seq, kept)
-    grad_raster = seq.grad_raster_time
-    whole_rms_hz_per_m = (
-        None if window is None else FrozenDict(_whole_file_rms(index, ev, total_duration))
-    )
+    blocks = _kept_block_data(seq, kept, index, ev)
+    whole_rms_hz_per_m = None if window is None else blocks.whole_rms
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
-        seq, index, ev, lo, hi, grad_raster
+        seq, index, ev, blocks, lo, hi
     )
 
     if has_event:
