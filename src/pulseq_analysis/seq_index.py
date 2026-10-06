@@ -8,6 +8,10 @@ comes before gy and gz. The measurements use these numbers to compute a value on
 for each unique event, not one time for each block, and then give it to each block that
 plays the event.
 
+`sequence_index` refuses a sequence with no `[SIGNATURE]` hash
+(`extensions.refuse_unsigned`). Each measurement reads the index before it reads a block,
+so each one refuses an unsigned sequence through it.
+
 `rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
 first block that uses it. Only they call `get_block`, with the block cache off
 (`block_cache_off`): pypulseq keeps every block that `get_block` reads in
@@ -25,6 +29,7 @@ import pypulseq as pp
 
 from ._equality import fields_equal
 from ._kept import _Entry, kept_results
+from .extensions import refuse_unsigned
 from .seq_utils import GRAD_COLUMNS
 
 # The columns of a row of `seq.block_events`.
@@ -84,6 +89,10 @@ _CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictio
 def sequence_index(seq: pp.Sequence) -> SequenceIndex:
     """The `SequenceIndex` of `seq`.
 
+    Raises `ValueError` for a sequence with no `[SIGNATURE]` hash
+    (`extensions.refuse_unsigned`, before the kept results are read). The hash is
+    not part of the rule for a new build (`_kept`): the hash can be stale.
+
     The result is kept for the sequence object, so that several measurements of one
     sequence build it one time. It is built again after `add_block`, after a new read of
     a file into the object, and after a change of `seq.grad_raster_time` (the rule of
@@ -91,6 +100,7 @@ def sequence_index(seq: pp.Sequence) -> SequenceIndex:
     replace `seq.block_events`, `seq.block_durations` or `seq.grad_library` (a block
     replaced in place) is not seen: build a new sequence object for it.
     """
+    refuse_unsigned(seq)
     kept = kept_results(_CACHE, seq)
     if "index" not in kept:
         kept["index"] = _build_index(seq)

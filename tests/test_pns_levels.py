@@ -19,6 +19,7 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
+    signed,
     spin_echo_sequence,
     waveform_sequence,
     with_rotation_library,
@@ -59,7 +60,7 @@ def _off_raster_sequence() -> pp.Sequence:
     delay block whose duration (1.5 gradient-raster steps) pypulseq's `add_block`
     accepts but which is not a whole number of raster steps."""
     dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
     return seq
@@ -360,7 +361,7 @@ def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatc
     and one chunk bigger than the file: every field, and the intervals of a threshold below
     the peak. Each chunk reads only its part of the block."""
     dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_trapezoid(channel="x", area=1000.0, delay=2000 * dt, system=SYSTEM),
         pp.make_trapezoid(channel="z", area=500.0, system=SYSTEM),
@@ -385,10 +386,10 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
     exactly the result of the trapezoid and then ten delay blocks of 0.1 s: the samples of
     the delay are 0 in both, so the totals, the stored level and the summary are equal."""
     trapezoid = pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM)
-    long_block = pp.Sequence(SYSTEM)
+    long_block = signed(pp.Sequence(SYSTEM))
     long_block.add_block(trapezoid)
     long_block.add_block(pp.make_delay(1.0))
-    short_blocks = pp.Sequence(SYSTEM)
+    short_blocks = signed(pp.Sequence(SYSTEM))
     short_blocks.add_block(trapezoid)
     for _ in range(10):
         short_blocks.add_block(pp.make_delay(0.1))
@@ -488,7 +489,7 @@ def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pn
     `seq.system.gamma` as there. The peak is in the second chunk, so a chunk that read the
     samples of the first chunk again gives another peak time."""
     dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_trapezoid(channel="x", area=200, system=SYSTEM))
     seq.add_block(pp.make_delay(0.35))
     seq.add_block(pp.make_trapezoid(channel="y", area=1000, system=SYSTEM))
@@ -652,9 +653,9 @@ def test_two_separate_intervals_are_in_time_order():
     gap = 50e-3
     trapezoid = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
     duration = trapezoid.rise_time + trapezoid.flat_time + trapezoid.fall_time
-    one = pp.Sequence(SYSTEM)
+    one = signed(pp.Sequence(SYSTEM))
     one.add_block(trapezoid)
-    two = pp.Sequence(SYSTEM)
+    two = signed(pp.Sequence(SYSTEM))
     two.add_block(trapezoid)
     two.add_block(pp.make_delay(gap))
     two.add_block(trapezoid)
@@ -1115,7 +1116,7 @@ def test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_ru
     several chunks) has `reason` None, a peak of 0 and of each axis, `peak_time_s` None and
     an empty tuple for a threshold. The model runs once for each chunk and no second time
     for the peak time."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3, system=SYSTEM))
     calls = []
 

@@ -18,6 +18,7 @@ from synthetic import (
     empty_sequence,
     gre_sequence,
     raster_4us_sequence,
+    signed,
     spin_echo_sequence,
     waveform_sequence,
     with_rotation_library,
@@ -49,7 +50,7 @@ def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
     gx = pp.make_trapezoid(
         channel="x", amplitude=amplitude, rise_time=200e-6, flat_time=1e-3, system=SYSTEM
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
     (block_id,) = seq.block_events
 
@@ -139,7 +140,7 @@ def test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak():
         flat_time=1e-3,
         system=SYSTEM,
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx, gy)
 
     result = gradient_peaks(seq)
@@ -159,7 +160,7 @@ def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
     gx = pp.make_trapezoid(
         channel="x", amplitude=amplitude, rise_time=rise_time, flat_time=1e-3, system=SYSTEM
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
     window = (0.0, gx.delay + rise_time / 2)
 
@@ -186,7 +187,7 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
     # A waveform that is not symmetric, so its largest magnitude is not at the center.
     waveform = 0.3 * SYSTEM.max_grad * np.sin(np.pi * t / (1.5 * n * dt))
     gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
 
     result = gradient_peaks(seq)
@@ -199,7 +200,7 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
 def test_no_gradients_sets_reason():
     """A sequence with no gradient at all: `reason` is set, and every numeric
     field is its zero value (0.0, or None for a block field)."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(2e-3))
 
     result = gradient_peaks(seq)
@@ -227,7 +228,7 @@ def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
     # An asymmetric waveform, so the largest slope is not obviously at one place.
     waveform = 0.3 * SYSTEM.max_grad * np.sin(2 * np.pi * t / (1.3 * n * dt))
     gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
     block = seq.get_block(1)
 
@@ -248,7 +249,7 @@ def test_extended_trapezoid_max_slew_is_the_largest_segment_slope():
     times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
     amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
     gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
 
     result = gradient_peaks(seq)
@@ -284,7 +285,7 @@ def test_largest_over_several_blocks_and_axes_credits_the_first_block_with_that_
         flat_time=100e-6,
         system=SYSTEM,
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx_small)
     seq.add_block(gy)
     seq.add_block(gx_big)
@@ -312,7 +313,7 @@ def test_window_that_cuts_a_ramp_gives_the_slew_of_the_part_inside_the_window():
     times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
     amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
     gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
     window = (100e-6, 300e-6)  # inside the first two segments; the steepest segment
     # (900 to 1100 us, 750 * mg) is outside the window.
@@ -332,7 +333,7 @@ def test_slew_time_is_the_start_of_the_steepest_segment():
     times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
     amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
     gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx)
 
     result = gradient_peaks(seq)
@@ -360,7 +361,7 @@ def test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit():
         times=np.array([0.0, 1, 2, 6, 8]) * raster,
         system=SYSTEM,
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(one)
     seq.add_block(two)
     block_ids = list(seq.block_events)
@@ -388,7 +389,7 @@ def test_vector_peak_of_g_compares_different_triples_across_blocks():
     gy_b = pp.make_trapezoid(
         channel="y", amplitude=amp_b, rise_time=200e-6, flat_time=200e-6, system=SYSTEM
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx_a)
     seq.add_block(gx_b, gy_b)
 
@@ -570,7 +571,7 @@ def test_window_that_cuts_a_block_credits_it_on_a_tie_with_a_later_block():
     play order, and the peak time is the window start, the first time block 1 reaches the
     peak."""
     g = _tie_trapezoid("x")
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(g)
     seq.add_block(g)
     seq.add_block(pp.make_delay(1e-3))
@@ -590,7 +591,7 @@ def test_vector_peak_time_on_a_tie_is_the_first_time_in_play_order():
     both blocks, from two different triples of events, and the vector peak time is the first
     time that block 1 reaches it (the end of its rise, 0.2 ms), not a time in block 2, and the
     vector peak block is block 1."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(_tie_trapezoid("x"))
     seq.add_block(_tie_trapezoid("y"))
 
@@ -604,7 +605,7 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
     """A y event scaled to amplitude 0 (as a phase encode loop makes for the centre line of
     k-space), with an x trapezoid in the same block: the y axis has a peak and a slew of 0, and
     no block is credited for either."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(_tie_trapezoid("x"), pp.scale_grad(_tie_trapezoid("y"), 0.0))
 
     result = gradient_peaks(seq)
@@ -774,7 +775,7 @@ def _random_gradient_sequence(rng: np.random.Generator) -> pp.Sequence:
     trapezoid, an extended trapezoid or an arbitrary gradient (`make_*` functions, so
     pypulseq's own checks apply) that starts and ends at 0, so every block junction
     step is 0."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     n_blocks = int(rng.integers(2, 7))
     for _ in range(n_blocks):
         n_axes = int(rng.integers(0, 4))
@@ -842,7 +843,7 @@ def _junction_sequence() -> pp.Sequence:
     segment's own slope: block 1 ends at `x`, block 2 starts at `x - step`."""
     step = 0.9 * _MAX_STEP
     x = 0.3 * SYSTEM.max_grad
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, x, x], system=SYSTEM
@@ -864,7 +865,7 @@ def _junction_and_segment_sequence() -> pp.Sequence:
     same step in one gradient raster: the junction step and that segment have the same slew."""
     step = 0.9 * _MAX_STEP
     x = 0.3 * SYSTEM.max_grad
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, x, x], system=SYSTEM
@@ -883,7 +884,7 @@ def _junction_and_segment_sequence() -> pp.Sequence:
 
 def _gradient_ends_non_zero_before_delay_sequence() -> pp.Sequence:
     last_value = 0.9 * _MAX_STEP
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x",
@@ -905,7 +906,7 @@ def _delayed_junction_sequence() -> pp.Sequence:
     the end of the delay. The step is 90% of the largest step, larger than every slope here
     (block 1 has ramps of 100 us)."""
     step = 0.9 * _MAX_STEP
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_trapezoid(
             channel="x",
@@ -925,7 +926,7 @@ def _delayed_junction_sequence() -> pp.Sequence:
 
 def _first_block_starts_non_zero_sequence() -> pp.Sequence:
     start_value = 0.9 * _MAX_STEP
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x",
@@ -1033,7 +1034,7 @@ def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time
     gy = pp.make_trapezoid(
         channel="y", amplitude=0.25 * mg, rise_time=100e-6, flat_time=200e-6, system=SYSTEM
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(_tie_trapezoid("x"), gy)  # x: 0.5 * mg, rise 0.2 ms
     seq.add_block(_tie_trapezoid("z"))
     seq.add_block(pp.make_delay(1e-3))
@@ -1216,7 +1217,7 @@ def test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change(windo
 
 
 @pytest.mark.parametrize(
-    "build", [empty_sequence, lambda: pp.Sequence(SYSTEM)], ids=["delay_only", "no_blocks"]
+    "build", [empty_sequence, lambda: signed(pp.Sequence(SYSTEM))], ids=["delay_only", "no_blocks"]
 )
 def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients(build):
     result = gradient_peaks(build())

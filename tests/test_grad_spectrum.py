@@ -15,6 +15,7 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    signed,
     spin_echo_sequence,
     with_rotation_library,
 )
@@ -33,7 +34,7 @@ SINE_PEAK = SINE_1MT_PEAK * 1e-3 * SYSTEM.gamma
 
 
 def _sine_sequence(frequency_hz: float, duration_s: float = 0.5, delay_s: float = 0.0):
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     t = np.arange(round(duration_s / SYSTEM.grad_raster_time)) * SYSTEM.grad_raster_time
     waveform = 1e-3 * SYSTEM.gamma * np.sin(2 * np.pi * frequency_hz * t)  # 1 mT/m
     seq.add_block(
@@ -82,7 +83,7 @@ def test_gradients_at_the_end_are_not_attenuated():
 
 
 def test_no_gradients():
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_block_pulse(
             flip_angle=math.pi / 2, duration=1e-3, delay=SYSTEM.rf_dead_time, system=SYSTEM
@@ -229,7 +230,7 @@ def test_spectrum_does_not_depend_on_the_gamma_of_the_system():
     waveform_hz_per_m = 1e-3 * SYSTEM.gamma * np.sin(2 * np.pi * 600 * np.arange(5000) * 1e-5)
     spectra = []
     for system in (SYSTEM, other):
-        seq = pp.Sequence(system)
+        seq = signed(pp.Sequence(system))
         seq.add_block(
             pp.make_arbitrary_grad("x", waveform_hz_per_m, first=0, last=0, system=system)
         )
@@ -375,7 +376,7 @@ def test_gradient_spectrum_keeps_the_bin_at_the_maximum_frequency_on_a_4_us_rast
         rf_raster_time=4e-6,
         block_duration_raster=4e-6,
     )
-    seq = pp.Sequence(system)
+    seq = signed(pp.Sequence(system))
     seq.add_block(pp.make_trapezoid("x", area=300, duration=1e-3, system=system))
     s = grad_spectrum.gradient_spectrum(seq, window_s=0.01)
     assert s.frequency_hz[-1] == pytest.approx(2000.0, abs=1e-9)

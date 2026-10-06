@@ -25,10 +25,26 @@ SYSTEM = pp.Opts(
     rf_dead_time=100e-6,
     adc_dead_time=10e-6,
 )
+# A fixed MD5-shaped hash for `signed`. The package checks only that a hash is there.
+SIGNATURE_VALUE = "0123456789abcdef0123456789abcdef"
+
 NUM_SAMPLES = 64
 CENTER = NUM_SAMPLES // 2
 DWELL = 20e-6  # s
 WIDTH = 5e-3  # m, for crusher and phase-encode areas in cycles across the width
+
+
+def signed(seq: pp.Sequence) -> pp.Sequence:
+    """Give `seq` a `[SIGNATURE]` hash, as `write` does, and return `seq`.
+
+    The package refuses a sequence with no hash (`extensions.refuse_unsigned`), and checks
+    only that a hash is there, not that it is the hash of the sequence. So a fixed value is
+    enough. The tests do not call `write` to sign each sequence: pypulseq's `write` fails
+    for an oversampled arbitrary gradient (pypulseq-issues 04)."""
+    seq.signature_type = "md5"
+    seq.signature_file = "text"
+    seq.signature_value = SIGNATURE_VALUE
+    return seq
 
 
 def block_pulse(use: str, flip: float):
@@ -71,7 +87,7 @@ def spin_echo_sequence(prephaser_position: str = "before") -> pp.Sequence:
     if prephaser_position == "after":
         seq.add_block(prephaser)
     seq.add_block(gx, adc)
-    return seq
+    return signed(seq)
 
 
 def gre_sequence(num_trs: int = 4, tr: float = 20e-3) -> pp.Sequence:
@@ -98,14 +114,14 @@ def gre_sequence(num_trs: int = 4, tr: float = 20e-3) -> pp.Sequence:
         if pad > 0:
             seq.add_block(pp.make_delay(pad))
     seq.set_definition("TR", tr)
-    return seq
+    return signed(seq)
 
 
 def empty_sequence() -> pp.Sequence:
     """A sequence with one delay block only: no RF, gradients or ADC."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(2e-3))
-    return seq
+    return signed(seq)
 
 
 def arbitrary_gradient_sequence() -> pp.Sequence:
@@ -118,7 +134,7 @@ def arbitrary_gradient_sequence() -> pp.Sequence:
     waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * t / (n * dt))
     g = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
     seq.add_block(g)
-    return seq
+    return signed(seq)
 
 
 def border_sequence() -> pp.Sequence:
@@ -140,7 +156,7 @@ def border_sequence() -> pp.Sequence:
     seq = pp.Sequence(SYSTEM)
     seq.add_block(g1)
     seq.add_block(g2)
-    return seq
+    return signed(seq)
 
 
 RASTER_4US = 4e-6  # s
@@ -176,7 +192,7 @@ def raster_4us_sequence() -> pp.Sequence:
             channel="y", times=[0.0, 400e-6, 800e-6], amplitudes=[start, start, 0.0], system=system
         )
     )
-    return seq
+    return signed(seq)
 
 
 # A scalar-first unit quaternion (angle 45 deg about z): q0=cos(22.5deg), qz=sin(22.5deg).
@@ -211,4 +227,4 @@ def waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
     seq.add_block(gx)
     seq.add_block(gy)
     seq.add_block(gx, gy)
-    return seq
+    return signed(seq)
