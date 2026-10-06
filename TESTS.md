@@ -1542,7 +1542,7 @@ whole file at the raster centres, and compares with `_assert_matches_pypulseq`.
 **Checks:** `sample` gives the correct waveform for a file with an oversampled
 arbitrary gradient (`make_arbitrary_grad(oversampling=True)`): pypulseq issue #423, fixed
 by the project's
-pypulseq pin (`pulseq-reports-pin-1`, the fix of pypulseq PR #424). The reference is not
+pypulseq pin (`pulseq-reports-pin-2`, with the fix of pypulseq PR #424). The reference is not
 `seq.get_gradients()`: pypulseq's `waveforms()` leaves out the first and the last point
 of an oversampled gradient (a separate pypulseq bug, draft 03 of
 `github.com/mdtisdall/pypulseq-issues`), so `_assert_matches_pypulseq`'s own reference
@@ -1568,7 +1568,7 @@ peak (checked against a pypulseq checkout at the old pin, `20b9e5e`).
 
 **Assumptions:**
 
-- The pin (`pulseq-reports-pin-1`) has the fix of pypulseq PR #424. A pypulseq without
+- The pin (`pulseq-reports-pin-2`) has the fix of pypulseq PR #424. A pypulseq without
   it fails this test: checked against a checkout of the old pin (`20b9e5e`).
 
 #### `test_axis_without_events_is_zero`

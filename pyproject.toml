@@ -34,14 +34,16 @@ dev = [
     "ruff",
 ]
 
-# pypulseq 1.5.0.post1 with four commits, from the fork (tag pulseq-reports-pin-1, branch
-# pulseq-reports-pin): the SAFE PNS filter as a recursion, calculate_pns in chunks, the
-# get_block fix for oversampled arbitrary gradients (upstream PR #424), and the read fix of
-# upstream #359. TODO.md ("Move from the pypulseq fork to a pypulseq release") lists them.
+# pypulseq 1.5.0.post1 with six commits, from the fork (tag pulseq-reports-pin-2, branch
+# pulseq-reports-pin): the SAFE PNS filter as a recursion, calc_pns in chunks, the
+# get_block fix for oversampled arbitrary gradients (upstream PR #424), the read fix of
+# upstream #359, the [SIGNATURE] hash read as text (pypulseq-issues 09), and
+# signature_file 'text' after read (upstream PR #428). TODO.md ("Move from the pypulseq
+# fork to a pypulseq release") lists them.
 # uv also applies this source for a project that depends on pulseq-analysis by git URL; pip
 # does not.
 [tool.uv.sources]
-pypulseq = { git = "https://github.com/mdtisdall/pypulseq", rev = "a74ab06e51ca09707ff54837cf5ff652f6e69e94" }
+pypulseq = { git = "https://github.com/mdtisdall/pypulseq", rev = "3c3bd8515e591ef859399aa20db64b1bd2c3a725" }
 
 [tool.ruff]
 line-length = 100

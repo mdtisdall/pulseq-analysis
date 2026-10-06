@@ -28,7 +28,7 @@ With uv, from the git URL:
 uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc5"
 ```
 
-The package needs pypulseq 1.5.0.post1 with four commits that are not in a
+The package needs pypulseq 1.5.0.post1 with six commits that are not in a
 release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`. uv
 applies this pin for a project that depends on `pulseq-analysis` by git URL.
 pip does not.
