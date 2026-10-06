@@ -330,7 +330,7 @@ def test_compute_of_pns_safe_levels_passes_bin_s_on():
 
     assert levels is pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=1e-3)
     assert levels is not default
-    assert default.bin_samples == 615
+    assert default.bin_samples == 500
     assert levels.bin_samples == 100
     (total,) = PNS_SAFE_LEVELS.to_series(levels)
     assert total.coord_step == levels.bin_samples * levels.dt_s

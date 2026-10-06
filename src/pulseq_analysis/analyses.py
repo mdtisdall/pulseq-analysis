@@ -214,10 +214,12 @@ class _PnsSafeLevels:
             "prediction (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
             "result is kept for the sequence object, the hardware, the thresholds and the bin "
-            "size. `bin_s` is the length of a bin of the level in seconds: it is rounded down "
-            "to whole samples, to at least one sample, and the bins are longer when the level "
-            "would have more than `MAX_BINS` bins. It is a finite number above 0; the default "
-            "is about 6.16 ms. A `bool` or a value that is not a number raises `TypeError`, "
+            "size. `bin_s` is the length of a bin of the level in seconds. It gives a whole "
+            "number of samples: the nearest number when `bin_s / dt` is within "
+            "`ON_RASTER_TOLERANCE` of it, else the number rounded down. The bin has at least "
+            "one sample, and is longer when the level would have more than `MAX_BINS` bins. "
+            "It is a finite number above 0; the default is 5 ms (500 samples at the 10 us "
+            "raster). A `bool` or a value that is not a number raises `TypeError`, "
             "and a value that is not finite or not above 0 raises `ValueError`."
         ),
         params=("hardware", "thresholds_hz_per_t", "bin_s"),

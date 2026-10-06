@@ -251,9 +251,12 @@ order of `thresholds_hz_per_t`. `pns_levels.pns_levels` has the same
 arguments, and keeps nothing.
 
 `bin_s` is the length of a bin of the level, in seconds. The default,
-`pns_levels.BIN_S`, is `10.0 / 1624`: about 6.16 ms, the bin of 0.1.0rc5 (615
-samples at the 10 µs raster). `bin_samples_for(num_samples, dt, bin_s)` rounds it
-down to whole samples, to at least one sample, so a `bin_s` shorter than `dt`
+`pns_levels.BIN_S`, is 5 ms (500 samples at the 10 µs raster).
+`bin_samples_for(num_samples, dt, bin_s)` gives its whole number of samples.
+When `bin_s / dt` is within `ON_RASTER_TOLERANCE` (1e-6) of a whole number, that
+is the number, so `bin_s=0.01` gives 1000 samples at the 10 µs raster. Else it
+is the number rounded down: `bin_s=10.0 / 1624` (the default of 0.1.0rc5) gives
+615 samples. The bin has at least one sample, so a `bin_s` shorter than `dt`
 gives bins of one sample. When the level would have more than
 `pns_levels.MAX_BINS` (2,000,000) bins, the bins are longer, so that the level
 has at most that many. `bin_s` is a finite `int` or `float` above 0 (any real
