@@ -20,8 +20,9 @@ page with no new encoding. The encoding is deterministic: one array always gives
 text.
 
 The JSON form cannot hold a float that is not finite (strict JSON). In an array, such a
-float is in the bytes. In a float field or in `meta`, `to_obj` writes infinity and "not a
-number" as the strings "inf", "-inf" and "nan", and `from_obj` reads them back.
+float is in the bytes. In `meta`, `to_obj` writes infinity and "not a number" as the strings
+"inf", "-inf" and "nan", and `from_obj` reads them back. The coordinate fields are always
+finite (see `Series`), and `from_obj` raises `ValueError` for an object with one that is not.
 """
 
 from __future__ import annotations
@@ -79,6 +80,26 @@ def _check_array(name: str, a: Any) -> None:
         raise ValueError(f"the array {name!r} must be one-dimensional, not {a.ndim}-dimensional")
     if a.dtype.kind not in _KINDS:
         raise ValueError(f"the array {name!r} must have a numeric or bool dtype, not {a.dtype}")
+
+
+def _check_runs(start: np.ndarray, end: np.ndarray) -> None:
+    """Raise `ValueError` when `start` or `end` of a RUNS series has a bool or complex dtype,
+    has a value that is not finite, or when `end[k] < start[k]` for a `k`. A run is an interval
+    of the coordinate, so `start` and `end` are real numbers."""
+    for name, a in (("start", start), ("end", end)):
+        if a.dtype.kind in "bc":
+            raise ValueError(
+                f"the array {name!r} of a runs series must have an integer or float dtype, "
+                f"not {a.dtype}"
+            )
+        if not np.isfinite(a).all():
+            raise ValueError(f"the array {name!r} of a runs series must be finite")
+    if (end < start).any():
+        k = int(np.argmax(end < start))
+        raise ValueError(
+            f"a run of a runs series must not end before it starts, but end[{k}] is "
+            f"{end[k]!r} and start[{k}] is {start[k]!r}"
+        )
 
 
 def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
@@ -141,6 +162,18 @@ class Series:
     `coord_start` 0.0 with `coord_step` and `coord_end` None for `POINTS` and `RUNS`. So each
     kind has one form.
 
+    The coordinates are finite and in order. `coord_start` is finite for `SAMPLES` and
+    `ENVELOPE`. For an `ENVELOPE` of n bins, `coord_end` is finite and
+    `coord_start + (n - 1) * coord_step < coord_end <= coord_start + n * coord_step`, so the
+    last bin is not empty and not longer than a step. A `coord_end` within the tolerance
+    `1e-9 * coord_step` of a limit counts as equal to the limit (the rounding of a float
+    product): it must be above the lower limit by more than the tolerance, and it can be
+    above the upper limit by the tolerance. With no bin (n is 0),
+    `coord_end >= coord_start`, with no tolerance. For `RUNS`, `start` and `end` have an
+    integer or float dtype (not bool or complex), every value is finite, and
+    `end[k] >= start[k]` for each run. A `POINTS` series does not check `coord`: a value that
+    is not finite is valid there.
+
     `meta` holds the values of the series by name, for a machine: only JSON
     scalars. A string value of `meta` cannot be "inf", "-inf" or "nan", because the JSON form
     writes a float that is not finite as one of these strings.
@@ -153,8 +186,8 @@ class Series:
 
     `==` is true when the fields are the same (`_equality.fields_equal`), the array names
     are the same and in the same order, and each pair of arrays has the same dtype and is
-    equal by `np.array_equal(a, b, equal_nan=True)`. A float of a field or of `meta` that is
-    NaN equals a NaN. The keys of `meta` must be the same and in the same order, as for each
+    equal by `np.array_equal(a, b, equal_nan=True)`. A float of `meta` that is NaN
+    equals a NaN. The keys of `meta` must be the same and in the same order, as for each
     other dict of the package. `to_obj` and `from_obj` keep that order. A series is not
     hashable.
     """
@@ -237,6 +270,7 @@ class Series:
                 )
 
         meta = _plain_meta(self.meta)
+        self._check_coordinates(coord_start, coord_step, coord_end)
 
         # Each array is a copy in native byte order, so that a change to the caller's array
         # does not change the series, and the dtype of a round trip is the same.
@@ -251,6 +285,55 @@ class Series:
         object.__setattr__(self, "coord_end", coord_end)
         object.__setattr__(self, "meta", meta)
 
+    def _check_coordinates(
+        self, coord_start: float, coord_step: float | None, coord_end: float | None
+    ) -> None:
+        """Raise `ValueError` for a coordinate that is not finite or not in order. This is
+        after each check of a type, so that a wrong type is a `TypeError` first."""
+        if self.kind is SeriesKind.RUNS:
+            _check_runs(self.arrays["start"], self.arrays["end"])
+        if self.kind not in (SeriesKind.SAMPLES, SeriesKind.ENVELOPE):
+            return
+        if not math.isfinite(coord_start):
+            raise ValueError(
+                f"coord_start of a {self.kind.value} series must be finite, not {coord_start!r}"
+            )
+        if self.kind is not SeriesKind.ENVELOPE:
+            return
+        assert coord_step is not None
+        assert coord_end is not None
+        if not math.isfinite(coord_end):
+            raise ValueError(f"coord_end of an envelope series must be finite, not {coord_end!r}")
+        n = self.arrays["min"].size
+        if n == 0:
+            # No bin and no float product, so there is no tolerance.
+            if coord_end < coord_start:
+                raise ValueError(
+                    f"coord_end of an envelope series with no bin must not be below "
+                    f"coord_start, but coord_end is {coord_end!r} and coord_start is "
+                    f"{coord_start!r}"
+                )
+            return
+        # `coord_end` is `n * coord_step` after `coord_start` when the last bin is full, and
+        # the tolerance covers the rounding of a float product (for example `pns_total`, whose
+        # `coord_end` and `coord_step` are `num_samples * dt_s` and `bin_samples * dt_s`). A
+        # `coord_end` within the tolerance of a limit counts as equal to it: the lower limit
+        # is not in the range, and the upper limit is.
+        tolerance = 1e-9 * coord_step
+        low = coord_start + (n - 1) * coord_step
+        high = coord_start + n * coord_step
+        if not coord_end > low + tolerance:
+            raise ValueError(
+                f"coord_end of an envelope series with {n} bins must be above "
+                f"coord_start + (n - 1) * coord_step = {low!r}, so that the last bin is not "
+                f"empty, not {coord_end!r}"
+            )
+        if not coord_end <= high + tolerance:
+            raise ValueError(
+                f"coord_end of an envelope series with {n} bins must not be above "
+                f"coord_start + n * coord_step = {high!r}, not {coord_end!r}"
+            )
+
     __eq__ = fields_equal
     __hash__ = None  # type: ignore[assignment]
 
@@ -258,8 +341,8 @@ class Series:
         """A dict of JSON values, with the keys `name`, `kind`, `unit`, `coord_unit`,
         `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`, in this order. `kind`
         is the value of the `SeriesKind`. `arrays` maps each name to `encode_array`, in the
-        order of `arrays`. A float field or a float of `meta` that is not finite is a string
-        (module docstring). An int stays an int and a bool stays a bool.
+        order of `arrays`. A float of `meta` that is not finite is a string (module
+        docstring). An int stays an int and a bool stays a bool.
         `json.dumps(obj, allow_nan=False)` writes the dict."""
         return {
             "name": self.name,

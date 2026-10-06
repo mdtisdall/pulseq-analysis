@@ -98,7 +98,7 @@ class AxisResult:
     rms_hz_per_m: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class GradientPeaks:
     """The result of `gradient_peaks`.
 
@@ -124,6 +124,9 @@ class GradientPeaks:
 
     `axes` and `whole_rms_hz_per_m` are `_equality.FrozenDict`s (read-only dicts): all callers
     of a result share it, so a change of a dict would change it for all of them.
+
+    `==` compares the values of the fields (`_equality.fields_equal`), the dicts with their keys
+    in order. A `GradientPeaks` is not hashable.
     """
 
     reason: str | None
@@ -133,6 +136,9 @@ class GradientPeaks:
     vector_peak_time_s: float
     vector_peak_block: int | None
     whole_rms_hz_per_m: dict[str, float] | None = None  # a FrozenDict
+
+    __eq__ = fields_equal
+    __hash__ = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True, eq=False)

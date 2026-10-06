@@ -2575,6 +2575,28 @@ extension")`.
 **Assumptions:** None.
 
 
+#### `test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable`
+
+**Checks:** Two `GradientPeaks` of two separate computations of the same values are equal by
+value, a result with another value in a field is unequal, and a result is not hashable.
+
+**How:** The test calls `gradient_peaks(seq, window=(0.0, 1e-3))` two times on the spin echo (a
+window is not kept): two objects, `==` true. Two calls without a window on two separately built
+spin echo sequences are `==`. A `dataclasses.replace` with another `vector_peak_hz_per_m` and the
+result for the window `(0.0, 2e-3)` are `!=`. `hash(first)` is in `pytest.raises(TypeError)`.
+
+**Assumptions:** None.
+
+#### `test_axis_result_stays_hashable`
+
+**Checks:** An `AxisResult` has the `==` and the hash of `dataclasses`: `hash` works, and a copy
+with the same fields has the same hash.
+
+**How:** `hash` of an `AxisResult` of the spin echo equals `hash` of its `dataclasses.replace`
+copy.
+
+**Assumptions:** None.
+
 #### `test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable`
 
 **Checks:** Two `BlockGradientValues` of two equal sequences are equal by value, another sequence
@@ -3347,6 +3369,153 @@ and checks the error and that its message names `coord_end`.
 
 **Assumptions:** None.
 
+#### `test_series_refuses_a_coord_start_that_is_not_finite`
+
+**Checks:** A SAMPLES or an ENVELOPE series with a `coord_start` of infinity, -infinity or
+NaN raises `ValueError` that names `coord_start`. A finite `coord_start` is valid. (POINTS
+and RUNS need `coord_start` 0, as `test_series_refuses_a_field_that_the_kind_does_not_use`
+checks.)
+
+**How:** Parametrized over the two kinds and the three values. Each case first builds the
+series with a finite negative `coord_start`, then with the bad value, and checks the error.
+
+**Assumptions:** None.
+
+#### `test_envelope_refuses_a_coord_end_that_is_not_finite`
+
+**Checks:** An ENVELOPE series with a `coord_end` of infinity, -infinity or NaN raises
+`ValueError` that names `coord_end`, with three bins and with no bin.
+
+**How:** Parametrized over the three values. The test builds the series with 0 and with 3
+bins and checks the error.
+
+**Assumptions:** None.
+
+#### `test_envelope_refuses_a_coord_end_out_of_range`
+
+**Checks:** An ENVELOPE series of n bins raises `ValueError` when `coord_end` is not above
+`coord_start + (n - 1) * coord_step` by more than the tolerance `1e-9 * coord_step` (the last
+bin would be empty), and when it is above `coord_start + n * coord_step` by more than the
+tolerance (the last bin would be longer than a step).
+
+**How:** Parametrized. The cases are a `coord_end` exactly at the lower limit, within the
+tolerance above it, below it (also at and below `coord_start`), for three bins and for one
+bin; and a `coord_end` above the upper limit by 2 × 10⁻⁹ of a step, by a
+millionth of a step, and by a tenth of a step; each with a negative `coord_start` and a
+small step too.
+
+**Assumptions:** A `coord_end` within the tolerance of the lower limit counts as equal to the
+limit, so it is refused. The tolerance is for the rounding of the products of floats, as in
+`pns_total`.
+
+#### `test_envelope_accepts_a_coord_end_in_range`
+
+**Checks:** An ENVELOPE series is valid for a `coord_end` at the upper limit
+`coord_start + n * coord_step`, within the tolerance above it, inside the last bin, just
+above the lower limit `coord_start + (n - 1) * coord_step` (by 0.01 step, and by 2 × 10⁻⁹ of a
+step, which is beyond the tolerance), with one bin, with a negative `coord_start`, and with
+no bin for `coord_end == coord_start` and above it. Each series equals its round trip.
+
+**How:** Parametrized. Each case builds the series and checks that `coord_end` is kept and
+that the round trip through strict JSON text is equal.
+
+**Assumptions:** None.
+
+#### `test_envelope_with_no_bin_refuses_a_coord_end_below_coord_start`
+
+**Checks:** An ENVELOPE series with no bin raises `ValueError` for `coord_end < coord_start`,
+also for a `coord_end` that is below by 10⁻¹², which the tolerance of the other cases
+(10⁻⁹ of a step) would let through.
+
+**How:** The test builds the series for three pairs of `coord_start` and `coord_end` and
+checks the error.
+
+**Assumptions:** With no bin there is no float product, so the tolerance does not apply.
+
+#### `test_runs_refuses_a_start_or_end_that_is_not_finite`
+
+**Checks:** A RUNS series with infinity, -infinity or NaN in `start` or in `end` raises
+`ValueError` that names the array and says "finite", for float64 and float32.
+
+**How:** Parametrized over the array, the three values and the two dtypes. The test builds
+the valid series first, puts the value into the second run, and checks the error.
+
+**Assumptions:** None.
+
+#### `test_runs_refuses_an_end_before_the_start`
+
+**Checks:** A RUNS series with `end[k] < start[k]` for one run raises `ValueError`, for float64,
+float32, int64 and uint8, in the first and in the second run, and for a difference of 10⁻¹².
+
+**How:** Parametrized. Each case builds the series with the two arrays and checks the error.
+
+**Assumptions:** There is no tolerance for a run.
+
+#### `test_runs_accepts_an_end_at_or_after_the_start`
+
+**Checks:** A RUNS series is valid when `end[k] >= start[k]` for each run, also for
+`end == start`, for integer and float dtypes, and with no run. Each series equals its round
+trip.
+
+**How:** Parametrized. Each case builds the series and checks the round trip through strict
+JSON text.
+
+**Assumptions:** None.
+
+#### `test_runs_refuses_a_start_or_end_of_a_bool_or_complex_dtype`
+
+**Checks:** A RUNS series whose `start` or `end` has a bool or a complex dtype raises
+`ValueError` that names the array and says "integer or float".
+
+**How:** Parametrized over the array and the two dtypes. The test converts one valid array
+and checks the error.
+
+**Assumptions:** The array of a series can be of a bool or complex dtype, but a run is an
+interval of a real coordinate. The ordering of a complex array is not defined, and a bool
+is not a coordinate, as the scalar coordinate fields refuse a bool.
+
+#### `test_a_wrong_type_is_a_type_error_before_a_coordinate_that_is_not_finite`
+
+**Checks:** The checks of the coordinates come after the checks of the types: a `coord_end`
+that is a string is a `TypeError`, and a `meta` that is not a mapping is a `TypeError` even
+when `coord_start` is NaN.
+
+**How:** The test builds the two series and checks the error type of each.
+
+**Assumptions:** None.
+
+#### `test_the_series_of_pns_safe_levels_are_valid`
+
+**Checks:** Each series of `pns.safe.levels` (`pns_total` and `pns_above_<k>`) is a valid
+`Series`, and equals the series that `from_obj` reads from its `to_obj`. This holds for each
+sequence of `tests/synthetic.py` that has a builder without arguments (the spin echo with
+the prephaser before and after, the GRE, the empty sequence, the arbitrary gradient, the
+border, the 4 µs raster sequence) and for `build_repeating(10)`; with no threshold, with
+one, and with two; with the default bin and with bins of 3.7 ms and 0.1 ms. The `coord_end`
+of `pns_total` is `num_samples * dt_s` and its `coord_step` is `bin_samples * dt_s`, so the
+test checks that the tolerance of the `coord_end` check holds for these float products. The
+empty sequence gives no series.
+
+**How:** Parametrized over the sequence and the case of thresholds and bin. The test runs
+the analysis with `synthetic.EXAMPLE_HW`, calls `to_series`, checks the names, and checks
+the round trip of each series. Constructing a series that is not valid would raise.
+
+**Assumptions:** The bin of 3.7 ms (370 samples) is not a divisor of the number of samples of
+most sequences, so their last bin is short. The sequences with a rotation library and the
+one of `waveform_sequence` are not in the list.
+
+#### `test_the_series_of_gradient_spectrum_is_valid`
+
+**Checks:** The series of `gradient.spectrum` for each sequence of the test above is a valid
+`Series` that equals the series that `from_obj` reads from its `to_obj`. The empty sequence
+gives no series, and the other sequences give one.
+
+**How:** Parametrized over the sequences. The test runs the analysis with the default
+arguments, calls `to_series`, and checks the round trip and the number of series.
+
+**Assumptions:** No sequence is too short for the default window: the spectrum pads a short
+sequence to one window.
+
 #### `test_series_refuses_bad_arrays`
 
 **Checks:** A series raises when a necessary array of its kind is missing (for each kind),
@@ -3414,11 +3583,12 @@ is `>f4`, and the first check is the same, but it does not test a change of byte
 
 #### `test_series_equal_treats_nan_as_equal`
 
-**Checks:** Two series with NaN in an array, in `coord_start` and in a `meta` value are
-equal, a series equals itself, and `!=` is false for them.
+**Checks:** Two series with NaN in an array and in a `meta` value are equal, a series
+equals itself, and `!=` is false for them.
 
-**How:** The test builds two series from equal data with a NaN in each of the three
-places and checks `==` and `!=`.
+**How:** The test builds two series from equal data with a NaN in each of the two places
+and checks `==` and `!=`. A coordinate field cannot be NaN (`test_series_refuses_a_coord_start_that_is_not_finite`),
+so it is not one of the places.
 
 **Assumptions:** None.
 
@@ -3509,15 +3679,15 @@ limit. The test has no time limit.
 
 #### `test_series_round_trip_of_values_that_are_not_finite`
 
-**Checks:** Infinity and NaN in an array, in `coord_start` and `coord_end`, and in `meta`
-survive the round trip, `to_obj` writes the floats of the fields and of `meta` as "inf",
-"-inf" and "nan", and `json.dumps(allow_nan=False)` accepts the object.
+**Checks:** Infinity and NaN in an array and in `meta` survive the round trip, `to_obj`
+writes the floats of `meta` as "inf", "-inf" and "nan", and `json.dumps(allow_nan=False)`
+accepts the object. The coordinate fields are finite.
 
 **How:** The test builds an ENVELOPE series with the four kinds of value in the arrays,
-`coord_start` of -infinity, `coord_end` of NaN, and `meta` with infinity, -infinity, NaN,
-a finite float and the string "nan?" (a string that is not one of the three). It checks
-the strings in `to_obj`, that `json.dumps` accepts the object, that the round trip is
-equal, and that the non-finite values are floats again.
+finite coordinate fields, and `meta` with infinity, -infinity, NaN, a finite float and the
+string "nan?" (a string that is not one of the three). It checks the strings in `to_obj`,
+that `json.dumps` accepts the object, that the round trip is equal, and that the non-finite
+values of `meta` are floats again.
 
 **Assumptions:** None.
 
@@ -3543,7 +3713,10 @@ a dict, an unknown key, a missing key (also `coord_unit`, ID `missing-coord-unit
 object of rc2 (ID `rc2-object`), an unknown kind or a kind that is not a string, an empty
 name, a name or unit that is not a string, a `coord_unit` that is null or a number (IDs
 `coord-unit-null` and `coord-unit-a-number`), a `coord_step` that is zero, a string or
-null, a null `coord_end` or `coord_start`, a `coord_start` that is a bool, a `meta` or
+null, a null `coord_end` or `coord_start`, a `coord_start` that is a bool, a `coord_start` or
+`coord_end` that is "inf", "-inf" or "nan" (IDs `coord-start-inf`, `coord-start-minus-inf`,
+`coord-start-nan`, `coord-end-inf` and `coord-end-nan`), a `coord_end` that is too small or
+too large for the bins (IDs `coord-end-too-small` and `coord-end-too-large`), a `meta` or
 `arrays` that is not an object, a `meta` value that is a list, and an array that is not an
 object or an object with no arrays.
 
@@ -3551,6 +3724,7 @@ object or an object with no arrays.
 ENVELOPE series and checks for `ValueError`. The case `rc2-object` has no `coord_unit` and
 the rc2 keys of the three coordinate fields, with their values, so it also has unknown
 keys. The `TypeError` of the series is a `ValueError` here, so a caller catches one type.
+`from_obj` goes through the constructor, so it has the checks of the coordinate fields.
 
 **Assumptions:** None.
 
@@ -4234,16 +4408,27 @@ block and checks that the next call gives another object.
   the kept result sees. A block replaced in place is not seen, as for
   `sequence_index`.
 
+#### `test_no_gradients_gives_an_empty_read_only_array_for_each_axis`
+
+**Checks:** The `axes` of the spectrum of a sequence with no gradient event has the keys x, y
+and z in this order, and each is an empty float64 array that is read-only.
+
+**How:** `gradient_spectrum(empty_sequence())`: `reason` is `NO_GRADIENTS`, `list(s.axes)` is
+`["x", "y", "z"]`, and each array has dtype float64, shape `(0,)` and `flags.writeable` off,
+and an assignment into it raises `ValueError`.
+
+**Assumptions:** None.
+
 #### `test_the_arrays_of_a_spectrum_are_read_only`
 
 **Checks:** Each array of a spectrum is read-only, also for a sequence without
 gradients. A conversion to a new array works.
 
 **How:** The test runs for the synthetic spin echo (the frequencies, the RSS
-and the three axes) and for a sequence without gradients (the frequencies and
-the RSS, empty). Each array must have `flags.writeable` off, and a change in
-place (`a *= 1e3 / GAMMA_1H`, with `GAMMA_1H` from `tests/synthetic.py`) must
-raise `ValueError`. Then `s.rss * 1e3 / GAMMA_1H` must give a writable array,
+and the three axes) and for a sequence without gradients (the frequencies, the
+RSS and the three axes, all empty). Each array must have `flags.writeable`
+off, and a change in place (`a *= 1e3 / GAMMA_1H`, with `GAMMA_1H` from
+`tests/synthetic.py`) must raise `ValueError`. Then `s.rss * 1e3 / GAMMA_1H` must give a writable array,
 and `s.rss` must not change.
 
 **Assumptions:** None.

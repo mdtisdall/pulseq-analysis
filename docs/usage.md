@@ -76,13 +76,12 @@ These rules apply to all the modules:
   `seq.grad_raster_time`.
   A block replaced in place is not seen: make a new sequence object for it.
   The other functions keep nothing.
-- **Equality.** `SequenceIndex`, `BlockGradientValues`, `PnsLevels`,
-  `GradientSpectrum` and `Series` compare by value: `==` compares each field,
-  an array by its dtype, its shape and its values (a NaN equals a NaN), and a
-  dict with its keys in order (for a `Series`, also the keys of `meta`). They
-  are not hashable. The other frozen
-  dataclasses (for example `GradientPeaks` and `PnsInterval`) have the `==` of
-  `dataclasses`.
+- **Equality.** `SequenceIndex`, `BlockGradientValues`, `GradientPeaks`,
+  `PnsLevels`, `GradientSpectrum` and `Series` compare by value: `==` compares
+  each field, an array by its dtype, its shape and its values (a NaN equals a
+  NaN), and a dict with its keys in order (for a `Series`, also the keys of
+  `meta`). They are not hashable. The other frozen dataclasses (for example
+  `AxisResult` and `PnsInterval`) have the `==` and the hash of `dataclasses`.
 - **Read-only results.** A result can be shared (the kept results above), so
   the arrays of a result are read-only (a change in place raises
   `ValueError`), and the dicts of a result are `FrozenDict`s, subclasses of
@@ -224,7 +223,9 @@ number of blocks in the window, not the number of blocks of the file.
 
 A `FrozenDict` is a `dict` (`isinstance(x, dict)`, `json.dumps` and `pickle`
 work) whose methods that change it raise `TypeError`. A result is shared by all
-its callers, so a change of a dict would change it for all of them.
+its callers, so a change of a dict would change it for all of them. Two
+`GradientPeaks` are equal (`==`) when each field is equal, a dict with its keys
+in order. A `GradientPeaks` is not hashable.
 
 `AxisResult`, a frozen dataclass, for one axis:
 
@@ -500,9 +501,29 @@ example which position, the analysis puts it in `meta`.
 `coord_start`, `coord_step` and `coord_end` are checked with `_validate.real`:
 a `bool` or a value that is not a `numbers.Real` is a `TypeError` (an `int`, a
 `float`, a `fractions.Fraction` and a numpy real scalar are valid), and an
-`int` too large for a `float` is a `ValueError`. A float that is not finite is
-valid in these three fields, except that `coord_step` must be finite and above
-0. Each is a `float` after the check.
+`int` too large for a `float` is a `ValueError`. Each is a `float` after the
+check.
+
+The coordinates must be finite and in order, else `ValueError`:
+
+- `coord_step` is finite and above 0.
+- `coord_start` is finite for `SAMPLES` and `ENVELOPE`. (`POINTS` and `RUNS`
+  need 0.0.)
+- For an `ENVELOPE` of `n` bins, `coord_end` is finite and
+  `coord_start + (n - 1) * coord_step < coord_end <= coord_start + n * coord_step`.
+  So the last bin is not empty, and it is not longer than a step. A
+  `coord_end` within `1e-9 * coord_step` of a limit counts as equal to the
+  limit, because a `coord_end` that is a product of floats has a rounding
+  error. So it must be above the lower limit by more than the tolerance, and it
+  can be above the upper limit by the tolerance. (`pns_total` has `coord_end`
+  `num_samples * dt_s` and `coord_step` `bin_samples * dt_s`.) With no bin
+  (`n` is 0), `coord_end >= coord_start`, with no tolerance.
+- For `RUNS`, `start` and `end` have an integer or float dtype (not bool or
+  complex), every value is finite, and `end[k] >= start[k]` for each run. A run
+  with `end == start` is valid.
+
+`coord` of `POINTS` and the other arrays are not checked: a value that is not
+finite is valid there. A float in `meta` can be not finite too.
 
 A `Series` raises `TypeError` for a value of a wrong type and `ValueError` for
 a wrong value. It keeps its own dicts and a read-only copy of each array, in
@@ -515,9 +536,10 @@ hashable.
 
 `Series.to_obj()` gives a dict with the keys `name`, `kind`, `unit`,
 `coord_unit`, `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`,
-which `json.dumps(obj, allow_nan=False)` writes. A float field or a float of `meta` that is not
+which `json.dumps(obj, allow_nan=False)` writes. A float of `meta` that is not
 finite is the string `"inf"`, `"-inf"` or `"nan"`. `Series.from_obj(obj)` is
-the inverse, and raises `ValueError` for a bad object.
+the inverse, and raises `ValueError` for a bad object, also for a coordinate
+field that is not finite or not in order.
 
 `encode_array(a)` gives an array as `{"dtype", "length", "data"}`: the numpy
 dtype name, the number of elements, and the little-endian bytes of the array,
@@ -675,9 +697,9 @@ method is that of pypulseq's `calculate_gradient_spectrum`:
 
 | Field | Meaning |
 |---|---|
-| `reason` | `grad_spectrum.NO_GRADIENTS` (the object `seq_index.NO_GRADIENTS`) when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, `frequency_hz` and `rss` are empty and `axes` is empty. |
+| `reason` | `grad_spectrum.NO_GRADIENTS` (the object `seq_index.NO_GRADIENTS`) when the sequence has no gradient event, or `None`. With `NO_GRADIENTS`, `frequency_hz` and `rss` are empty, and `axes` has the keys `"x"`, `"y"` and `"z"`, each an empty float64 array. |
 | `frequency_hz` | float64, F: the frequencies, from 0 to the highest frequency. |
-| `axes` | A read-only dict (`_equality.FrozenDict`, a subclass of `dict`) from `"x"`, `"y"` and `"z"` to a float64 array of F values in Hz/m/√Hz. |
+| `axes` | A read-only dict (`_equality.FrozenDict`, a subclass of `dict`) from `"x"`, `"y"` and `"z"` to a float64 array of F values in Hz/m/√Hz. For `NO_GRADIENTS`, each array is empty and read-only. |
 | `rss` | float64, F: the RSS of the three axes, in Hz/m/√Hz. |
 | `max_frequency_hz`, `window_s`, `frequency_oversampling` | The arguments of the call, as floats. The series of `gradient.spectrum` gives them in its `meta`. |
 
