@@ -69,7 +69,8 @@ class GradientSpectrum:
 
     `==` compares the values of the fields (`_equality.values_equal`): the arrays by dtype,
     shape and values, and `axes` with its keys in order. A `GradientSpectrum` is not
-    hashable."""
+    hashable. For `NO_GRADIENTS`, `frequency_hz` and `rss` are empty, and `axes` has the
+    keys "x", "y" and "z", each an empty array."""
 
     reason: str | None  # why there is no spectrum (NO_GRADIENTS), or None
     frequency_hz: np.ndarray  # float64, F: 0 up to max_frequency_hz
@@ -186,13 +187,13 @@ def _compute_spectrum(
     (as floats). It does not check them again and does not keep the result."""
     index = sequence_index(seq)
     if not has_gradients(index):
-        empty = np.zeros(0)
+        # Each array is its own, as `_read_only` makes each one read-only.
         return _read_only(
             GradientSpectrum(
                 NO_GRADIENTS,
-                empty,
-                FrozenDict(),
-                empty,
+                np.zeros(0),
+                FrozenDict({axis: np.zeros(0) for axis in AXES}),
+                np.zeros(0),
                 max_frequency_hz,
                 window_s,
                 frequency_oversampling,

@@ -12,7 +12,19 @@ from fractions import Fraction
 
 import numpy as np
 import pytest
+from scale_sequences import build_repeating
+from synthetic import (
+    EXAMPLE_HW,
+    GAMMA_1H,
+    arbitrary_gradient_sequence,
+    border_sequence,
+    empty_sequence,
+    gre_sequence,
+    raster_4us_sequence,
+    spin_echo_sequence,
+)
 
+from pulseq_analysis.analyses import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
 from pulseq_analysis.series import Series, SeriesKind, decode_array, encode_array
 
 _NON_FINITE = np.array([0.0, np.inf, -np.inf, np.nan, 1.5], dtype=np.float32)
@@ -46,6 +58,33 @@ def _envelope() -> Series:
         coord_step=0.006,
         coord_end=0.0171,
         meta={"hardware": "example", "dt_s": 1e-5, "num_samples": 1710, "on_raster": True},
+    )
+
+
+def _bins(n: int, **overrides) -> Series:
+    """A valid ENVELOPE series of `n` bins (`coord_start` 0, `coord_step` 1, `coord_end` `n`),
+    with the fields in `overrides` changed."""
+    fields = {
+        "name": "e",
+        "kind": SeriesKind.ENVELOPE,
+        "unit": "1",
+        "coord_unit": "s",
+        "arrays": {"min": np.zeros(n), "max": np.ones(n)},
+        "coord_step": 1.0,
+        "coord_end": float(n),
+    }
+    fields.update(overrides)
+    return Series(**fields)
+
+
+def _runs_of(start, end) -> Series:
+    """A RUNS series with the arrays `start` and `end`."""
+    return Series(
+        name="r",
+        kind=SeriesKind.RUNS,
+        unit="1",
+        coord_unit="s",
+        arrays={"start": np.asarray(start), "end": np.asarray(end)},
     )
 
 
@@ -135,6 +174,7 @@ def test_a_coordinate_field_accepts_a_numpy_float_and_a_fraction():
     e = _samples(
         kind=SeriesKind.ENVELOPE,
         arrays={"min": np.zeros(2), "max": np.ones(2)},
+        coord_step=1.0,
         coord_end=np.float64(2.0),
     )
 
@@ -217,6 +257,232 @@ def test_envelope_refuses_a_missing_end():
             arrays=s.arrays,
             coord_step=s.coord_step,
         )
+
+
+_INF, _NAN = float("inf"), float("nan")
+
+
+@pytest.mark.parametrize("kind", [SeriesKind.SAMPLES, SeriesKind.ENVELOPE])
+@pytest.mark.parametrize("coord_start", [_INF, -_INF, _NAN], ids=["inf", "minus-inf", "nan"])
+def test_series_refuses_a_coord_start_that_is_not_finite(kind, coord_start):
+    """A SAMPLES or ENVELOPE series with an infinite or NaN `coord_start` raises
+    `ValueError`. The finite value is valid."""
+    if kind is SeriesKind.SAMPLES:
+        _samples(coord_start=-3.0)
+        with pytest.raises(ValueError, match="coord_start.*finite"):
+            _samples(coord_start=coord_start)
+    else:
+        _bins(2, coord_start=-3.0, coord_end=-1.0)
+        with pytest.raises(ValueError, match="coord_start.*finite"):
+            _bins(2, coord_start=coord_start, coord_end=2.0)
+
+
+@pytest.mark.parametrize("coord_end", [_INF, -_INF, _NAN], ids=["inf", "minus-inf", "nan"])
+def test_envelope_refuses_a_coord_end_that_is_not_finite(coord_end):
+    """An ENVELOPE series with an infinite or NaN `coord_end` raises `ValueError`, also with
+    no bin."""
+    for n in (0, 3):
+        with pytest.raises(ValueError, match="coord_end.*finite"):
+            _bins(n, coord_end=coord_end)
+
+
+@pytest.mark.parametrize(
+    ("n", "coord_start", "coord_step", "coord_end"),
+    [
+        # The lower limit is `coord_start + (n - 1) * coord_step`: the end of the bin before
+        # the last one. The tolerance is 1e-9 * coord_step.
+        pytest.param(3, 0.0, 1.0, 2.0, id="at-the-lower-limit"),
+        pytest.param(3, 0.0, 1.0, 2.0 + 0.5e-9, id="within-the-tolerance-of-the-lower-limit"),
+        pytest.param(3, 0.0, 1.0, 1.5, id="below-the-lower-limit"),
+        pytest.param(3, 0.0, 1.0, 0.0, id="at-coord-start"),
+        pytest.param(3, 0.0, 1.0, -1.0, id="below-coord-start"),
+        pytest.param(1, 0.0, 1.0, 0.0, id="one-bin-at-coord-start"),
+        pytest.param(1, 0.0, 1.0, -0.5, id="one-bin-below-coord-start"),
+        pytest.param(3, -2.0, 0.25, -1.5, id="negative-start-at-the-lower-limit"),
+        pytest.param(3, -2.0, 0.25, -1.75, id="negative-start-below-the-lower-limit"),
+        # The upper limit is `coord_start + n * coord_step`: the end of a full last bin.
+        pytest.param(3, 0.0, 1.0, 3.1, id="above-the-upper-limit"),
+        pytest.param(3, 0.0, 1.0, 3.0 + 2e-9, id="beyond-the-tolerance-of-the-upper-limit"),
+        pytest.param(3, 0.0, 1.0, 3.000001, id="a-little-above-the-upper-limit"),
+        pytest.param(3, -2.0, 0.25, -1.2, id="negative-start-above-the-upper-limit"),
+        pytest.param(3, 0.0, 1e-5, 3e-5 * (1 + 1e-6), id="small-step-above-the-upper-limit"),
+        pytest.param(3, 0.0, 1e-5, 2e-5 * (1 + 1e-10), id="small-step-within-tolerance-of-lower"),
+    ],
+)
+def test_envelope_refuses_a_coord_end_out_of_range(n, coord_start, coord_step, coord_end):
+    """An ENVELOPE series of `n` bins raises `ValueError` when `coord_end` is not above
+    `coord_start + (n - 1) * coord_step` by more than the tolerance `1e-9 * coord_step`
+    (the last bin would be empty), and when it is above `coord_start + n * coord_step` by more
+    than the tolerance (the last bin would be longer than a step)."""
+    with pytest.raises(ValueError, match="coord_end"):
+        _bins(n, coord_start=coord_start, coord_step=coord_step, coord_end=coord_end)
+
+
+@pytest.mark.parametrize(
+    ("n", "coord_start", "coord_step", "coord_end"),
+    [
+        pytest.param(3, 0.0, 1.0, 3.0, id="at-the-upper-limit"),
+        pytest.param(3, 0.0, 1.0, 3.0 + 0.5e-9, id="within-the-tolerance-of-the-upper-limit"),
+        pytest.param(3, 0.0, 1.0, 2.5, id="inside-the-last-bin"),
+        pytest.param(3, 0.0, 1.0, 2.01, id="just-above-the-lower-limit"),
+        pytest.param(3, 0.0, 1.0, 2.0 + 2e-9, id="beyond-the-tolerance-of-the-lower-limit"),
+        pytest.param(1, 0.0, 1.0, 1.0, id="one-full-bin"),
+        pytest.param(1, 0.0, 1.0, 0.001, id="one-short-bin"),
+        pytest.param(3, -2.0, 0.25, -1.25, id="negative-start-at-the-upper-limit"),
+        pytest.param(3, -2.0, 0.25, -1.4, id="negative-start-inside-the-last-bin"),
+        pytest.param(0, 0.0, 1.0, 0.0, id="no-bin-at-coord-start"),
+        pytest.param(0, 0.0, 1.0, 7.0, id="no-bin-above-coord-start"),
+        pytest.param(0, -2.0, 0.25, -2.0, id="no-bin-negative-start"),
+    ],
+)
+def test_envelope_accepts_a_coord_end_in_range(n, coord_start, coord_step, coord_end):
+    """An ENVELOPE series of `n` bins is valid when `coord_end` is above
+    `coord_start + (n - 1) * coord_step` by more than the tolerance and is at most
+    `coord_start + n * coord_step` plus the tolerance. With no bin, it is valid for
+    `coord_end >= coord_start`."""
+    s = _bins(n, coord_start=coord_start, coord_step=coord_step, coord_end=coord_end)
+    assert s.coord_end == coord_end
+    assert _round_trip(s) == s
+
+
+def test_envelope_with_no_bin_refuses_a_coord_end_below_coord_start():
+    """An ENVELOPE series with no bin raises `ValueError` for `coord_end < coord_start`, also
+    for a `coord_end` that is below by less than the tolerance of the other cases (there is no
+    float product, so no tolerance)."""
+    for coord_start, coord_end in ((0.0, -1.0), (1.0, 1.0 - 1e-12), (-2.0, -2.5)):
+        with pytest.raises(ValueError, match="coord_end"):
+            _bins(0, coord_start=coord_start, coord_end=coord_end)
+
+
+@pytest.mark.parametrize("which", ["start", "end"])
+@pytest.mark.parametrize("bad", [_INF, -_INF, _NAN], ids=["inf", "minus-inf", "nan"])
+@pytest.mark.parametrize("dtype", [np.float64, np.float32], ids=["float64", "float32"])
+def test_runs_refuses_a_start_or_end_that_is_not_finite(which, bad, dtype):
+    """A RUNS series with an infinite or NaN value in `start` or in `end` raises
+    `ValueError`, for float64 and float32."""
+    arrays = {"start": np.array([0.0, 2.0], dtype=dtype), "end": np.array([1.0, 3.0], dtype=dtype)}
+    _runs_of(**arrays)
+    arrays[which][1] = bad
+    with pytest.raises(ValueError, match=f"{which}.*finite"):
+        _runs_of(**arrays)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        pytest.param([0.0, 5.0], [1.0, 4.0], id="float64"),
+        pytest.param(np.array([0.0, 5.0], dtype=np.float32), [1.0, 4.0], id="float32"),
+        pytest.param([3, 5], [1, 6], id="int64"),
+        pytest.param(
+            np.array([3, 5], dtype=np.uint8), np.array([4, 4], dtype=np.uint8), id="uint8"
+        ),
+        pytest.param([0.0, 5.0], [-1.0, 6.0], id="first-run"),
+        pytest.param([1.0], [1.0 - 1e-12], id="a-little-before"),
+    ],
+)
+def test_runs_refuses_an_end_before_the_start(start, end):
+    """A RUNS series with `end[k] < start[k]` for one run raises `ValueError`, for float and
+    for integer dtypes. There is no tolerance."""
+    with pytest.raises(ValueError, match="end before it starts"):
+        _runs_of(start, end)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        pytest.param([1.0, 5.0], [1.0, 5.0], id="all-equal"),
+        pytest.param([1.0, 5.0], [1.0, 7.5], id="one-equal"),
+        pytest.param([3, 5], [3, 9], id="int64"),
+        pytest.param(np.array([0.5], dtype=np.float32), np.array([0.5], dtype=np.float32), id="f4"),
+        pytest.param(np.array([-2], dtype=np.int8), np.array([-2], dtype=np.int8), id="negative"),
+        pytest.param([], [], id="no-run"),
+    ],
+)
+def test_runs_accepts_an_end_at_or_after_the_start(start, end):
+    """A RUNS series with `end[k] >= start[k]` for each run is valid: also `end == start`, an
+    integer dtype and no run."""
+    s = _runs_of(start, end)
+    assert _round_trip(s) == s
+
+
+@pytest.mark.parametrize("which", ["start", "end"])
+@pytest.mark.parametrize("dtype", [np.bool_, np.complex128], ids=["bool", "complex128"])
+def test_runs_refuses_a_start_or_end_of_a_bool_or_complex_dtype(which, dtype):
+    """A RUNS series whose `start` or `end` has a bool or complex dtype raises `ValueError`:
+    a run is an interval of a real coordinate."""
+    arrays = {"start": np.array([0.0, 2.0]), "end": np.array([1.0, 3.0])}
+    arrays[which] = arrays[which].astype(dtype)
+    with pytest.raises(ValueError, match=f"{which}.*integer or float"):
+        _runs_of(**arrays)
+
+
+def test_a_wrong_type_is_a_type_error_before_a_coordinate_that_is_not_finite():
+    """A `coord_end` that is not a number is a `TypeError`, and a bad `meta` is a `TypeError`
+    even when `coord_start` is not finite."""
+    with pytest.raises(TypeError, match="coord_end"):
+        _bins(2, coord_end="2")
+    with pytest.raises(TypeError, match="meta"):
+        _samples(coord_start=_NAN, meta=[1])
+
+
+_PNS_CASES = [
+    pytest.param((), None, id="no-thresholds"),
+    pytest.param((GAMMA_1H,), None, id="limit"),
+    pytest.param((0.1 * GAMMA_1H, 0.01 * GAMMA_1H), 3.7e-3, id="two-thresholds-bin-3.7-ms"),
+    pytest.param((0.1 * GAMMA_1H,), 1e-4, id="one-threshold-bin-0.1-ms"),
+]
+
+_SEQUENCES = [
+    pytest.param(spin_echo_sequence, id="spin_echo"),
+    pytest.param(lambda: spin_echo_sequence("after"), id="spin_echo_after"),
+    pytest.param(gre_sequence, id="gre"),
+    pytest.param(empty_sequence, id="empty"),
+    pytest.param(arbitrary_gradient_sequence, id="arbitrary_gradient"),
+    pytest.param(border_sequence, id="border"),
+    pytest.param(raster_4us_sequence, id="raster_4us"),
+    pytest.param(lambda: build_repeating(10), id="build_repeating_10"),
+]
+
+
+@pytest.mark.parametrize(("thresholds", "bin_s"), _PNS_CASES)
+@pytest.mark.parametrize("builder", _SEQUENCES)
+def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
+    """Each series of `pns.safe.levels` (`pns_total`, and `pns_above_<k>` for each threshold)
+    for each synthetic sequence and for `build_repeating(10)`, with and without thresholds and
+    with bins that divide the level and bins that do not, is a valid `Series` (the constructor
+    does not raise: the `coord_end` of `pns_total`, `num_samples * dt_s`, is in the range of its
+    `coord_step`, `bin_samples * dt_s`, with the tolerance), and it equals the series that
+    `from_obj` reads from its `to_obj`. A sequence with no gradient gives no series."""
+    seq = builder()
+    kwargs = {} if bin_s is None else {"bin_s": bin_s}
+    levels = PNS_SAFE_LEVELS.compute(
+        seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds, **kwargs
+    )
+
+    series = PNS_SAFE_LEVELS.to_series(levels)
+
+    if levels.reason is not None:
+        assert series == ()
+        return
+    assert [s.name for s in series] == ["pns_total"] + [
+        f"pns_above_{k}" for k in range(len(thresholds))
+    ]
+    for s in series:
+        assert Series.from_obj(s.to_obj()) == s
+
+
+@pytest.mark.parametrize("builder", _SEQUENCES)
+def test_the_series_of_gradient_spectrum_is_valid(builder):
+    """The series of `gradient.spectrum` for each synthetic sequence and for
+    `build_repeating(10)` is a valid `Series` that equals the series that `from_obj` reads from
+    its `to_obj`. A sequence with no gradient gives no series."""
+    seq = builder()
+
+    series = GRADIENT_SPECTRUM.to_series(GRADIENT_SPECTRUM.compute(seq))
+
+    for s in series:
+        assert Series.from_obj(s.to_obj()) == s
+    assert len(series) == (0 if builder is empty_sequence else 1)
 
 
 @pytest.mark.parametrize(
@@ -346,11 +612,10 @@ def test_series_keeps_native_byte_order():
 
 
 def test_series_equal_treats_nan_as_equal():
-    """Two series with NaN in an array, in a float field and in `meta` are equal, and a
-    series equals itself."""
+    """Two series with NaN in an array and in `meta` are equal, and a series equals itself."""
     arrays = {"value": np.array([1.0, np.nan])}
-    one = _samples(arrays=arrays, coord_start=float("nan"), meta={"m": float("nan")})
-    two = _samples(arrays=dict(arrays), coord_start=float("nan"), meta={"m": float("nan")})
+    one = _samples(arrays=arrays, meta={"m": float("nan")})
+    two = _samples(arrays=dict(arrays), meta={"m": float("nan")})
     same = one
     assert one == same
     assert one == two
@@ -406,7 +671,7 @@ def test_series_not_equal_for_a_different_field_or_array(other):
 
 def test_envelope_series_not_equal_for_a_different_end():
     """Two ENVELOPE series that differ only in `coord_end` are not equal."""
-    assert _envelope() != replace(_envelope(), coord_end=0.02)
+    assert _envelope() != replace(_envelope(), coord_end=0.018)
 
 
 def test_series_equality_compares_the_order_of_the_arrays():
@@ -524,28 +789,25 @@ def test_series_round_trip_of_two_million_float32_values():
 
 
 def test_series_round_trip_of_values_that_are_not_finite():
-    """A series with infinity and NaN in an array, in `coord_start` and `coord_end`, and in
-    `meta` gives an equal series after the round trip, and `json.dumps(allow_nan=False)`
-    accepts the object."""
+    """A series with infinity and NaN in an array and in `meta` gives an equal series after
+    the round trip, and `json.dumps(allow_nan=False)` accepts the object. The coordinate
+    fields are finite."""
     s = Series(
         name="x",
         kind=SeriesKind.ENVELOPE,
         unit="1",
         coord_unit="s",
         arrays={"min": _NON_FINITE, "max": _NON_FINITE[::-1]},
-        coord_start=float("-inf"),
+        coord_start=-1.0,
         coord_step=0.5,
-        coord_end=float("nan"),
+        coord_end=1.5,
         meta={"a": float("inf"), "b": float("-inf"), "c": float("nan"), "d": 1.5, "e": "nan?"},
     )
     obj = s.to_obj()
     json.dumps(obj, allow_nan=False)
-    assert (obj["coord_start"], obj["coord_end"]) == ("-inf", "nan")
     assert obj["meta"] == {"a": "inf", "b": "-inf", "c": "nan", "d": 1.5, "e": "nan?"}
     back = _round_trip(s)
     assert back == s
-    assert np.isinf(back.coord_start)
-    assert np.isnan(back.coord_end)
     assert back.meta["a"] == float("inf")
     assert np.isnan(back.meta["c"])
 
@@ -630,6 +892,13 @@ def _rc2_obj() -> dict:
         pytest.param(_with("coord_end", None), id="coord-end-null"),
         pytest.param(_with("coord_start", None), id="coord-start-null"),
         pytest.param(_with("coord_start", True), id="coord-start-a-bool"),
+        pytest.param(_with("coord_start", "inf"), id="coord-start-inf"),
+        pytest.param(_with("coord_start", "-inf"), id="coord-start-minus-inf"),
+        pytest.param(_with("coord_start", "nan"), id="coord-start-nan"),
+        pytest.param(_with("coord_end", "inf"), id="coord-end-inf"),
+        pytest.param(_with("coord_end", "nan"), id="coord-end-nan"),
+        pytest.param(_with("coord_end", 0.012), id="coord-end-too-small"),
+        pytest.param(_with("coord_end", 0.02), id="coord-end-too-large"),
         pytest.param(_with("meta", [1]), id="meta-not-an-object"),
         pytest.param(_with("meta", {"a": [1]}), id="meta-value-a-list"),
         pytest.param(_with("arrays", []), id="arrays-not-an-object"),
@@ -640,7 +909,7 @@ def _rc2_obj() -> dict:
 def test_from_obj_refuses(obj):
     """`from_obj` raises `ValueError`, and no other error, for an object that is not a dict,
     an unknown key, a missing key, an object of rc2, an unknown kind, a bad value of any
-    field, and a bad array."""
+    field (also a coordinate that is not finite or not in order), and a bad array."""
     with pytest.raises(ValueError):
         Series.from_obj(obj)
 

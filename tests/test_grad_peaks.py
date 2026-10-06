@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 import math
 
 import numpy as np
@@ -1146,6 +1147,25 @@ def test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable
     assert first != block_gradient_values(spin_echo_sequence())
     with pytest.raises(TypeError):
         hash(first)
+
+
+def test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable():
+    seq = spin_echo_sequence()
+    window = (0.0, 1e-3)
+    first, second = gradient_peaks(seq, window=window), gradient_peaks(seq, window=window)
+    assert first is not second
+    assert first == second
+    assert gradient_peaks(spin_echo_sequence()) == gradient_peaks(spin_echo_sequence())
+    other = dataclasses.replace(first, vector_peak_hz_per_m=first.vector_peak_hz_per_m + 1.0)
+    assert other != first
+    assert first != gradient_peaks(seq, window=(0.0, 2e-3))
+    with pytest.raises(TypeError):
+        hash(first)
+
+
+def test_axis_result_stays_hashable():
+    result = gradient_peaks(spin_echo_sequence()).axes["x"]
+    assert hash(result) == hash(dataclasses.replace(result))
 
 
 _BLOCK_VALUE_DICTS = (
