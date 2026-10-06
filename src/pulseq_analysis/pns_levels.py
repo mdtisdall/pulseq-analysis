@@ -40,6 +40,7 @@ from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import ON_RASTER_TOLERANCE, GradientSampler, raster_block_lengths
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
+from .seq_utils import AXES, GRAD_COLUMNS
 
 # The default bin of the level, in seconds: 5 ms (500 samples at the 10 us raster). A caller
 # that needs another bin gives `bin_s`. It changes only the bin size, not the summary or the
@@ -58,6 +59,9 @@ PEAK_TOLERANCE = 1e-6
 # The nine fields of each axis of a SAFE hardware struct, in the order of `safe_example_hw`
 # and `asc_to_hw`. `pns.pns_levels_for` keys its results on them too.
 SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
+# The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
+# `_safe_gwf_to_pns_chunk` does not use).
+_HW_FIELDS = tuple(f for f in SAFE_FIELDS if f != "stim_thresh")
 # The largest distance of `a1 + a2 + a3` from 1 for an axis (the rule of pypulseq's
 # `safe_hw_check`).
 _A_SUM_TOLERANCE = 0.001
@@ -173,7 +177,7 @@ def _check_hardware(hardware: object) -> None:
             'a real scanner), give hardware=(safe_example_hw(), "<a label>")'
         )
     struct = hardware[0]
-    for axis in _AXES3:
+    for axis in AXES:
         axis_struct = getattr(struct, axis, None)
         if axis_struct is None:
             raise ValueError(f"'{axis}' missing in the hardware struct")
@@ -323,7 +327,7 @@ def pns_levels(
                 level_max_hz_per_t=empty,
                 peak_hz_per_t=0.0,
                 peak_time_s=None,
-                axis_peaks_hz_per_t=FrozenDict(dict.fromkeys(_AXES3, 0.0)),
+                axis_peaks_hz_per_t=FrozenDict(dict.fromkeys(AXES, 0.0)),
                 on_raster=on_raster,
                 above=FrozenDict({key: () for key in keys}),
             )
@@ -406,7 +410,7 @@ def pns_levels(
             level_max_hz_per_t=level_max,
             peak_hz_per_t=peak,
             peak_time_s=peak_time_s,
-            axis_peaks_hz_per_t=FrozenDict(zip(_AXES3, axis_peak.tolist(), strict=True)),
+            axis_peaks_hz_per_t=FrozenDict(zip(AXES, axis_peak.tolist(), strict=True)),
             on_raster=on_raster,
             above=FrozenDict(
                 {key: finder.finish() for key, finder in zip(keys, finders, strict=True)}
@@ -416,12 +420,6 @@ def pns_levels(
 
 
 # ---- Private helpers ----
-
-_AXES3 = ("x", "y", "z")
-_GRAD_COLUMNS = ("gx", "gy", "gz")
-# The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
-# `_safe_gwf_to_pns_chunk` does not use).
-_HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
 
 
 def _read_only(levels: PnsLevels) -> PnsLevels:
@@ -458,7 +456,7 @@ def _hw_to_dict(hw_ns) -> FrozenDict[str, FrozenDict[str, float]]:
             axis: FrozenDict(
                 {field: float(getattr(getattr(hw_ns, axis), field)) for field in _HW_FIELDS}
             )
-            for axis in _AXES3
+            for axis in AXES
         }
     )
 
@@ -476,7 +474,7 @@ def _read_block_range(
     offset = int(cumulative[first_block - 1]) if first_block > 0 else 0
     columns = [
         sampler.block_samples(axis, first_block, stop_block, dt, skip=s0 - offset, count=s1 - s0)
-        for axis in _GRAD_COLUMNS
+        for axis in GRAD_COLUMNS
     ]
     return np.stack(columns, axis=1)
 
@@ -486,7 +484,7 @@ def _read_sampled_range(sampler: GradientSampler, dt: float, s0: int, s1: int) -
     `GradientSampler.sample` at the file times `(k + 0.5) * dt` (the fallback for a
     sequence with a block that is not on the raster)."""
     t = (np.arange(s0, s1, dtype=np.float64) + 0.5) * dt
-    columns = [sampler.sample(axis, t) for axis in _GRAD_COLUMNS]
+    columns = [sampler.sample(axis, t) for axis in GRAD_COLUMNS]
     return np.stack(columns, axis=1)
 
 

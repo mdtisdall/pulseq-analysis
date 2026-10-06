@@ -109,12 +109,10 @@ it collects to a temporary file (option `--collected-tests-file`, from
 When the check runs alone, without `--collected`, it runs
 `pytest --collect-only`, which lists the tests without running them. Each
 pytest test is identified by its file name and its function name. A
-parametrized test is one test. The check also reads each file that matches
-`tests/js/test_*.js` as a file of JavaScript tests. This repository has no
-JavaScript tests, so the check finds none. The check reads TESTS.md and takes
-each level-4 heading that is a test name in backticks as an entry. The entry
-belongs to the test file named in the nearest level-3 heading above it. The
-check then reports:
+parametrized test is one test. The check reads TESTS.md and takes each level-4
+heading that is a test name in backticks as an entry. The entry belongs to the
+test file named in the nearest level-3 heading above it. The check then
+reports:
 
 - each pytest test with no entry in its file's section;
 - each entry for a test that does not exist in that file;
@@ -202,9 +200,10 @@ sequences in `tests/synthetic.py` are legal Pulseq.
 
 #### `test_time_tolerance`
 
-**Checks:** The time tolerance is 1 ns.
+**Checks:** The time tolerance is 1 ns, and it is the `eps` of pypulseq (the join rule
+of `sampling` uses it in place of `pp.eps`).
 
-**How:** The test compares `seq_utils.TIME_TOLERANCE` with 1e-9.
+**How:** The test compares `seq_utils.TIME_TOLERANCE` with 1e-9 and with `pp.eps`.
 
 **Assumptions:** None.
 
@@ -3217,13 +3216,26 @@ is not in the parametrized test above.
 
 #### `test_series_equality_compares_the_order_of_the_arrays`
 
-**Checks:** Two series with the same arrays in a different order are not equal, but two
-series with the same `meta` keys in a different order are equal.
+**Checks:** Two series with the same arrays in a different order are not equal.
 
-**How:** The test builds each pair and checks `==` or `!=`.
+**How:** The test builds the pair and checks `!=`.
 
-**Assumptions:** The order of the `meta` keys does not matter for `==`, but `to_obj` keeps
-it. The docstring of `Series` says so.
+**Assumptions:** None.
+
+#### `test_series_equality_compares_the_order_of_the_meta_keys`
+
+**Checks:** Two series whose `meta` has the same items in a different order are not equal.
+`Series.from_obj(s.to_obj())`, also through `json.dumps` and `json.loads`, keeps the order
+of the `meta` keys and equals `s`.
+
+**How:** The test builds two series with `meta` `{"p": 1, "q": 2}` and `{"q": 2, "p": 1}`
+and checks `!=`. It checks that a third series with the first `meta` equals the first. For
+each of the two, it checks `list(meta)` and `==` after the round trip, with and without JSON
+text, and that the JSON round trip of the first does not equal the second.
+
+**Assumptions:** The order of the `meta` keys counts for `==`, as for each other dict of the
+package (`_equality.values_equal`), because the JSON form keeps it. The docstring of
+`Series` says so.
 
 #### `test_series_equality_compares_the_type_of_a_meta_value`
 

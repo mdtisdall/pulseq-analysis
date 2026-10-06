@@ -12,12 +12,10 @@ wrote:
 
     nix develop --command uv run python scripts/check_tests_md.py --collected PATH
 
-Either way, a parametrized test is one test. The rest are JavaScript tests: each
-top-level `test("test_...")` call in a file that matches `tests/js/test_*.js`.
-JavaScript tests are found by reading the file's text, not by running Node.js. The
-entries in TESTS.md are the `#### `test_name`` headings. Each one belongs to the test
-file that the `###` heading above it names, for example `### 2.1 Shared sequence helpers
-(`test_seq_utils.py`)`. Tests and entries are compared by file name and test name, so
+Either way, a parametrized test is one test. The entries in TESTS.md are the
+`#### `test_name`` headings. Each one belongs to the test file that the `###` heading
+above it names, for example `### 2.1 Shared sequence helpers (`test_seq_utils.py`)`.
+Tests and entries are compared by file name and test name, so
 a test name that is in two files needs an entry in each file's section.
 
 Exits 1 and lists each difference when TESTS.md does not match.
@@ -33,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TESTS_MD = ROOT / "TESTS.md"
 
-FILE_HEADING = re.compile(r"^### .*\(`(test_\w+\.(?:py|js))`\)\s*$")
+FILE_HEADING = re.compile(r"^### .*\(`(test_\w+\.py)`\)\s*$")
 SECTION_HEADING = re.compile(r"^#{1,3} ")
 ENTRY_HEADING = re.compile(r"^#### `(test_\w+)`\s*$")
 
@@ -87,34 +85,6 @@ def collected_tests(node_ids: list[str]) -> set[tuple[str, str]]:
     return tests
 
 
-JS_TEST_LINE = re.compile(r'^test\("(test_\w+)"', re.MULTILINE)
-JS_TEST_CALL = re.compile(r"^test\(.*$", re.MULTILINE)
-
-
-def javascript_tests() -> tuple[set[tuple[str, str]], list[str]]:
-    """(file name, test name) of each JS test in `tests/js`, and the problems found.
-
-    A JS test is a top-level `test("test_name", ...)` call at the start of a line in
-    a file that matches `test_*.js`. This reads the file's text; it does not run
-    Node.js.
-    """
-    entries: list[tuple[str, str]] = []
-    problems = []
-    for path in sorted((ROOT / "tests" / "js").glob("test_*.js")):
-        text = path.read_text(encoding="utf-8")
-        for match in JS_TEST_LINE.finditer(text):
-            entries.append((path.name, match.group(1)))
-        for call in JS_TEST_CALL.findall(text):
-            if not JS_TEST_LINE.match(call):
-                problems.append(f"{path.name}: test name is not test_ and word characters: {call}")
-    problems += [
-        f"{file}: `{name}` is a JavaScript test more than once"
-        for (file, name), count in Counter(entries).items()
-        if count > 1
-    ]
-    return set(entries), problems
-
-
 def documented_tests(text: str) -> tuple[set[tuple[str, str]], list[str]]:
     """(file name, test name) of each entry in TESTS.md, and the problems found."""
     entries: list[tuple[str, str]] = []
@@ -151,15 +121,7 @@ def main() -> int:
     args = parser.parse_args()
     node_ids = read_node_ids(args.collected) if args.collected else collect_node_ids()
     tests = collected_tests(node_ids)
-    js_tests, problems = javascript_tests()
-    same_name = sorted({f for f, _ in tests} & {f for f, _ in js_tests})
-    if same_name:
-        sys.exit(
-            "Test files with the same name in pytest and in the JavaScript tests: "
-            + ", ".join(same_name)
-            + ". TESTS.md names test files without their directory."
-        )
-    tests |= js_tests
+    problems: list[str] = []
     entries, more_problems = documented_tests(TESTS_MD.read_text(encoding="utf-8"))
     problems += more_problems
     problems += [f"no entry in TESTS.md for {f}::{n}" for f, n in sorted(tests - entries)]

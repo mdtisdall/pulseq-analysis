@@ -51,6 +51,7 @@ from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import GradientSampler
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
+from .seq_utils import AXES, GRAD_COLUMNS
 
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05
@@ -200,9 +201,9 @@ def gradient_spectrum(
         start = first * hop
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
-        for axis in "xyz":
+        for axis, column in zip(AXES, GRAD_COLUMNS, strict=True):
             sxx = _chunk_spectrogram(
-                sampler, f"g{axis}", start, stop, pad, nt, dt, nwin, nfft, keep_n, window
+                sampler, column, start, stop, pad, nt, dt, nwin, nfft, keep_n, window
             )
             chunk_max = sxx.max(axis=1)
             axes_max[axis] = (

@@ -65,7 +65,8 @@ These rules apply to all the modules:
 - **Equality.** `SequenceIndex`, `BlockGradientValues`, `PnsLevels`,
   `GradientSpectrum` and `Series` compare by value: `==` compares each field,
   an array by its dtype, its shape and its values (a NaN equals a NaN), and a
-  dict with its keys in order. They are not hashable. The other frozen
+  dict with its keys in order (for a `Series`, also the keys of `meta`). They
+  are not hashable. The other frozen
   dataclasses (for example `GradientPeaks` and `PnsInterval`) have the `==` of
   `dataclasses`.
 - **Read-only results.** A result can be shared (the kept results above), so
@@ -470,7 +471,9 @@ a wrong value. It keeps its own dicts and a read-only copy of each array, in
 native byte order, so a change to the caller's dicts or arrays does not change
 it. `==` compares the fields, the array names in their order, and each array
 with its dtype and `np.array_equal(..., equal_nan=True)`. A NaN equals a NaN.
-A `Series` is not hashable.
+The keys of `meta` count in their order, as for each other dict of the
+package, and `to_obj` and `from_obj` keep that order. A `Series` is not
+hashable.
 
 `Series.to_obj()` gives a dict with the keys `name`, `kind`, `unit`,
 `coord_unit`, `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`,

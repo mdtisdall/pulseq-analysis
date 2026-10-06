@@ -29,9 +29,7 @@ import numpy as np
 import pypulseq as pp
 
 from .seq_index import SequenceIndex, grad_events
-from .seq_utils import gradient_offsets
-
-_AXES = ("gx", "gy", "gz")
+from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE, gradient_offsets
 
 
 class GradientSampler:
@@ -102,8 +100,8 @@ class GradientSampler:
     def sample(self, axis: str, t: np.ndarray) -> np.ndarray:
         """The waveform of `axis` ("gx", "gy" or "gz") in Hz/m at the times `t` (s),
         which must be sorted in increasing order."""
-        if axis not in _AXES:
-            raise ValueError(f"axis must be one of {_AXES}: {axis!r}")
+        if axis not in GRAD_COLUMNS:
+            raise ValueError(f"axis must be one of {GRAD_COLUMNS}: {axis!r}")
         t = np.asarray(t, dtype=np.float64)
         if t.size == 0:
             return np.empty(0, dtype=np.float64)
@@ -131,7 +129,7 @@ class GradientSampler:
 
         keep = np.ones(times.size, dtype=bool)
         if times.size > 1:
-            keep[1:] = times[1:] > times[:-1] + pp.eps
+            keep[1:] = times[1:] > times[:-1] + TIME_TOLERANCE
         times = times[keep]
         values = values[keep]
 
@@ -231,8 +229,8 @@ class GradientSampler:
         `0 <= first <= stop <= num_blocks`, when a block of the range is not on the
         raster (`raster_block_lengths`), and when `skip` or `count` is negative or
         `skip + count` is more than the samples of the range."""
-        if axis not in _AXES:
-            raise ValueError(f"axis must be one of {_AXES}: {axis!r}")
+        if axis not in GRAD_COLUMNS:
+            raise ValueError(f"axis must be one of {GRAD_COLUMNS}: {axis!r}")
         num_blocks = self._index.num_blocks
         if not (0 <= first <= stop <= num_blocks):
             raise ValueError(
