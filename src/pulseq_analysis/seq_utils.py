@@ -9,6 +9,10 @@ import numpy as np
 
 # The tolerance of a comparison of two times. A segment shorter than this has no slope.
 TIME_TOLERANCE = 1e-9  # s
+# The names of the three gradient axes, as the keys of the per-axis results.
+AXES = ("x", "y", "z")
+# The names of the gradient columns of a block, one for each axis of `AXES`.
+GRAD_COLUMNS = ("gx", "gy", "gz")
 
 
 def gradient_offsets(g) -> tuple[float, np.ndarray, np.ndarray]:

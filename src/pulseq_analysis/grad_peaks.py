@@ -57,9 +57,7 @@ from .seq_index import (
     grad_events,
     sequence_index,
 )
-from .seq_utils import TIME_TOLERANCE, gradient_points
-
-_AXES = ("x", "y", "z")
+from .seq_utils import AXES, TIME_TOLERANCE, gradient_points
 
 
 @dataclass(frozen=True)
@@ -203,12 +201,12 @@ def _vector_peak_in_block(
 ) -> tuple[float, float]:
     """The time and the |G| value of the largest three-axis vector magnitude, evaluated at the
     union of the breakpoints of the axes that have a piece in `axis_points` (a subset of
-    `_AXES`, each `(t, amp)`, all sharing one time origin). An axis with no piece here is zero
+    `AXES`, each `(t, amp)`, all sharing one time origin). An axis with no piece here is zero
     for the whole range. |G| is convex on a stretch where every axis is linear, so its maximum
     is at one of these breakpoints."""
     times = np.unique(np.concatenate([t for t, _ in axis_points.values()]))
     sum_sq = np.zeros_like(times)
-    for axis in _AXES:
+    for axis in AXES:
         piece = axis_points.get(axis)
         if piece is None:
             continue
@@ -486,11 +484,11 @@ def _range_result(
             "rms_sum": 0.0,
             "has_event": False,
         }
-        for axis in _AXES
+        for axis in AXES
     }
 
     if n == 0 or not lo < hi:
-        axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in _AXES}
+        axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in AXES}
         return axes, 0.0, 0.0, None, False
 
     end_s = start_s + index.duration_s
@@ -501,7 +499,7 @@ def _range_result(
     i0, i1 = (int(inside_idx[0]), int(inside_idx[-1]) + 1) if inside_idx.size else (0, 0)
 
     if i1 > i0:
-        for axis in _AXES:
+        for axis in AXES:
             stats = _axis_slice_stats(axis_cols[axis][i0:i1], ev, i0, start_s)
             if stats is not None:
                 state[axis].update(stats)
@@ -516,7 +514,7 @@ def _range_result(
                 block = seq.get_block(int(index.block_id[play]))
                 block_start = float(start_s[play])
                 axis_points: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-                for axis in _AXES:
+                for axis in AXES:
                     g = getattr(block, f"g{axis}", None)
                     if g is None:
                         continue
@@ -584,7 +582,7 @@ def _range_result(
     # belongs to the block after it, which is not processed.
     axes: dict[str, AxisResult] = {}
     has_event_any = False
-    for axis in _AXES:
+    for axis in AXES:
         steps = _junction_steps(axis_cols[axis], ev, grad_raster)
         times = _junction_times(axis_cols[axis], ev, start_s)
         junction_in_range = processed & (times >= lo) & (times < hi)
@@ -788,7 +786,7 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     slew_hz_per_m_per_s: dict[str, np.ndarray] = {}
     slew_time_s: dict[str, np.ndarray] = {}
     junction_hz_per_m_per_s: dict[str, np.ndarray] = {}
-    for axis, col in zip(_AXES, (index.gx, index.gy, index.gz), strict=True):
+    for axis, col in zip(AXES, (index.gx, index.gy, index.gz), strict=True):
         peak_hz_per_m[axis] = _event_column(col, ev.peak)
         peak_time_s[axis] = start_s + _event_column(col, ev.peak_offset)
         slew_hz_per_m_per_s[axis] = _event_column(col, ev.slew)

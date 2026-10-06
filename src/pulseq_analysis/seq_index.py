@@ -25,10 +25,10 @@ import pypulseq as pp
 
 from ._equality import fields_equal
 from ._kept import _Entry, kept_results
+from .seq_utils import GRAD_COLUMNS
 
 # The columns of a row of `seq.block_events`.
 _RF, _GX, _GY, _GZ, _ADC = 1, 2, 3, 4, 5
-_AXES = ("gx", "gy", "gz")
 
 
 @dataclass(frozen=True, eq=False)
@@ -212,7 +212,7 @@ def rf_events(seq: pp.Sequence, index: SequenceIndex) -> Iterator[tuple[int, Sim
 def grad_events(seq: pp.Sequence, index: SequenceIndex) -> Iterator[tuple[int, SimpleNamespace]]:
     """(dense index, event) for each unique gradient event of `seq`, in dense order. The
     axis of the block where it is first used is `index.grad_first_axis[k - 1]`."""
-    attrs = [_AXES[a] for a in index.grad_first_axis.tolist()]
+    attrs = [GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
     return _first_events(seq, index, index.grad_first, attrs)
 
 

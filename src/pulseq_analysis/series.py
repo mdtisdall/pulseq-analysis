@@ -38,6 +38,7 @@ from typing import Any
 
 import numpy as np
 
+from ._equality import fields_equal
 from ._validate import real
 
 # The strings that stand for a float that is not finite in the JSON form.
@@ -150,10 +151,12 @@ class Series:
     the copy is read-only. The caller's own array stays writable, and a change to it does not
     change the series. An int in `coord_start`, `coord_step` or `coord_end` becomes a float.
 
-    `==` is true when the fields are the same, the array names are the same and in the same
-    order, and each pair of arrays has the same dtype and is equal by
-    `np.array_equal(a, b, equal_nan=True)`. A float of a field or of `meta` that is NaN
-    equals a NaN. The order of the keys of `meta` does not matter. A series is not hashable.
+    `==` is true when the fields are the same (`_equality.fields_equal`), the array names
+    are the same and in the same order, and each pair of arrays has the same dtype and is
+    equal by `np.array_equal(a, b, equal_nan=True)`. A float of a field or of `meta` that is
+    NaN equals a NaN. The keys of `meta` must be the same and in the same order, as for each
+    other dict of the package. `to_obj` and `from_obj` keep that order. A series is not
+    hashable.
     """
 
     name: str
@@ -248,33 +251,7 @@ class Series:
         object.__setattr__(self, "coord_end", coord_end)
         object.__setattr__(self, "meta", meta)
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Series):
-            return NotImplemented
-        if (self.name, self.kind, self.unit, self.coord_unit) != (
-            other.name,
-            other.kind,
-            other.unit,
-            other.coord_unit,
-        ):
-            return False
-        if not (
-            _same_value(self.coord_start, other.coord_start)
-            and _same_value(self.coord_step, other.coord_step)
-            and _same_value(self.coord_end, other.coord_end)
-        ):
-            return False
-        if self.meta.keys() != other.meta.keys():
-            return False
-        if not all(_same_value(v, other.meta[k]) for k, v in self.meta.items()):
-            return False
-        if list(self.arrays) != list(other.arrays):
-            return False
-        return all(
-            a.dtype == b.dtype and np.array_equal(a, b, equal_nan=True)
-            for a, b in zip(self.arrays.values(), other.arrays.values(), strict=True)
-        )
-
+    __eq__ = fields_equal
     __hash__ = None  # type: ignore[assignment]
 
     def to_obj(self) -> dict[str, Any]:
@@ -421,11 +398,6 @@ def _float_from_json(x: Any, where: str) -> float | None:
     if isinstance(x, bool) or not isinstance(x, (int, float)):
         raise ValueError(f"{where} must be a number or null, not {x!r}")  # noqa: TRY004
     return float(x)
-
-
-def _same_value(a: Any, b: Any) -> bool:
-    """True when `a` and `b` have the same type and are equal, where a NaN equals a NaN."""
-    return type(a) is type(b) and (a == b or (a != a and b != b))  # noqa: PLR0124
 
 
 def _check_keys(obj: Any, keys: tuple[str, ...], what: str) -> None:

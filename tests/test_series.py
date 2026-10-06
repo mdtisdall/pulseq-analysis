@@ -410,11 +410,27 @@ def test_envelope_series_not_equal_for_a_different_end():
 
 
 def test_series_equality_compares_the_order_of_the_arrays():
-    """Two series with the same arrays in another order are not equal, and `meta` of the
-    same keys in another order is equal."""
+    """Two series with the same arrays in another order are not equal."""
     a, b = np.zeros(3), np.ones(3)
     assert _samples(arrays={"value": a, "x": b}) != _samples(arrays={"x": b, "value": a})
-    assert _samples(meta={"p": 1, "q": 2}) == _samples(meta={"q": 2, "p": 1})
+
+
+def test_series_equality_compares_the_order_of_the_meta_keys():
+    """Two series whose `meta` has the same items in another order are not equal, and the
+    round trip of `to_obj` (also through JSON text) keeps the order and gives an equal
+    series."""
+    one = _samples(meta={"p": 1, "q": 2})
+    two = _samples(meta={"q": 2, "p": 1})
+    assert one != two
+    assert (one == two) is False
+    assert one == _samples(meta={"p": 1, "q": 2})
+    for s in (one, two):
+        assert list(Series.from_obj(s.to_obj()).meta) == list(s.meta)
+        assert Series.from_obj(s.to_obj()) == s
+        back = _round_trip(s)
+        assert list(back.meta) == list(s.meta)
+        assert back == s
+    assert _round_trip(one) != two
 
 
 def test_series_equality_compares_the_type_of_a_meta_value():

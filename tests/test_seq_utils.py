@@ -16,6 +16,7 @@ from pulseq_analysis import seq_utils
 
 def test_time_tolerance():
     assert seq_utils.TIME_TOLERANCE == 1e-9
+    assert seq_utils.TIME_TOLERANCE == pp.eps
 
 
 def test_the_gamma_of_the_tests_is_the_gamma_of_the_test_system():

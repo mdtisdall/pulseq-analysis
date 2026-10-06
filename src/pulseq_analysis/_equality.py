@@ -1,6 +1,6 @@
 """Value equality for the frozen dataclasses of results that hold numpy arrays
-(`seq_index.SequenceIndex`, `grad_peaks.BlockGradientValues`, `pns_levels.PnsLevels` and
-`grad_spectrum.GradientSpectrum`).
+(`seq_index.SequenceIndex`, `grad_peaks.BlockGradientValues`, `pns_levels.PnsLevels`,
+`grad_spectrum.GradientSpectrum` and `series.Series`).
 
 The `__eq__` that `dataclasses` makes compares the fields as one tuple, and a numpy array
 with more than one element raises `ValueError` in that comparison. `fields_equal` compares
@@ -20,7 +20,7 @@ The rules of `values_equal`:
 - Two tuples or two lists are equal when they have the same length and equal elements.
 - Two dataclasses of the same class are equal when each pair of fields is equal.
 - Other values are equal when they have the same type and are equal by `==`, where a
-  NaN equals a NaN (as `series._same_value`). Thus `1` does not equal `1.0`.
+  NaN equals a NaN. Thus `1` does not equal `1.0`, and `True` does not equal `1`.
 """
 
 import dataclasses
