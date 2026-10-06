@@ -4,7 +4,15 @@ import pytest
 from pns_hardware import BAD_STRUCTS, NOT_A_PAIR
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
-from synthetic import EXAMPLE_HW, GAMMA_1H, SYSTEM, block_pulse, empty_sequence, spin_echo_sequence
+from synthetic import (
+    EXAMPLE_HW,
+    GAMMA_1H,
+    SYSTEM,
+    block_pulse,
+    empty_sequence,
+    signed,
+    spin_echo_sequence,
+)
 
 from pulseq_analysis import pns
 from pulseq_analysis import pns_levels as pns_levels_module
@@ -102,7 +110,7 @@ def test_no_gradients():
 
 
 def test_no_gradients_with_rf_and_adc():
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(block_pulse("excitation", np.pi / 2))
     seq.add_block(
         pp.make_adc(num_samples=64, dwell=20e-6, delay=SYSTEM.adc_dead_time, system=SYSTEM)
@@ -112,7 +120,7 @@ def test_no_gradients_with_rf_and_adc():
 
 @pytest.mark.parametrize("channel", ["x", "y", "z"])
 def test_a_gradient_on_one_axis_has_a_prediction(channel):
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1e-3))
     seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
     p = pns_levels_for(seq, hardware=EXAMPLE_HW)

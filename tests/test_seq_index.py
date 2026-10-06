@@ -19,9 +19,11 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    signed,
     spin_echo_sequence,
 )
 
+from pulseq_analysis import seq_index
 from pulseq_analysis.seq_index import (
     adc_events,
     block_cache_off,
@@ -154,7 +156,7 @@ def test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block():
     first play index 0. Block 1 introduces e2 on gx before e3 on gy (gx before gy
     within one block), so they get dense indexes 2 and 3, both with first play index 1.
     Block 2's gx event is e1 again (already dense 1), so it adds no new dense index."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
     gz = pp.make_trapezoid(channel="z", amplitude=1e5, **common)
     gx = pp.make_trapezoid(channel="x", amplitude=2e5, **common)
@@ -254,13 +256,13 @@ def test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable():
 
 
 def _one_trapezoid(channel: str) -> pp.Sequence:
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
     return seq
 
 
 def _delay_only() -> pp.Sequence:
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1e-3))
     return seq
 
@@ -282,7 +284,7 @@ def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, ex
 
 
 def test_sequence_index_of_a_sequence_with_no_blocks():
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     index = sequence_index(seq)
     assert index.num_blocks == 0
     assert index.end_s == 0.0
@@ -393,7 +395,7 @@ def test_rf_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch):
 def test_grad_events_reads_each_unique_first_use_block_once_with_the_cache_off(
     monkeypatch,
 ):
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
     seq.add_block(pp.make_trapezoid(channel="z", amplitude=1e5, **common))
     # gx and gy are both first used in this second block: one get_block call, not two.
@@ -443,3 +445,29 @@ def test_adc_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch)
         assert ev.delay == expected.delay
         assert ev.num_samples == expected.num_samples
         assert ev.dwell == expected.dwell
+
+
+def test_sequence_index_raises_for_an_unsigned_sequence():
+    """`sequence_index` raises `ValueError` for a sequence that only `add_block` built (no
+    `[SIGNATURE]` hash), and gives its index for the same sequence once it has a hash."""
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_delay(1e-3))
+    with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
+        sequence_index(seq)
+    signed(seq)
+    assert sequence_index(seq).num_blocks == 1
+
+
+def test_sequence_index_checks_the_signature_before_the_kept_results(monkeypatch):
+    """The refusal of an unsigned sequence comes before `kept_results`: with
+    `seq_index.kept_results` set to fail, `sequence_index` still raises the `ValueError`
+    of the signature, not the error of `kept_results`."""
+
+    def fail(cache, seq):
+        raise RuntimeError("kept_results was called")
+
+    monkeypatch.setattr(seq_index, "kept_results", fail)
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_delay(1e-3))
+    with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
+        sequence_index(seq)

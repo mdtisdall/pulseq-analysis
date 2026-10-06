@@ -1092,9 +1092,12 @@ and with `thresholds_hz_per_t=()`, checks `above == {}`, and compares the two re
 
 ### 2.3 Sequence extensions (`test_extensions.py`)
 
-`test_extensions.py` tests `extensions.refuse_rotations`, the guard that
-`cards/spectrum.py`, `cards/pns.py` and `cards/gradient_limits.py` (of pulseq-reports) call
-before they read any gradient. Task 6.1 of
+`test_extensions.py` tests the two guards of `extensions.py`. `refuse_rotations` is the guard
+that `cards/spectrum.py`, `cards/pns.py` and `cards/gradient_limits.py` (of pulseq-reports)
+call before they read any gradient. `refuse_unsigned` refuses a sequence with no
+`[SIGNATURE]` hash: `sequence_index` calls it, so each measurement refuses an unsigned
+sequence. Its tests build a sequence in memory with `add_block` (it has no hash), and sign
+the sequences of `tests/synthetic.py` with `synthetic.signed`. Task 6.1 of
 `docs/plans/diagram-event-table.md` found that pypulseq 1.5.0.post1 cannot
 make a rotation and that its `Sequence.read` raises `ValueError` for a
 `.seq` file with a rotation section. This file therefore makes its own
@@ -1150,6 +1153,99 @@ new, empty `EventLibrary`, and calls `refuse_rotations` on it.
 
 **Assumptions:** None.
 
+#### `test_refuse_unsigned_raises_for_a_sequence_built_in_memory`
+
+**Checks:** `refuse_unsigned` raises `ValueError`, with "no [SIGNATURE] hash" in the
+message, for a sequence that only `add_block` built.
+
+**How:** The test builds a sequence with one trapezoid on x and a delay, checks that its
+`signature_value` is `''`, and calls `refuse_unsigned` inside `pytest.raises`.
+
+**Assumptions:** pypulseq leaves `signature_value` as `''` for a sequence that `write` and
+`read` have not touched (pypulseq-issues 11, fact 11 of
+`docs/plans/second-review-fixes.md`).
+
+#### `test_refuse_unsigned_accepts_synthetic_sequences`
+
+**Checks:** `refuse_unsigned` raises nothing for each synthetic sequence builder in
+`tests/synthetic.py`: each gives a signed sequence.
+
+**How:** The test is parametrized over `spin_echo_sequence`, `gre_sequence`,
+`arbitrary_gradient_sequence` and `empty_sequence`. For each, it builds the sequence and
+calls `refuse_unsigned` on it.
+
+**Assumptions:** `synthetic.signed` sets the hash that the check looks for (a `str` that
+is not `''`). It is not the hash of the sequence: only the presence counts.
+
+#### `test_refuse_unsigned_raises_for_a_signature_value_that_is_not_a_str`
+
+**Checks:** A `signature_value` that is not a `str` (`0.0`, `1`, `None`, `b"0123"`) is not a
+hash: `refuse_unsigned` raises `ValueError`.
+
+**How:** The test is parametrized over the four values. For each, it builds a sequence in
+memory, sets `seq.signature_value` to the value, and calls `refuse_unsigned` inside
+`pytest.raises`.
+
+**Assumptions:** None. The float is the value that pypulseq's `read` kept for a hash that
+looked like a number, before the pin `pulseq-reports-pin-2`.
+
+#### `test_refuse_unsigned_accepts_a_sequence_after_write`
+
+**Checks:** `write` signs a sequence: the object that `refuse_unsigned` refused passes
+after `seq.write`.
+
+**How:** The test builds a sequence in memory, checks that `refuse_unsigned` raises, calls
+`seq.write` for a file in `tmp_path`, and calls `refuse_unsigned` again.
+
+**Assumptions:** pypulseq's `write` sets `seq.signature_value` to the hash of the file
+(fact 11 of `docs/plans/second-review-fixes.md`).
+
+#### `test_refuse_unsigned_accepts_a_read_of_a_signed_file`
+
+**Checks:** A new `Sequence` that reads a signed `.seq` file has a hash, so
+`refuse_unsigned` raises nothing.
+
+**How:** The test writes a sequence built in memory to `tmp_path`, makes a new
+`pp.Sequence`, calls `read` for the file, and calls `refuse_unsigned`.
+
+**Assumptions:** pypulseq's `read` keeps the `[SIGNATURE]` hash as text. It is the pin
+`pulseq-reports-pin-2`: before it, a hash that looked like a number was a float.
+
+#### `test_refuse_unsigned_raises_for_a_read_of_an_unsigned_file`
+
+**Checks:** A new `Sequence` that reads a `.seq` file with no `[SIGNATURE]` section has no
+hash, so `refuse_unsigned` raises `ValueError`.
+
+**How:** The test writes a sequence built in memory to `tmp_path`, cuts the file at its
+`[SIGNATURE]` section (and checks that the section is gone), makes a new `pp.Sequence`,
+calls `read` for the file, and calls `refuse_unsigned` inside `pytest.raises`.
+
+**Assumptions:** pypulseq's `read` of an unsigned file into a new object leaves
+`signature_value` as `''`. The test does not cover the two stale cases (a `read` of an
+unsigned file into an object that read a signed file, and `add_block` after `read`): in them
+the check passes with the old hash, which `refuse_unsigned` documents as a limit.
+
+#### `test_each_measurement_raises_for_a_sequence_built_in_memory`
+
+**Checks:** Each public measurement raises `ValueError`, with "no [SIGNATURE] hash" in the
+message, for a sequence that has no hash: `gradient_peaks`, `block_gradient_values`,
+`pns_levels_for`, `pns_levels`, `gradient_spectrum` and `gradient_spectrum_for`.
+
+**How:** The test is parametrized over the six functions (the PNS ones with `EXAMPLE_HW`).
+For each, it builds a sequence in memory and calls the function inside `pytest.raises`.
+
+**Assumptions:** None. Each measurement reaches the check through `sequence_index`.
+
+#### `test_each_measurement_accepts_a_sequence_after_write`
+
+**Checks:** After `write` signs a sequence, each of the six measurements gives a result.
+
+**How:** The test is parametrized over the same six functions. For each, it builds a
+sequence in memory, calls `seq.write` for a file in `tmp_path`, calls the function on the
+same object, and checks that the result is not `None`.
+
+**Assumptions:** The test does not check the values of a result: the other test files do.
+
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
@@ -1160,7 +1256,9 @@ reference numbering, `_reference_index`, is a plain loop over the blocks with on
 for each event kind: the loop that `diagram_data.diagram_tables` had before it used the
 index. Its `*_first` arrays hold play indexes, as `SequenceIndex` does (the old loop
 kept block ids). The tests load `build_repeating` and `build_worst` from
-`tests/scale_sequences.py`.
+`tests/scale_sequences.py`. `sequence_index` refuses a sequence with no `[SIGNATURE]` hash,
+so each builder of `tests/synthetic.py` and `tests/scale_sequences.py` gives a signed
+sequence, and a test that builds a sequence by hand calls `synthetic.signed` on it.
 
 #### `test_dense_columns_and_first_arrays_match_the_reference_numbering`
 
@@ -1398,6 +1496,30 @@ object reused every TR, and repeats the wrapper technique of the RF and gradient
 tests. It checks the call count is 1, that the recorded cache flag is `False`, that
 `use_block_cache` is restored to `True`, and that the yielded event's `delay`,
 `num_samples` and `dwell` equal the `adc` attribute of that block read separately.
+
+**Assumptions:** None.
+
+#### `test_sequence_index_raises_for_an_unsigned_sequence`
+
+**Checks:** `sequence_index` raises `ValueError`, with "no [SIGNATURE] hash" in the message,
+for a sequence that only `add_block` built, and gives its index when the same sequence has
+a hash.
+
+**How:** The test builds a sequence with one delay block, calls `sequence_index` inside
+`pytest.raises`, calls `synthetic.signed` on the sequence, and checks that
+`sequence_index(seq).num_blocks` is 1.
+
+**Assumptions:** None.
+
+#### `test_sequence_index_checks_the_signature_before_the_kept_results`
+
+**Checks:** The check of the hash comes before `kept_results`: `sequence_index` raises the
+`ValueError` of the signature when `kept_results` would fail.
+
+**How:** The test replaces `seq_index.kept_results` with a function that raises
+`RuntimeError`, builds an unsigned sequence, and calls `sequence_index` inside
+`pytest.raises(ValueError)`. A call of `kept_results` first would raise `RuntimeError`, and
+the test would fail.
 
 **Assumptions:** None.
 

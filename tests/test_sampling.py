@@ -6,6 +6,7 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    signed,
     spin_echo_sequence,
 )
 
@@ -49,7 +50,7 @@ def _triangle_sequence() -> pp.Sequence:
     """One trapezoid on x with an area small enough that `make_trapezoid` gives it no
     flat time (a triangle): `gradient_offsets` then gives two points at the same middle
     time (both with the peak amplitude), which the join rule must remove one of."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     g = pp.make_trapezoid(channel="x", area=10.0, system=SYSTEM)
     assert g.flat_time == 0.0
     seq.add_block(g)
@@ -59,7 +60,7 @@ def _triangle_sequence() -> pp.Sequence:
 def _gap_sequence() -> pp.Sequence:
     """A trapezoid on x, a delay block with no gradient on x, and a second trapezoid on
     x: the gap between the two events."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_trapezoid(channel="x", area=500, system=SYSTEM))
     seq.add_block(pp.make_delay(2e-3))
     seq.add_block(pp.make_trapezoid(channel="x", area=-500, system=SYSTEM))
@@ -69,7 +70,7 @@ def _gap_sequence() -> pp.Sequence:
 def _delay_padded_sequence() -> pp.Sequence:
     """A delay block, a trapezoid on x, and a second delay block: a leading and a
     trailing gap with no gradient event at all."""
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1e-3))
     seq.add_block(pp.make_trapezoid(channel="x", area=500, system=SYSTEM))
     seq.add_block(pp.make_delay(1e-3))
@@ -87,7 +88,7 @@ def _junction_sequence(step_hz_per_m: float) -> tuple[pp.Sequence, float]:
     raster = SYSTEM.grad_raster_time
     half_flat = round((base.flat_time / 2) / raster) * raster
     amp = base.amplitude
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     g1 = pp.make_extended_trapezoid(
         channel="x",
         amplitudes=np.array([0.0, amp, amp]),
@@ -120,7 +121,7 @@ def _step_then_gap_sequence() -> tuple[pp.Sequence, np.ndarray]:
     base = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
     half_flat = round((base.flat_time / 2) / raster) * raster
     amp = base.amplitude
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x",
@@ -267,7 +268,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
         "x", times=[0.0, 20 * dt], amplitudes=[step * (n + 1), 0.0], system=SYSTEM
     )
     g_trap = pp.make_trapezoid("x", amplitude=0.4 * SYSTEM.max_grad, duration=0.5e-3, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     for g in (g_os, g_down, g_trap):
         seq.add_block(g)
 
@@ -403,7 +404,7 @@ def test_hand_made_ramp_and_no_event_block():
     # event: the samples after gx's last point (at `rise`) must be 0, even though that
     # last point's own value (amp) is not 0.
     gz = pp.make_trapezoid(channel="z", duration=n_block * dt, area=1.0, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx, gz)
     seq.add_block(pp.make_delay(n_block * dt))
     index = sequence_index(seq)
@@ -457,7 +458,7 @@ def _blocks_with_long_events_sequence() -> pp.Sequence:
     t = (np.arange(n_arb) + 0.5) * dt
     waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * t / (n_arb * dt))
     arbitrary = pp.make_arbitrary_grad(channel="x", waveform=waveform, delay=20 * dt, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(
         pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM),
         pp.make_trapezoid(channel="z", area=3000.0, system=SYSTEM),
@@ -534,7 +535,7 @@ def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
     sampler computes for the range only."""
     dt = SYSTEM.grad_raster_time
     n_block = 100_000
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     trapezoid = pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM)
     seq.add_block(trapezoid, pp.make_delay(n_block * dt))
     seq.add_block(pp.make_trapezoid(channel="x", area=500.0, system=SYSTEM))
@@ -575,7 +576,7 @@ def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
         times=np.array([0.0, raster]),
         system=SYSTEM,
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay(4 * raster))
     sampler = GradientSampler(seq, sequence_index(seq))
     dt = 2 * raster
@@ -602,7 +603,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
         times=np.array([0.0, n_ramp * raster]),
         system=SYSTEM,
     )
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay((n_ramp + 3) * raster))
     sampler = GradientSampler(seq, sequence_index(seq))
     got = sampler.block_samples("gx", 0, 1, dt)
@@ -670,7 +671,7 @@ def test_block_samples_off_raster_block_raises_value_error():
     # pypulseq's make_delay accepts a duration that is not a whole number of raster
     # steps (1.5 here); block_samples must still refuse to sample it.
     dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
     index = sequence_index(seq)
     sampler = GradientSampler(seq, index)
@@ -693,7 +694,7 @@ def test_raster_block_lengths_with_different_block_lengths():
 
 def test_raster_block_lengths_detects_a_block_off_the_raster():
     dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
+    seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(2 * dt))
     seq.add_block(pp.make_delay(1.5 * dt))
     index = sequence_index(seq)

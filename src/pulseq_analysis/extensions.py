@@ -1,4 +1,8 @@
-"""Guards for Pulseq extensions that the measurements of this package do not support."""
+"""Guards that the measurements of this package call first.
+
+`refuse_rotations` refuses a Pulseq extension that the measurements do not support, and
+`refuse_unsigned` refuses a sequence that has no `[SIGNATURE]` hash.
+"""
 
 import pypulseq as pp
 
@@ -34,4 +38,35 @@ def refuse_rotations(seq: pp.Sequence) -> None:
             "This sequence uses the Pulseq rotation extension, which the gradient "
             "measurements do not support yet: they use the logical gradients as they are "
             "stored, and a rotation changes the gradients on the scanner."
+        )
+
+
+def refuse_unsigned(seq: pp.Sequence) -> None:
+    """Raise `ValueError` when `seq` has no `[SIGNATURE]` hash.
+
+    A `.seq` file must have a `[SIGNATURE]` section with a hash. pypulseq's `read` keeps it
+    in `seq.signature_value`, and its `write` sets it, so the value is `''` for a sequence
+    that only `add_block` has built. `sequence_index` calls this function first, so each
+    measurement (`grad_peaks.gradient_peaks`, `grad_peaks.block_gradient_values`,
+    `pns_levels.pns_levels` and `grad_spectrum.gradient_spectrum`) refuses an unsigned
+    sequence. A sequence built in memory gets its hash from `seq.write(path)`.
+
+    The check is for the presence of a hash only: `seq.signature_value` must be a `str`
+    that is not `''`. The package does not compute the hash again, and pypulseq's `read`
+    does not check it against the file.
+
+    Limit: the hash stays on the object when the object changes (pypulseq-issues 11), so
+    two cases pass the check with a hash that is not of the sequence now in the object:
+
+    - a sequence changed with `add_block` after `read` of a signed file.
+    - a `read` of an unsigned file into an object that read a signed file before.
+
+    Use a new `Sequence` object for each file, and read before any `add_block`.
+    """
+    value = seq.signature_value
+    if not isinstance(value, str) or value == "":
+        raise ValueError(
+            "This sequence has no [SIGNATURE] hash. A .seq file must have a [SIGNATURE] "
+            "section, and this package checks only that the hash is there. Use "
+            "`seq.write(path)` to sign a sequence that was built in memory."
         )

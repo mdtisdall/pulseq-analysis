@@ -26,7 +26,7 @@ Contents:
 | `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. |
 | `pulseq_analysis.seq_utils` | The points of one gradient event, and the constant. |
 | `pulseq_analysis.asc` | The optional read of a Siemens gradient `.asc` file into the hardware pair of the PNS functions. |
-| `pulseq_analysis.extensions` | The refusal of the Pulseq extensions that the measurements do not support. |
+| `pulseq_analysis.extensions` | The refusal of the Pulseq extensions that the measurements do not support, and of a sequence with no `[SIGNATURE]` hash. |
 | `pulseq_analysis.series` | `Series`, the form of a value that can go into JSON, and the encoding of an array. |
 | `pulseq_analysis.analyses` | The `Analysis` protocol, the registry of the installed analyses, and the five analyses of this package. |
 
@@ -39,6 +39,17 @@ These rules apply to all the modules:
   `pns_levels` and `gradient_spectrum` raise `NotImplementedError` for a file
   with the Pulseq rotation extension (`extensions.refuse_rotations`), because the gradients
   of the file are not the gradients on the scanner.
+- **Signature.** A sequence must have a `[SIGNATURE]` hash. `sequence_index`
+  and each measurement raise `ValueError` for a sequence with none
+  (`extensions.refuse_unsigned`): `seq.signature_value` must be a `str` that
+  is not `''`. A sequence that `add_block` built in memory has none, and
+  `seq.write(path)` signs it. The package checks only that the hash is there:
+  it does not compute it again, and pypulseq's `read` does not check it against
+  the file. The hash stays on the object when the object changes (pypulseq-issues
+  11), so two cases pass the check with a stale hash: a sequence changed with
+  `add_block` after `read` of a signed file, and a `read` of an unsigned file
+  into an object that read a signed file. Use a new `Sequence` object for each
+  file.
 - **Block ID and play index.** The *block ID* is the ID of pypulseq (a key of
   `seq.block_events`). The *play index* is the
   position of a block in play order, from 0. The arrays of `SequenceIndex` and
@@ -86,11 +97,13 @@ These rules apply to all the modules:
 
 ## 1. `seq_index`: the block table
 
-`sequence_index(seq) -> SequenceIndex` reads `seq.block_events` and
-`seq.block_durations`, with no `get_block`. It numbers the unique events of
-each kind from 1, in the order of their first use: block by block in play
-order, and in one block in the order gx, gy, gz. The three gradient axes share
-one number space, so one event that plays on x and on y has one number.
+`sequence_index(seq) -> SequenceIndex` raises `ValueError` for a sequence with
+no `[SIGNATURE]` hash (the rule of all the modules above). Then it reads
+`seq.block_events` and `seq.block_durations`, with no `get_block`. It numbers
+the unique events of each kind from 1, in the order of their first use: block
+by block in play order, and in one block in the order gx, gy, gz. The three
+gradient axes share one number space, so one event that plays on x and on y has
+one number.
 
 `SequenceIndex` is a frozen dataclass. N is the number of blocks, and K the
 number of unique events of one kind. Two indexes are equal (`==`) when each

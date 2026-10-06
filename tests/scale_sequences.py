@@ -9,7 +9,7 @@ import sys
 
 import numpy as np
 import pypulseq as pp
-from synthetic import SYSTEM, WIDTH, block_pulse, readout
+from synthetic import SYSTEM, WIDTH, block_pulse, readout, signed
 
 # ---- The TR ----
 
@@ -74,7 +74,7 @@ def build_repeating(n_trs: int) -> pp.Sequence:
         seq.add_block(delay)
         _progress("repeating", i + 1, n_trs, step)
     seq.set_definition("TR", used + TR_MARGIN_S)
-    return seq
+    return signed(seq)
 
 
 def build_worst(n_trs: int) -> pp.Sequence:
@@ -115,4 +115,4 @@ def build_worst(n_trs: int) -> pp.Sequence:
         seq.add_block(delay)
         _progress("worst", i + 1, n_trs, step)
     seq.set_definition("TR", used + TR_MARGIN_S)
-    return seq
+    return signed(seq)
