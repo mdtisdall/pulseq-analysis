@@ -11,12 +11,21 @@ gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get th
 (1 is 100 %). The model runs on the gradient samples in Hz/m and reads no gamma
 (`docs/usage.md` section 8).
 
-`pns_levels` samples the gradients block by block (`GradientSampler.block_samples`),
-runs the SAFE model of the pinned pypulseq fork over them in chunks
-(`_safe_gwf_to_pns_chunk`, which carries the filter state from one chunk to the next),
-and keeps only the level, the summary and the intervals. Its memory does not grow with
-the duration of the sequence, except for the level (at most `MAX_BINS` bins) and the
-intervals of each threshold.
+`pns_levels` is the one entry point. It keeps its result for the sequence object, for each
+(hardware, thresholds, bin size), so a caller that needs both the summary and the level of
+one sequence runs the model one time. On a miss it calls `_compute_levels`, which samples
+the gradients block by block (`GradientSampler.block_samples`), runs the SAFE model of the
+pinned pypulseq fork over them in chunks (`_safe_gwf_to_pns_chunk`, which carries the
+filter state from one chunk to the next), and keeps only the level, the summary and the
+intervals. Its memory does not grow with the duration of the sequence, except for the
+level (at most `MAX_BINS` bins) and the intervals of each threshold.
+
+The model needs the scanner's gradient hardware parameters, which Siemens keeps in the
+gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software). The
+files are confidential, so this library does not include any. The hardware is necessary,
+and is the vendor-neutral pair `(struct, label)`: the package has no default. A caller makes
+the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
+hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
 
 The samples of each block start at the start of that block, not at a time summed over the
 earlier blocks. Thus a block gives the same samples wherever it is in the sequence, and
@@ -24,6 +33,7 @@ a drawing tool that samples one block with the same rule gets the same values.
 """
 
 import math
+import weakref
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -37,6 +47,7 @@ from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 
 from ._equality import FrozenDict, fields_equal
 from ._events import event_points
+from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
 from .sampling import ON_RASTER_TOLERANCE, GradientSampler, raster_block_lengths
@@ -58,7 +69,7 @@ CHUNK_SAMPLES = 30_000
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
 # The nine fields of each axis of a SAFE hardware struct, in the order of `safe_example_hw`
-# and `asc_to_hw`. `pns.pns_levels_for` keys its results on them too.
+# and `asc_to_hw`. `_hardware_key` keys the kept results on them too.
 SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
 # The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
 # `_safe_gwf_to_pns_chunk` does not use).
@@ -66,6 +77,13 @@ _HW_FIELDS = tuple(f for f in SAFE_FIELDS if f != "stim_thresh")
 # The largest distance of `a1 + a2 + a3` from 1 for an axis (the rule of pypulseq's
 # `safe_hw_check`).
 _A_SUM_TOLERANCE = 0.001
+
+# For each sequence object: the kept results (`_kept.kept_results`), which hold one
+# `PnsLevels` for each triple of a hardware, the thresholds and the bin size. The hardware
+# is the tuple of `_hardware_key`. The thresholds are the tuple of `float(t)`. The bin size
+# is `float(bin_s)`.
+_Hardware = tuple[SimpleNamespace, str]
+_LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
 
 
 @dataclass(frozen=True)
@@ -82,8 +100,7 @@ class PnsInterval:
 
 @dataclass(frozen=True, eq=False)
 class PnsLevels:
-    """The result of `pns_levels` (and of `pns.pns_levels_for`) for one sequence and one
-    hardware.
+    """The result of `pns_levels` for one sequence and one hardware.
 
     A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of
     gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get the
@@ -103,7 +120,7 @@ class PnsLevels:
     is None too, and the model does not run a second time for the peak time.
 
     `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, so that the callers of
-    `pns.pns_levels_for` can share one result: convert to a new array
+    `pns_levels` can share one result: convert to a new array
     (`levels.level_max_hz_per_t / abs(gamma) * 100`), not in place.
     `hw` (the outer dict and each inner dict), `axis_peaks_hz_per_t` and `above` are
     read-only `_equality.FrozenDict`s (subclasses of `dict`): a change raises `TypeError`.
@@ -157,8 +174,8 @@ def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
 
 def _check_hardware(hardware: object) -> None:
     """Raise unless `hardware` is a pair `(struct, label)` of a SAFE hardware struct and its
-    `str` label. `pns_levels` and `pns.pns_levels_for` call it first, before they read the
-    sequence or the kept results, also for a sequence with no gradient event. It raises:
+    `str` label. `pns_levels` calls it first, before it reads the sequence
+    or the kept results, also for a sequence with no gradient event. It raises:
 
     - TypeError, when `hardware` is not a tuple of two items with a `str` second item;
     - ValueError, when the struct has no `x`, `y` or `z`, or an axis has no field of
@@ -201,11 +218,12 @@ def _check_hardware(hardware: object) -> None:
 def pns_levels(
     seq: pp.Sequence,
     *,
-    hardware: tuple[SimpleNamespace, str],
+    hardware: _Hardware,
     thresholds_hz_per_t: tuple[float, ...] = (),
     bin_s: float = BIN_S,
 ) -> PnsLevels:
-    """The stored level and the summary of the SAFE PNS total of `seq`, with `hardware`.
+    """The stored level and the summary of the SAFE PNS total of `seq`, with `hardware`. The
+    result is kept for the sequence object (see "The kept result" below).
 
     `hardware` is necessary: the package has no default hardware. It is a pair
     `(struct, label)`: `struct` is a SAFE hardware struct in the form of pypulseq's
@@ -301,10 +319,56 @@ def pns_levels(
     `bin_s` is not finite or not above 0, or when two thresholds are equal; and
     NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`).
+
+    The kept result: `pns_levels` keeps the result for the sequence object, the hardware, the
+    thresholds and the bin size, so that a caller that needs the levels of one sequence for
+    one hardware, one tuple of thresholds and one `bin_s` more than once runs the SAFE model
+    one time for each triple. A `bin_s` is the key as `float(bin_s)`: an `int` and the equal
+    `float` are one key, and another `bin_s` is another result, also when it gives the same
+    `bin_samples`. The same thresholds in another order, or other thresholds, are another
+    result (the order of the keys of `PnsLevels.above`). Two `hardware` pairs with the same
+    label and the same field values are one hardware (`_hardware_key`), so the pairs that
+    `asc.hardware_from_asc` makes from one file, whatever the spelling of its path, give one
+    result. The kept results are built again after `add_block`, after a new read of a file
+    into the object, and after a change of `seq.grad_raster_time` (the rule of `_kept`). A
+    block replaced in place is not seen (`seq_index.sequence_index`). The arrays of a result
+    are read-only and its dicts are `FrozenDict`s, because all callers share them.
     """
     _check_hardware(hardware)
-    bin_s = real("bin_s", bin_s, positive=True)
-    keys = _validated_thresholds(thresholds_hz_per_t)
+    bin_key = real("bin_s", bin_s, positive=True)
+    threshold_keys = _validated_thresholds(thresholds_hz_per_t)
+    key = _hardware_key(hardware)
+
+    by_key = kept_results(_LEVELS_CACHE, seq)
+    kept_key = (key, threshold_keys, bin_key)
+    if kept_key not in by_key:
+        by_key[kept_key] = _compute_levels(seq, hardware, threshold_keys, bin_key)
+    return by_key[kept_key]
+
+
+# ---- Private helpers ----
+
+
+def _hardware_key(hardware: _Hardware) -> tuple:
+    """The key of a `hardware` pair: its label and the 27 values of its struct as floats
+    (`SAFE_FIELDS` of `x`, `y` and `z`, in this order). Two pairs with the same label and
+    the same values have one key, whatever their structs are. `_check_hardware` has found
+    each field before this reads it."""
+    struct, label = hardware
+    values = tuple(
+        float(getattr(getattr(struct, axis), field)) for axis in "xyz" for field in SAFE_FIELDS
+    )
+    return ("hardware", label, values)
+
+
+def _compute_levels(
+    seq: pp.Sequence, hardware: _Hardware, keys: tuple[float, ...], bin_s: float
+) -> PnsLevels:
+    """The calculation of `pns_levels`, with no keep. `hardware`, `keys` (the thresholds as
+    floats) and `bin_s` (a float) are the values that `pns_levels` has checked
+    (`_check_hardware`, `_validated_thresholds`, `real`): this does not check them again.
+    Raises NotImplementedError for a sequence with the rotation extension
+    (`extensions.refuse_rotations`). The model is the one of `pns_levels`."""
     refuse_rotations(seq)
     dt = seq.grad_raster_time
 
@@ -420,9 +484,6 @@ def pns_levels(
     )
 
 
-# ---- Private helpers ----
-
-
 def _read_only(levels: PnsLevels) -> PnsLevels:
     """`levels`, with `writeable` off for `level_min_hz_per_t` and `level_max_hz_per_t`."""
     for a in (levels.level_min_hz_per_t, levels.level_max_hz_per_t):
@@ -436,7 +497,7 @@ def _validated_thresholds(thresholds_hz_per_t: object) -> tuple[float, ...]:
     element that is a `bool` or not a real number (`_validate.real`: an `int`, a `float`, a
     `Fraction` and the NumPy real scalars are valid), and ValueError for an element that is
     not finite, not above 0 or too large for a float, and for two elements that are equal
-    as floats. `pns.pns_levels_for` uses it too."""
+    as floats. `pns_levels` uses it."""
     if not isinstance(thresholds_hz_per_t, tuple):
         raise TypeError(
             f"thresholds_hz_per_t must be a tuple, not {type(thresholds_hz_per_t).__name__}"

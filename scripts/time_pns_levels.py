@@ -1,13 +1,16 @@
 """Time of `pns_levels` on a large synthetic sequence (plan decision D3).
 
 Builds `build_repeating` of `tests/scale_sequences.py` with about 10^6 blocks, and times
-`pns_levels.pns_levels(seq, hardware=...)` with pypulseq's example hardware, which is not a
-real scanner (`pns_levels` has no default hardware, so the script gives
+`pns_levels._compute_levels` (the calculation of `pns_levels`, with no keep: a second call of
+`pns_levels` would give the kept result, so each repeat would not run the model) with
+pypulseq's example hardware, which is not a real scanner (`pns_levels` has no default
+hardware, so the script gives
 `(safe_example_hw(), "pypulseq example hardware (not a real scanner)")`), `--repeat`
-times in this process. The result is the minimum time. With
-`--thresholds-hz-per-t T [T ...]` (in Hz/T) the call also has
-`thresholds_hz_per_t=(T, ...)`, and without it the default of `pns_levels` is used (no
-threshold). The peak is in Hz/T. Run it in the devShell:
+times in this process. The script checks the hardware, the thresholds and the bin
+(`BIN_S`) as `pns_levels` does, and gives `_compute_levels` the checked values. The result
+is the minimum time. With `--thresholds-hz-per-t T [T ...]` (in Hz/T) the call also has
+those thresholds, and without it the default of `pns_levels` is used (no threshold). The
+peak is in Hz/T. Run it in the devShell:
 
     nix develop --command uv run python scripts/time_pns_levels.py [--blocks N] \
 [--repeat R] [--thresholds-hz-per-t T [T ...]] [--json OUT]
@@ -85,13 +88,19 @@ def main() -> None:
     from pypulseq.utils.safe_pns_prediction import safe_example_hw
     from scale_sequences import TR_BLOCKS, build_repeating
 
-    from pulseq_analysis.pns_levels import _validated_thresholds, pns_levels
+    from pulseq_analysis.pns_levels import (
+        BIN_S,
+        _check_hardware,
+        _compute_levels,
+        _validated_thresholds,
+    )
 
     if args.blocks < TR_BLOCKS:
         parser.error(f"--blocks must be at least {TR_BLOCKS}, one TR")
+    keys: tuple[float, ...] = ()
     if args.thresholds_hz_per_t is not None:
         try:
-            _validated_thresholds(tuple(args.thresholds_hz_per_t))
+            keys = _validated_thresholds(tuple(args.thresholds_hz_per_t))
         except ValueError as error:
             parser.error(f"--thresholds-hz-per-t: {error}")
 
@@ -104,16 +113,12 @@ def main() -> None:
     print(f"build {build_s:.1f} s (not part of the result)")
 
     hardware = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
+    _check_hardware(hardware)
     seconds = []
     for i in range(args.repeat):
         print(f"run {i + 1} of {args.repeat}", file=sys.stderr)
         start = time.perf_counter()
-        if args.thresholds_hz_per_t is None:
-            levels = pns_levels(seq, hardware=hardware)
-        else:
-            levels = pns_levels(
-                seq, hardware=hardware, thresholds_hz_per_t=tuple(args.thresholds_hz_per_t)
-            )
+        levels = _compute_levels(seq, hardware, keys, BIN_S)
         seconds.append(time.perf_counter() - start)
 
     info = machine()

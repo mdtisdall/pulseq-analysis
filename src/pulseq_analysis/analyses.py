@@ -26,17 +26,17 @@ The analyses of this package:
   series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
-- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns.pns_levels_for`, the parameters `hardware`
+- `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns_levels.pns_levels`, the parameters `hardware`
   (necessary: a pair of a SAFE hardware struct and its name), `thresholds_hz_per_t` and
   `bin_s`, and the series of the level and of the runs above each threshold.
-- `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum_for`, no
+- `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum`, no
   parameters, and the series of the spectrum.
 
-`gradient_peaks` has a `window` argument, but `gradient.peaks` is of the whole sequence and
-has no such parameter. `pns.pns_levels_for` keeps its result for the sequence object, so
-`compute` of `pns.safe.levels` gives the kept object. `grad_spectrum.gradient_spectrum_for`
-has the arguments of the method, but `gradient.spectrum` has no parameters and uses the
-defaults, and its `compute` also gives the kept object.
+Each of these functions keeps its result for the sequence object (`_kept`), so `compute`
+of a second call for one sequence gives the kept object. `gradient_peaks` has a `window`
+argument, but `gradient.peaks` is of the whole sequence and has no such parameter (a result
+with a window is not kept). `grad_spectrum.gradient_spectrum` has the arguments of the
+method, but `gradient.spectrum` has no parameters and uses the defaults.
 """
 
 import importlib.metadata
@@ -48,9 +48,8 @@ import numpy as np
 import pypulseq as pp
 
 from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
-from .grad_spectrum import GradientSpectrum, gradient_spectrum_for
-from .pns import pns_levels_for
-from .pns_levels import BIN_S, PnsLevels
+from .grad_spectrum import GradientSpectrum, gradient_spectrum
+from .pns_levels import BIN_S, PnsLevels, pns_levels
 from .seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
 from .series import Series, SeriesKind
 
@@ -134,7 +133,8 @@ class _GradientPeaks:
             "values are of the logical axes of the file, not of the axes of a scanner, and "
             "they are not compared with a limit. The values are in the units of pypulseq, "
             "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
-            "T/m/s. A sequence with the rotation extension raises `NotImplementedError`."
+            "T/m/s. A sequence with the rotation extension raises `NotImplementedError`. The "
+            "result is read-only, and it is kept for the sequence object."
         ),
         params=(),
         rasters=_GRADIENT_RASTERS,
@@ -143,7 +143,7 @@ class _GradientPeaks:
     )
 
     def compute(self, seq: pp.Sequence) -> GradientPeaks:
-        """`grad_peaks.gradient_peaks(seq)`."""
+        """`grad_peaks.gradient_peaks(seq)`: the kept result for the sequence object."""
         return gradient_peaks(seq)
 
     def to_series(self, value: GradientPeaks) -> tuple[Series, ...]:
@@ -169,7 +169,8 @@ class _GradientBlocks:
             "step. "
             "The values are in the units of pypulseq, with no gamma. Divide them by the "
             "magnitude of gamma (Hz/T) to get T/m and T/m/s. A sequence with the rotation "
-            "extension raises `NotImplementedError`."
+            "extension raises `NotImplementedError`. The result is read-only, and it is kept "
+            "for the sequence object."
         ),
         params=(),
         rasters=_GRADIENT_RASTERS,
@@ -178,7 +179,7 @@ class _GradientBlocks:
     )
 
     def compute(self, seq: pp.Sequence) -> BlockGradientValues:
-        """`grad_peaks.block_gradient_values(seq)`."""
+        """`grad_peaks.block_gradient_values(seq)`: the kept result for the sequence object."""
         return block_gradient_values(seq)
 
     def to_series(self, value: BlockGradientValues) -> tuple[Series, ...]:
@@ -254,12 +255,12 @@ class _PnsSafeLevels:
         thresholds_hz_per_t: tuple[float, ...] = (),
         bin_s: float = BIN_S,
     ) -> PnsLevels:
-        """`pns.pns_levels_for(seq, hardware=hardware,
+        """`pns_levels.pns_levels(seq, hardware=hardware,
         thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)`: the kept result for the
         sequence object, the hardware, the thresholds and the bin size. `hardware` is
         necessary; a call without it, or with a value that is not a pair, raises TypeError
         before the sequence is read."""
-        return pns_levels_for(
+        return pns_levels(
             seq,
             hardware=hardware,
             thresholds_hz_per_t=thresholds_hz_per_t,
@@ -337,7 +338,7 @@ class _GradientSpectrum:
             "extension raises `NotImplementedError`. The arrays are read-only, and the "
             "result is kept for the sequence object. This analysis has no parameters and "
             "uses the defaults of pypulseq. A caller that needs other values calls "
-            "`grad_spectrum.gradient_spectrum_for` with them."
+            "`grad_spectrum.gradient_spectrum` with them."
         ),
         params=(),
         rasters=_GRADIENT_RASTERS,
@@ -353,9 +354,9 @@ class _GradientSpectrum:
     )
 
     def compute(self, seq: pp.Sequence) -> GradientSpectrum:
-        """`grad_spectrum.gradient_spectrum_for(seq)`: the kept result for the sequence
+        """`grad_spectrum.gradient_spectrum(seq)`: the kept result for the sequence
         object, with the defaults."""
-        return gradient_spectrum_for(seq)
+        return gradient_spectrum(seq)
 
     def to_series(self, value: GradientSpectrum) -> tuple[Series, ...]:
         """The series of `spec.series`: the spectrum of `value` (`gradient_spectrum`), or

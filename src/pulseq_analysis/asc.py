@@ -36,8 +36,8 @@ def read_gradient_asc(path: str | Path) -> dict:
 
 
 def hardware_from_asc(path: str | Path) -> tuple[SimpleNamespace, str]:
-    """The `hardware` pair of the .asc file `path`, for `pns_levels(seq, hardware=...)` and
-    `pns.pns_levels_for(seq, hardware=...)`: `(asc_to_hw(asc), hardware_name(asc))`, where
+    """The `hardware` pair of the .asc file `path`, for
+    `pns_levels.pns_levels(seq, hardware=...)`: `(asc_to_hw(asc), hardware_name(asc))`, where
     `asc` is `read_gradient_asc(path)` (with its `$INCLUDE` rule). The label is the
     component name in the file, so a pair has no path in it: two spellings of the path of
     one file give equal pairs."""
