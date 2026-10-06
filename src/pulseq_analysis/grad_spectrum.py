@@ -46,6 +46,7 @@ import pypulseq as pp
 from scipy.signal import get_window
 
 from ._equality import FrozenDict, fields_equal
+from ._events import event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
@@ -171,7 +172,7 @@ def gradient_spectrum(
                 frequency_oversampling,
             )
         )
-    sampler = GradientSampler(seq, index)
+    sampler = GradientSampler(index, event_points(seq))
 
     # The file's raster ([DEFINITIONS]): `Sequence.read` does not change `seq.system`.
     dt = seq.grad_raster_time

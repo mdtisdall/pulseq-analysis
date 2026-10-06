@@ -21,6 +21,7 @@ from synthetic import (
 
 from pulseq_analysis import grad_spectrum, seq_index
 from pulseq_analysis._equality import FrozenDict
+from pulseq_analysis._events import event_points
 from pulseq_analysis.sampling import GradientSampler
 from pulseq_analysis.seq_index import sequence_index
 
@@ -124,7 +125,7 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
     got = grad_spectrum.gradient_spectrum(seq)
 
-    sampler = GradientSampler(seq, sequence_index(seq))
+    sampler = GradientSampler(sequence_index(seq), event_points(seq))
     dt = seq.grad_raster_time
     nwin = round(grad_spectrum.FFT_WINDOW_S / dt)
     nfft = round(grad_spectrum.FREQUENCY_OVERSAMPLING * nwin)

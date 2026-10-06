@@ -26,44 +26,28 @@ it is in the sequence.
 import math
 
 import numpy as np
-import pypulseq as pp
 
-from .seq_index import SequenceIndex, grad_events
-from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE, gradient_offsets
+from ._events import EventPoints
+from .seq_index import SequenceIndex
+from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE
 
 
 class GradientSampler:
     """The waveform of each axis of one sequence, sampled at any sorted times.
 
-    The unique gradient events are read one time (`seq_index.grad_events`). A call to
-    `sample` costs O(samples + blocks between the first and the last sample), not
-    O(all blocks).
+    The points of the unique gradient events come from `_events.event_points`, which reads
+    each event one time. The sampler does not copy them. A call to `sample` costs
+    O(samples + blocks between the first and the last sample), not O(all blocks).
     """
 
-    def __init__(self, seq: pp.Sequence, index: SequenceIndex) -> None:
-        delays: list[float] = []
-        counts: list[int] = []
-        offset_chunks: list[np.ndarray] = []
-        amp_chunks: list[np.ndarray] = []
-        for _, g in grad_events(seq, index):
-            delay, offsets, amp = gradient_offsets(g)
-            offsets = np.asarray(offsets, dtype=np.float64)
-            amp = np.asarray(amp, dtype=np.float64)
-            delays.append(float(delay))
-            counts.append(offsets.size)
-            offset_chunks.append(offsets)
-            amp_chunks.append(amp)
-
+    def __init__(self, index: SequenceIndex, points: EventPoints) -> None:
         self._index = index
-        self._delay = np.asarray(delays, dtype=np.float64)
-        self._n = np.asarray(counts, dtype=np.int64)
-        # The exclusive prefix sum: the start position of each event's points in the
-        # pooled `_offsets`/`_amp` arrays.
-        self._at = np.cumsum(self._n, dtype=np.int64) - self._n
-        self._offsets = (
-            np.concatenate(offset_chunks) if offset_chunks else np.empty(0, dtype=np.float64)
-        )
-        self._amp = np.concatenate(amp_chunks) if amp_chunks else np.empty(0, dtype=np.float64)
+        self._delay = points.delay
+        self._n = points.count
+        # The start position of each event's points in the pooled `_offsets`/`_amp` arrays.
+        self._at = points.at
+        self._offsets = points.offsets
+        self._amp = points.amp
         # Filled lazily, one time for each axis that `sample` is called with.
         self._axis_blocks: dict[str, np.ndarray] = {}
         # The samples of each (event, n, dt) that `block_samples` has computed, up to the last

@@ -1,5 +1,6 @@
-"""Tests of the kept results (`_kept.py`): when `sequence_index`, `pns_levels_for` and
-`gradient_spectrum_for` keep a result for a sequence object, and when they make it again.
+"""Tests of the kept results (`_kept.py`): when `sequence_index`, `event_points`,
+`pns_levels_for` and `gradient_spectrum_for` keep a result for a sequence object, and
+when they make it again.
 """
 
 import copy
@@ -13,6 +14,7 @@ import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import SYSTEM, WIDTH, spin_echo_sequence
 
+from pulseq_analysis._events import event_points
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.grad_peaks import gradient_peaks
 from pulseq_analysis.grad_spectrum import gradient_spectrum_for
@@ -85,6 +87,25 @@ def test_a_second_read_into_one_object_gives_the_values_of_a_new_object(tmp_path
     limits = gradient_peaks(reused)
     assert limits == gradient_peaks(fresh)
     assert limits != limits_a
+
+
+def test_event_points_are_kept_and_made_again_after_a_second_read_into_one_object(tmp_path):
+    """`event_points` gives one object for two calls with no change between them. After a
+    second file with other gradients is read into the same `Sequence`, it gives a new
+    object, with the points of a new object that read that file only (`array_equal` for
+    each array)."""
+    path_a, path_b = _file_a(tmp_path), _file_b(tmp_path)
+    reused = _read(path_a)
+    points_a = event_points(reused)
+    assert event_points(reused) is points_a
+    reused.read(str(path_b))
+    points_b = event_points(reused)
+    assert points_b is not points_a
+    assert event_points(reused) is points_b
+    expected = event_points(_read(path_b))
+    for field in dataclasses.fields(expected):
+        assert np.array_equal(getattr(points_b, field.name), getattr(expected, field.name))
+    assert not np.array_equal(points_b.amp, points_a.amp)
 
 
 def test_pns_levels_for_gives_a_new_result_after_add_block_and_the_same_without_a_change():
@@ -234,10 +255,11 @@ def test_a_change_of_the_gradient_raster_time_gives_a_new_index_and_new_levels()
     "keep",
     [
         sequence_index,
+        event_points,
         lambda seq: pns_levels_for(seq, hardware=_HARDWARE),
         gradient_spectrum_for,
     ],
-    ids=["sequence_index", "pns_levels_for", "gradient_spectrum_for"],
+    ids=["sequence_index", "event_points", "pns_levels_for", "gradient_spectrum_for"],
 )
 def test_a_kept_result_does_not_keep_the_sequence_alive(keep):
     """After a call of the function and `del seq`, `gc.collect()` collects the sequence:
