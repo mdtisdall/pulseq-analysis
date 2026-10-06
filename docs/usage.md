@@ -146,6 +146,12 @@ largest of two kinds of value:
   in one raster time, so a step is a slew like a slope. `add_block` accepts a
   step up to `max_slew * grad_raster_time`.
 
+The time of a junction step is the time of the first point of the event of the
+block on the axis: the start of the block plus the delay of the event. For a
+block with no event on the axis, it is the start of the block. An event with a
+delay and a first value that is not 0 has its step from 0 at the end of its
+delay. A step is in a window when its time `t` has `start_s <= t < end_s`.
+
 When several blocks have the largest value, the first of them in play order
 gets it. A junction step comes before the lines of its block. A largest value
 of 0 gives no block (`None`) and the time 0.0.
@@ -158,8 +164,14 @@ scalar; not a `bool`), in the sequence (each end within
 `TypeError` for a window that is not a pair, and for a start or an end that is
 a `bool` or not a real number. It raises `ValueError` for a start or an end
 that is NaN or an infinity (the message says "finite"), for a window with no
-start before its end, and for a window that is not in the sequence. A line
-that crosses an end of the window is cut there. The values are in Hz/m and
+start before its end, and for a window that is not in the sequence. The
+function checks the form and the numbers of the window before it reads the
+sequence. A line that crosses an end of the window is cut there. `range_s` is
+the window with each end clipped to `(0.0, end_s)` of the sequence, so its
+start is never after its end. A window that is past an end of the sequence by
+less than `seq_utils.TIME_TOLERANCE` has the range `(end_s, end_s)` (or
+`(0.0, 0.0)`), of length 0, with the `reason`
+`seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values. The values are in Hz/m and
 Hz/m/s, the units of pypulseq, with no gamma. To get T/m and T/m/s, divide
 them by |γ| ([section 8](#8-units-and-gamma)). The function does not compare the values
 with limits: a caller that has the limits of a scanner compares them.
@@ -186,7 +198,7 @@ its callers, so a change of a dict would change it for all of them.
 | `peak_hz_per_m` | The largest absolute amplitude in the range (Hz/m). |
 | `peak_time_s`, `peak_block` | The first time with it, and the block ID. |
 | `max_slew_hz_per_m_per_s` | The largest slew in the range (a slope or a junction step), in Hz/m/s. |
-| `slew_time_s`, `slew_block` | The start of that line (the start of the range when the range cuts the line), or the time of the junction; and the block ID. For a junction, the block is the block after the junction. |
+| `slew_time_s`, `slew_block` | The start of that line (the start of the range when the range cuts the line), or the time of the junction (the start of the block plus the delay of its event on the axis); and the block ID. For a junction, the block is the block after the junction. |
 | `rms_hz_per_m` | The RMS amplitude over the range (Hz/m). |
 
 `block_gradient_values(seq) -> BlockGradientValues` gives the same values for
@@ -212,7 +224,7 @@ hashable.
 | `block_id`, `start_s` | int64 and float64: the block ID and the start of each block. |
 | `peak_hz_per_m`, `peak_time_s` | Dicts: the largest absolute amplitude of the event of the block on the axis (Hz/m), and its time. |
 | `slew_hz_per_m_per_s`, `slew_time_s` | Dicts: the largest slope of a line of that event (Hz/m/s), and the start of that line. |
-| `junction_hz_per_m_per_s` | Dict: the junction step at the start of the block (Hz/m/s). Its time is `start_s`. |
+| `junction_hz_per_m_per_s` | Dict: the junction step at the start of the block (Hz/m/s). Its time is `start_s` plus the delay of the event of the block on the axis (`start_s` when there is none); there is no field for it. |
 | `vector_peak_hz_per_m`, `vector_peak_time_s` | The largest magnitude of the three-axis vector in the block (Hz/m), and its first time. |
 
 A block with no event on an axis has the peak and the slope 0 there, at the
