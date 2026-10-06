@@ -617,7 +617,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
-    { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=a74ab06e51ca09707ff54837cf5ff652f6e69e94" },
+    { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725" },
     { name = "scipy" },
 ]
 
@@ -648,7 +648,7 @@ wheels = [
 [[package]]
 name = "pypulseq"
 version = "1.5.0.post1"
-source = { git = "https://github.com/mdtisdall/pypulseq?rev=a74ab06e51ca09707ff54837cf5ff652f6e69e94#a74ab06e51ca09707ff54837cf5ff652f6e69e94" }
+source = { git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725#3c3bd8515e591ef859399aa20db64b1bd2c3a725" }
 dependencies = [
     { name = "coverage" },
     { name = "matplotlib" },

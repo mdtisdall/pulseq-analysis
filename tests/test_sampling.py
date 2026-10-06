@@ -241,7 +241,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     out the first and the last point of an oversampled gradient (draft 03 of
     `github.com/mdtisdall/pypulseq-issues`).
 
-    Needs the fix of pypulseq PR #424, which the pinned fork has (`pulseq-reports-pin-1`):
+    Needs the fix of pypulseq PR #424, which the pinned fork has (`pulseq-reports-pin-2`):
     with the old pin (`20b9e5e`), `get_block` gave this oversampled gradient's `shape_dur`
     as twice the value `make_arbitrary_grad` set, and the sampler error was about 40 % of
     the peak.
