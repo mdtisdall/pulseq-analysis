@@ -1,6 +1,8 @@
 # Implementation plan: the fixes of the second code review (0.1.0rc6)
 
-Status: draft, not approved. Written on 2026-10-05.
+Status: approved. Written on 2026-10-05. Amended on 2026-10-05 after wave 1
+(PRs #35 to #39): the pin of pypulseq and the hash of a sequence (U7 to U11,
+D19 to D23, tasks 1.8 and 1.9).
 
 ## 1. Scope
 
@@ -31,6 +33,8 @@ Each task is one branch and one PR (`CLAUDE.md`: one branch, one concern):
 | 1.4 | `fix/gradient-peaks-window` | The window checked before the events are read, a range that is never reversed, and the time of a delayed junction step (review 1.3 to 1.5). |
 | 1.5 | `docs/second-review-doc-errors` | The documentation errors of the review section 3 that no other task changes. |
 | 1.6 | `refactor/second-review-duplicates` | One rule of equality for `Series`, and one copy of each constant (review section 4). |
+| 1.8 | `chore/pypulseq-pin-2` | pypulseq from the fork tag `pulseq-reports-pin-2`, which reads the `[SIGNATURE]` hash as text (U7). |
+| 1.9 | `feature/require-signature` | Each measurement refuses a sequence with no `[SIGNATURE]` hash (U8 to U10). |
 | 1.7 | `refactor/kept-event-points` | The points of each gradient event read one time for each sequence (review 2.1). |
 | 2.1 | `refactor/one-kept-entry-point` | One public function for each measurement, which keeps its result. No `pns.py`, no `_for` names (review 6.3). |
 | 2.2 | `refactor/window-cost` | A window of `gradient_peaks` costs the blocks in the window, not all the blocks (review 2.2). |
@@ -50,8 +54,8 @@ one wave run at the same time, each in its own worktree and session.
 This plan merged, and the release draft saved (step 0, section 4)
   Wave 1:  1.1 test gaps  ||  1.2 bin snap  ||  1.3 hardware check
            ||  1.4 peaks window  ||  1.5 doc errors
-  Wave 2:  1.6 duplicates
-  Wave 3:  1.7 kept event points
+  Wave 2:  1.6 duplicates  ||  1.8 pypulseq pin
+  Wave 3:  1.7 kept event points  ||  1.9 require a signature
   Wave 4:  2.1 one kept entry point
   Wave 5:  2.2 window cost  ||  2.3 analysis parameters
   Wave 6:  2.4 consistent result shapes
@@ -75,6 +79,13 @@ Why this order:
 - Task 2.1 removes the `_for` names. Tasks 2.3 and 2.4 then change one
   function for each measurement, not two.
 - Tasks 2.2 and 2.4 both change `grad_peaks.py`, so task 2.4 waits.
+- Task 1.8 changes only `pyproject.toml`, `uv.lock` and `TODO.md`, so it
+  runs with task 1.6.
+- Task 1.9 needs the pin of task 1.8: with the old pin, `read` can make a
+  hash that looks like a number into a float (fact 10), which a check of
+  presence can take for no hash. Task 1.9 changes `seq_index.py`,
+  `extensions.py` and the sequences of the tests; task 1.7 changes other
+  modules. Their tests are in neighbouring lines only.
 
 pulseq-checks and pulseq-reports pin `v0.1.0rc5`. No task before the tag
 breaks them.
@@ -146,6 +157,32 @@ breaks them.
    `grad_spectrum` with `monkeypatch` (nine in `tests/test_pns_levels.py`,
    two in `tests/test_grad_spectrum.py`). Most of them compare two results
    of one sequence object.
+9. **Wave 1.** Tasks 1.1 to 1.5 merged on 2026-10-05: PRs #35 to #39, with
+   `main` at `a076d2d`. 878 tests, 274 `TESTS.md` entries. The oracle of
+   task 1.4 did not change (U11).
+10. **The new pin.** The fork tag `pulseq-reports-pin-2` (commit
+    `3c3bd85`, pushed to `mdtisdall/pypulseq`) is `a74ab06` with two
+    commits: `read` keeps the `[SIGNATURE]` values as text (the hash was a
+    float when the hex digest looked like a number, pypulseq-issues 09),
+    and `read` sets `signature_file` to `'text'`, as `write` does
+    (pypulseq-issues 10b).
+11. **The hash of a sequence** (verified at `3c3bd85` and at upstream
+    `f2c582b`). `read` does not check the hash against the file. The
+    hash stays on the object after the object changes (pypulseq-issues 11):
+
+    | Case | `seq.signature_value` |
+    |---|---|
+    | A sequence built with `add_block` | `''` |
+    | After `write` | the hash of the file written |
+    | After `read` of a signed file | the hash |
+    | `add_block` after that `read` | the old hash |
+    | `read` of an unsigned file into an object that read a signed file | the old hash |
+    | `read` of an unsigned file into a new object | `''` |
+
+12. **The sequences of the tests.** `pp.Sequence(` is in the tests 67
+    times, 7 of them in `tests/synthetic.py`. pypulseq's `write` fails for
+    an oversampled arbitrary gradient (pypulseq-issues 04), so `write`
+    cannot sign each test sequence.
 
 ## 3. Decisions
 
@@ -161,6 +198,11 @@ The user made U1 to U6 on 2026-10-05.
 | U4 | The interface of section 6 of the review | The parameters in `AnalysisSpec` (6.1), the parameters of `gradient.peaks` and `gradient.spectrum` (6.2), and one kept entry point for each measurement (6.3). | Fewer of them. |
 | U5 | `seq.index` | It stays in the registry. Its layout is a versioned contract in `docs/usage.md`. | Remove it from the registry (pulseq-checks uses it, fact 5). |
 | U6 | The form of one kept entry point | One public function for each measurement, and it keeps its result: `sequence_index`, `gradient_peaks`, `block_gradient_values`, `pns_levels` and `gradient_spectrum`. `pns_levels_for`, `gradient_spectrum_for` and the module `pns` go away. | Keep the pairs of names, and only merge `pns.py` into `pns_levels.py`. |
+| U7 | The pypulseq pin | The fork tag `pulseq-reports-pin-2` (`3c3bd85`). | Stay at `pulseq-reports-pin-1`. |
+| U8 | A sequence with no hash | Each measurement refuses it, `sequence_index` too. | (a) The measurements but not `sequence_index`. (b) Only the callers, which read the files. |
+| U9 | The check of the hash | Presence only: the package does not compute the hash again. | The fork computes the MD5 of the file in `read` and refuses a mismatch. |
+| U10 | The stale hash (fact 11) | Pin `pulseq-reports-pin-2`, document the two stale cases here, and report them (pypulseq-issues 11). | A fork fix first, and a pin of a third tag. |
+| U11 | The oracle of `grad_peaks` (task 1.4) | It stays the earlier implementation, with no junction steps. The tests of a delayed junction check hand-computed values. | The oracle gets the rule of D4. |
 
 ### 3.2 Decisions of this plan
 
@@ -191,6 +233,11 @@ move).
 | D16 | `GradientPeaks` compares by value (`fields_equal`) and is not hashable (`__hash__ = None`). `AxisResult` and `PnsInterval` stay hashable dataclasses: they have no dict and no array. | Review section 3. The rule of each result with a dict. |
 | D17 | `Series` adds these checks, each a `ValueError`: `coord_start` finite for `SAMPLES` and `ENVELOPE`; `coord_end` finite for `ENVELOPE`, with `coord_start + (n - 1) * coord_step < coord_end <= coord_start + n * coord_step` for `n` bins, each side with the tolerance `1e-9 * coord_step` (and `coord_end >= coord_start` for `n == 0`); for `RUNS`, `start` and `end` finite and `end >= start` for each run. | Review 6.7. The tolerance is for the float products: `pns_total` has `coord_end == num_samples * dt_s` and `coord_step == bin_samples * dt_s`. |
 | D18 | Task 2.5 starts a new branch `docs/release-0.1.0rc6` from `origin/main`, and uses the saved draft (step 0) as text to start from. It does not rebase the draft. | The draft is at `9197c5d` and changes `docs/usage.md`, which tasks 1.2 to 2.4 change again. |
+| D19 | `[tool.uv.sources]` pins `rev = "3c3bd8515e591ef859399aa20db64b1bd2c3a725"` (the full commit of `pulseq-reports-pin-2`). The comment above it, and the `TODO.md` item of the fork, list the six commits on top of 1.5.0.post1. `uv.lock` is made again with `uv lock`. | U7. `TODO.md`: pulseq-analysis, pulseq-checks and pulseq-reports pin one commit (section 8). |
+| D20 | `extensions.refuse_unsigned(seq)` raises `ValueError` when `seq.signature_value` is not a `str` or is `''`. The message says that a `.seq` file must have a `[SIGNATURE]` hash, and that `write` signs a sequence built in memory. `sequence_index` calls it first, before the kept results are read, so each measurement refuses an unsigned sequence through it. The docstring of `extensions.py` covers both guards. | U8, U9. One place for the rule. Each measurement reads the index before it reads a block. |
+| D21 | The stamp of `_kept` does not use the hash. | Fact 11: a hash can be stale, so a stamp of the hash gives the result of another file (the error of the first review, 1.1). |
+| D22 | `tests/synthetic.py` gets `signed(seq)`: it sets `signature_type = "md5"`, `signature_file = "text"` and `signature_value` to a fixed hex string, and gives back `seq`. Each builder of `synthetic.py` and `scale_sequences.py` gives a signed sequence, and each test that builds a sequence for the package calls `signed`. A test that reads a file writes it with `write` first. The oracles do not change: they do not call `sequence_index`. | Fact 12. U9: only the presence counts, so a fixed value is enough. |
+| D23 | The baseline script of section 4.2 calls `signed` on each input (D22). The baseline side before task 1.9 accepts a signed sequence too. | The two sides read the same inputs. |
 
 ## 4. How to execute this plan
 
@@ -221,7 +268,9 @@ changes nothing else in that worktree.
 | 1.4 | 1 | 1 (H) | — |
 | 1.5 | 1 | 1 (M) | — |
 | 1.6 | 2 | 2: E (H), C (M) | E and C at the same time |
+| 1.8 | 2 | X | — |
 | 1.7 | 3 | 1 (H), after a baseline by X | — |
+| 1.9 | 3 | 2: A (H), then T (M) | A first, then T |
 | 2.1 | 4 | 3: N (H), S (M), R (H) | N and S at the same time, then R |
 | 2.2 | 5 | 1 (H), after a baseline by X | — |
 | 2.3 | 5 | 1 (H) | — |
@@ -247,8 +296,8 @@ The script writes each float with `float.hex` and each array with
 with no window and with 20 windows (edges inside blocks, on block edges and
 at the ends); `block_gradient_values`; `pns_levels` with the example
 hardware, `thresholds_hz_per_t=(GAMMA_1H,)` and `bin_s=10.0 / 1624`; and
-`gradient_spectrum` with the defaults. For task 2.1 the baseline side calls
-`pns_levels_for` and `gradient_spectrum_for`. X compares the two outputs
+`gradient_spectrum` with the defaults. Each input is signed (D23). For task
+2.1 the baseline side calls `pns_levels_for` and `gradient_spectrum_for`. X compares the two outputs
 with `cmp`. Remove the baseline worktree after task 2.2.
 
 ## 5. The design
@@ -356,6 +405,23 @@ D15 to D17. `docs/usage.md`: the bullet "Equality" names `GradientPeaks`
 with the results that compare by value, and section 5 gives the checks of
 D17.
 
+### 5.10 The pypulseq pin (task 1.8)
+
+D19. The pin changes only `read` of the `[SIGNATURE]` section, so the
+values of the package do not change. The tests that read a file get the
+hash as text.
+
+### 5.11 The hash of a sequence (task 1.9)
+
+D20 to D22. The order of the checks of each measurement does not change:
+its own arguments first, then `refuse_rotations`, then `sequence_index`,
+which refuses an unsigned sequence. `docs/usage.md` gets a bullet in the
+rules of all the modules: a sequence must have a `[SIGNATURE]` hash, the
+package checks only that it is there, and the two stale cases of fact 11
+(a sequence changed with `add_block` after `read`, and an unsigned file read
+into an object that read a signed file) pass the check. The bullet tells a
+caller to use a new `Sequence` object for each file.
+
 ## 6. The change
 
 ### 6.1 Task 1.1: the test gaps (wave 1)
@@ -439,13 +505,13 @@ Tests:
 - `window=(T + 5e-10, T + 9e-10)` gives `range_s == (T, T)` and
   `NO_GRADIENTS_IN_WINDOW`.
 - A block with a delayed extended trapezoid that starts at a value that is
-  not 0: the junction step has the time `start_s + delay`, in
-  `gradient_peaks` and in the oracle; a window that starts after
-  `start_s` and before `start_s + delay` has that step; a window that ends
-  at `start_s + delay` does not.
+  not 0: the junction step has the time `start_s + delay` in
+  `gradient_peaks`; a window that starts after `start_s` and before
+  `start_s + delay` has that step; a window that ends at `start_s + delay`
+  does not.
 
-The oracle gets the rule of D4, so that it and the code agree from the same
-text.
+The oracle does not change (U11): the tests of a delayed junction check
+hand-computed values, as the other junction tests do.
 
 ### 6.5 Task 1.5: the documentation errors (wave 1)
 
@@ -601,8 +667,10 @@ the saved draft (step 0) is the start of each document.
   and the test gaps), "Changed" (the bin and its default, the hardware
   errors, the equality of `Series` and `GradientPeaks`, the shapes of
   D15 and D17, the parameters of the analyses, the table of section 5.6),
-  "Removed" (`pns`, `pns_levels_for`, `gradient_spectrum_for`). The
-  paragraph "A caller moves in this order" gets the new names.
+  "Removed" (`pns`, `pns_levels_for`, `gradient_spectrum_for`). It also
+  gives the pin of pypulseq (D19) and the refusal of a sequence with no
+  hash (D20), with the stale cases of fact 11. The paragraph "A caller
+  moves in this order" gets the new names, the pin, and the signature.
 - **D (M).** Owns `README.md`. The line for `0.1.0rc6` of the draft, with
   the changes of this plan. The install line names `v0.1.0rc6`. The example
   runs (D runs it with the example hardware).
@@ -620,12 +688,52 @@ the checks of section 7, and the tag (L21 of the first plan). After the
 merge, X asks the user to remove the old worktree
 `.worktrees/release-0.1.0rc6` and its local branch.
 
+### 6.13 Task 1.8: the pypulseq pin (wave 2)
+
+Branch `chore/pypulseq-pin-2`. X alone. Owns `pyproject.toml` (the
+`[tool.uv.sources]` entry and its comment), `uv.lock` and `TODO.md`.
+Section 5.10.
+
+Checks of X:
+
+- [ ] `uv.lock` has pypulseq at `3c3bd85`, and `uv lock --check` passes.
+- [ ] `nix develop --command scripts/check` passes, with no change to a
+      test.
+- [ ] A file whose hash looks like a number (pypulseq-issues 09) gives that
+      hash as a `str` after `read` (a check in the scratchpad, not a test of
+      this package).
+
+### 6.14 Task 1.9: require a signature (wave 3)
+
+Branch `feature/require-signature`. Section 5.11.
+
+1. **A (H), first.** Owns `extensions.py`, `seq_index.py`
+   (`sequence_index`), `tests/synthetic.py`, `tests/scale_sequences.py`,
+   `tests/test_extensions.py`, `tests/test_seq_index.py`, `TESTS.md`
+   sections 2.3 and 2.4, and `docs/usage.md` lines 1 to 84 and section 1.
+   D20 and D22. Tests: a sequence built in memory raises `ValueError` from
+   `sequence_index` and from each public measurement; after `write` it
+   passes; `read` of a signed file passes and of an unsigned file (into a
+   new object) raises; a `signature_value` that is not a `str` raises; the
+   check runs before the kept results are read.
+2. **Then T (M).** Owns each other test file and its `TESTS.md` section.
+   Each sequence that a test builds for the package goes through `signed`
+   (D22). No test changes what it checks.
+
+Checks of X:
+
+- [ ] `nix develop --command scripts/check` passes.
+- [ ] With the call of `refuse_unsigned` removed from `sequence_index`, the
+      tests of A fail and the others pass.
+- [ ] The baseline script (D23) gives the same bytes as on `origin/main`.
+
 ## 7. Checks of the release
 
 - [ ] `nix develop --command scripts/check` passes.
 - [ ] Each mutation of fact 7, and M1 to M4 of the first plan, fails a test
       (with the names of `0.1.0rc6`).
-- [ ] For `build_repeating(10)`, with the example hardware,
+- [ ] `uv.lock` pins pypulseq at `3c3bd85`.
+- [ ] For `build_repeating(10)` (signed, D22), with the example hardware,
       `thresholds_hz_per_t=(GAMMA_1H,)` and `bin_s=10.0 / 1624`: each field
       of `pns_levels` on `0.1.0rc6` equals the field of `v0.1.0rc5`, after
       `dict(...)` of each `FrozenDict`. Run the `v0.1.0rc5` side in a
@@ -665,6 +773,12 @@ are at the commits of section 2, fact 4.
 5. **The bin.** The default bin is 5 ms (500 samples at 10 us). The checks
    read only the summary and the intervals, which do not change.
 6. **`seq.index`** stays (U5). `SAFE_FIELDS` stays (D6).
+7. **The pin.** `pyproject.toml` pins pypulseq at `3c3bd85`
+   (`pulseq-reports-pin-2`), as this package does (D19, `TODO.md`).
+8. **The hash.** Each analysis and `sequence_index` raise `ValueError` for
+   a sequence with no `[SIGNATURE]` hash (D20). A `.seq` file without one
+   now fails each analysis of the result matrix. The tests that build a
+   sequence in memory must sign it (`write`, or the fields of D22).
 
 ### 8.2 pulseq-reports (`68682bd`)
 
@@ -678,8 +792,13 @@ are at the commits of section 2, fact 4.
 3. **`gradient_peaks` with a window** keeps the same values, and costs the
    blocks of the window (task 2.2). `cards/gradient_limits.py` line 312 does
    one call for each window.
-4. `sequence_index`, `rf_events`, `grad_events`, `adc_events` and
-   `block_cache_off` of `seq_index` do not change.
+4. `rf_events`, `grad_events`, `adc_events` and `block_cache_off` of
+   `seq_index` do not change. `sequence_index` refuses a sequence with no
+   `[SIGNATURE]` hash (D20), so the cards that call it (`waveforms.py`,
+   `rf_exposure.py`, `diagram_data.py`, `rf_profiles.py`) refuse an
+   unsigned file too.
+5. **The pin.** pypulseq at `3c3bd85` (`pulseq-reports-pin-2`), the same
+   commit as this package (D19).
 
 ## 9. Later
 
@@ -691,3 +810,9 @@ are at the commits of section 2, fact 4.
   user.
 - **A kept result for each window** of `gradient_peaks`, with a limit of
   size, if a caller asks for the same windows again.
+- **The stale hash** (fact 11, pypulseq-issues 11). When the fork clears
+  the signature fields in `read`, `add_block` and `set_block`, pin that
+  tag; then the check of D20 has no stale case, and the stamp of `_kept`
+  can use the hash.
+- **A check of the hash against the file** (U9, alternative): the fork
+  computes the MD5 in `read`.
