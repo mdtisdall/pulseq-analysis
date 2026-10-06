@@ -2768,6 +2768,49 @@ that the groups are those of `np.unique(..., axis=0)`.
 
 **Assumptions:** int64 arithmetic of numpy wraps around without an error.
 
+#### `test_a_window_gives_the_same_result_with_and_without_the_kept_data`
+
+**Checks:** For a window, `gradient_peaks` of a sequence that has its kept data (the per-event
+values and the values over the blocks: the end of each block, the junction steps and times, and
+the RMS of the whole file) gives a result equal (`==`) to the result of the same call when the
+kept data is empty. The kept values over the blocks and the search of the block range
+(`np.searchsorted`) do not change a result, also for a window edge on a block edge, and for a block
+of zero duration at a window edge or inside the window.
+
+**How:** For five sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
+duration before, between and after them, the junction sequence, and two random gradient
+sequences), 100 windows with the seed 20261006: the ends of every other window are each the start
+or the end of a block (or 0 or the end of the sequence), and the ends of the others are random. For
+each window, the test removes the kept data of the sequence from `grad_peaks._CACHE`, calls
+`gradient_peaks` (which builds the kept data), calls it again with the kept data, and checks that
+the two results are equal.
+
+**Assumptions:** The test does not compare with a second implementation of the window: the
+values themselves are checked by the hand-computed tests and by the comparisons with the oracle
+above, and the refactor is checked with a baseline script, outside the tests. A window with an end
+that is not within the sequence is not used. The test removes the entry of the sequence from the
+private `grad_peaks._CACHE`.
+
+#### `test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_cut`
+
+**Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept data,
+`gradient_peaks` with a window of four TRs calls `Sequence.get_block` only for the blocks that a
+window edge cuts: the two blocks (one for each edge) for a window with its ends inside blocks, and
+no block for a window with its ends on block edges. It calculates no junction step, no junction
+time and no RMS of the whole file again.
+
+**How:** After a first call with another window, the test wraps `pp.Sequence.get_block` to record
+the block ID of each call, and replaces `_junction_steps`, `_junction_times` and
+`_whole_file_rms` of `grad_peaks` with functions that fail. The window is from play index 2503 to
+2507, with its start a third of the way into block 2503 and its end half way into block 2507, or
+from the start of block 2500 to the start of block 2510. The expected blocks are those with a
+start before an edge and an end after it, from the index. The test checks that the blocks read
+are the expected set, each read one time, and that the result has gradients.
+
+**Assumptions:** The test cannot measure the time: a loop over all the blocks in numpy does not
+call `get_block`. The failing functions are the ones that calculate a value over all the blocks.
+The test needs the names `_junction_steps`, `_junction_times` and `_whole_file_rms`.
+
 ### 2.7 The kept PNS levels (`test_pns_levels_kept.py`)
 
 `test_pns_levels_kept.py` tests the keep of `pns_levels.pns_levels`, the one public function
