@@ -373,7 +373,7 @@ def test_pns_levels_for_keeps_one_result_for_each_bin_s(monkeypatch):
     assert len(calls) == 2
     assert six is not default
     assert six.bin_samples == 600
-    assert default.bin_samples == 615
+    assert default.bin_samples == 500
     assert pns_levels_for(seq, hardware=EXAMPLE_HW, bin_s=0.006) is six
     assert pns_levels_for(seq, hardware=EXAMPLE_HW) is default
     assert len(calls) == 2

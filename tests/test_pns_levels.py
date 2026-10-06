@@ -167,21 +167,23 @@ def test_cast_outward_bounds_every_input_value():
 
 
 def test_bin_samples_for_matches_the_formula():
-    """`bin_samples_for` follows `max(floor(bin_s / dt), ceil(num_samples / MAX_BINS), 1)`.
-    With the default `BIN_S`: 615 samples at the 10 us raster for any file of up to
-    1,230,000,000 samples (`615 * MAX_BINS`), and a coarser bin for a larger file, computed
+    """`bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
+    `wanted` is the whole number of samples of `bin_s` (the new test below checks the snap).
+    With the default `BIN_S` (5 ms): 500 samples at the 10 us raster for any file of up to
+    1,000,000,000 samples (`500 * MAX_BINS`), and a coarser bin for a larger file, computed
     from `num_samples` alone. With another `bin_s`: the bin rounded down to whole samples,
     one sample for a `bin_s` shorter than `dt`, and the coarser bin of a large file. A
     `pns_levels` call on a real sequence also follows the same formula, and gives that many
     bins."""
     dt = 1e-5
-    assert bin_samples_for(0, dt) == 615
-    assert bin_samples_for(1_230_000_000, dt) == 615
-    assert bin_samples_for(1_230_000_001, dt) == 616
+    assert bin_samples_for(0, dt) == 500
+    assert bin_samples_for(1_000_000_000, dt) == 500
+    assert bin_samples_for(1_000_000_001, dt) == 501
     assert bin_samples_for(2_000_000_000, dt) == 1000
-    assert bin_samples_for(0, 2e-5) == 307
+    assert bin_samples_for(0, 2e-5) == 250
     assert bin_samples_for(0, dt, BIN_S) == bin_samples_for(0, dt)
-    assert BIN_S == 10.0 / (2 * 812)  # the bin of 0.1.0rc5, as the same float
+    assert BIN_S == 0.005
+    assert bin_samples_for(0, dt, 10.0 / 1624) == 615  # the bin of 0.1.0rc5, by `bin_s`
 
     assert bin_samples_for(0, dt, 1e-3) == 100
     assert bin_samples_for(0, dt, 1.055e-3) == 105
@@ -199,6 +201,22 @@ def test_bin_samples_for_matches_the_formula():
         -levels.num_samples // levels.bin_samples
     )  # ceil division
     assert len(levels.level_max_hz_per_t) == len(levels.level_min_hz_per_t)
+
+
+def test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster():
+    """A `bin_s` within `ON_RASTER_TOLERANCE` of a whole number of samples gives that
+    number, not one less because the division is not exact: for each `k` from 1 to 2000,
+    `bin_s = k * 1e-5` and `bin_s = round(k * 1e-5, 10)` give `k` samples at the 10 us
+    raster. A `bin_s` between two samples is rounded down (`615.5 * 1e-5` gives 615), and
+    the default is 500 samples."""
+    dt = 1e-5
+    for k in range(1, 2001):
+        assert bin_samples_for(0, dt, k * 1e-5) == k, k
+        assert bin_samples_for(0, dt, round(k * 1e-5, 10)) == k, k
+    assert bin_samples_for(0, dt, 0.01) == 1000  # `0.01 / 1e-5` is a hair under 1000
+    assert bin_samples_for(0, dt, 615.5 * 1e-5) == 615
+    assert bin_samples_for(0, dt, 10.0 / 1624) == 615
+    assert bin_samples_for(0, dt) == 500
 
 
 def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
@@ -455,6 +473,12 @@ def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pn
         )
 
 
+# A bin of 615 samples at the 10 us raster. The intervals of `gre_sequence(num_trs=20)` are
+# in samples 114 to 417 of each 2000, so none has a multiple of 500 (the chunk ends for the
+# default bin) inside it, and `_chunk_across_an_interval` finds a size only with this bin.
+_ACROSS_BIN_S = 10.0 / 1624
+
+
 def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
     """The first and the last sample of `interval`, from its times `(k + 0.5) * dt`."""
     return round(interval.start_s / dt - 0.5), round(interval.end_s / dt - 0.5)
@@ -490,7 +514,9 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     seq = gre_sequence(num_trs=20)
     hardware = hardware_for_peak(seq, 3.0)
     thresholds = (_LIMIT,)
-    reference = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+    reference = pns_levels(
+        seq, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S
+    )
     dt, bin_samples = reference.dt_s, reference.bin_samples
     ranges = [_sample_range(i, dt) for i in reference.above[_LIMIT]]
     assert len(ranges) > 1
@@ -501,10 +527,12 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
 
     for chunk_samples in (1, across, whole):
         monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
-        got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+        got = pns_levels(
+            seq, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S
+        )
         assert_levels_equal(got, reference, ignore=())
     monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", across)
-    got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+    got = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S)
     assert got.above[_LIMIT] == reference.above[_LIMIT]
 
 
@@ -626,7 +654,10 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     hardware = hardware_for_peak(seq, 3.0)
     high_t, low_t = _LIMIT, 0.5 * _LIMIT
     thresholds = (high_t, low_t)
-    single = {t: pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(t,)) for t in thresholds}
+    single = {
+        t: pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(t,), bin_s=_ACROSS_BIN_S)
+        for t in thresholds
+    }
     high, low = single[high_t].above[high_t], single[low_t].above[low_t]
     assert len(high) > 1
     assert sum(i.num_samples for i in low) > sum(i.num_samples for i in high)
@@ -637,21 +668,29 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     for chunk_samples in sizes:
         if chunk_samples is not None:
             monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
-        both = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
+        both = pns_levels(
+            seq, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S
+        )
         assert list(both.above) == [high_t, low_t]
         for t in thresholds:
             assert both.above[t] == single[t].above[t]
         assert_levels_equal(both, single[high_t], ignore=("above",))
 
     monkeypatch.undo()
-    swapped = pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(low_t, high_t))
+    swapped = pns_levels(
+        seq, hardware=hardware, thresholds_hz_per_t=(low_t, high_t), bin_s=_ACROSS_BIN_S
+    )
     assert list(swapped.above) == [low_t, high_t]
     assert swapped.above[low_t] == low
     assert swapped.above[high_t] == high
 
     whole = round(_LIMIT)  # an int that is equal to the float `_LIMIT`
     assert float(whole) == _LIMIT
-    keys = list(pns_levels(seq, hardware=hardware, thresholds_hz_per_t=(whole, low_t)).above)
+    keys = list(
+        pns_levels(
+            seq, hardware=hardware, thresholds_hz_per_t=(whole, low_t), bin_s=_ACROSS_BIN_S
+        ).above
+    )
     assert keys == [high_t, low_t]
     assert all(type(key) is float for key in keys)
 

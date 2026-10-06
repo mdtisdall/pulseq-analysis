@@ -423,18 +423,20 @@ not arranged, only overwhelmingly likely for uniform random values.
 
 #### `test_bin_samples_for_matches_the_formula`
 
-**Checks:** `bin_samples_for` follows `max(floor(bin_s / dt), ceil(num_samples /
-MAX_BINS), 1)`. With the default `bin_s`, `BIN_S`: 615 samples at the 10 us raster for any
-file of up to 1,230,000,000 samples, and a coarser bin above that size or at a coarser
-`dt`. `BIN_S` is the float `10.0 / (2 * 812)`, the bin of 0.1.0rc5. With another `bin_s`:
-the bin rounded down to whole samples, one sample for a `bin_s` shorter than `dt` or equal
-to it, and the coarser bin of a file with more than `bin_samples * MAX_BINS` samples. A
+**Checks:** `bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
+`wanted` is the whole number of samples of `bin_s` (the next test checks the snap to the
+raster). With the default `bin_s`, `BIN_S` (5 ms): 500 samples at the 10 us raster for any
+file of up to 1,000,000,000 samples, and a coarser bin above that size or at a coarser
+`dt`. With another `bin_s`: the bin rounded down to whole samples, one sample for a `bin_s`
+shorter than `dt` or equal to it, and the coarser bin of a file with more than `bin_samples
+* MAX_BINS` samples. `bin_s=10.0 / 1624`, the default of 0.1.0rc5, still gives 615. A
 `pns_levels` call on a real sequence follows the same formula and gives that many bins.
 
-**How:** Direct calls: `bin_samples_for(0, 1e-5) == 615`,
-`bin_samples_for(1_230_000_000, 1e-5) == 615`, `bin_samples_for(1_230_000_001, 1e-5)
-== 616`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(0, 2e-5) ==
-307`, and `bin_samples_for(0, 1e-5, BIN_S)` equal to the call without `bin_s`. Then, at
+**How:** Direct calls: `bin_samples_for(0, 1e-5) == 500`,
+`bin_samples_for(1_000_000_000, 1e-5) == 500`, `bin_samples_for(1_000_000_001, 1e-5)
+== 501`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(0, 2e-5) ==
+250`, `bin_samples_for(0, 1e-5, BIN_S)` equal to the call without `bin_s`, `BIN_S ==
+0.005`, and `bin_samples_for(0, 1e-5, 10.0 / 1624) == 615`. Then, at
 `dt = 1e-5`: `bin_s = 1e-3` gives 100, `1.055e-3` and `1.059e-3` give 105, `1e-6` and `dt`
 give 1, `bin_samples_for(0, 0.25, 1) == 4` (an `int` is a number of seconds),
 `bin_samples_for(100 * MAX_BINS, 1e-5, 1e-3) == 100` and with one more sample 101, and
@@ -444,8 +446,22 @@ give 1, `bin_samples_for(0, 0.25, 1) == 4` (an `int` is a number of seconds),
 len(levels.level_max_hz_per_t)` equals the ceiling division of `num_samples` by
 `bin_samples`.
 
-**Assumptions:** The expected values are for floats that divide with no rounding trouble
-(`1.05e-3 / 1e-5` is 104.99999999999999, so the test uses `1.055e-3`).
+**Assumptions:** The values between two samples (`1.055e-3`, `1.059e-3`) are far from a
+whole number of samples, so the snap to the raster does not change them.
+
+#### `test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster`
+
+**Checks:** A `bin_s` within `ON_RASTER_TOLERANCE` of a whole number of samples gives that
+number, not one less because the division is not exact. For each `k` from 1 to 2000,
+`bin_s = k * 1e-5` and `bin_s = round(k * 1e-5, 10)` give `k` samples at the 10 us raster
+(the floor alone gives `k - 1` for 1047 of the values). A `bin_s` between two samples is
+rounded down: `615.5 * 1e-5` gives 615. `10.0 / 1624` gives 615, and the default gives 500.
+
+**How:** Direct calls of `bin_samples_for(0, 1e-5, bin_s)` in a loop over `k`, then the
+calls for `0.01` (1000), `615.5 * 1e-5`, `10.0 / 1624` and the default.
+
+**Assumptions:** The 1047 figure is from the review of 2026-10-05, for the floor without the
+tolerance.
 
 #### `test_bin_s_sets_the_bin_of_the_level_and_holds_every_total`
 
@@ -633,8 +649,9 @@ chunk of 1 bin, for a chunk with an interval across its end (the interval is one
 interval, not two), and for one chunk larger than the whole file.
 
 **How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`,
-and `thresholds_hz_per_t=(_LIMIT,)`. `reference` is `pns_levels` with the `CHUNK_SAMPLES`
-of the module.
+and `thresholds_hz_per_t=(_LIMIT,)`, and every `pns_levels` call has `bin_s=10.0 / 1624`
+(615 samples at the 10 us raster; see the assumptions). `reference` is `pns_levels` with
+the `CHUNK_SAMPLES` of the module.
 The test searches the chunks of 1 to 19 bins for the first one where the last sample of
 an interval is in a later chunk than its first sample, and fails if there is none. Then
 `monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
@@ -643,7 +660,11 @@ reference (`numpy.array_equal` for the arrays, `==` for the rest).
 
 **Assumptions:** The test checks that the second size has an interval across a chunk
 end and the third has none. Setting a chunk of 1 sample gives chunks of 1 bin
-(`pns_levels` rounds the chunk up to a whole number of bins).
+(`pns_levels` rounds the chunk up to a whole number of bins). A chunk is a whole number of
+bins, so an interval can cross a chunk end only if the bin does not align with it. The
+intervals of this sequence are in samples 114 to 417 of each 2000, and none has a multiple
+of 500 inside it, so with the default bin (500 samples) no chunk has an interval across its
+end. The bin of 615 samples has such chunks.
 
 #### `test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples`
 
@@ -704,7 +725,8 @@ that has an interval of each threshold across a chunk end.
 
 **How:** `gre_sequence(num_trs=20)` with hardware that gives a peak of 3 times `_LIMIT`.
 `single` has one call with `thresholds_hz_per_t=(t,)` for each of `_LIMIT` and
-`0.5 * _LIMIT`. The test checks that the intervals of `_LIMIT` are more than one and that
+`0.5 * _LIMIT`. Every `pns_levels` call of the test has `bin_s=10.0 / 1624` (615
+samples). The test checks that the intervals of `_LIMIT` are more than one and that
 those of `0.5 * _LIMIT` have more samples in total (so the two thresholds do not give the
 same runs). For each chunk size (the normal one, 1,
 and for each threshold the first of 1 to 19 bins with an interval across its end, found
@@ -717,7 +739,9 @@ same tuples, and the `int` `round(_LIMIT)` in place of `_LIMIT` (the test checks
 equals `_LIMIT` as a float) gives the key `_LIMIT` as a `float`.
 
 **Assumptions:** The intervals of 1.0 and of 0.5 each cross a chunk end for a chunk of 1
-to 19 bins (`_chunk_across_an_interval` fails if there is none).
+to 19 bins of 615 samples (`_chunk_across_an_interval` fails if there is none). With the
+default bin of 500 samples none does, as in
+`test_the_intervals_do_not_depend_on_chunk_samples`.
 
 #### `test_pns_levels_refuses_bad_thresholds_before_any_work`
 
@@ -2806,7 +2830,7 @@ ones (the `int` call gives the second result), and that `list(result.above)` is 
 does not give the result of the default; the same `bin_s` again gives the kept result (the
 same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s` and the equal
 `float` are one key; the same `bin_s` with thresholds is another result. The bins of each
-result are those of its `bin_s` (`bin_samples` 615 for the default and 600 for `0.006` at
+result are those of its `bin_s` (`bin_samples` 500 for the default and 600 for `0.006` at
 the 10 us raster).
 
 **How:** The test patches `pns.pns_levels` as above and calls `pns_levels_for(seq)` with
@@ -3350,7 +3374,7 @@ files are confidential).
 
 **Checks:** `PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
 object (`is`) as `pns_levels_for` with that `bin_s`, and not the object of the default. Its
-`bin_samples` is 100 (615 for the default), and the `coord_step` of its `pns_total` series
+`bin_samples` is 100 (500 for the default), and the `coord_step` of its `pns_total` series
 is `bin_samples * dt_s`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
 raises `ValueError`, both before the sequence is read.
 
