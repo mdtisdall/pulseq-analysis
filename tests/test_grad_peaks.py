@@ -12,13 +12,16 @@ from gap_sequences import (
     U,
     delayed_sequence,
     early_end_sequence,
+    extended,
     long_gap_sequence,
     non_zero_ends_sequence,
+    sequence,
     short_gap_sequence,
     vector_sequence,
     zero_gap_sequence,
 )
 from oracles import waveform as oracle
+from random_gaps import random_gap_sequence
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
     GAMMA_1H,
@@ -923,103 +926,6 @@ def _random_gradient_sequence(rng: np.random.Generator) -> pp.Sequence:
     return seq
 
 
-def _end_value(rng: np.random.Generator, previous: float) -> float:
-    """A first or a last value of a gradient that is not 0 for most calls: 0, the value
-    `previous` (no step), or a random value below the largest step that `add_block` accepts,
-    and within 0.9 of that step of `previous`."""
-    choice = rng.random()
-    if choice < 0.3:
-        value = 0.0
-    elif choice < 0.5:
-        value = previous
-    else:
-        value = rng.uniform(-0.9, 0.9) * _MAX_STEP
-    value = float(np.clip(value, previous - 0.9 * _MAX_STEP, previous + 0.9 * _MAX_STEP))
-    return float(np.clip(value, -0.9 * _MAX_STEP, 0.9 * _MAX_STEP))
-
-
-def _gap_event(rng: np.random.Generator, channel: str, previous_last: float):
-    """A random gradient event on `channel`, and its last value: a trapezoid (it starts and ends
-    at 0), an extended trapezoid or an arbitrary gradient. The last two have a first value and a
-    last value from `_end_value` (not 0 for most events, `previous_last` is the last value of
-    the block before). The event has a delay of 0 to 7 raster times, so the gap before it is
-    zero, short or long. An event with a delay has a first value that is not 0 for 70% of its
-    calls: `add_block` accepts it below `max_slew * grad_raster_time`."""
-    kind = int(rng.integers(0, 3))
-    delay = float(rng.choice([0, 0, 0, 1, 2, 3, 7]) * _RASTER)
-    if kind == 0:
-        amplitude = rng.uniform(0.05, 0.8) * SYSTEM.max_grad * rng.choice([-1.0, 1.0])
-        rise = math.ceil(max(abs(amplitude) / (0.7 * SYSTEM.max_slew), 50e-6) / _RASTER) * _RASTER
-        flat = round(rng.uniform(0.0, 300e-6) / _RASTER) * _RASTER
-        g = pp.make_trapezoid(
-            channel=channel, amplitude=amplitude, rise_time=rise, flat_time=flat, system=SYSTEM
-        )
-        g.delay = delay
-        return g, 0.0
-    first = _end_value(rng, previous_last) if delay == 0 or rng.random() < 0.7 else 0.0
-    last = _end_value(rng, 0.0)
-    if kind == 1:
-        peak = rng.uniform(0.05, 0.6) * SYSTEM.max_grad * rng.choice([-1.0, 1.0])
-        ramp = math.ceil(max(abs(peak) / (0.7 * SYSTEM.max_slew), 50e-6) / _RASTER) * _RASTER
-        flat = round(rng.uniform(_RASTER, 200e-6) / _RASTER) * _RASTER
-        g = pp.make_extended_trapezoid(
-            channel=channel,
-            times=[0.0, ramp, ramp + flat, 2 * ramp + flat],
-            amplitudes=[first, peak, peak, last],
-            system=SYSTEM,
-        )
-    else:
-        # A waveform that is slow enough for the slew limit, with the first and the last value
-        # of 0.2 of the largest step at most.
-        n = int(rng.integers(6, 30))
-        amplitude = rng.uniform(0.02, 0.2) * SYSTEM.max_grad
-        amplitude = min(amplitude, 0.2 * _MAX_STEP * (n + 1) / np.pi)
-        waveform = amplitude * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
-        first = float(np.clip(first, -0.2 * _MAX_STEP, 0.2 * _MAX_STEP))
-        last = float(np.clip(last, -0.2 * _MAX_STEP, 0.2 * _MAX_STEP))
-        g = pp.make_arbitrary_grad(
-            channel=channel,
-            waveform=waveform * rng.choice([-1.0, 1.0]),
-            first=first,
-            last=last,
-            system=SYSTEM,
-        )
-    g.delay = delay
-    return g, last
-
-
-def _random_gap_sequence(rng: np.random.Generator) -> pp.Sequence:
-    """A sequence of 2 to 8 blocks (a block of zero duration among them for 12% of the blocks),
-    each with 0 to 3 random gradient events (`_gap_event`) that start and end at values that are
-    not 0 for most of them, and each block with a delay event of 0 to 5 raster times after
-    its events for half of them. The gaps between the events of one axis are zero, short and long,
-    with steps, lines and ramps. A block that `add_block` refuses (a step at a block
-    junction of more than `max_slew * grad_raster_time`) is not added."""
-    seq = signed(pp.Sequence(SYSTEM))
-    last = dict.fromkeys(AXES, 0.0)
-    for _ in range(int(rng.integers(2, 9))):
-        if rng.random() < 0.12:
-            seq.add_block(pp.make_label(label="LIN", type="SET", value=1))
-            continue
-        new_last = dict.fromkeys(AXES, 0.0)
-        events = []
-        for axis in AXES:
-            if rng.random() < 0.55:
-                event, new_last[axis] = _gap_event(rng, axis, last[axis])
-                events.append(event)
-        extra = float(rng.choice([0, 0, 1, 2, 5]) * _RASTER)
-        if events and extra:
-            events.append(pp.make_delay(pp.calc_duration(*events) + extra))
-        elif not events:
-            events.append(pp.make_delay(float(rng.choice([1, 3, 10]) * 1e-4)))
-        try:
-            seq.add_block(*events)
-        except RuntimeError:
-            continue
-        last = new_last
-    return seq
-
-
 @pytest.mark.parametrize("seed", range(50))
 def test_matches_oracle_on_random_gradient_sequences(seed):
     """50 random sequences of trapezoids, extended trapezoids and arbitrary gradients
@@ -1035,14 +941,14 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
 
 @pytest.mark.parametrize("seed", range(40))
 def test_matches_oracle_on_random_sequences_with_ends_that_are_not_zero_next_to_gaps(seed):
-    """40 random sequences (`_random_gap_sequence`) with events that start and end at values
+    """40 random sequences (`random_gap_sequence`) with events that start and end at values
     that are not 0, with delays and delay blocks before and after them, so that the gaps between
     the events are zero (a step or none), short (a line) and long (a ramp to 0 and a ramp from 0),
     with a first value and a last value of the axis that are not 0: `gradient_peaks` matches the
     oracle, on the whole file and on 8 windows (`_oracle_windows`) that start and end at the
     ramp points, the points and the edges of the blocks."""
     rng = np.random.default_rng(seed)
-    seq = _random_gap_sequence(rng)
+    seq = random_gap_sequence(rng)
     _assert_matches_oracle_on_windows(seq, _oracle_windows(seq, rng, 8))
 
 
@@ -1249,7 +1155,7 @@ _AGREEMENT_SEQUENCES = [
         lambda seed=seed: _random_gradient_sequence(np.random.default_rng(seed))
         for seed in range(4)
     ),
-    *(lambda seed=seed: _random_gap_sequence(np.random.default_rng(seed)) for seed in range(8)),
+    *(lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)) for seed in range(8)),
 ]
 _AGREEMENT_IDS = [
     "spin_echo",
@@ -1332,6 +1238,42 @@ def test_first_block_junction_step_uses_zero_before_the_block():
     assert values.junction_hz_per_m_per_s["x"][0] == pytest.approx(start_value / _RASTER)
     assert values.junction_hz_per_m_per_s["y"][0] == 0.0
     assert values.junction_hz_per_m_per_s["z"][0] == 0.0
+
+
+def test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time():
+    """Block 1 on x goes from 0 to U in 100 us, block 2 is a delay of 200 us, and block 3 has a
+    trapezoid scaled to amplitude 0 (as a phase encode loop makes for the centre of k-space): a
+    long gap with a ramp to 0 after block 1 and no ramp before block 3. The zero event has no
+    slope and no ramp, so its slew is 0 and its slew time is the start of its block, 300 us, not
+    the start of a ramp from 0 (295 us). Block 1 has the ramp to 0 as its slew, 2 U / DT at its
+    last point, 100 us, and block 2 has no event, so 0 at its start, 100 us."""
+    zero = pp.scale_grad(
+        pp.make_trapezoid(
+            channel="x",
+            amplitude=U,
+            rise_time=100e-6,
+            flat_time=100e-6,
+            fall_time=100e-6,
+            system=SYSTEM,
+        ),
+        0.0,
+    )
+    seq = signed(
+        sequence(
+            [extended([0, 100e-6], [0, U])],
+            [pp.make_delay(200e-6)],
+            [zero],
+        )
+    )
+
+    values = block_gradient_values(seq)
+
+    np.testing.assert_allclose(values.start_s, [0.0, 100e-6, 300e-6], rtol=0, atol=1e-12)
+    np.testing.assert_allclose(values.peak_hz_per_m["x"], [U, 0.0, 0.0], rtol=1e-9)
+    np.testing.assert_allclose(values.slew_hz_per_m_per_s["x"], [2 * U / DT, 0.0, 0.0], rtol=1e-9)
+    np.testing.assert_allclose(
+        values.slew_time_s["x"], [100e-6, 100e-6, 300e-6], rtol=0, atol=1e-12
+    )
 
 
 def test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system(tmp_path):
@@ -1706,7 +1648,7 @@ def _random_windows(seq: pp.Sequence, rng: np.random.Generator, count: int) -> l
         _junction_sequence,
         _delayed_junction_sequence,
         lambda: _random_gradient_sequence(np.random.default_rng(3)),
-        lambda: _random_gap_sequence(np.random.default_rng(5)),
+        lambda: random_gap_sequence(np.random.default_rng(5)),
     ],
     ids=[
         "build_repeating_30",
@@ -1966,6 +1908,48 @@ def test_a_window_has_the_step_at_its_start_and_not_the_step_at_its_end():
     )
 
 
+def test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step():
+    """Block 1 on x goes from 0 to U in 100 us and stays at U to 200 us, and block 2 starts at 3 U
+    and goes to 0 in 100 us: a step of 2 U at 200 us, with no gap. The window from 100 to 200 us
+    ends at the step, so the value after the step (3 U) is not in it: the vector peak is U at the
+    start of the window, in block 1, the peak of x is U at 100 us in block 1, the slew is 0 (the
+    step is not in the window, and the segment of the window is flat) and the RMS is U. A window
+    from 100 to 250 us has the step: the vector peak is 3 U at 200 us, in block 2, and the slew is
+    the step, 2 U / DT, in block 2."""
+    seq = signed(
+        sequence(
+            [extended([0, 100e-6, 200e-6], [0, U, U])],
+            [extended([0, 100e-6], [3 * U, 0])],
+        )
+    )
+    block_1, block_2 = seq.block_events
+
+    at_the_step = gradient_peaks(seq, window=(100e-6, 200e-6))
+
+    assert at_the_step.vector_peak_hz_per_m == pytest.approx(U, rel=1e-9)
+    assert at_the_step.vector_peak_time_s == pytest.approx(100e-6, rel=0, abs=1e-12)
+    assert at_the_step.vector_peak_block == block_1
+    _assert_axis(
+        at_the_step.axes["x"],
+        peak=U,
+        peak_time=100e-6,
+        peak_block=block_1,
+        slew=0.0,
+        slew_time=0.0,
+        slew_block=None,
+        rms=U,
+    )
+    assert oracle.peaks(seq, (100e-6, 200e-6))["vector_peak"] == pytest.approx(U, rel=1e-9)
+
+    past_the_step = gradient_peaks(seq, window=(100e-6, 250e-6))
+
+    assert past_the_step.vector_peak_hz_per_m == pytest.approx(3 * U, rel=1e-9)
+    assert past_the_step.vector_peak_time_s == pytest.approx(200e-6, rel=0, abs=1e-12)
+    assert past_the_step.vector_peak_block == block_2
+    assert past_the_step.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(2 * U / DT, rel=1e-9)
+    assert past_the_step.axes["x"].slew_block == block_2
+
+
 def test_a_short_gap_gives_a_line_credited_to_the_later_block():
     """The first gradient goes from 0 to 3 U in 100 us, and its block lasts 110 us. The second
     block starts at 2 U and goes to 0 in 100 us: the gap is one raster time, so the gradient is the
@@ -2183,6 +2167,66 @@ def test_a_window_edge_next_to_a_block_edge_credits_the_vector_peak_by_time():
     assert after_the_step.vector_peak_block == block_2
 
 
+@pytest.mark.parametrize("window", [None, (50e-6, 450e-6)], ids=["whole_file", "window"])
+def test_a_vector_peak_tie_goes_to_the_earlier_time_when_the_later_block_has_it(window):
+    """Two blocks have the same largest vector peak, and the later block has the earlier time. The
+    blocks are a delay of 100 us, block 2 (x from 0 to A in 100 us, flat at A to 200 us, and a last
+    point 1 fs after 200 us), block 3 (y flat at A / 2 for 50 us, then to 0 in 50 us) and a delay
+    of 100 us. Block 3 starts at 300 us, and the value after 300 us is hypot(A, A / 2): x is
+    still at A, and y is at its first value. It goes to block 3, the last block that starts at or
+    before the time. The value before the last point of x, 1 fs after 300 us, is the same, and it
+    goes to block 2, the first block that ends at or after that time, within `TIME_TOLERANCE`. So
+    block 3 has the earlier time (300 us) and block 2 has the later one (300 us + 1 fs), and the
+    credit goes to block 3 by the earlier time, in the whole file and in a window that has both
+    blocks whole. The oracle gives the same block."""
+    seq = signed(
+        sequence(
+            [pp.make_delay(100e-6)],
+            [extended([0, 100e-6, 200e-6 + 1e-15], [0, A, A])],
+            [extended([0, 50e-6, 100e-6], [A / 2, A / 2, 0], channel="y")],
+            [pp.make_delay(100e-6)],
+        )
+    )
+    _, _, block_3, _ = seq.block_events
+    expected = math.hypot(A, A / 2)
+
+    values = block_gradient_values(seq)
+    np.testing.assert_allclose(
+        values.vector_peak_hz_per_m, [0.0, expected, expected, 0.0], rtol=1e-9
+    )
+    assert values.vector_peak_time_s[1] > values.vector_peak_time_s[2]
+
+    result = gradient_peaks(seq, window=window)
+
+    assert result.vector_peak_hz_per_m == pytest.approx(expected, rel=1e-9)
+    assert result.vector_peak_time_s == pytest.approx(300e-6, rel=0, abs=1e-12)
+    assert result.vector_peak_block == block_3
+    assert oracle.peaks(seq, window)["vector_peak_block"] == block_3
+
+
+def test_a_window_credits_the_segment_before_a_step_of_the_same_slew():
+    """Block 1 on x is a trapezoid of U with a rise of 10 us, no flat time and a fall of 10 us, and
+    block 2 starts at U: a step of U at 20 us, and then goes to 0 in 100 us. The fall of block 1
+    (U / 10 us, the last segment of its event) and the step (U / DT) have the same slew, and no
+    other value is as large. The window from 12 to 60 us cuts block 1 in its fall and block 2 in
+    its fall. The fall is before the step in the polyline, so the slew is credited to block 1,
+    at the start of the cut, 12 us. The peak is U at 20 us, the start of block 2."""
+    trapezoid = pp.make_trapezoid(
+        channel="x", amplitude=U, rise_time=10e-6, flat_time=0.0, fall_time=10e-6, system=SYSTEM
+    )
+    seq = signed(sequence([trapezoid], [extended([0, 100e-6], [U, 0])]))
+    block_1, block_2 = seq.block_events
+
+    x = gradient_peaks(seq, window=(12e-6, 60e-6)).axes["x"]
+
+    assert x.peak_hz_per_m == pytest.approx(U, rel=1e-9)
+    assert x.peak_time_s == pytest.approx(20e-6, rel=0, abs=1e-12)
+    assert x.peak_block == block_2
+    assert x.max_slew_hz_per_m_per_s == pytest.approx(U / DT, rel=1e-9)
+    assert x.slew_time_s == pytest.approx(12e-6, rel=0, abs=1e-12)
+    assert x.slew_block == block_1
+
+
 def test_the_gap_rule_uses_the_gradient_raster_of_the_file_not_of_seq_system(tmp_path):
     """A sequence built with a 4 us gradient raster: block 1 has a gradient from 0 to V in 400 us
     and its block lasts 410 us, and block 2 has a gradient from W to 0 in 400 us. The gap is 10
@@ -2287,7 +2331,7 @@ _BLOCK_VALUE_SEQUENCES = [
     lambda: signed(long_gap_sequence()),
     lambda: signed(non_zero_ends_sequence()),
     lambda: signed(vector_sequence()),
-    *(lambda seed=seed: _random_gap_sequence(np.random.default_rng(seed)) for seed in range(14)),
+    *(lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)) for seed in range(14)),
 ]
 _BLOCK_VALUE_IDS = [
     "spin_echo",

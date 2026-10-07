@@ -9,12 +9,17 @@ import pytest
 from gap_sequences import (
     delayed_sequence,
     early_end_sequence,
+    gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
+    negated,
     non_zero_ends_sequence,
+    short_gap_from_0_sequence,
     short_gap_sequence,
+    short_gap_to_0_sequence,
     zero_gap_sequence,
 )
 from oracles import grad_spectrum as oracle
+from random_gaps import random_gap_sequence
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
 from scipy.signal import spectrogram
 from synthetic import (
@@ -276,6 +281,27 @@ _GAP_SEQUENCES = {
     "non_zero_ends": non_zero_ends_sequence,
     "issue_12_delayed": delayed_sequence,
     "issue_12_early_end": early_end_sequence,
+    "gap_of_1_5_raster_times": gap_of_1_5_raster_times_sequence,
+    "short_gap_from_0": short_gap_from_0_sequence,
+    "short_gap_to_0": short_gap_to_0_sequence,
+}
+# The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on
+# the sign).
+_GAP_SEQUENCES |= {
+    f"negated_{name}": (lambda build=_GAP_SEQUENCES[name]: negated(build()))
+    for name in (
+        "zero_gap",
+        "short_gap",
+        "long_gap",
+        "non_zero_ends",
+        "issue_12_delayed",
+        "issue_12_early_end",
+    )
+}
+# The random sequences of `random_gaps` (random signs, zero, short and long gaps).
+_GAP_SEQUENCES |= {
+    f"random_gaps_{seed}": (lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)))
+    for seed in range(8)
 }
 
 
@@ -285,7 +311,10 @@ def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_wavefor
     ends that are not 0 next to it (and a first and a last value that are not 0), equals the
     spectrum that the oracle calculates from `oracle.sample` (the model of MATLAB Pulseq).
     pypulseq's `calculate_gradient_spectrum` draws a line across a long gap
-    (pypulseq-issues 12) and gives another spectrum, so it is not the reference here."""
+    (pypulseq-issues 12) and gives another spectrum, so it is not the reference here. The
+    sequences are the hand sequences of `gap_sequences`, each also with every amplitude negated,
+    a gap of 1.5 raster times between two values that are not 0, a short gap from 0 to a value
+    that is not 0 and from one to 0, and the 8 random sequences of `random_gaps` (seeds 0 to 7)."""
     seq = signed(build())
     _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
 
@@ -388,15 +417,24 @@ def test_spectra_compare_by_value():
 
 
 def test_the_defaults_are_those_of_pypulseq():
+    """The defaults of `gradient_spectrum` are the stored floats of pypulseq's defaults
+    (`calculate_gradient_spectrum`'s `max_frequency`, `window_width` and
+    `frequency_oversampling`), and the call with no arguments gives the spectrum of those
+    values: the spectrum of `_compute_spectrum` with pypulseq's values, which is a new
+    result and not the kept result of the call that `gradient_spectrum` would give the same
+    sequence. A call of `gradient_spectrum` with the explicit values would give the same kept
+    object as the call with the defaults, and the test would check nothing. It also guards
+    pypulseq's defaults: the test fails if a new pypulseq changes one."""
     parameters = inspect.signature(pp.Sequence.calculate_gradient_spectrum).parameters
     seq = spin_echo_sequence()
-    explicit = grad_spectrum.gradient_spectrum(
+    explicit = grad_spectrum._compute_spectrum(
         seq,
-        max_frequency_hz=parameters["max_frequency"].default,
-        window_s=parameters["window_width"].default,
-        frequency_oversampling=parameters["frequency_oversampling"].default,
+        parameters["max_frequency"].default,
+        parameters["window_width"].default,
+        parameters["frequency_oversampling"].default,
     )
     default = grad_spectrum.gradient_spectrum(seq)
+    assert explicit is not default
     np.testing.assert_array_equal(explicit.frequency_hz, default.frequency_hz)
     assert list(explicit.axes) == list(default.axes)
     for axis in default.axes:

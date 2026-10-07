@@ -235,6 +235,28 @@ def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
     assert len(calls) == 3
 
 
+@pytest.mark.parametrize("axis", "xyz")
+@pytest.mark.parametrize("field", pns_levels_module._HW_FIELDS)
+def test_pns_levels_keys_the_hardware_on_each_field_of_each_axis(default_seq, axis, field):
+    """A struct that differs from the example struct in one field of one axis (`_HW_FIELDS`,
+    each of the 8 fields of each of the 3 axes), with the same label, is another hardware: the
+    call gives a new result and not the kept result of the example struct. The value is valid:
+    `a1`, `a2` or `a3` is 0.0005 more (the sum of the three stays within 0.001 of 1), and
+    another field is 1.1 times its value (`stim_limit` stays above 0). A key that left out
+    a field would give the kept result."""
+    struct = safe_example_hw()
+    axis_struct = getattr(struct, axis)
+    old = getattr(axis_struct, field)
+    new = old + 0.0005 if field in ("a1", "a2", "a3") else 1.1 * old
+    assert new != old
+    setattr(axis_struct, field, new)
+
+    kept = pns_levels(default_seq, hardware=(safe_example_hw(), "LABEL"))
+    changed = pns_levels(default_seq, hardware=(struct, "LABEL"))
+    assert changed is not kept
+    assert pns_levels(default_seq, hardware=(safe_example_hw(), "LABEL")) is kept
+
+
 def test_pns_levels_ignores_stim_thresh_in_the_hardware_key(monkeypatch):
     """Two `hardware` pairs with the same label that differ only in `z.stim_thresh` are one
     hardware: the second call runs no model and gives the kept result."""
@@ -342,6 +364,20 @@ def test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without
     struct.x.a1 -= 0.1
     assert struct.x.a1 + struct.x.a2 + struct.x.a3 == pytest.approx(0.9)
     with pytest.raises(ValueError, match=r"x\.a1 \+ x\.a2 \+ x\.a3 must be 1"):
+        pns_levels(empty_sequence(), hardware=(struct, "BAD"))
+
+
+@pytest.mark.parametrize("axis", "xyz")
+def test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005(axis):
+    """A struct whose `a1 + a2 + a3` on one axis is 1.005, more than 0.001 above 1, raises
+    `ValueError` (the message names `a1 + a2 + a3` of that axis) for a sequence with no
+    gradient event. The sum 0.9 of the test above is far from the limit: this one is 0.004
+    beyond it, so a limit of 0.01 would accept it."""
+    struct = safe_example_hw()
+    axis_struct = getattr(struct, axis)
+    axis_struct.a1 += 1.005 - (axis_struct.a1 + axis_struct.a2 + axis_struct.a3)
+    assert axis_struct.a1 + axis_struct.a2 + axis_struct.a3 == pytest.approx(1.005, abs=1e-12)
+    with pytest.raises(ValueError, match=rf"{axis}\.a1 \+ {axis}\.a2 \+ {axis}\.a3 must be 1"):
         pns_levels(empty_sequence(), hardware=(struct, "BAD"))
 
 

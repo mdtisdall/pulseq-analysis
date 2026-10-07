@@ -12,12 +12,19 @@ from asserts import assert_levels_equal
 from gap_sequences import (
     delayed_sequence,
     early_end_sequence,
+    gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
+    negated,
     non_zero_ends_sequence,
+    short_gap_from_0_sequence,
+    short_gap_sequence,
+    short_gap_to_0_sequence,
+    zero_gap_sequence,
 )
 from oracles import waveform as oracle
 from pns_hardware import hardware_for_peak
 from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk, safe_example_hw
+from random_gaps import random_gap_sequence
 from synthetic import (
     EXAMPLE_HW,
     GAMMA_1H,
@@ -204,6 +211,18 @@ def _long_gap_then_an_off_raster_block_sequence() -> pp.Sequence:
     return seq
 
 
+def _off_raster(build):
+    """`build` with a last block of 1.5 raster times, which is not on the raster, so that
+    `pns_levels` samples the whole sequence with `GradientSampler.sample`."""
+
+    def build_off_raster() -> pp.Sequence:
+        seq = build()
+        seq.add_block(pp.make_delay(1.5 * SYSTEM.grad_raster_time))
+        return seq
+
+    return build_off_raster
+
+
 _GAP_SEQUENCES = {
     "short_gap_two_axes": _two_axis_short_gap_sequence,
     "long_gap": lambda: signed(long_gap_sequence()),
@@ -211,12 +230,46 @@ _GAP_SEQUENCES = {
     "issue_12_early_end": lambda: signed(early_end_sequence()),
     "non_zero_ends": lambda: signed(non_zero_ends_sequence()),
     "long_gap_off_raster": _long_gap_then_an_off_raster_block_sequence,
+    "gap_of_1_5_raster_times": lambda: signed(gap_of_1_5_raster_times_sequence()),
+    "short_gap_from_0": lambda: signed(short_gap_from_0_sequence()),
+    "short_gap_to_0": lambda: signed(short_gap_to_0_sequence()),
+}
+# The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on
+# the sign).
+_GAP_SEQUENCES |= {
+    f"negated_{name}": (lambda build=build: signed(negated(build())))
+    for name, build in {
+        "zero_gap": zero_gap_sequence,
+        "short_gap": short_gap_sequence,
+        "long_gap": long_gap_sequence,
+        "non_zero_ends": non_zero_ends_sequence,
+        "issue_12_delayed": delayed_sequence,
+        "issue_12_early_end": early_end_sequence,
+    }.items()
+}
+# The random sequences of `random_gaps` (random signs, zero, short and long gaps).
+_GAP_SEQUENCES |= {
+    f"random_gaps_{seed}": (lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)))
+    for seed in range(8)
+}
+# The same gaps off the raster: the new sequences above, each with a last block that is not on the
+# raster.
+_GAP_SEQUENCES |= {
+    f"{name}_off_raster": _off_raster(_GAP_SEQUENCES[name])
+    for name in [
+        "gap_of_1_5_raster_times",
+        "short_gap_from_0",
+        "short_gap_to_0",
+        "negated_long_gap",
+        "negated_short_gap",
+    ]
+    + [f"random_gaps_{seed}" for seed in range(8)]
 }
 
 
-@pytest.mark.parametrize("build", _GAP_SEQUENCES.values(), ids=_GAP_SEQUENCES.keys())
+@pytest.mark.parametrize("name", _GAP_SEQUENCES)
 def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
-    build,
+    name,
 ):
     """For a sequence with a short gap or a long gap and ends that are not 0 next to it (and
     the first value and the last value of an axis that are not 0), `pns_levels` equals the SAFE
@@ -226,8 +279,12 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     percent times 0.01 and the total `sqrt(sum of squares)`, as `pns_levels` does. The peak
     and the axis peaks are equal to a relative 1e-9, and each bin of one sample (`bin_s=dt`)
     holds the total of its sample. `calculate_pns` of pypulseq is not the reference: it draws
-    a line across each gap (pypulseq-issues 12)."""
-    seq = build()
+    a line across each gap (pypulseq-issues 12). The sequences are the hand sequences of
+    `gap_sequences`, each also with every amplitude negated, a gap of 1.5 raster times between
+    two values that are not 0, a short gap from 0 to a value that is not 0 and from one to 0,
+    and the 8 random sequences of `random_gaps` (seeds 0 to 7). The new ones and the random ones
+    are also run with a last block that is not on the raster."""
+    seq = _GAP_SEQUENCES[name]()
     dt = seq.grad_raster_time
     levels = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=dt)
     if levels.on_raster:
@@ -241,7 +298,7 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     total = np.sqrt((axis_values**2).sum(axis=1))
 
     assert levels.num_samples == total.size
-    assert levels.on_raster is (build is not _long_gap_then_an_off_raster_block_sequence)
+    assert levels.on_raster is not name.endswith("_off_raster")
     assert levels.peak_hz_per_t == pytest.approx(total.max(), rel=1e-9)
     for i, axis in enumerate("xyz"):
         peak = axis_values[:, i].max()

@@ -96,3 +96,47 @@ def vector_sequence():
     )
     gy = extended([0, 150e-6, 400e-6], [0, 4 * U, 0], channel="y")
     return sequence([gx, gy])
+
+
+def negated(seq: pp.Sequence) -> pp.Sequence:
+    """A new sequence with the blocks of `seq`, each gradient scaled by -1 (`pp.scale_grad`) and
+    each block duration kept (as a delay event). The result has no kept result of any analysis:
+    those are for one object."""
+    negative = pp.Sequence(seq.system)
+    for block_id in seq.block_events:
+        block = seq.get_block(block_id)
+        events = [
+            pp.scale_grad(getattr(block, name), -1.0)
+            for name in ("gx", "gy", "gz")
+            if getattr(block, name) is not None
+        ]
+        negative.add_block(*events, pp.make_delay(block.block_duration))
+    return negative
+
+
+def gap_of_1_5_raster_times_sequence() -> pp.Sequence:
+    """The first gradient ends at 3 U at 100 us, and its block ends at 110 us. The second
+    gradient starts at 2 U after a delay of 5 us, so at 115 us: a gap of 15 us (1.5 raster
+    times), which is a long gap, between two values that are not 0."""
+    return sequence(
+        [extended([0, 100e-6], [0, 3 * U]), pp.make_delay(110e-6)],
+        [extended([0, 100e-6], [2 * U, 0], delay=5e-6), pp.make_delay(110e-6)],
+    )
+
+
+def short_gap_from_0_sequence() -> pp.Sequence:
+    """The first gradient ends at 0 at 200 us, and its block ends at 210 us. The second
+    gradient starts at 2 U. The gap is one raster time, from 0 to a value that is not 0."""
+    return sequence(
+        [extended([0, 100e-6, 200e-6], [0, 3 * U, 0]), pp.make_delay(210e-6)],
+        [extended([0, 100e-6], [2 * U, 0])],
+    )
+
+
+def short_gap_to_0_sequence() -> pp.Sequence:
+    """The first gradient ends at 3 U at 100 us, and its block ends at 110 us. The second
+    gradient starts at 0. The gap is one raster time, from a value that is not 0 to 0."""
+    return sequence(
+        [extended([0, 100e-6], [0, 3 * U]), pp.make_delay(110e-6)],
+        [extended([0, 100e-6, 200e-6], [0, 3 * U, 0])],
+    )
