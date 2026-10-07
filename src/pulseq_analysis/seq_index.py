@@ -13,8 +13,7 @@ plays the event.
 so each one refuses an unsigned sequence through it.
 
 `rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
-first block that uses it. Only they and `grad_peaks._range_result` (for the blocks that a
-window edge cuts) call `get_block`, with the block cache off
+first block that uses it. Only they call `get_block`, with the block cache off
 (`block_cache_off`): pypulseq keeps every block that `get_block` reads in
 `seq.block_cache` when `use_block_cache` is True, and nothing removes it.
 """

@@ -1606,34 +1606,66 @@ def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq)
         assert with_kept == gradient_peaks(other, window=window), window
 
 
-@pytest.mark.parametrize(
+_EDGE_WINDOWS = pytest.mark.parametrize(
     ("first_play", "last_play", "cut"),
     [
         pytest.param(2503, 2507, True, id="edges_in_blocks"),
         pytest.param(2500, 2510, False, id="edges_on_block_edges"),
     ],
 )
-def test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_cut(
-    monkeypatch, first_play, last_play, cut
-):
-    """In `build_repeating(1000)` (5000 blocks), with the kept data built by a first call, a
-    window over several TRs reads with `get_block` only the blocks that one of its edges cuts:
-    two blocks for an edge in the middle of a block, none for an edge on a block edge. It also
-    calculates no junction step, junction time or whole-file RMS again."""
-    seq = build_repeating(1000)
-    index = sequence_index(seq)
-    gradient_peaks(seq, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
+
+
+def _window_over_tr_edges(index, first_play, last_play, cut):
+    """The window from the start of block `first_play` to the start of block `last_play`. With
+    `cut`, its start is a third of the way into the first block and its end is half way into
+    the last block, so each edge cuts a block."""
     start, end = float(index.start_s[first_play]), float(index.start_s[last_play])
     if cut:
         start += float(index.duration_s[first_play]) / 3
         end += float(index.duration_s[last_play]) / 2
+    return start, end
+
+
+@_EDGE_WINDOWS
+def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
+    monkeypatch, first_play, last_play, cut
+):
+    """In `build_repeating(1000)` (5000 blocks), with the kept data built by a first call, a
+    window over several TRs calculates no junction step, junction time or whole-file RMS
+    again, for a window with its edges in blocks and for one with its edges on block edges."""
+    seq = build_repeating(1000)
+    index = sequence_index(seq)
+    gradient_peaks(seq, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
+    window = _window_over_tr_edges(index, first_play, last_play, cut)
+
+    # The values over all the blocks are kept, so a window does not calculate them again.
+    def fail(*args, **kwargs):
+        raise AssertionError("a value over all the blocks was calculated again")
+
+    for name in ("_junction_steps", "_junction_times", "_whole_file_rms"):
+        monkeypatch.setattr(grad_peaks, name, fail)
+
+    assert gradient_peaks(seq, window=window).reason is None
+
+
+@_EDGE_WINDOWS
+def test_a_window_of_gradient_peaks_calls_no_get_block(monkeypatch, first_play, last_play, cut):
+    """In `build_repeating(1000)` (5000 blocks), with the kept data built by a first call, a
+    window over several TRs calls `get_block` for no block: not for the blocks inside it, and
+    not for the two blocks that its edges cut (the points of those come from
+    `_events.event_points`). The window with the edges in blocks cuts two blocks and the other
+    cuts none."""
+    seq = build_repeating(1000)
+    index = sequence_index(seq)
+    gradient_peaks(seq, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
+    start, end = _window_over_tr_edges(index, first_play, last_play, cut)
     block_end = index.start_s + index.duration_s
-    expected = {
-        int(index.block_id[play])
+    cut_blocks = {
+        play
         for edge in (start, end)
         for play in np.flatnonzero((index.start_s < edge) & (edge < block_end))
     }
-    assert len(expected) == (2 if cut else 0)
+    assert len(cut_blocks) == (2 if cut else 0)
 
     read = []
     get_block = pp.Sequence.get_block
@@ -1643,16 +1675,8 @@ def test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_c
         return get_block(self, block_index)
 
     monkeypatch.setattr(pp.Sequence, "get_block", record)
-    # The values over all the blocks are kept, so a window does not calculate them again.
-
-    def fail(*args, **kwargs):
-        raise AssertionError("a value over all the blocks was calculated again")
-
-    for name in ("_junction_steps", "_junction_times", "_whole_file_rms"):
-        monkeypatch.setattr(grad_peaks, name, fail)
 
     result = gradient_peaks(seq, window=(start, end))
 
     assert result.reason is None
-    assert set(read) == expected
-    assert len(read) == len(expected)
+    assert read == []

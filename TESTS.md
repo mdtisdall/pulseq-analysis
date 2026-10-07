@@ -2907,7 +2907,7 @@ the `reason`, the vector peak and its block, and each `AxisResult` against all z
 #### `test_distinct_triples_are_the_groups_of_np_unique_with_up_to_3_million_events`
 
 **Checks:** For triples of dense event numbers up to 3,000,000, `_distinct_triples` (used by
-`_range_result` and `_block_vector_peaks`) gives the groups of
+`_block_vector_peaks`) gives the groups of
 `np.unique(np.stack([gx, gy, gz], axis=1), axis=0, return_index=True, return_inverse=True)`: the
 same partition of the positions and the same first position of each group.
 
@@ -2967,25 +2967,41 @@ and blocks, because each build is deterministic. A result that uses the kept dat
 another window, for example a range that the first window kept, is not equal to the result
 of a call with empty kept data.
 
-#### `test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_cut`
+#### `test_a_window_does_not_calculate_the_values_over_all_the_blocks_again`
 
 **Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept data,
-`gradient_peaks` with a window of four TRs calls `Sequence.get_block` only for the blocks that a
-window edge cuts: the two blocks (one for each edge) for a window with its ends inside blocks, and
-no block for a window with its ends on block edges. It calculates no junction step, no junction
-time and no RMS of the whole file again.
+`gradient_peaks` with a window of four TRs calculates no junction step, no junction time and no RMS
+of the whole file again. This holds for a window with its ends inside blocks and for a window with
+its ends on block edges.
 
-**How:** After a first call with another window, the test wraps `pp.Sequence.get_block` to record
-the block ID of each call, and replaces `_junction_steps`, `_junction_times` and
-`_whole_file_rms` of `grad_peaks` with functions that fail. The window is from play index 2503 to
-2507, with its start a third of the way into block 2503 and its end half way into block 2507, or
-from the start of block 2500 to the start of block 2510. The expected blocks are those with a
-start before an edge and an end after it, from the index. The test checks that the blocks read
-are the expected set, each read one time, and that the result has gradients.
+**How:** After a first call with another window, the test replaces `_junction_steps`,
+`_junction_times` and `_whole_file_rms` of `grad_peaks` with functions that fail. The window is from
+play index 2503 to 2507, with its start a third of the way into block 2503 and its end half way
+into block 2507, or from the start of block 2500 to the start of block 2510. The test calls
+`gradient_peaks` with the window and checks that the result has gradients.
 
-**Assumptions:** The test cannot measure the time: a loop over all the blocks in numpy does not
-call `get_block`. The failing functions are the ones that calculate a value over all the blocks.
-The test needs the names `_junction_steps`, `_junction_times` and `_whole_file_rms`.
+**Assumptions:** The test cannot measure the time: a loop over all the blocks in numpy is fast. The
+failing functions are the ones that calculate a value over all the blocks. The test needs the names
+`_junction_steps`, `_junction_times` and `_whole_file_rms`. It does not check the values of the
+result.
+
+#### `test_a_window_of_gradient_peaks_calls_no_get_block`
+
+**Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept data,
+`gradient_peaks` with a window of four TRs calls `Sequence.get_block` for no block. This holds for
+a window with its ends inside blocks (two blocks are cut, one for each end) and for a window with
+its ends on block edges (no block is cut).
+
+**How:** After a first call with another window, the test finds from the index the blocks with a
+start before a window end and an end after it, and checks that there are two of them for the first
+window and none for the second. It then wraps `pp.Sequence.get_block` to record the block ID of
+each call, calls `gradient_peaks` with the window, and checks that the result has gradients and
+that no block was read.
+
+**Assumptions:** The window is from play index 2503 to 2507, with its start a third of the way into
+block 2503 and its end half way into block 2507, or from the start of block 2500 to the start of
+block 2510. The wrap sees only the calls of `Sequence.get_block` on the class. The test does not
+check the values of the result: the other tests of `gradient_peaks` compare them with the oracle.
 
 ### 2.7 The kept PNS levels (`test_pns_levels_kept.py`)
 
