@@ -435,7 +435,10 @@ from a Siemens gradient `.asc` file (`MP_GPA_*.asc` or `MP_GradSys_*.asc`):
 `(asc_to_hw(asc), hardware_name(asc))`. It is the optional reader of a vendor
 file; the PNS functions take only the pair. Two parts of it are public.
 `asc.read_gradient_asc(path)` gives the fields of the file, with the fields of
-each file that an `$INCLUDE` line names. `asc.hardware_name(asc)` gives the name
+each file that an `$INCLUDE` line names. A `$INCLUDE` cycle (a file that
+includes itself, or two files that include each other) raises `ValueError` that
+names the files. A file that two branches include is not a cycle.
+`asc.hardware_name(asc)` gives the name
 of the component in those fields. Two pairs of one file, whatever the spelling
 of its path, have the same label and values, so `pns_levels` keeps one
 result for them.
@@ -526,9 +529,10 @@ The coordinates must be finite and in order, else `ValueError`:
 finite is valid there. A float in `meta` can be not finite too.
 
 A `Series` raises `TypeError` for a value of a wrong type and `ValueError` for
-a wrong value. It keeps its own dicts and a read-only copy of each array, in
-native byte order, so a change to the caller's dicts or arrays does not change
-it. `==` compares the fields, the array names in their order, and each array
+a wrong value. It keeps its own `FrozenDict`s for `arrays` and `meta`, and a read-only copy of
+each array, in native byte order. A change to the caller's dicts or arrays does
+not change it, and a change to `arrays` or `meta` of the series raises
+`TypeError`. `==` compares the fields, the array names in their order, and each array
 with its dtype and `np.array_equal(..., equal_nan=True)`. A NaN equals a NaN.
 The keys of `meta` count in their order, as for each other dict of the
 package, and `to_obj` and `from_obj` keep that order. A `Series` is not

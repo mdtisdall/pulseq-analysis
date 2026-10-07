@@ -81,6 +81,28 @@ def test_asc_file_with_a_missing_include(write_gradient_asc):
         read_gradient_asc(path)
 
 
+def test_asc_files_that_include_each_other(tmp_path):
+    (tmp_path / "a.asc").write_text("x = 1\n$INCLUDE b.asc\n")
+    (tmp_path / "b.asc").write_text("y = 2\n$INCLUDE a.asc\n")
+    with pytest.raises(ValueError, match=r"a\.asc.*b\.asc.*a\.asc"):
+        read_gradient_asc(tmp_path / "a.asc")
+
+
+def test_asc_file_that_includes_itself(tmp_path):
+    (tmp_path / "a.asc").write_text("x = 1\n$INCLUDE a.asc\n")
+    with pytest.raises(ValueError, match=r"a\.asc.*a\.asc"):
+        read_gradient_asc(tmp_path / "a.asc")
+
+
+def test_asc_file_included_by_two_branches_is_not_a_cycle(tmp_path):
+    (tmp_path / "shared.asc").write_text("z = 3\n")
+    (tmp_path / "b.asc").write_text("$INCLUDE shared.asc\n")
+    (tmp_path / "c.asc").write_text("$INCLUDE shared.asc\n")
+    main = tmp_path / "main.asc"
+    main.write_text("x = 1\n$INCLUDE b.asc\n$INCLUDE c.asc\n")
+    assert read_gradient_asc(main) == {"x": 1, "z": 3}
+
+
 def test_included_fields_replace_fields_with_the_same_name(tmp_path):
     (tmp_path / "inc.asc").write_text('a.b[1] = 3\nc = "new"\n')
     main = tmp_path / "main.asc"
