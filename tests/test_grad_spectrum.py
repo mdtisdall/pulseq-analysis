@@ -23,7 +23,7 @@ from synthetic import (
 from pulseq_analysis import grad_spectrum, seq_index
 from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis._events import event_points
-from pulseq_analysis.sampling import GradientSampler
+from pulseq_analysis.sampling import GradientSampler, sequence_samples
 from pulseq_analysis.seq_index import sequence_index
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
@@ -34,22 +34,12 @@ SINE_1MT_PEAK = 0.5 * 0.5 / math.sqrt(1e5 * 0.375 / 5000)
 SINE_PEAK = SINE_1MT_PEAK * 1e-3 * SYSTEM.gamma
 
 
-def _sine_sequence(frequency_hz: float, duration_s: float = 0.5, delay_s: float = 0.0):
+def _sine_sequence(frequency_hz: float, duration_s: float = 0.5):
     seq = signed(pp.Sequence(SYSTEM))
     t = np.arange(round(duration_s / SYSTEM.grad_raster_time)) * SYSTEM.grad_raster_time
     waveform = 1e-3 * SYSTEM.gamma * np.sin(2 * np.pi * frequency_hz * t)  # 1 mT/m
-    seq.add_block(
-        pp.make_arbitrary_grad("x", waveform, first=0, last=0, delay=delay_s, system=SYSTEM)
-    )
+    seq.add_block(pp.make_arbitrary_grad("x", waveform, first=0, last=0, system=SYSTEM))
     return seq
-
-
-def _assert_same_spectrum(a, b):
-    np.testing.assert_array_equal(a.frequency_hz, b.frequency_hz)
-    assert list(a.axes) == list(b.axes)
-    for axis in a.axes:
-        np.testing.assert_allclose(a.axes[axis], b.axes[axis], rtol=1e-12, atol=0)
-    np.testing.assert_allclose(a.rss, b.rss, rtol=1e-12, atol=0)
 
 
 def _compute_default(seq):
@@ -87,10 +77,31 @@ def test_short_sequence_is_padded_to_one_window():
     assert abs(s.frequency_hz[np.argmax(s.rss)] - 600) <= 20
 
 
-def test_gradients_at_the_end_are_not_attenuated():
-    # 60 ms of sine after 440 ms of nothing: the last sample is at the sequence end.
-    s = grad_spectrum.gradient_spectrum(_sine_sequence(600, duration_s=0.06, delay_s=0.44))
-    assert s.rss.max() == pytest.approx(SINE_PEAK, rel=0.02)
+@pytest.mark.parametrize("window_s", [0.05, 0.04999], ids=["even_window", "odd_window"])
+@pytest.mark.parametrize("samples", [5000, 6000, 7000, 7499])
+def test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle(samples, window_s):
+    """One block of `samples` samples with a trapezoid that ends at the end of the block,
+    and the same block followed by a delay of 0.06 s (more than one window), so that the
+    trapezoid is in the middle of the sequence. 5000 samples is a whole number of hops (2500
+    samples) for the window of 5000 samples, and the other lengths are not. The window of
+    4999 samples is odd, where `pad + (-nt) % hop` zeros at the end are one window short."""
+    dt = SYSTEM.grad_raster_time
+    trapezoid = pp.make_trapezoid("x", area=3000, system=SYSTEM)
+    delay_s = round(samples * dt - pp.calc_duration(trapezoid), 9)
+    at_the_end = signed(pp.Sequence(SYSTEM))
+    in_the_middle = signed(pp.Sequence(SYSTEM))
+    for seq in (at_the_end, in_the_middle):
+        seq.add_block(
+            pp.make_trapezoid("x", area=3000, delay=delay_s, system=SYSTEM),
+            pp.make_delay(round(samples * dt, 9)),
+        )
+    in_the_middle.add_block(pp.make_delay(0.06))
+    end = grad_spectrum.gradient_spectrum(at_the_end, window_s=window_s)
+    middle = grad_spectrum.gradient_spectrum(in_the_middle, window_s=window_s)
+    assert end.rss.max() > 0
+    np.testing.assert_allclose(end.rss, middle.rss, rtol=1e-12, atol=0)
+    for axis in end.axes:
+        np.testing.assert_allclose(end.axes[axis], middle.axes[axis], rtol=1e-12, atol=0)
 
 
 def test_no_gradients():
@@ -132,7 +143,13 @@ def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
     chunked = _compute_default(seq)
     assert chunked is not whole
-    _assert_same_spectrum(chunked, whole)
+    # Each window has the same samples and the same FFT of one row in each chunk size,
+    # so the results are equal bit for bit.
+    np.testing.assert_array_equal(chunked.frequency_hz, whole.frequency_hz)
+    assert list(chunked.axes) == list(whole.axes)
+    for axis in whole.axes:
+        np.testing.assert_array_equal(chunked.axes[axis], whole.axes[axis])
+    np.testing.assert_array_equal(chunked.rss, whole.rss)
 
 
 @pytest.mark.parametrize(
@@ -146,8 +163,8 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     that the code used before it made the FFTs itself, so the reference does not use the
     chunks, the strided windows, the kept-bin count or the scale of this module. Only the
     samples come from `GradientSampler`, with the time rule of the module (sample i at
-    `(i + 0.5) * dt`, half a window of zeros at each end). `CHUNK_WINDOWS` is 4, so the
-    comparison also covers the joins of the chunks and a shorter last chunk."""
+    `(i + 0.5) * dt`, `pad` zeros at the start and `pad + (-nt) % hop` at the end).
+    `CHUNK_WINDOWS` is 4, so the comparison also covers the joins of the chunks and a shorter last chunk."""
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
     got = _compute_default(seq)
 
@@ -156,12 +173,13 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     nwin = round(grad_spectrum.FFT_WINDOW_S / dt)
     nfft = round(grad_spectrum.FREQUENCY_OVERSAMPLING * nwin)
     pad = nwin // 2
-    nt = math.ceil(sum(seq.block_durations.values()) / dt)
+    hop = nwin - pad
+    nt = sequence_samples(sequence_index(seq), dt)
     t = (np.arange(nt) + 0.5) * dt
     window_maxima = {}
     rss_sq = 0.0
     for axis in "xyz":
-        w = np.zeros(nt + 2 * pad)
+        w = np.zeros(nt + 2 * pad + (-nt) % hop)
         w[pad : pad + nt] = sampler.sample(f"g{axis}", t)
         freq, _, sxx = spectrogram(
             w,

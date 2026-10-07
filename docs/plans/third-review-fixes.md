@@ -188,7 +188,7 @@ move).
 | D7 | `GradientSampler.block_samples` gives the samples of section 5.1. A ramp from a raster edge ends at a sample time, where its value is 0, so a ramp changes no sample of a sequence on the raster (fact 7). Only the samples in a short gap change: they get the line. | D1. The block-by-block rule of pulseq-reports (fact 5) changes for short gaps only. |
 | D8 | The oracle of `grad_peaks` and of `sampling` becomes one function in `tests/oracles/waveform.py`. It takes the points of pypulseq's `waveforms()` for each axis, and adds the ramps of section 5.1 as MATLAB Pulseq does (a port of `waveforms_and_times`, lines 2113 to 2135). It then calculates the peak, the slew and the RMS on the whole polyline, with no per-block code. The copies of `_clip_polyline` and `_vector_peak_in_block` go away (review 5.3). | The oracle must not share the code of `src/`. |
 | D9 | `sampling.sequence_samples(index, dt)` gives the number of samples of a sequence: `sum(raster_block_lengths(index, dt)[0])` when each block is on the raster, else `max(ceil((index.end_s - 1e-10) / dt), 0)`. `pns_levels` and `grad_spectrum` call it. | Review 1.3. It is the rule of `pns_levels` at `efe4f46`, so the PNS values do not change. |
-| D10 | The end padding of the spectrum is `pad + (-nt) % hop` zeros, so that the last sample is at the centre of a window. The start padding stays `pad`. | Review 1.2. |
+| D10 | The end padding of the spectrum is `pad + (-nt) % hop` zeros, so that the last sample is within `hop / 2` of the centre of some window, as a sample in the middle of the sequence is. The start padding stays `pad`. | Review 1.2. The window grid is fixed by the start padding, so the last sample is not at a centre. |
 | D11 | `Series.arrays` and `Series.meta` are `FrozenDict`s. | Review 1.4. The rule of each result. |
 | D12 | `decode_array` decompresses at most `length * itemsize + 1` bytes (`zlib.decompressobj(wbits=31)` with `max_length`), and raises `ValueError` when there are more. | Review 1.5. |
 | D13 | `read_gradient_asc` keeps the resolved paths of the files that it reads, and raises `ValueError` that names the cycle when a `$INCLUDE` names one of them. | Review 1.5. |
@@ -297,12 +297,17 @@ of its event, so a block within `dt / 2` of an edge is an edge block.
 
 ### 5.2 The spectrum (task 1.2)
 
-D9 and D10. The first sample stays at the centre of the first window. With
-`nt` samples and the end padding `pad + (-nt) % hop`, the number of padded
-samples `n = nt + pad + pad + (-nt) % hop` gives
-`num_windows = (n - nwin) // hop + 1` windows, and the last sample is at the
-centre of the last window. The values of a sequence whose `nt` is a whole
-number of hops do not change. The other values change. The comment "Do not
+D9 and D10. The first sample stays at the centre of the first window, up to
+half a sample. With `nt` samples and the end padding `pad + (-nt) % hop`, the
+number of padded samples `n = nt + pad + pad + (-nt) % hop` gives
+`num_windows = (n - nwin) // hop + 1` windows, and `n - nwin` is a whole number
+of hops. The window grid starts at the start of the padded waveform, so the
+last sample is not at the centre of the last window. It is within `hop / 2` of
+the centre of some window, the same bound as for each sample in the middle of
+the sequence, so a gradient at the end is attenuated no more than one in the
+middle. (For an odd `nwin`, that `n - nwin` is one less than a whole number of
+hops, and the padding that gives the same bound is `pad + (1 - nt) % hop`.) The
+values of a sequence whose `nt` is a whole number of hops do not change. The other values change. The comment "Do not
 change it to `index.end_s`" goes away. The oracle
 (`tests/oracles/grad_spectrum.py`) gets the same two rules, from its own code.
 
@@ -414,12 +419,14 @@ Worker G:
 D9 and D10 (section 5.2). New tests:
 
 - One trapezoid at the end of a sequence of N samples, for N = 5000, 6000,
-  7000 and 7499: `rss.max()` equals that of the trapezoid at the start, to
-  1e-9 relative. The test fails at `efe4f46`.
+  7000 and 7499: `rss` and the x spectrum equal those of the same sequence
+  followed by a delay of at least one window (the trapezoid in the middle), to
+  1e-12 relative. The test fails at `efe4f46` for N = 7000 and 7499.
 - `sequence_samples` for the blocks `[0.01938, 0.01268]` s is 3206.
 
-`test_gradients_at_the_end_are_not_attenuated` gets a length that is not a
-whole number of hops, or goes away. `TESTS.md` line 4284 ("because scipy
+`test_gradients_at_the_end_are_not_attenuated` goes away: the test of the end
+and the middle replaces it, for a window of an even and of an odd number of
+samples. `TESTS.md` line 4284 ("because scipy
 computes the") changes to the rule of chunks that are equal bit for bit, and
 `test_chunks_give_the_same_spectrum_as_one_chunk` uses `array_equal`.
 

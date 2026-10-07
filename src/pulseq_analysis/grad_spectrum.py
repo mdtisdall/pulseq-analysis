@@ -5,8 +5,13 @@
 magnitude spectrum of each window, and the maximum over windows. pypulseq
 stops sampling at the last gradient point and starts the first window at 0.
 Here the gradients are sampled to the end of the sequence and padded with half
-a window of zeros at each end, so a sequence shorter than one window still has
-a spectrum and gradients near either end are not attenuated by the window.
+a window of zeros at the start, and with half a window or more at the end, so a sequence
+shorter than one window still has a spectrum. The end padding is the fewest zeros, at
+least half a window, that make the padded waveform one window plus a whole number of hops
+long (a hop is the step between two windows). Then each sample, the last one too, is within
+half a hop of the centre of some window, as a sample in the middle of the sequence is, so
+the window attenuates a gradient near the end no more than one in the middle. The number of
+samples is `sampling.sequence_samples`, the rule of the whole package.
 
 The gradients are sampled in chunks of `CHUNK_WINDOWS` windows, so the memory does not
 grow with the length of the sequence. Each chunk starts at a multiple of the hop and
@@ -37,7 +42,6 @@ three axes. This includes the RSS spectrum.
 `docs/usage.md` section 8 gives the rule for all the values of the package.
 """
 
-import math
 import weakref
 from dataclasses import dataclass
 
@@ -50,7 +54,7 @@ from ._events import event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
-from .sampling import GradientSampler
+from .sampling import GradientSampler, sequence_samples
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
 from .seq_utils import AXES, GRAD_COLUMNS
 
@@ -209,17 +213,21 @@ def _compute_spectrum(
     keep_n = int(np.count_nonzero(freq <= max_frequency_hz + 1e-6))  # bins 0 to keep_n - 1
     window = get_window(("tukey", 1), nwin)  # the Hann window of pypulseq
     pad = nwin // 2
-    # Python's `sum` is compensated (Python 3.12), so this total can differ from
-    # `index.end_s`, the sequential sum, by one sample. The oracle
-    # (tests/oracles/grad_spectrum.py) has the same line, and the oracle tests
-    # compare the two. Do not change it to `index.end_s`.
-    nt = math.ceil(sum(seq.block_durations.values()) / dt)
+    nt = sequence_samples(index, dt)
 
-    # The padded waveform has n samples: pad zeros, the nt gradient samples, pad zeros.
-    # scipy's spectrogram does not pad, so window j covers samples [j * hop, j * hop + nwin).
-    n = nt + 2 * pad  # n >= nwin: after the NO_GRADIENTS return, nt >= 1
+    # The padded waveform is `pad` zeros, the nt gradient samples, and the end padding of
+    # zeros. scipy's spectrogram does not pad, so window j covers samples
+    # [j * hop, j * hop + nwin) of it. The first window is at the start, so the first
+    # sample is at the centre of the first window, up to half a sample. The end padding
+    # is the least that is at least `pad` and ends the padded waveform with a whole window
+    # after a whole number of hops: `pad + (-nt) % hop` zeros for an even `nwin`. Then each
+    # sample, the last one too, is within half a hop of the centre of some window, as a
+    # sample in the middle of the sequence is, so the window attenuates a gradient at the
+    # end no more than one in the middle. (`pad` zeros alone leave the last samples near
+    # the edge of the last window when `nt` is not a whole number of hops.)
+    # `nt >= 1` after the NO_GRADIENTS return, so `nt + 2 * pad - nwin >= 0`.
     hop = nwin - nwin // 2
-    num_windows = (n - nwin) // hop + 1
+    num_windows = -(-(nt + 2 * pad - nwin) // hop) + 1
 
     axes_max: dict[str, np.ndarray] = {}
     rss_max = None

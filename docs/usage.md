@@ -422,6 +422,11 @@ results above). A `GradientSampler` does not copy them.
 block, `round(duration / dt)`, and one bool for all the blocks: whether every
 block is within `sampling.ON_RASTER_TOLERANCE` samples of a whole number.
 
+`sampling.sequence_samples(index, dt)` gives the number of samples of the whole
+sequence, as an `int`. This is the one rule of the package: `pns_levels` and
+`grad_spectrum` call it. When every block is on the raster, it is the sum of the
+block lengths. Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 0.
+
 `seq_utils`:
 
 | Name | Meaning |
@@ -689,8 +694,13 @@ method is that of pypulseq's `calculate_gradient_spectrum`:
   mean of each window is removed. The spectrum of a window is the magnitude
   of its FFT, scaled as an amplitude spectral density: thus the unit has
   √Hz.
-- The gradients are sampled to the end of the sequence. The sampled waveform
-  has half a window of zeros at each end.
+- The gradients are sampled to the end of the sequence (`sampling.sequence_samples`
+  gives the number of samples). The sampled waveform has half a window of zeros at the
+  start. At the end it has half a window or more: the fewest zeros that make the
+  padded waveform one window plus a whole number of hops long. (A hop is the step
+  between two windows, 25 ms by default.) Thus each sample, the last one too, is
+  within half a hop of the centre of some window, and a gradient at the end of the
+  sequence is attenuated by the window no more than one in the middle.
 - In each window, the three axes combine as the RSS (the root of the sum of
   squares). The spectrum of an axis is its maximum over the windows. The RSS
   spectrum is the maximum over the windows of the RSS.

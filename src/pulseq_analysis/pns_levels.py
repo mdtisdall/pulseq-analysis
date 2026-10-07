@@ -50,7 +50,12 @@ from ._events import event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
-from .sampling import ON_RASTER_TOLERANCE, GradientSampler, raster_block_lengths
+from .sampling import (
+    ON_RASTER_TOLERANCE,
+    GradientSampler,
+    raster_block_lengths,
+    sequence_samples,
+)
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
 from .seq_utils import AXES, GRAD_COLUMNS
 
@@ -401,17 +406,15 @@ def _compute_levels(
     sampler = GradientSampler(index, event_points(seq))
 
     # After `has_gradients`, `num_samples >= 1`, and each chunk has one sample or more.
+    num_samples = sequence_samples(index, dt)
     if on_raster:
         cumulative = np.cumsum(block_lengths)
-        num_samples = int(cumulative[-1])
 
         def read_range(s0: int, s1: int) -> np.ndarray:
             return _read_block_range(sampler, dt, cumulative, s0, s1)
     else:
         # The whole sequence, as the blocks give it, not `seq.get_gradients()`: that
         # builds the gradients of the whole file.
-        num_samples = max(math.ceil((index.end_s - 1e-10) / dt), 0)
-
         def read_range(s0: int, s1: int) -> np.ndarray:
             return _read_sampled_range(sampler, dt, s0, s1)
 
