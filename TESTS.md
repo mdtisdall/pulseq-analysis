@@ -1356,6 +1356,19 @@ x. The test checks the dtype of `gx`, `gy` and `gz`.
 
 **Assumptions:** None.
 
+#### `test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb`
+
+**Checks:** A sequence with an event ID of 10^8 builds its index with a `tracemalloc` peak below
+100 MB, and its dense numbers are as for small IDs.
+
+**How:** A sequence of three blocks with a trapezoid on x (the first and the third are the same
+event). The test sets the gx ID of the second block in `seq.block_events` to 10^8 after `add_block`,
+because pypulseq only gives the IDs 1, 2, ...; `sequence_index` reads only `seq.block_events` and
+`seq.block_durations`, not the libraries. It measures `sequence_index` with `tracemalloc`, and checks
+`gx` (1, 2, 1) and `grad_first` (0, 1). A lookup table over the IDs would take 800 MB.
+
+**Assumptions:** `tracemalloc` sees the numpy allocations.
+
 #### `test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value`
 
 **Checks:** `index.start_s` is the sequential sum of the block durations from 0.0,

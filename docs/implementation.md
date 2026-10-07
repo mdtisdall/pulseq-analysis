@@ -416,10 +416,13 @@ Each gradient measurement starts from some of the same parts. The package makes
 each part one time for each sequence object and keeps it (section 4), so only
 the first measurement that needs a part pays for it.
 
-- **The block table** (`sequence_index`). A Python loop over
-  `seq.block_events` and `seq.block_durations`, then numpy: a cumulative sum
-  for the starts, and a lookup table that numbers the events in the order of
-  their first use. It calls no `get_block`. Time O(B), memory O(B).
+- **The block table** (`sequence_index`). One read of `seq.block_events` into
+  an array and of `seq.block_durations` into a vector (a Python loop over the
+  rows only for a file whose rows differ in length), then numpy: a cumulative
+  sum for the starts, and a lookup table over the event IDs that numbers the
+  events in the order of their first use (`np.unique` of the used IDs when the
+  largest ID is more than 16 times the number of entries). It calls no
+  `get_block`. Time O(B), memory O(B), also for a large ID.
 - **The points of the unique gradient events.** One `get_block` and one
   `seq_utils.gradient_offsets` for each unique gradient event, in a Python
   loop. The points go into flat arrays for all the events, and all the
