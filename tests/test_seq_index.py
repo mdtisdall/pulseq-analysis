@@ -8,6 +8,7 @@ lists hold play indexes, as `SequenceIndex` does (the old loop kept block ids).
 
 import copy
 import dataclasses
+import tracemalloc
 from types import SimpleNamespace
 
 import numpy as np
@@ -287,6 +288,33 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
     assert index.gy.dtype == dtype
     assert index.gz.dtype == dtype
     assert index.gx[-1] == unique
+
+
+def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
+    """A file with a large event ID must not make a table in proportion to the ID. pypulseq
+    gives the IDs 1, 2, ... in order, so this sets the gx ID of the second block in
+    `seq.block_events` to 10**8 after `add_block` (`sequence_index` reads only
+    `seq.block_events` and `seq.block_durations`, not the libraries). The peak of
+    `tracemalloc` over the build is below 100 MB, and the dense numbers are as for small IDs.
+    A lookup table over the IDs takes 800 MB."""
+    seq = signed(pp.Sequence(SYSTEM))
+    for amplitude in (1e5, 2e5, 1e5):
+        seq.add_block(
+            pp.make_trapezoid(channel="x", amplitude=amplitude, duration=1e-3, system=SYSTEM)
+        )
+    big = 10**8
+    seq.block_events[2][seq_index._GX] = big
+
+    tracemalloc.start()
+    try:
+        index = sequence_index(seq)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < 100e6
+    assert index.gx.tolist() == [1, 2, 1]
+    assert index.grad_first.tolist() == [0, 1]
 
 
 @pytest.mark.parametrize("build", [gre_sequence, empty_sequence])

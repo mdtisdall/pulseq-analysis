@@ -1,7 +1,7 @@
 """The block table of one sequence, in play order, with dense event indexes.
 
-`sequence_index` reads `seq.block_events` and `seq.block_durations` one column at a
-time, without `get_block`, so it costs O(N) for N blocks with no per-block pypulseq
+`sequence_index` reads `seq.block_events` as one array and `seq.block_durations` as one
+vector, without `get_block`, so it costs O(N) for N blocks with no per-block pypulseq
 call. It numbers the unique RF, gradient and ADC events from 1, in the order of their
 first use in play order. The three gradient axes share one index space: in one block, gx
 comes before gy and gz. The measurements use these numbers to compute a value one time
@@ -75,7 +75,7 @@ NO_GRADIENTS_IN_WINDOW = "no gradients in the window"
 
 def has_gradients(index: SequenceIndex) -> bool:
     """Whether `index` has a gradient event on any axis."""
-    return bool(index.gx.any() or index.gy.any() or index.gz.any())
+    return index.grad_first.size > 0
 
 
 # One index for each sequence object, under the key "index" of its kept results.
@@ -115,6 +115,11 @@ def _index_dtype(max_value: int):
     return np.uint32
 
 
+# `_dense` uses a lookup table over the ids, unless the largest id is more than this many
+# times the number of entries: then it sorts the used ids.
+_LUT_LIMIT = 16
+
+
 def _dense(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarray]:
     """Dense indexes for columns of pypulseq event ids (0 = none) that share one id
     space, each with one id for each of the N blocks. The events are numbered 1 to K in
@@ -123,9 +128,13 @@ def _dense(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarray]:
     first use of each event as the key `block * len(columns) + column`.
 
     Event ids are small library numbers, so a lookup table over the ids does the work,
-    without a sort of the N ids."""
+    without a sort of the N ids. A file with a large id (more than `_LUT_LIMIT` times the
+    number of entries) uses `np.unique` on the used ids: its memory does not grow with
+    the largest id."""
     m, n = len(columns), columns[0].size
     top = max((int(col.max()) for col in columns if col.size), default=0)
+    if top > _LUT_LIMIT * m * n:
+        return _dense_sorted(columns)
     first = np.full(top + 1, m * n, dtype=np.int64)
     for j, col in enumerate(columns):
         np.minimum.at(first, col, np.arange(j, m * n, m, dtype=np.int64))
@@ -136,6 +145,21 @@ def _dense(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarray]:
     return [lut[col] for col in columns], first[order]
 
 
+def _dense_sorted(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarray]:
+    """`_dense` with `np.unique` of the used ids: the same result, for a large largest id."""
+    m, n = len(columns), columns[0].size
+    key_ids = np.stack(columns, axis=1).ravel()  # entry block * m + column has this key
+    keys = np.flatnonzero(key_ids)
+    ids, first_at, inverse = np.unique(key_ids[keys], return_index=True, return_inverse=True)
+    first = keys[first_at]
+    order = np.argsort(first)
+    rank = np.empty(ids.size, dtype=np.int64)
+    rank[order] = np.arange(1, ids.size + 1)
+    dense = np.zeros(m * n, dtype=_index_dtype(ids.size))
+    dense[keys] = rank[inverse.ravel()]
+    return [np.ascontiguousarray(dense[j::m]) for j in range(m)], first[order]
+
+
 def _build_index(seq: pp.Sequence) -> SequenceIndex:
     """The `SequenceIndex` of `seq`, built from `seq.block_events` and `seq.block_durations`
     without the cache of `sequence_index`."""
@@ -143,7 +167,12 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
     n = len(block_events)
     block_id = np.fromiter(block_events.keys(), dtype=np.uint32, count=n)
     durations = seq.block_durations
-    duration_s = np.fromiter((durations[b] for b in block_events), dtype=np.float64, count=n)
+    if len(durations) == n and np.array_equal(
+        np.fromiter(durations.keys(), dtype=np.uint32, count=n), block_id
+    ):
+        duration_s = np.fromiter(durations.values(), dtype=np.float64, count=n)
+    else:  # the durations are not in the order of the blocks
+        duration_s = np.fromiter((durations[b] for b in block_events), dtype=np.float64, count=n)
     # The sequential sum start += duration, the same float operations as
     # tests/oracles/blocks.py:iter_blocks: numpy's cumsum adds in order.
     start_s = np.zeros(n, dtype=np.float64)
@@ -151,8 +180,18 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
         np.cumsum(duration_s[:-1], out=start_s[1:])
     end_s = float(start_s[-1] + duration_s[-1]) if n else 0.0
 
-    def column(col: int) -> np.ndarray:
-        return np.fromiter((ev[col] for ev in block_events.values()), dtype=np.int32, count=n)
+    try:
+        rows = np.asarray(list(block_events.values()))
+    except ValueError:  # the rows differ in length
+        rows = None
+    if rows is not None and rows.ndim == 2 and rows.shape[1] > _ADC:
+        # one read of the block dict, then a copy of each column
+        def column(col: int) -> np.ndarray:
+            return np.ascontiguousarray(rows[:, col], dtype=np.int32)
+    else:
+
+        def column(col: int) -> np.ndarray:
+            return np.fromiter((ev[col] for ev in block_events.values()), dtype=np.int32, count=n)
 
     (rf,), rf_first = _dense([column(_RF)])
     (adc,), adc_first = _dense([column(_ADC)])
