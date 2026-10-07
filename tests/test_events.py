@@ -52,6 +52,7 @@ def _points_from_grad_events(seq: pp.Sequence) -> EventPoints:
         np.cumsum(count) - count,
         np.array(offsets, dtype=np.float64),
         np.array(amps, dtype=np.float64),
+        float(seq.grad_raster_time),
     )
 
 
@@ -113,7 +114,7 @@ def test_event_points_has_the_points_that_grad_events_gives(build):
     seq = build()
     points = event_points(seq)
     expected = _points_from_grad_events(seq)
-    for name in ("delay", "count", "at", "offsets", "amp"):
+    for name in ("delay", "count", "at", "offsets", "amp", "grad_raster_time"):
         assert np.array_equal(getattr(points, name), getattr(expected, name)), name
 
 
@@ -130,28 +131,22 @@ def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build
 
 @pytest.mark.parametrize("build", _SEQUENCES)
 def test_event_values_of_the_points_equal_the_values_of_gradient_points(build):
-    """`_event_values(event_points(seq))` has, for each unique gradient event, the points
-    `t_rel` and `amp` of `gradient_points(g, 0.0)` and the values of `_polyline_values` of
-    them, each equal bit for bit (`array_equal`, `==`), where `g` is the event that
-    `grad_events` gives."""
+    """`_event_values(event_points(seq))` has, for each unique gradient event, the values of
+    `_polyline_values` of the points of `gradient_points(g, 0.0)`, each equal bit for bit (`==`),
+    where `g` is the event that `grad_events` gives."""
     seq = build()
     ev = _event_values(event_points(seq))
     events = list(grad_events(seq, sequence_index(seq)))
-    assert len(ev.t_rel) == len(ev.amp) == len(events)
+    assert ev.peak.size == len(events)
     for dense_k, g in events:
         i = dense_k - 1
         t, amp = gradient_points(g, 0.0)
         values = _polyline_values(t, amp)
-        assert np.array_equal(ev.t_rel[i], t)
-        assert np.array_equal(ev.amp[i], amp)
         assert ev.peak[i] == values.peak
         assert ev.peak_offset[i] == values.peak_time
         assert ev.slew[i] == values.slew
         assert ev.slew_offset[i] == values.slew_time
         assert ev.integral[i] == values.integral
-        assert ev.first[i] == amp[0]
-        assert ev.first_offset[i] == t[0]
-        assert ev.last[i] == amp[-1]
 
 
 def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_computed_values():

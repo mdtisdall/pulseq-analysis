@@ -9,21 +9,22 @@ starts with `_`, can change in any release.
 Contents:
 
 1. [`seq_index`: the block table](#1-seq_index-the-block-table)
-2. [`grad_peaks`: gradient amplitude and slew](#2-grad_peaks-gradient-amplitude-and-slew)
-3. [`pns_levels`: SAFE PNS](#3-pns_levels-safe-pns)
-4. [The other modules](#4-the-other-modules)
-5. [`series`: values for JSON](#5-series-values-for-json)
-6. [`analyses`: the analyses and their registry](#6-analyses-the-analyses-and-their-registry)
-7. [`grad_spectrum`: the gradient spectrum](#7-grad_spectrum-the-gradient-spectrum)
-8. [Units and gamma](#8-units-and-gamma)
+2. [The gradient waveform](#2-the-gradient-waveform)
+3. [`grad_peaks`: gradient amplitude and slew](#3-grad_peaks-gradient-amplitude-and-slew)
+4. [`pns_levels`: SAFE PNS](#4-pns_levels-safe-pns)
+5. [The other modules](#5-the-other-modules)
+6. [`series`: values for JSON](#6-series-values-for-json)
+7. [`analyses`: the analyses and their registry](#7-analyses-the-analyses-and-their-registry)
+8. [`grad_spectrum`: the gradient spectrum](#8-grad_spectrum-the-gradient-spectrum)
+9. [Units and gamma](#9-units-and-gamma)
 
 | Module | What it gives |
 |---|---|
 | `pulseq_analysis.seq_index` | The block table of a sequence, and the unique events. |
 | `pulseq_analysis.grad_peaks` | The peak amplitude, peak slew and RMS of the gradients, for the whole file and for each block. |
 | `pulseq_analysis.pns_levels` | The SAFE PNS prediction. |
-| `pulseq_analysis.grad_spectrum` | The spectrum of the gradients (section 7). |
-| `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. |
+| `pulseq_analysis.grad_spectrum` | The spectrum of the gradients (section 8). |
+| `pulseq_analysis.sampling` | The gradient waveform of one axis at given times (section 2). |
 | `pulseq_analysis.seq_utils` | The points of one gradient event, and the constant. |
 | `pulseq_analysis.asc` | The optional read of a Siemens gradient `.asc` file into the hardware pair of the PNS functions. |
 | `pulseq_analysis.extensions` | The refusal of the Pulseq extensions that the measurements do not support, and of a sequence with no `[SIGNATURE]` hash. |
@@ -59,15 +60,18 @@ These rules apply to all the modules:
 - **Times.** A time is in seconds from the start of the sequence. The start of
   a block is the sum of the durations of the blocks before it, added in play
   order.
+- **Gradient waveform.** Each measurement of the gradients uses the gradient
+  waveform of MATLAB Pulseq ([section 2](#2-the-gradient-waveform)), not the line
+  that pypulseq draws across each gap between two events.
 - **Rasters.** The gradient, PNS and spectrum measurements use the
   `GradientRasterTime` and the `BlockDurationRaster` of the sequence.
 - **Units.** No value uses a gamma. The gradient values are in Hz/m and
   Hz/m/s, the spectrum in Hz/m/√Hz, and the PNS values in Hz/T. Divide a value
-  by |γ| to get the unit with tesla ([section 8](#8-units-and-gamma)).
+  by |γ| to get the unit with tesla ([section 9](#9-units-and-gamma)).
 - **Kept results.** Each measurement is one public function, and it keeps its
   result for the sequence object: `sequence_index`; `gradient_peaks` for
   `window=None` (a result with a window is not kept, because a caller can ask
-  for many windows, but it uses the kept per-event values);
+  for many windows, but it uses the kept values of each block);
   `block_gradient_values`; `pns_levels` for each hardware, each tuple of
   thresholds and each `bin_s` of that object; and `gradient_spectrum` for each
   set of its arguments. A second call with the same arguments gives the same
@@ -130,7 +134,7 @@ The event columns use the smallest of uint8, uint16 and uint32 that holds K.
 Convert a value with `int(x)` when you need a Python `int`.
 
 The layout of `SequenceIndex` is the contract of the analysis `seq.index`
-version 1 ([section 6](#6-analyses-the-analyses-and-their-registry)): its
+version 1 ([section 7](#7-analyses-the-analyses-and-their-registry)): its
 fields, the dense numbers from 1 in the order of first use, one number space
 for the three gradient axes, and the dtype rule above. A caller that reads
 the index through the registry (for example pulseq-checks) can rely on them. A
@@ -144,7 +148,7 @@ Make a copy to change one: `np.array(index.start_s)`.
 `has_gradients(index) -> bool` is true when the index has a gradient event on
 any axis. `seq_index.NO_GRADIENTS` (`"no gradients"`) and
 `seq_index.NO_GRADIENTS_IN_WINDOW` (`"no gradients in the window"`) are the
-two texts of a `reason` ([section 2](#2-grad_peaks-gradient-amplitude-and-slew)
+two texts of a `reason` ([section 3](#3-grad_peaks-gradient-amplitude-and-slew)
 and the other results that have one).
 
 `rf_events(seq, index)`, `grad_events(seq, index)` and `adc_events(seq, index)`
@@ -155,30 +159,125 @@ pypulseq's block cache off. `block_cache_off(seq)` is the context manager that
 they use: pypulseq keeps each block that `get_block` reads when
 `seq.use_block_cache` is true, and nothing removes it.
 
-## 2. `grad_peaks`: gradient amplitude and slew
+## 2. The gradient waveform
 
-A gradient event is the straight lines between its corner points (a
-trapezoid) or its sample points (an arbitrary gradient), as the Pulseq
-specification treats it (`seq_utils.gradient_points`). The slew is the
-largest of two kinds of value:
+Each measurement of the gradients uses one waveform for each axis:
+`gradient_peaks`, `block_gradient_values`, `pns_levels` and
+`gradient_spectrum`. It is the gradient waveform of MATLAB Pulseq
+(`waveforms_and_times` in `Sequence.m`). This section gives it. The sections
+of the measurements ([3](#3-grad_peaks-gradient-amplitude-and-slew),
+[4](#4-pns_levels-safe-pns), [5](#5-the-other-modules) and
+[8](#8-grad_spectrum-the-gradient-spectrum)) refer to it.
 
-- the slope of each straight line of each event;
-- the step at each block junction, |last value of the block before - first
-  value of this block|, divided by the gradient raster of the file
-  (`seq.grad_raster_time`). An axis with no event in a block has the value 0
-  there, and the value before the first block is 0. The scanner plays a step
-  in one raster time, so a step is a slew like a slope. `add_block` accepts a
-  step up to `max_slew * grad_raster_time`.
+The waveform of one axis is a polyline. In this section, `dt` is
+`seq.grad_raster_time`, the `GradientRasterTime` of the file. It is not the
+raster of `seq.system`. `TIME_TOLERANCE` is 1e-9 s
+(`seq_utils.TIME_TOLERANCE`).
 
-The time of a junction step is the time of the first point of the event of the
-block on the axis: the start of the block plus the delay of the event. For a
-block with no event on the axis, it is the start of the block. An event with a
-delay and a first value that is not 0 has its step from 0 at the end of its
-delay. A step is in a window when its time `t` has `start_s <= t < end_s`.
+**The events.** A gradient event gives its points at the times
+`(block start + delay) + offset`, with its amplitudes
+(`seq_utils.gradient_points`). A trapezoid has its corner points. An extended
+trapezoid has its corner points, and an arbitrary gradient has its sample points.
+Between two points of one event, the waveform is a straight line.
 
-When several blocks have the largest value, the first of them in play order
-gets it. A junction step comes before the lines of its block. A largest value
-of 0 gives no block (`None`) and the time 0.0.
+**The gaps.** Take two consecutive events of one axis. The blocks between them
+have no event on the axis. `last_time` and `last` are the time and the value of
+the last point of the earlier event. `first_time` and `first` are the time and
+the value of the first point of the later event. The gap is
+`first_time - last_time`.
+
+| Gap | Rule | Waveform |
+|---|---|---|
+| Zero gap | The gap is at most `TIME_TOLERANCE`. | No point. When `first` is not `last`, the waveform has a step from `last` to `first` at `first_time`. The value at the time of the step is `last`. |
+| Short gap | The gap is more than `TIME_TOLERANCE` and at most `dt + TIME_TOLERANCE`. | No point. The waveform is the straight line from the last point to the first point. |
+| Long gap | The gap is more than `dt + TIME_TOLERANCE`. | A ramp to 0 from the last point to the time `last_time + dt / 2`, when `last` is not 0. A ramp from 0 from the time `first_time - dt / 2` to the first point, when `first` is not 0. The value is 0 between the ramps. |
+
+A value of 1e-6 Hz/m or less also gets its ramp. MATLAB Pulseq sets such a
+value to 0 and adds no ramp. The difference is at most 1e-6 Hz/m in half a
+raster time.
+
+**The ends of the axis.** The value is 0 before the first point of the axis and
+after its last point. A first value that is not 0 is a step from 0 at the first
+point. A last value that is not 0 is a step to 0 at the last point.
+
+**The slew.** The slew of a segment (a segment of an event, a ramp or a line) is
+its slope. The slope of a ramp is `2 * |value| / dt`. The slope of the line across
+a short gap is `|first - last| / (first_time - last_time)`. A segment shorter
+than `TIME_TOLERANCE` has no slope. The slew of a step is `|step| / dt`. The
+scanner plays a step in one raster time, so a step is a slew like a slope.
+`add_block` accepts a step up to `max_slew * grad_raster_time`. The slew of an
+axis is the largest of these values.
+
+**The credit of each item to a block.** A value, a slew and an RMS integral have
+the credit of a block (a play index). The credit is:
+
+- The points and the segments of an event: the block of the event.
+- A ramp to 0: the block of the earlier event, also when the ramp is after the
+  end of that block.
+- A ramp from 0: the block of the later event.
+- A step across a zero gap and the line across a short gap: the block of the
+  later event.
+- The step before the first point of the axis: the block of the first event. The
+  step after the last point: the block of the last event.
+
+The time of a segment is its start. For a segment that the edge of a range cuts,
+it is the start of the cut. The time of a step is its time: `first_time` for a step
+across a zero gap, and the time of the point for the step at an end of the axis.
+The time of a ramp to 0 is `last_time`, the time of a ramp from 0 is
+`first_time - dt / 2` and the time of a line is `last_time`. When several items
+have the largest value, the first of them in play order gets the credit. The step
+or the line into an event is before the segments of that event.
+
+**A range.** A range is `[lo, hi]` (the whole file, or a window of
+`gradient_peaks`). A segment that crosses an edge of the range is cut at the
+edge. The value at the edge is found by linear interpolation. A step is in the
+range when `lo <= t < hi`. So a step at the start of a window is in it, and a
+step at the end of a window is not. The step after the last point of the axis is
+at the time of that point. When that point is at the end of the sequence, no range
+has the step: the whole file does not have it.
+
+**The RMS.** The RMS integral is the integral of the square of the polyline,
+with the ramps and the lines. A step adds nothing.
+
+**The vector peak.** The vector peak is the largest `sqrt(gx^2 + gy^2 + gz^2)` at
+the union of the times of the points of the three axes. The ramp points are
+points. At a time, the value is found on both sides of the time, so a step has
+two values. The credit goes by the time, not by the axis. The value before the
+time goes to the first block that ends at or after the time. The value after
+the time goes to the last block that starts at or before the time. Each is
+within `TIME_TOLERANCE`. Of equal values, the earliest time wins.
+
+**The difference from pypulseq.** pypulseq's `Sequence.waveforms()` joins the
+points of the events of an axis and does nothing at a gap. `get_gradients()`,
+`calculate_pns` and `calculate_gradient_spectrum` use these points. So pypulseq
+draws a straight line across each gap, also across a long gap. At a zero gap it
+drops the first point of the later event, so it has no step. pypulseq-issues 12
+describes the difference. The two waveforms are equal when the file has no end
+that is not 0 next to a long gap, and no step at a block junction. A sequence
+that `add_block` accepts can have both: it refuses an end that is not 0 and
+a step only above `max_slew * grad_raster_time`.
+
+## 3. `grad_peaks`: gradient amplitude and slew
+
+The gradient of each logical axis is the waveform of MATLAB Pulseq
+([section 2](#2-the-gradient-waveform)). The values of this section are the
+largest values of that waveform, over the whole file, over a window, or for
+each block:
+
+- The peak is the largest absolute amplitude.
+- The slew is the largest of the slopes of the segments (of the events, the
+  ramps and the lines) and of the steps. The slew of a step is `|step|` divided
+  by the gradient raster of the file (`seq.grad_raster_time`).
+- The RMS is the root of the mean of the square of the waveform over the range.
+- The vector peak is the largest magnitude of the three-axis vector.
+
+An axis with no event in a block has the amplitude 0 there.
+
+When several blocks have the largest value, the first of them in play order gets
+the credit. The step or the line into the event of a block comes before the
+segments of the event. A largest value of 0 gives no block (`None`) and the time
+0.0. [Section 2](#2-the-gradient-waveform) gives the credit of each item to a
+block, the time of each value, and the rule for a step at the edge of a window.
 
 `gradient_peaks(seq, *, window=None) -> GradientPeaks` gives the largest
 values over the whole file, or over `window = (start_s, end_s)`. A window must
@@ -190,14 +289,16 @@ a `bool` or not a real number. It raises `ValueError` for a start or an end
 that is NaN or an infinity (the message says "finite"), for a window with no
 start before its end, and for a window that is not in the sequence. The
 function checks the form and the numbers of the window before it reads the
-sequence. A line that crosses an end of the window is cut there. `range_s` is
+sequence. A segment that crosses an end of the window is cut there, and a step
+is in the window when `start_s <= t < end_s`
+([section 2](#2-the-gradient-waveform)). `range_s` is
 the window with each end clipped to `(0.0, end_s)` of the sequence, so its
 start is never after its end. A window that is past an end of the sequence by
 less than `seq_utils.TIME_TOLERANCE` has the range `(end_s, end_s)` (or
 `(0.0, 0.0)`), of length 0, with the `reason`
 `seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values. The values are in Hz/m and
 Hz/m/s, the units of pypulseq, with no gamma. To get T/m and T/m/s, divide
-them by |γ| ([section 8](#8-units-and-gamma)). The function does not compare the values
+them by |γ| ([section 9](#9-units-and-gamma)). The function does not compare the values
 with limits: a caller that has the limits of a scanner compares them.
 
 `gradient_peaks(seq)` (`window=None`) keeps its result for the sequence object,
@@ -206,20 +307,27 @@ same object, and `add_block`, a new read of a file into the object and a change
 of `seq.grad_raster_time` give a new one. A result with a window is a new
 object for each call and is not kept, because a caller can ask for many
 windows. A call with a window uses the values of each block that the object
-keeps (the peak, the slew, the junction step, the RMS integral and the vector
-peak, with their times). It reads no block with `get_block`, and
-its cost is the number of blocks in the window, not the number of blocks of the
-file and not the number of unique gradient events.
+keeps (the peak, the slew, the junction, the RMS integral and the vector peak,
+with their times) for the blocks that are whole in the window. It makes the
+blocks that an edge of the window cuts from the exact waveform. A ramp can be up
+to half a raster time outside the block of its event, so a block that is near an
+edge is one of them. A window reads no block with `get_block`. Its cost is the
+number of blocks in the window plus a constant. It has no term for the number of
+blocks of the file or for the number of unique gradient events. On one machine, for
+a sequence of 20,000 blocks, a window inside one block takes about 0.4 ms, and a
+window of 1500 blocks takes about 0.8 ms. The first call for a sequence also
+makes the values of all its blocks, in time that is proportional to the number of
+blocks (about 20 ms for 20,000 blocks).
 
 `GradientPeaks`, a frozen dataclass:
 
 | Field | Meaning |
 |---|---|
-| `reason` | `None` when the range has a gradient event. Otherwise `seq_index.NO_GRADIENTS` (no window) or `seq_index.NO_GRADIENTS_IN_WINDOW` (with a window), each number is 0.0 (except `whole_rms_hz_per_m`) and each block is `None`. |
+| `reason` | `None` when the range has a part of a gradient event, or a ramp, a line or a step with a value that is not 0. Otherwise `seq_index.NO_GRADIENTS` (no window) or `seq_index.NO_GRADIENTS_IN_WINDOW` (with a window), each number is 0.0 (except `whole_rms_hz_per_m`) and each block is `None`. |
 | `range_s` | The range of the measurement: `(0.0, end_s)`, or the window. |
 | `axes` | A read-only dict (`_equality.FrozenDict`) from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector in the range (Hz/m). |
-| `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and the block ID of the block that has it. |
+| `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and the block ID of the block that has that time, seen from the side where the value is ([section 2](#2-the-gradient-waveform)). |
 | `whole_rms_hz_per_m` | With a window: a read-only dict (`FrozenDict`) from each axis to its RMS over the whole file (Hz/m). `None` without a window. |
 
 A `FrozenDict` is a `dict` (`isinstance(x, dict)`, `json.dumps` and `pickle`
@@ -234,15 +342,17 @@ in order. A `GradientPeaks` is not hashable.
 |---|---|
 | `peak_hz_per_m` | The largest absolute amplitude in the range (Hz/m). |
 | `peak_time_s`, `peak_block` | The first time with it, and the block ID. |
-| `max_slew_hz_per_m_per_s` | The largest slew in the range (a slope or a junction step), in Hz/m/s. |
-| `slew_time_s`, `slew_block` | The start of that line (the start of the range when the range cuts the line), or the time of the junction (the start of the block plus the delay of its event on the axis); and the block ID. For a junction, the block is the block after the junction. |
+| `max_slew_hz_per_m_per_s` | The largest slew in the range (the slope of a segment, or a step), in Hz/m/s. |
+| `slew_time_s`, `slew_block` | The time is the start of that segment (the start of the range when the range cuts the segment), or the time of that step. The block is the block ID of its credit: the block of the event of the segment. For a step, a line and a ramp from 0 it is the later block. For a ramp to 0 it is the earlier block. For the step after the last point of the axis it is the block of the last event ([section 2](#2-the-gradient-waveform)). |
 | `rms_hz_per_m` | The RMS amplitude over the range (Hz/m). |
 
 `block_gradient_values(seq) -> BlockGradientValues` gives the same values for
 each block, not only the largest, in the same units. The largest of each
 amplitude array is the value of `gradient_peaks` for the whole file. Its slew
-is the larger of the largest segment slew and the largest junction step. The
-first play index of a largest value is the block of that value. It keeps its
+is the larger of the largest segment slew and the largest junction. The
+first play index of a largest value is the block of that value. For the vector
+peak, it is the block with the earliest `vector_peak_time_s` of the blocks that
+have the largest value. It keeps its
 result for the sequence object, as `gradient_peaks(seq)` does. It reads one
 block with `get_block` for each unique gradient event, and no other block.
 `gradient_peaks` does the same, and a window of `gradient_peaks` reads no
@@ -261,15 +371,17 @@ hashable.
 |---|---|
 | `block_id`, `start_s` | int64 and float64: the block ID and the start of each block. |
 | `peak_hz_per_m`, `peak_time_s` | Dicts: the largest absolute amplitude of the event of the block on the axis (Hz/m), and its time. |
-| `slew_hz_per_m_per_s`, `slew_time_s` | Dicts: the largest slope of a line of that event (Hz/m/s), and the start of that line. |
-| `junction_hz_per_m_per_s` | Dict: the junction step at the start of the block (Hz/m/s). Its time is `start_s` plus the delay of the event of the block on the axis (`start_s` when there is none); there is no field for it. |
-| `vector_peak_hz_per_m`, `vector_peak_time_s` | The largest magnitude of the three-axis vector in the block (Hz/m), and its first time. |
+| `slew_hz_per_m_per_s`, `slew_time_s` | Dicts: the largest slope of a segment of the event of the block or of its ramps (Hz/m/s), and the start of that segment. The ramp to 0 after the event and the ramp from 0 before it are in the slew of this block. So is the step after the last point of the axis, in the block of the last event, when that point is before the end of the sequence. |
+| `junction_hz_per_m_per_s` | Dict: the step into the event of the block across a zero gap, `\|last - first\|` divided by `seq.grad_raster_time`, or the slope of the line into it across a short gap, `\|last - first\|` divided by the gap (Hz/m/s). It is 0 for a long gap, and for a block with no event on the axis. For the first event of the axis it is the step from 0. Its time is the time of the first point of the event for a step, and the time of the last point of the earlier event for a line. There is no field for it. |
+| `vector_peak_hz_per_m`, `vector_peak_time_s` | The largest magnitude of the three-axis vector that the block has (Hz/m), and its first time. |
 
-A block with no event on an axis has the peak and the slope 0 there, at the
-time `start_s`. Its junction step is not 0 when the block before it ends at a
-value that is not 0.
+A block with no event on an axis has the peak, the slope and the junction 0
+there, at the time `start_s`. The largest of the slew array and of the junction
+array is the slew of the whole file. The vector peak of a block goes by time
+([section 2](#2-the-gradient-waveform)), so a block with no event can have a
+vector peak that is not 0: the value of a ramp or a line at its start or its end.
 
-## 3. `pns_levels`: SAFE PNS
+## 4. `pns_levels`: SAFE PNS
 
 `pns_levels.pns_levels(seq, *, hardware, thresholds_hz_per_t=(), bin_s=BIN_S) -> PnsLevels`
 runs the SAFE model of the pinned pypulseq fork on the gradients of `seq`, and
@@ -281,7 +393,7 @@ hardware is necessary: `hardware` is a required keyword argument. It is the
 vendor-neutral pair `(struct, label)`: a SAFE hardware struct in the form of
 pypulseq's `asc_to_hw`, and a name for it. The package does not take a file
 path here. `asc.hardware_from_asc(path)` makes the pair from a Siemens gradient
-`.asc` file ([section 4](#4-the-other-modules)).
+`.asc` file ([section 5](#5-the-other-modules)).
 
 A call without `hardware` raises Python's own `TypeError`. A value that is not
 a tuple of two items with a `str` second item raises `TypeError` with a message
@@ -305,7 +417,7 @@ that is not a tuple, and an element that is a `bool` or not a real number,
 raise `TypeError`. An element that is not finite, not above 0 or too large for
 a float, and two elements that are equal as floats, raise `ValueError`. Both
 are raised before the sequence is read. The default is `()`: `above` is `{}`. For a fraction f of the stimulation limit, give
-`f * abs(gamma)` ([section 8](#8-units-and-gamma)). The same thresholds in
+`f * abs(gamma)` ([section 9](#9-units-and-gamma)). The same thresholds in
 another order are another kept result, because the order of `above` is the
 order of `thresholds_hz_per_t`.
 
@@ -334,9 +446,23 @@ value is in Hz/T: the fraction of the stimulation limit times |γ|. pypulseq's
 
 The model takes one sample of each axis for each gradient raster time
 `dt = seq.grad_raster_time`. Sample `k` is at the time `(k + 0.5) * dt`. The
-samples of a block start at the start of that block. The value of an axis is
-the output of the model for that axis, and the total of a sample is
-`sqrt(x^2 + y^2 + z^2)` of the three values.
+value of a sample is the gradient waveform of MATLAB Pulseq at that time
+([section 2](#2-the-gradient-waveform)): a line across a gap of one raster time
+or less, a ramp to 0 and a ramp from 0 across a longer gap, and a step at a block
+junction. The samples of a block start at the start of that block, so a block
+gives the same samples wherever it is in the sequence. Only the samples in a gap
+use the sum of the durations of the blocks before them. When every event is on the
+edges of the gradient raster, a ramp of half a raster time ends at a time of a
+sample, where it is 0. So on the raster, a long gap changes no sample, and a short
+gap gives its samples the value of the line. The value of an axis is the output
+of the model for that axis, and the total of a sample is `sqrt(x^2 + y^2 + z^2)`
+of the three values.
+
+pypulseq's `seq.calculate_pns` samples a line across each gap
+([section 2](#2-the-gradient-waveform)). `pns_levels` equals it, times |γ|, for a
+sequence with no end that is not 0 next to a gap of more than one raster time and
+no step at a block junction. For another sequence, it gives other values. They
+are the SAFE model of the pinned fork on the samples of the waveform of section 2.
 
 `PnsLevels`, a frozen dataclass:
 
@@ -392,24 +518,33 @@ struct, in the order of `safe_example_hw` and `asc_to_hw`. pulseq-checks makes
 the `hardware` argument from a target profile (see the `docs/usage.md` of
 pulseq-checks).
 
-## 4. The other modules
+## 5. The other modules
 
 `sampling.GradientSampler(index, points)` gives the gradient waveform of one
-axis (`"gx"`, `"gy"` or `"gz"`), in Hz/m. `index` is `sequence_index(seq)`, and
+axis (`"gx"`, `"gy"` or `"gz"`), in Hz/m. It is the waveform of MATLAB Pulseq
+([section 2](#2-the-gradient-waveform)). `index` is `sequence_index(seq)`, and
 `points` is `_events.event_points(seq)`: the points of the unique gradient
-events, read one time for each sequence object and kept (the rule of the kept
-results above). A `GradientSampler` does not copy them.
+events and the gradient raster of the sequence (`grad_raster_time`), read one
+time for each sequence object and kept (the rule of the kept results above). A
+`GradientSampler` does not copy them. It finds the gaps of each axis one time for
+each sequence, and keeps them with the points.
 
 - `sample(axis, t)`: the values at the sorted times `t`. They are the straight
-  lines between the points of all the events of the axis, also across a gap
-  between two events, and 0 before the first point and after the last point.
-  This is the waveform of pypulseq's `Sequence.get_gradients()`. Where two
-  events have a point at the same time (a step at a block junction), it keeps
-  the point of the earlier event.
+  lines between the points of all the events of the axis, with the ramps to 0
+  and from 0 across a long gap, and 0 before the first point and after the last
+  point. The value at the time of a step is the value before the step. This is
+  not the waveform of pypulseq's `Sequence.get_gradients()`, which draws a line
+  across each gap and has no step at a zero gap. A call costs the number of
+  samples and of blocks in its range.
 - `block_samples(axis, first, stop, dt, *, skip=0, count=None)`: the samples
   of the play indexes `first` to `stop - 1`, each block on its own at the times
   `(j + 0.5) * dt` from its start, with the values of its own event and 0
-  outside it. This is what the PNS model uses. `skip` and `count` (0 or more)
+  outside it. A sample in a gap has the value of the waveform there: the line
+  across a short gap, or the ramp of a long gap. This holds in any block, also
+  in a block with no event on the axis. The time of a sample in a gap is
+  `start + (j + 0.5) * dt`, with `start` the sum of the durations of the blocks
+  before the block, so it has the float drift of that sum. The own-event samples
+  have none. This is what the PNS model uses. `skip` and `count` (0 or more)
   choose a part of that range: the result is, bit for bit, the samples `skip`
   to `skip + count - 1` of the result for the default arguments, and
   `count=None` gives all the samples after `skip`. The first and the last
@@ -434,7 +569,7 @@ block lengths. Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 
 |---|---|
 | `gradient_offsets(g)` | The delay, and the times after the delay and the amplitudes (Hz/m) of the points of the gradient event `g`. |
 | `gradient_points(g, t0)` | The times (`t0` + delay + offset) and the amplitudes of the points of `g`. |
-| `TIME_TOLERANCE` | 1e-9 s. A line shorter than this has no slope. |
+| `TIME_TOLERANCE` | 1e-9 s. A segment shorter than this has no slope, and a gap of this length or less is a zero gap ([section 2](#2-the-gradient-waveform)). |
 
 `asc.hardware_from_asc(path)` makes the `hardware` pair of the PNS functions
 from a Siemens gradient `.asc` file (`MP_GPA_*.asc` or `MP_GradSys_*.asc`):
@@ -453,10 +588,10 @@ result for them.
 uses the Pulseq rotation extension. A function that measures the gradients of
 the file calls it first.
 
-## 5. `series`: values for JSON
+## 6. `series`: values for JSON
 
 A `Series` is the part of an analysis value that can go into JSON
-(`Analysis.to_series`, [section 6](#6-analyses-the-analyses-and-their-registry)).
+(`Analysis.to_series`, [section 7](#7-analyses-the-analyses-and-their-registry)).
 It is a frozen dataclass:
 
 | Field | Meaning |
@@ -498,7 +633,7 @@ of the coordinate:
 | A 1D RF profile along the frequency offset | `SAMPLES` | `"Hz"` |
 
 The analyses of this package give only the PNS series and the gradient
-spectrum series ([section 6](#6-analyses-the-analyses-and-their-registry)).
+spectrum series ([section 7](#7-analyses-the-analyses-and-their-registry)).
 The other rows are examples.
 
 `coord_unit` uses the SI symbol. No code checks it against a list of units.
@@ -559,7 +694,7 @@ with no new encoding. One array always gives the same text. A float that is
 not finite is in the bytes. `decode_array(d)` is the inverse, and raises
 `ValueError` when `"length"` does not agree with the data.
 
-## 6. `analyses`: the analyses and their registry
+## 7. `analyses`: the analyses and their registry
 
 An *analysis* calculates information about a sequence and does not change it.
 It has:
@@ -617,14 +752,14 @@ signature of `compute`: `hardware`, `thresholds_hz_per_t`, `bin_s` for
 other two.
 
 `hardware` has no default, `thresholds_hz_per_t` has the default `()`, and `bin_s` has
-the default `pns_levels.BIN_S` ([section 3](#3-pns_levels-safe-pns)).
+the default `pns_levels.BIN_S` ([section 4](#4-pns_levels-safe-pns)).
 `compute` without `hardware` raises `TypeError`, before the sequence is read. No analysis has a gamma. All the analyses except
 `seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
 
 `gradient.peaks` with `window=None` (the default) gives the kept result of the
 whole sequence. With `window=(start_s, end_s)` it gives the values of that
 range, as `gradient_peaks(seq, window=window)` does ([section
-2](#2-grad_peaks-gradient-amplitude-and-slew)), and the result is not kept.
+3](#3-grad_peaks-gradient-amplitude-and-slew)), and the result is not kept.
 `seq.index` has the layout of the contract of version 1 ([section
 1](#1-seq_index-the-block-table)): a change of it raises its `spec.version`.
 
@@ -652,7 +787,7 @@ and last sample.
 seconds.
 
 `gradient.spectrum` has the three arguments of `gradient_spectrum`
-([section 7](#7-grad_spectrum-the-gradient-spectrum)), each with its default
+([section 8](#8-grad_spectrum-the-gradient-spectrum)), each with its default
 (`MAX_FREQUENCY_HZ`, `FFT_WINDOW_S` and `FREQUENCY_OVERSAMPLING` of
 `grad_spectrum`, the defaults of pypulseq). Its result is kept for each tuple of
 the three values.
@@ -686,10 +821,12 @@ levels = analysis.compute(
 series = analysis.to_series(levels)
 ```
 
-## 7. `grad_spectrum`: the gradient spectrum
+## 8. `grad_spectrum`: the gradient spectrum
 
 The gradient spectrum shows which frequencies the gradient waveform has. The
-method is that of pypulseq's `calculate_gradient_spectrum`:
+waveform is that of MATLAB Pulseq ([section 2](#2-the-gradient-waveform)),
+sampled with `GradientSampler.sample`. The method is that of pypulseq's
+`calculate_gradient_spectrum`:
 
 - Each window is a 50 ms Hann window, and the windows overlap by 50 %. The
   mean of each window is removed. The spectrum of a window is the magnitude
@@ -707,6 +844,11 @@ method is that of pypulseq's `calculate_gradient_spectrum`:
   spectrum is the maximum over the windows of the RSS.
 - The windows go through the FFT in chunks, so the memory does not grow with
   the length of the sequence.
+
+`calculate_gradient_spectrum` takes its waveform from `get_gradients()`. So the
+two spectra differ for a sequence with an end that is not 0 next to a gap of
+more than one raster time, or with a step at a block junction (pypulseq-issues
+12). For other sequences, the waveforms are equal.
 
 `GradientSpectrum` is a frozen dataclass. F is the number of frequencies.
 
@@ -766,12 +908,12 @@ raises `ValueError`. `axes` is a `FrozenDict`: a change of the dict raises
 `TypeError`.
 
 `==` compares two `GradientSpectrum` objects by the values of their fields, as
-for a `PnsLevels` (section 3), not by identity. A `GradientSpectrum` is not
+for a `PnsLevels` (section 4), not by identity. A `GradientSpectrum` is not
 hashable.
 
 The spectrum is in Hz/m/√Hz, the unit of the gradients of a `.seq` file, with
 no gamma. Thus the spectrum depends only on the sequence. To get the unit with
-tesla, divide it by |γ| ([section 8](#8-units-and-gamma)).
+tesla, divide it by |γ| ([section 9](#9-units-and-gamma)).
 
 ```python
 from pulseq_analysis.grad_spectrum import gradient_spectrum
@@ -785,7 +927,7 @@ rss_mt = s.rss / abs(gamma) * 1e3  # mT/m/sqrt(Hz): a new array
 The arrays of the result are read-only, so `s.rss *= 1e3 / abs(gamma)` raises
 `ValueError`. Convert to a new array, as in the example.
 
-## 8. Units and gamma
+## 9. Units and gamma
 
 No value of this package uses a gamma. Gamma (γ) is the gyromagnetic ratio of
 the nucleus that the scanner images. A `.seq` file does not give it: it is
@@ -814,9 +956,9 @@ block IDs, the frequencies (`frequency_hz`), the numbers of samples,
 `PnsLevels.hw` and `PEAK_TOLERANCE` do not change with gamma.
 
 **Why the division is exact.** Each value changes in proportion to a scale of
-the gradients. A peak, a slope and a junction step are magnitudes of the Hz/m
+the gradients. A peak, a slope and a step are magnitudes of the Hz/m
 values. An RMS is the root of a mean of squares. The spectrum is linear
-([section 7](#7-grad_spectrum-the-gradient-spectrum)). The SAFE model is a sum
+([section 8](#8-grad_spectrum-the-gradient-spectrum)). The SAFE model is a sum
 of linear filters and absolute values of the slew, divided by the stimulation
 limit. Thus the value divided by |γ| is the value of the same measurement in
 tesla, to the float rounding. The tests compare it with the oracles and with
