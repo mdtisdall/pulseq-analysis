@@ -6,8 +6,8 @@ An analysis is a pass that calculates information about a sequence and does not 
 
 - `spec`, an `AnalysisSpec`: its ID, its version, a title, the description of its value, the
   names of its parameters (`params`), which of them are necessary (`necessary`) and the
-  default of each other one (`defaults`), the rasters of the sequence that it uses, its cost
-  and the text of its series.
+  default of each other one (`defaults`), the rasters of the file whose value changes its
+  value (`rasters`), its cost and the text of its series.
 - `compute(seq, **params)`, which gives the full Python value (for example `PnsLevels`).
   The parameters are keyword-only arguments, and their names are `spec.params`. A runner
   gives the necessary parameters (`spec.necessary`) and can leave out the others, which then
@@ -98,7 +98,7 @@ class AnalysisSpec:
     title: str
     description: str  # what the value is: the contract
     params: tuple[str, ...]  # the names of the keyword arguments of compute
-    rasters: tuple[str, ...]  # the rasters of the sequence that it uses
+    rasters: tuple[str, ...]  # the rasters of the file whose value changes the value
     cost: str = "slow"  # "fast" or "slow"
     series: str | None = None  # what to_series gives: names, kinds, units, coordinates
     necessary: tuple[str, ...] = ()  # the names of params with no default
@@ -162,7 +162,7 @@ class _SeqIndex:
             "change of it raises `spec.version`."
         ),
         params=(),
-        rasters=(),
+        rasters=("BlockDurationRaster",),
         cost="fast",
         series=None,
     )

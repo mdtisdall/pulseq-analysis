@@ -63,8 +63,12 @@ These rules apply to all the modules:
 - **Gradient waveform.** Each measurement of the gradients uses the gradient
   waveform of MATLAB Pulseq ([section 2](#2-the-gradient-waveform)), not the line
   that pypulseq draws across each gap between two events.
-- **Rasters.** The gradient, PNS and spectrum measurements use the
-  `GradientRasterTime` and the `BlockDurationRaster` of the sequence.
+- **Rasters.** The `rasters` of an analysis are the rasters of the file whose
+  value changes the value of the analysis. `Sequence.read` makes each block
+  duration from the `BlockDurationRaster`, and each analysis reads the
+  durations. The block table (`seq.index`) does not use the
+  `GradientRasterTime`. The gradient, PNS and spectrum measurements use both
+  rasters.
 - **Units.** No value uses a gamma. The gradient values are in Hz/m and
   Hz/m/s, the spectrum in Hz/m/√Hz, and the PNS values in Hz/T. Divide a value
   by |γ| to get the unit with tesla ([section 9](#9-units-and-gamma)).
@@ -703,9 +707,9 @@ It has:
   `description` (the contract of the value), `params` (the names of all the
   keyword arguments of `compute`), `necessary` (the names of `params` that
   have no default), `defaults` (a pair `(name, default)` for each other name of
-  `params`, in the order of `params`), `rasters` (the rasters of the sequence
-  that it uses), `cost` (`"fast"` or `"slow"`) and `series` (what `to_series`
-  gives, or `None`).
+  `params`, in the order of `params`), `rasters` (the rasters of the file
+  whose value changes the value of the analysis), `cost` (`"fast"` or
+  `"slow"`) and `series` (what `to_series` gives, or `None`).
 - `compute(seq, **params)`: the full Python value. The parameters are
   keyword-only. A runner gives the necessary parameters (`spec.necessary`) and
   can leave out the others, which then have the values of `spec.defaults`.
@@ -753,8 +757,10 @@ other two.
 
 `hardware` has no default, `thresholds_hz_per_t` has the default `()`, and `bin_s` has
 the default `pns_levels.BIN_S` ([section 4](#4-pns_levels-safe-pns)).
-`compute` without `hardware` raises `TypeError`, before the sequence is read. No analysis has a gamma. All the analyses except
-`seq.index` use the rasters `GradientRasterTime` and `BlockDurationRaster`.
+`compute` without `hardware` raises `TypeError`, before the sequence is read.
+No analysis has a gamma. `seq.index` has the rasters `("BlockDurationRaster",)`.
+The four other analyses have the rasters
+`("GradientRasterTime", "BlockDurationRaster")`.
 
 `gradient.peaks` with `window=None` (the default) gives the kept result of the
 whole sequence. With `window=(start_s, end_s)` it gives the values of that

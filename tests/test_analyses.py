@@ -45,12 +45,13 @@ from pulseq_analysis.seq_index import sequence_index
 from pulseq_analysis.series import SeriesKind
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
+_INDEX_RASTERS = ("BlockDurationRaster",)
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
 # The specification of each analysis of the package: the ID, `params`, `necessary`,
 # `defaults`, `rasters` and `cost`.
 _SPECS = [
-    (SEQ_INDEX, "seq.index", (), (), (), (), "fast"),
+    (SEQ_INDEX, "seq.index", (), (), (), _INDEX_RASTERS, "fast"),
     (GRADIENT_PEAKS, "gradient.peaks", ("window",), (), (("window", None),), _RASTERS, "fast"),
     (GRADIENT_BLOCKS, "gradient.blocks", (), (), (), _RASTERS, "fast"),
     (

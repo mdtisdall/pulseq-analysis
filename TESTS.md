@@ -4368,7 +4368,10 @@ analysis has the ID `t.a`, and checks the message of the error that `registry()`
 
 **Checks:** The ID, the version 1, `params`, `necessary`, `defaults`, `rasters` and `cost` of
 each analysis are the values of section 8.3 of `docs/plans/implementation.md` and of the
-parameters of the plan `docs/plans/second-review-fixes.md` (D13): `seq.index` and
+parameters of the plan `docs/plans/second-review-fixes.md` (D13) and of the rule of the
+rasters of the plan `docs/plans/third-review-fixes.md` (D18). `seq.index` has the rasters
+`("BlockDurationRaster",)`, and the four other analyses have
+`("GradientRasterTime", "BlockDurationRaster")`. `seq.index` and
 `gradient.blocks` have no parameter; `gradient.peaks` has `window` with the default None;
 `pns.safe.levels` has `hardware` as the only necessary name, and the defaults `()` and `BIN_S`
 for `thresholds_hz_per_t` and `bin_s`; `gradient.spectrum` has the three names
