@@ -16,7 +16,7 @@ from synthetic import (
 
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
-from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, _compute_levels, pns_levels
+from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, PEAK_TOLERANCE, pns_levels
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
@@ -32,19 +32,26 @@ def example(default_seq):
 
 
 def test_example_hardware_for_spin_echo(example, default_seq):
-    """`pns_levels` with the example hardware gives the same summary fields as a new
-    calculation (`_compute_levels`, with no keep) for the same sequence and hardware."""
-    ref = _compute_levels(default_seq, EXAMPLE_HW, (), BIN_S)
-    assert ref is not example
+    """`pns_levels` with the example hardware gives, for the spin echo sequence, the peak,
+    the peak time and the axis peaks of `seq.calculate_pns` of the pinned fork (each
+    divided by `seq.system.gamma`, within a relative 1e-6 of the peak, as in
+    `test_summary_matches_calculate_pns_within_the_fork_tolerance`), and they are below the
+    stimulation limit and highest on y."""
+    _, norm, comp, t = default_seq.calculate_pns(safe_example_hw(), do_plots=False)
+    ref_peak = float(norm.max())
+    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
+    tol = 1e-6 * ref_peak
+    gamma = default_seq.system.gamma
     assert example.reason is None
     assert example.hardware == EXAMPLE_HW[1]
     assert list(example.axis_peaks_hz_per_t) == ["x", "y", "z"]
     assert 0 < example.peak_hz_per_t < _LIMIT
     peaks = example.axis_peaks_hz_per_t
     assert max(peaks, key=peaks.get) == "y"  # the crushers
-    assert example.peak_hz_per_t == ref.peak_hz_per_t
-    assert example.peak_time_s == ref.peak_time_s
-    assert example.axis_peaks_hz_per_t == ref.axis_peaks_hz_per_t
+    assert example.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
+    assert example.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
+    for i, axis in enumerate("xyz"):
+        assert peaks[axis] / gamma == pytest.approx(float(comp[:, i].max()), abs=tol)
 
 
 def test_asc_file_with_the_example_parameters(default_seq, example, write_gradient_asc):
@@ -377,6 +384,17 @@ def test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients(struct
     """The bad structs of `BAD_STRUCTS` raise the same errors for a sequence with no
     gradient event, which gives a result for a good struct."""
     with pytest.raises(error, match=match):
+        pns_levels(empty_sequence(), hardware=(struct, "BAD"))
+
+
+def test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients():
+    """A struct whose `x.a1 + x.a2 + x.a3` is 0.9, more than 0.001 below 1, raises
+    `ValueError` (the message names `a1 + a2 + a3`) for a sequence with no gradient event:
+    the check is of the distance from 1, not of the signed difference."""
+    struct = safe_example_hw()
+    struct.x.a1 -= 0.1
+    assert struct.x.a1 + struct.x.a2 + struct.x.a3 == pytest.approx(0.9)
+    with pytest.raises(ValueError, match=r"x\.a1 \+ x\.a2 \+ x\.a3 must be 1"):
         pns_levels(empty_sequence(), hardware=(struct, "BAD"))
 
 

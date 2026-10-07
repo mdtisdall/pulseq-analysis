@@ -181,6 +181,62 @@ def test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block():
     assert events[2][1].amplitude == 3e5  # dense 3: the block-1 gy event
 
 
+def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries():
+    """The RF, gradient and ADC events are registered in the libraries in the reverse of the
+    order of their first use, so the library ids are 2, 1 for the two RF events, 3, 2, 1 for
+    the three gradient events and 2, 1 for the two ADC events. The dense numbers are in the
+    order of first use: 1, 2 (RF), 1, 2, 3 (gradient) and 1, 2 (ADC).
+
+    Block 0: RF e1, a gz trapezoid g1 and ADC a1. Block 1: RF e2, a gx trapezoid g2, a gy
+    trapezoid g3 (gx before gy in one block) and ADC a2. Block 2: e1, g1 on gx and a1 again.
+    Worked out by hand: g1 is first used in block 0, g2 and g3 in block 1, so g1 has the dense
+    number 1, g2 has 2 and g3 has 3."""
+    common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
+    g1 = pp.make_trapezoid(channel="z", amplitude=1e5, **common)
+    g2 = pp.make_trapezoid(channel="x", amplitude=2e5, **common)
+    g3 = pp.make_trapezoid(channel="y", amplitude=3e5, **common)
+    g1_as_gx = copy.copy(g1)
+    g1_as_gx.channel = "x"
+    rf = {"duration": 1e-3, "delay": SYSTEM.rf_dead_time, "system": SYSTEM}
+    e1 = pp.make_block_pulse(flip_angle=np.pi / 2, use="excitation", **rf)
+    e2 = pp.make_block_pulse(flip_angle=np.pi, use="refocusing", **rf)
+    adc = {"dwell": 20e-6, "delay": SYSTEM.adc_dead_time, "system": SYSTEM}
+    a1 = pp.make_adc(num_samples=16, **adc)
+    a2 = pp.make_adc(num_samples=32, **adc)
+    seq = pp.Sequence(SYSTEM)
+    for g in (g3, g2, g1):
+        seq.register_grad_event(g)
+    seq.register_rf_event(e2)
+    seq.register_rf_event(e1)
+    seq.register_adc_event(a2)
+    seq.register_adc_event(a1)
+    seq.add_block(e1, g1, a1)
+    seq.add_block(e2, g2, g3, a2)
+    seq.add_block(e1, g1_as_gx, a1)
+    signed(seq)
+    ids = np.array(list(seq.block_events.values()))
+    assert ids[:, 1].tolist() == [2, 1, 2]  # RF library ids
+    assert ids[:, 2].tolist() == [0, 2, 3]  # gx
+    assert ids[:, 3].tolist() == [0, 1, 0]  # gy
+    assert ids[:, 4].tolist() == [3, 0, 0]  # gz
+    assert ids[:, 5].tolist() == [2, 1, 2]  # ADC library ids
+    assert len(seq.grad_library.data) == 3
+
+    index = sequence_index(seq)
+
+    assert index.rf.tolist() == [1, 2, 1]
+    assert index.rf_first.tolist() == [0, 1]
+    assert index.gx.tolist() == [0, 2, 1]
+    assert index.gy.tolist() == [0, 3, 0]
+    assert index.gz.tolist() == [1, 0, 0]
+    assert index.grad_first.tolist() == [0, 1, 1]
+    assert index.grad_first_axis.tolist() == [2, 0, 1]  # gz, gx, gy
+    assert index.adc.tolist() == [1, 2, 1]
+    assert index.adc_first.tolist() == [0, 1]
+    _assert_index_matches_reference(seq)
+    assert [ev.amplitude for _, ev in grad_events(seq, index)] == [1e5, 2e5, 3e5]
+
+
 def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
     seq = build_repeating(50)
     index = sequence_index(seq)

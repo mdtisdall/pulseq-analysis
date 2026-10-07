@@ -695,6 +695,34 @@ percent of the limit), and `pns_levels` runs with that hardware as `hardware`. T
 
 **Assumptions:** The sequence gives more than one interval at that peak.
 
+#### `test_a_threshold_equal_to_the_peak_gives_an_interval`
+
+**Checks:** A threshold that is exactly `peak_hz_per_t` gives one interval or more, and
+the largest interval peak is the threshold. A total at the threshold is in an interval
+(`total >= threshold`).
+
+**How:** `gre_sequence()` with `EXAMPLE_HW`. A first `pns_levels` call gives
+`peak_hz_per_t`. A second call with `thresholds_hz_per_t=(peak,)` gives `above`. The test
+checks that its only key is `peak`, that `above[peak]` has one interval or more, and that
+the largest `peak_hz_per_t` of the intervals equals `peak`.
+
+**Assumptions:** None.
+
+#### `test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_number`
+
+**Checks:** An off-raster sequence whose `end_s / dt` is above a whole number by float
+rounding only has that whole number of samples. A `num_samples` with no `- 1e-10` would be
+one more.
+
+**How:** A trapezoid on x (area 1000) and two `pp.make_delay(1.5 * dt)` blocks (3 steps
+together). `whole` is the duration of the trapezoid in steps plus 3. The test checks
+`round(end_s / dt) == whole`, `end_s / dt > whole` and `(end_s - 1e-10) / dt <= whole`,
+with `end_s` of `sequence_index(seq)`. Then it calls `pns_levels` with `EXAMPLE_HW` and
+checks `on_raster is False` and `num_samples == whole`.
+
+**Assumptions:** `end_s / dt` is 106.00000000000001 for this sequence. The test fails at
+its own checks of `end_s / dt` where float rounding gives another value.
+
 #### `test_the_intervals_do_not_depend_on_chunk_samples`
 
 **Checks:** The result, every field and so every interval, is exactly the same for a
@@ -825,16 +853,20 @@ globals, so the replacements are used when it reads the sequence.
 
 #### `test_pns_levels_takes_numpy_and_fraction_thresholds`
 
-**Checks:** A threshold that is a NumPy real scalar (`float32`, `int64`) or a `Fraction` is valid. The
-keys of `above` are `float(t)` (type `float`) in the order given, and the result equals the
-result of the same thresholds as floats.
+**Checks:** A threshold that is a NumPy real scalar (`float32`, `int64`) or a `Fraction`
+is valid. The keys of `above` are `float(t)` (type `float`) in the order given. The result
+equals the result of the same thresholds as floats, and the second result is a new object.
 
-**How:** `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=(np.float32(0.3 *
-_LIMIT), np.int64(12_345_678), Fraction(1, 3) * _LIMIT))`. The test checks `list(above)`
-against `[float(t) ...]`, the type of the keys, and `assert_levels_equal` (`ignore=()`)
-against the call with the thresholds as floats.
+**How:** `pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW,
+thresholds_hz_per_t=(np.float32(0.3 * _LIMIT), np.int64(12_345_678), Fraction(1, 3) *
+_LIMIT))`. The test checks `list(above)` against `[float(t) ...]` and the type of the
+keys. The thresholds as floats go to `_compute` (the calculation with no keep). A second
+`pns_levels` call with those keys would give the kept object, and the test would compare
+that object with itself. The test checks that the new result is not the kept object, then
+calls `assert_levels_equal` (`ignore=()`).
 
 **Assumptions:** None.
+
 #### `test_pns_levels_refuses_a_bad_bin_s_before_any_work`
 
 **Checks:** `pns_levels` raises `TypeError` (the message names `bin_s`) for a `bin_s` that
@@ -1329,6 +1361,26 @@ order 1, 2, 3 with the expected amplitudes (1e5, 2e5, 3e5).
   `seq.block_events` and `seq.grad_library` while writing this test; the test itself
   then relies on it to make the hand-worked expected numbers correct.
 
+#### `test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries`
+
+**Checks:** The dense numbers of the RF, gradient and ADC events are in the order of first
+use in play order, also when the events were registered in the libraries in another order.
+`rf_first`, `grad_first`, `grad_first_axis` and `adc_first` are in the same order.
+
+**How:** The test registers two RF events, three gradient events and two ADC events in the
+libraries with `register_rf_event`, `register_grad_event` and `register_adc_event`, in the
+reverse of their first use. Then it adds three blocks: (RF e1, gz g1, ADC a1), (RF e2, gx
+g2, gy g3, ADC a2) and (e1, g1 on gx, a1). It checks the library ids in `seq.block_events`
+first (RF 2, 1, 2, gx 0, 2, 3, gy 0, 1, 0, gz 3, 0, 0, ADC 2, 1, 2), so the order differs
+from the first use. Then it checks the dense columns against the hand-worked values (`rf`
+1, 2, 1, `gx` 0, 2, 1, `gy` 0, 3, 0, `gz` 1, 0, 0, `adc` 1, 2, 1), the `*_first` arrays,
+`_assert_index_matches_reference`, and the amplitudes that `grad_events` yields (1e5, 2e5,
+3e5).
+
+**Assumptions:** The registration of an event before `add_block` gives the event its
+library id, and `add_block` finds the same event again. This was checked against
+`seq.block_events` while writing the test.
+
 #### `test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value`
 
 **Checks:** `index.start_s` is the sequential sum of the block durations from 0.0,
@@ -1606,14 +1658,18 @@ also checks that gy is 0 for the rest of the file after its one event. Compares 
 
 #### `test_subrange_inside_a_gap_matches_pypulseq`
 
-**Checks:** A sample range entirely inside a gap between two gradient events on the
-same axis (a block with no event of its own) still gives the pypulseq value: a
-straight line between the earlier event's last point and the later event's first
-point.
+**Checks:** A sample range entirely inside a gap between two gradient events on the same
+axis (a block with no event of its own) still gives the pypulseq value: a straight line
+between the last point of the earlier event and the first point of the later event, with
+values that are not 0 at both ends.
 
-**How:** Builds a trapezoid on x, a 2 ms delay block, and a second trapezoid on x. `t`
-is 200 evenly spaced points strictly inside the delay block, 50 µs in from each edge.
-Compares with `_assert_matches_pypulseq`.
+**How:** `_gap_sequence` has an extended trapezoid on x that ramps from 0 to half of
+`max_slew * grad_raster_time` over 5 raster steps, a 2 ms delay block, and an extended
+trapezoid that starts at a quarter of `max_slew * grad_raster_time` and ramps to 0 over 5
+steps. (`add_block` accepts a value up to `max_slew * grad_raster_time` next to a block
+with no gradient.) `t` is 200 evenly spaced points strictly inside the delay block, 50 µs
+in from each edge. The test checks that `seq.get_gradients()` is not 0 at any of the
+points, then compares with `_assert_matches_pypulseq`.
 
 **Assumptions:** None.
 
@@ -1639,6 +1695,21 @@ pairs `i < j`.
 **Assumptions:** With a last value of 0 for the second block, the gap is 0 with and
 without the neighbour events, and the test cannot find their removal. The value that is
 not 0 lets it.
+
+#### `test_times_in_a_gap_that_ends_at_a_step_give_the_line_to_the_next_event`
+
+**Checks:** `GradientSampler.sample` at times in a gap whose next event starts at a value
+that is not 0 gives the line from the last point of the earlier event to the first point
+of the next event, as `seq.get_gradients()` does, not 0.
+
+**How:** Block 0 has a trapezoid on x that ends at 300 µs (`duration=300e-6`, amplitude
+0.1 of `max_grad`) and a 1 ms delay in the same block. Block 1 is an extended trapezoid on
+x that starts at half of `max_slew * grad_raster_time` and ramps to 0 over 5 steps, so the
+junction is a step. `t` is 600 µs and 800 µs. The expected values are `step * (t - 300 µs)
+/ 700 µs`. The test checks that the values are not 0, that they equal the expected ones
+(relative 1e-9), and compares with `_assert_matches_pypulseq`.
+
+**Assumptions:** None.
 
 #### `test_single_sample_matches_pypulseq`
 
@@ -2028,6 +2099,17 @@ the 1e-10 s gives 4). Each sequence must be off the raster in
 `raster_block_lengths`, and the result must equal `ceil((index.end_s - 1e-10) /
 dt)`.
 
+#### `test_raster_block_lengths_tolerance_is_a_millionth_of_a_sample`
+
+**Checks:** A block whose length is within 5e-7 samples of a whole number is on the
+raster, and one that is 2e-6 samples away is not (`ON_RASTER_TOLERANCE` is 1e-6). The
+number of samples is the whole number in each case.
+
+**How:** Parametrized on the ratio `1 + 5e-7`, `1 - 5e-7`, `1 + 2e-6` and `1 - 2e-6`. A
+one-block sequence with `pp.make_delay(ratio * dt)`. The test checks that `duration_s /
+dt` equals the ratio within 1e-12, then that `raster_block_lengths(index, dt)` gives the
+expected `on_raster` and `n == [1]`.
+
 **Assumptions:** None.
 
 ### 2.6 Gradient peaks (`test_grad_peaks.py`)
@@ -2262,6 +2344,23 @@ The test checks the slew (`A / raster`), `slew_time_s` (3 raster steps, the star
 **Assumptions:** A is `0.5 * max_slew * grad_raster_time`, so `add_block` accepts the
 step. The two slews are equal in floats for these values.
 
+#### `test_segment_of_an_earlier_block_with_the_slew_of_a_junction_step_takes_the_credit`
+
+**Checks:** A segment of block 1 and the junction step of block 2 have the same slew, and
+it is the largest of the file. The earlier block takes the credit: `slew_block` is block 1
+and `slew_time_s` is the start of its first segment (0), not the start of block 2.
+
+**How:** Block 1 is an x extended trapezoid with the amplitudes `[0, A, A, 0]` at `[0, 1,
+3, 5]` raster steps. Block 2 has `[A, A, 0]` at `[0, 2, 4]` raster steps. A is `0.5 *
+max_slew * grad_raster_time`. The slopes are A / raster (block 1, rise), 0, A / (2 raster)
+(block 1, fall), 0 and A / (2 raster) (block 2, fall). The junction steps are 0 (block 1)
+and A / raster (block 2). The test checks with `==` that the junction step of block 2
+equals the slew of block 1 in `block_gradient_values`. Then it checks the slew (`A /
+raster`), `slew_block` (the first block ID) and `slew_time_s` (0.0) of `gradient_peaks`.
+
+**Assumptions:** A is chosen so that `add_block` accepts the step. The two slews are equal
+in floats for these values, and the test checks this.
+
 #### `test_vector_peak_of_g_compares_different_triples_across_blocks`
 
 **Checks:** Two blocks with different triples of active gradients: the
@@ -2308,6 +2407,22 @@ junction is 60 T/m/s with 4 µs (24 T/m/s with 10 µs). The test writes the sequ
 a file in `tmp_path` and reads it with `pp.Sequence()`, whose `system` has 10 µs. For
 the sequence that was read and for the sequence object, it checks that the y slew is
 60 T/m/s times `GAMMA_1H` (Hz/m/s), credited to the second block, at the junction (0.8 ms).
+
+**Assumptions:** The file stores the amplitudes with fewer digits than the sequence
+object, so the comparison has a relative tolerance of 1e-4.
+
+#### `test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system`
+
+**Checks:** The `junction_hz_per_m_per_s` of `block_gradient_values` is divided by
+`seq.grad_raster_time` (the `GradientRasterTime` that the file declares), not by
+`seq.system.grad_raster_time`. A sequence read from a file gives the same values as the
+sequence object that wrote it.
+
+**How:** `raster_4us_sequence` has a junction of 60 T/m/s with 4 µs (24 T/m/s with 10 µs).
+The test writes the sequence to a file in `tmp_path` and reads it with `pp.Sequence()`,
+whose `system` has 10 µs. For the sequence that was read and for the sequence object, it
+checks that the y junction step of block 2 is 60 T/m/s times `GAMMA_1H` (Hz/m/s), that the
+step of block 1 is 0, and that the x and z steps are 0 everywhere.
 
 **Assumptions:** The file stores the amplitudes with fewer digits than the sequence
 object, so the comparison has a relative tolerance of 1e-4.
@@ -2441,16 +2556,24 @@ sequences (parametrized: `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
 `arbitrary_gradient_sequence`).
 
 **How:** For each sequence, the test calls both `gradient_peaks` and the oracle's, with no
-window and with a window from 0 to half the total duration. The oracle gives mT/m and T/m/s with
-`GAMMA_1H`, so `_assert_matches_oracle` converts the values of this package first: the
-amplitudes, the RMS and the vector peak times `1e3 / GAMMA_1H`, the slews times `1 / GAMMA_1H`
-(the conversion of `docs/usage.md` section 8, which the test also checks). It compares every
-field (`reason`, `range_s`, each axis's peak, slew and RMS, and the vector peak), within a
-tolerance derived from the sequence (`_rounding_tol`):
-`1e-12 + 4 * eps * duration / shortest segment`, relative to the value or to the limit of the
-same kind (the limit of the oracle result: `gradient_peaks` itself has no limits). It checks
-only whether a block is credited, not which one, because `gre_sequence` repeats its readout, phase-encode and spoiler events every TR,
-and the oracle's own choice among such a tie can depend on the same rounding.
+window and with a window from 0 to half the total duration. The oracle gives mT/m and
+T/m/s with `GAMMA_1H`, so `_assert_matches_oracle` converts the values of this package
+first: the amplitudes, the RMS and the vector peak times `1e3 / GAMMA_1H`, the slews times
+`1 / GAMMA_1H` (the conversion of `docs/usage.md` section 8, which the test also checks).
+It compares every field that the oracle has (`reason`, `range_s`, each axis's peak, its
+time and its block, the slew and its block, the RMS, and the vector peak and its time),
+within a tolerance derived from the sequence (`_rounding_tol`): `1e-12 + 4 * eps *
+duration / shortest segment`, relative to the value or to the limit of the same kind (the
+limit of the oracle result: `gradient_peaks` itself has no limits). It also checks the
+time of the peak of each axis and the time of the vector peak, to 1e-12 s, and the block
+of the peak and the block of the slew of each axis. The oracle has no time of the slew and
+no block of the vector peak, so these are not compared. The blocks are equal, with one
+exception (`_assert_same_credit`). `gre_sequence` repeats its readout, phase-encode and
+spoiler events every TR, and the oracle adds the absolute block start to the corner times,
+so its rounding can make it credit a later block that plays the same event. This package
+credits the first block in play order. The test accepts a different block only when both
+blocks play the same gradient event on that axis and the block of this package is the
+earlier one.
 
 **Assumptions:**
 
@@ -2474,7 +2597,7 @@ random axes, each a trapezoid, an extended trapezoid or an arbitrary gradient bu
 pypulseq's `make_*` functions (so pypulseq's own limit checks apply) and an explicit `first` and
 `last` of 0 where the function does not default to that. It compares the whole-file result and
 a random window's result with the oracle's, field by field, with the same derived tolerance and
-the same block-attribution exception and the same conversion to the units of the oracle as
+the same time and block comparisons, with the same exception for a later block of the oracle that plays the same event and the same conversion to the units of the oracle as
 `test_matches_oracle_on_synthetic_sequences`, and separately compares `whole_rms_hz_per_m`
 (times `1e3 / GAMMA_1H`) against a fresh whole-file oracle call.
 
@@ -2498,25 +2621,29 @@ rotation library.
 
 #### `test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`
 
-**Checks:** For each of 32 sequences (parametrized), the maxima of `block_gradient_values`
+**Checks:** For each of 33 sequences (parametrized), the maxima of `block_gradient_values`
 over the blocks are the whole-file values of `gradient_peaks`, with the same block and the
-same time. For each axis: the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis, and
-the first block in play order with that maximum has the `peak_block` and the `peak_time_s`. The
-maximum over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_per_m_per_s` is
-`max_slew_hz_per_m_per_s`, and the first block with that maximum has the `slew_block`, with the
-start of the block as the time when its junction step has the maximum (the junction is before
-every segment of its block), otherwise the `slew_time_s` of its segment. The maximum of
-`vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result, with the same block and time.
-When the maximum is 0, `gradient_peaks` has no block (None).
+same time. For each axis: the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis,
+and the first block in play order with that maximum has the `peak_block` and the
+`peak_time_s`. The maximum over the blocks of the larger of `slew_hz_per_m_per_s` and
+`junction_hz_per_m_per_s` is `max_slew_hz_per_m_per_s`, and the first block with that
+maximum has the `slew_block`, with the start of the block plus the delay of its event on
+the axis as the time when its junction step has the maximum (the junction is at the first
+point of the event, before every segment of its block), otherwise the `slew_time_s` of its
+segment. The maximum of `vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result,
+with the same block and time. When the maximum is 0, `gradient_peaks` has no block (None).
 
 **How:** The sequences are `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
-`arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`, `build_repeating(50)`
-and `build_worst(50)` of `tests/scale_sequences.py`, four junction sequences of this file (a
-step between two extended trapezoids, the same with a segment of the second block that has the
-same slew as the step, a gradient that ends non-zero before a delay, a first block that starts
-non-zero), and 20 random sequences of `_random_gradient_sequence` (seeds 0 to 19). For each
-sequence the test calls `block_gradient_values` and `gradient_peaks` and compares them
-with `==`, not `pytest.approx`.
+`arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`,
+`build_repeating(50)` and `build_worst(50)` of `tests/scale_sequences.py`, five junction
+sequences of this file (a step between two extended trapezoids, the same with a segment of
+the second block that has the same slew as the step, a gradient that ends non-zero before
+a delay, a first block that starts non-zero, and an x extended trapezoid with a delay and
+a first value that is not 0 after a trapezoid), and 20 random sequences of
+`_random_gradient_sequence` (seeds 0 to 19). For each sequence the test calls
+`block_gradient_values` and `gradient_peaks` and compares them with `==`, not
+`pytest.approx`. The test reads the delay of the event of the credited block with
+`get_block`, and takes the junction time from it.
 
 **Assumptions:**
 
@@ -2569,21 +2696,6 @@ first block.
 hand-computed value (`pytest.approx`) and with 0 (exact).
 
 **Assumptions:** None.
-
-#### `test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junction_time`
-
-**Checks:** When the junction step and the first segment of the same block have the same slew,
-and it is the largest of the file, `gradient_peaks` credits that block and gives the start of the
-block (the junction) as the time, and `block_gradient_values` has equal `junction_hz_per_m_per_s`
-and `slew_hz_per_m_per_s` in that block.
-
-**How:** Block 1 is an x extended trapezoid that ends at `x`. Block 2 starts at `x - step` and
-reaches `x` in one gradient raster, with `step` 0.9 of the largest step that `add_block` accepts.
-The test checks the two slews with `==`, then the `slew_block`, `slew_time_s` and
-`max_slew_hz_per_m_per_s` of `gradient_peaks`.
-
-**Assumptions:** The two slews are equal in floating point for these values (the value of both is
-0.9 of the maximum slew of `SYSTEM`). The test checks this with `==`.
 
 #### `test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block`
 
@@ -2826,26 +2938,34 @@ that the groups are those of `np.unique(..., axis=0)`.
 
 #### `test_a_window_gives_the_same_result_with_and_without_the_kept_data`
 
-**Checks:** For a window, `gradient_peaks` of a sequence that has its kept data (the per-event
-values and the values over the blocks: the end of each block, the junction steps and times, and
-the RMS of the whole file) gives a result equal (`==`) to the result of the same call when the
-kept data is empty. The kept values over the blocks and the search of the block range
-(`np.searchsorted`) do not change a result, also for a window edge on a block edge, and for a block
-of zero duration at a window edge or inside the window.
+**Checks:** For a window, `gradient_peaks` of a sequence that has its kept data (the
+per-event values and the values over the blocks: the end of each block, the junction steps
+and times, and the RMS of the whole file) gives a result equal (`==`) to the result of the
+same call on a sequence whose kept data is empty. The kept values over the blocks and the
+search of the block range (`np.searchsorted`) do not change a result, also for a window
+edge on a block edge, and for a block of zero duration at a window edge or inside the
+window.
 
-**How:** For five sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
-duration before, between and after them, the junction sequence, and two random gradient
-sequences), 100 windows with the seed 20261006: the ends of every other window are each the start
-or the end of a block (or 0 or the end of the sequence), and the ends of the others are random. For
-each window, the test removes the kept data of the sequence from `grad_peaks._CACHE`, calls
-`gradient_peaks` (which builds the kept data), calls it again with the kept data, and checks that
-the two results are equal.
+**How:** For five sequences (`build_repeating(30)`, a sequence of trapezoids with blocks
+of zero duration before, between and after them, the junction sequence, and two random
+gradient sequences), 100 windows with the seed 20261006: the ends of every other window
+are each the start or the end of a block (or 0 or the end of the sequence), and the ends
+of the others are random. The test builds two sequences of the same build, `seq` and
+`other`. It never empties the kept data of `seq`, so each window uses the kept data that
+the windows before it built. For each window, it removes the entry of `other` from
+`grad_peaks._CACHE`, so that the call for `other` builds its own kept data, and checks
+that the result for `seq` equals the result for `other`. It also checks that the kept
+values over the blocks of `seq` are one object for all the windows, so the kept data is
+really reused.
 
 **Assumptions:** The test does not compare with a second implementation of the window: the
-values themselves are checked by the hand-computed tests and by the comparisons with the oracle
-above, and the refactor is checked with a baseline script, outside the tests. A window with an end
-that is not within the sequence is not used. The test removes the entry of the sequence from the
-private `grad_peaks._CACHE`.
+values themselves are checked by the hand-computed tests and by the comparisons with the
+oracle above, and the refactor is checked with a baseline script, outside the tests. A
+window with an end that is not within the sequence is not used. The test removes the entry
+of the sequence from the private `grad_peaks._CACHE`. The two sequences have equal events
+and blocks, because each build is deterministic. A result that uses the kept data of
+another window, for example a range that the first window kept, is not equal to the result
+of a call with empty kept data.
 
 #### `test_a_window_reads_no_block_outside_it_and_only_the_blocks_that_its_edges_cut`
 
@@ -2911,29 +3031,28 @@ Most of the tests use the synthetic spin echo sequence
 
 #### `test_example_hardware_for_spin_echo`
 
-**Checks:** For the synthetic spin echo sequence on the example hardware, the summary
-fields of `pns_levels` equal those of a new calculation (`_compute_levels`) of the same
-sequence and hardware, are below the
-stimulation limit, and are highest on y.
+**Checks:** For the synthetic spin echo sequence on the example hardware, the peak, the
+peak time and the axis peaks of `pns_levels` equal those of `seq.calculate_pns` of the
+pinned fork. They are below the stimulation limit and highest on y.
 
-**How:** The test calls `pns_levels` with `hardware=EXAMPLE_HW` (the module-scoped
-`example` fixture) and, separately, `_compute_levels` on the same sequence
-object with the checked values `EXAMPLE_HW`, `()` and `BIN_S`. It checks that the new result is
-not the object of the kept one, that there is no reason, that the hardware is the label of
-`EXAMPLE_HW`.
-It checks that the axis peaks are keyed x, y and
-z, and that the peak is more than 0 and less than `_LIMIT` (100 % of the limit, in Hz/T).
-The axis with the highest peak must be y, where the crushers are. `peak_hz_per_t`,
-`peak_time_s` and `axis_peaks_hz_per_t` must equal the fields of the new calculation exactly.
+**How:** The test calls `calculate_pns` with `safe_example_hw()` and takes the peak, the
+peak time (the first sample with a total of at least `peak * (1 - PEAK_TOLERANCE)`) and
+the peak of each axis. It compares them with the module-scoped `example` fixture
+(`pns_levels` with `hardware=EXAMPLE_HW`). Each `pns_levels` value in Hz/T is divided by
+`seq.system.gamma`. The peaks must agree within 1e-6 of the reference peak and the peak
+time within 1e-9 s, as in `test_summary_matches_calculate_pns_within_the_fork_tolerance`.
+The test also checks that there is no reason, that the hardware is the label of
+`EXAMPLE_HW`, that the axis peaks are keyed x, y and z, and that the peak is more than 0
+and less than `_LIMIT` (100 % of the limit, in Hz/T). The axis with the highest peak must
+be y, where the crushers are.
 
 **Assumptions:**
 
 - "Below the limit" is for the example hardware only.
-- The crushers (on y) give the synthetic sequence's highest per-axis PNS. This was
-  checked against a direct run of the model, not derived by hand.
-- `pns_levels` and a new `_compute_levels` calculation on the same sequence and
-  hardware give bit-identical numbers (no randomness in the pipeline), so the
-  comparison is exact equality, not a tolerance.
+- The crushers (on y) give the synthetic sequence's highest per-axis PNS. This was checked
+  against a direct run of the model, not derived by hand.
+- The tolerance of 1e-6 is the one of the test named above: the file times of
+  `calculate_pns` drift off the raster by float rounding.
 
 #### `test_asc_file_with_the_example_parameters`
 
@@ -3276,6 +3395,18 @@ a good struct.
 
 **Assumptions:** None.
 
+#### `test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients`
+
+**Checks:** A struct whose `x.a1 + x.a2 + x.a3` is 0.9 raises `ValueError` (the message
+names `x.a1 + x.a2 + x.a3 must be 1`) for a sequence with no gradient event. The check is
+of the distance from 1, not of the signed difference.
+
+**How:** `safe_example_hw()` with `x.a1` lowered by 0.1. The test checks that the sum is
+about 0.9, then calls `pns_levels(empty_sequence(), hardware=(struct, "BAD"))` inside
+`pytest.raises`.
+
+**Assumptions:** None.
+
 #### `test_pns_levels_keeps_one_result_for_each_tuple_of_thresholds`
 
 **Checks:** The thresholds are part of the key of a kept result: other thresholds, or
@@ -3490,6 +3621,22 @@ that the round trip through strict JSON text is equal.
 
 **Assumptions:** None.
 
+#### `test_envelope_coord_end_limits_are_exact_at_the_tolerance`
+
+**Checks:** For an ENVELOPE series of `n` bins, a `coord_end` that is `1e-9 * coord_step`
+above the lower limit `coord_start + (n - 1) * coord_step` raises `ValueError`, and the
+next float above that is valid. A `coord_end` that is the tolerance above the upper limit
+`coord_start + n * coord_step` is valid, and the next float above that raises
+`ValueError`.
+
+**How:** Parametrized with three cases: unit step, negative start and one bin. The test
+computes the tolerance and the limits with the same expressions as the check, so
+`coord_end` is equal to the value it is compared with. It uses `np.nextafter` for the next
+float.
+
+**Assumptions:** The sums are floats that the check also makes, so the test needs the same
+expression order as `Series._check_coordinates`.
+
 #### `test_envelope_with_no_bin_refuses_a_coord_end_below_coord_start`
 
 **Checks:** An ENVELOPE series with no bin raises `ValueError` for `coord_end < coord_start`,
@@ -3587,18 +3734,19 @@ sequence to one window.
 
 #### `test_series_refuses_bad_arrays`
 
-**Checks:** A series raises when a necessary array of its kind is missing (for each kind),
-when an ENVELOPE has an array other than `min` and `max`, when `arrays` is not a mapping
-or has a key that is not a string, when an array is not a numpy array, is zero-dimensional
-or two-dimensional, or has a string, object or datetime dtype, and when two arrays have
-two lengths (for SAMPLES, ENVELOPE and RUNS).
+**Checks:** A series raises, with the message of its own check, when a necessary array of
+its kind is missing (for each kind), when an ENVELOPE has an array other than `min` and
+`max`, when `arrays` is not a mapping or has a key that is not a string, when an array is
+not a numpy array, is zero-dimensional or two-dimensional, or has a string, object or
+datetime dtype, and when two arrays have two lengths (for SAMPLES, ENVELOPE and RUNS).
 
-**How:** Parametrized. Each case builds a series of one kind with the bad `arrays` (with
-the valid `coord_step` and `coord_end` that the kind uses) and checks for `TypeError` or
-`ValueError`, as the wrong type or the wrong value.
+**How:** Parametrized. Each case builds a series of one kind with the bad `arrays` and
+checks for `TypeError` or `ValueError` with `match=` of the message of the check. An
+ENVELOPE case has a `coord_end` that is valid for its arrays, so the check of `coord_end`
+does not refuse it. The other kinds use the valid `coord_step` that the kind needs.
 
-**Assumptions:** The test does not try each necessary array of each kind with a bad
-dtype, only the dtypes in the list.
+**Assumptions:** The test does not try each necessary array of each kind with a bad dtype,
+only the dtypes in the list.
 
 #### `test_series_refuses_bad_meta`
 
@@ -3611,6 +3759,19 @@ checks for `TypeError` (a wrong type) or `ValueError` (the three strings). The r
 the rules of `Finding.data` in pulseq-checks.
 
 **Assumptions:** None.
+
+#### `test_series_meta_makes_a_numpy_float64_a_plain_float`
+
+**Checks:** A `np.float64` in `meta` becomes a `float` of the exact type `float`. The
+series equals the series with the same value as a `float`, and its JSON round trip gives
+the same series with a `float`.
+
+**How:** Build a SAMPLES series with `meta={"a": np.float64(1.5)}`. Check `type(...) is
+float`, `==` with the series made with `1.5`, `_round_trip`, and the type of the value
+after the round trip.
+
+**Assumptions:** A `np.float64` is a subclass of `float`, so it passes the type check of
+`meta`. Without the conversion it would stay a `np.float64`.
 
 #### `test_series_copies_arrays_and_meta`
 
@@ -3677,13 +3838,25 @@ so it is not one of the places.
 
 **Checks:** A series is not equal to a series with another array dtype, another array
 length, another value, NaN in place of a number, another name, unit, `coord_unit` (ID
-`coord-unit`, "Hz" in place of "s"), `coord_start`, `coord_step`, `meta` or kind, and not
-equal to a value that is not a series.
+`coord-unit`, "Hz" in place of "s"), `coord_start`, `coord_step` or `meta`, and not equal
+to a value that is not a series.
 
 **How:** Parametrized. Each case builds one series that differs from a base SAMPLES series
 in one thing, and checks `!=`. The test also checks `!=` of the base series and a string.
 
 **Assumptions:** None.
+
+#### `test_series_not_equal_for_a_different_kind`
+
+**Checks:** A POINTS series and a RUNS series that differ only in the kind are not equal,
+in both orders.
+
+**How:** Build one `arrays` dict with `coord`, `value`, `start` and `end` (all valid for
+both kinds), and one set of name, unit, `coord_unit` and `meta`. Build a POINTS and a RUNS
+series from them, and check `!=` both ways. Also check that a second POINTS series with
+the same fields is equal.
+
+**Assumptions:** POINTS and RUNS accept the arrays of the other kind as extra arrays.
 
 #### `test_envelope_series_not_equal_for_a_different_end`
 
@@ -3794,18 +3967,21 @@ a dict, an unknown key, a missing key (also `coord_unit`, ID `missing-coord-unit
 object of rc2 (ID `rc2-object`), an unknown kind or a kind that is not a string, an empty
 name, a name or unit that is not a string, a `coord_unit` that is null or a number (IDs
 `coord-unit-null` and `coord-unit-a-number`), a `coord_step` that is zero, a string or
-null, a null `coord_end` or `coord_start`, a `coord_start` that is a bool, a `coord_start` or
-`coord_end` that is "inf", "-inf" or "nan" (IDs `coord-start-inf`, `coord-start-minus-inf`,
-`coord-start-nan`, `coord-end-inf` and `coord-end-nan`), a `coord_end` that is too small or
-too large for the bins (IDs `coord-end-too-small` and `coord-end-too-large`), a `meta` or
-`arrays` that is not an object, a `meta` value that is a list, and an array that is not an
-object or an object with no arrays.
+null, a null `coord_end` or `coord_start`, a `coord_start` that is a bool, a `coord_start`
+or `coord_end` that is "inf", "-inf" or "nan" (IDs `coord-start-inf`,
+`coord-start-minus-inf`, `coord-start-nan`, `coord-end-inf` and `coord-end-nan`), a
+`coord_end` that is too small or too large for the bins (IDs `coord-end-too-small` and
+`coord-end-too-large`), a `meta` or `arrays` that is not an object, a `meta` value that is
+a list, and an array that is not an object or an object with no arrays. Each case raises
+`ValueError` with the message of its own check, for example the case `coord-start-a-bool`
+with "must be a number or null, not True".
 
-**How:** Parametrized. Each case changes or removes one key of the `to_obj` of a valid
-ENVELOPE series and checks for `ValueError`. The case `rc2-object` has no `coord_unit` and
-the rc2 keys of the three coordinate fields, with their values, so it also has unknown
-keys. The `TypeError` of the series is a `ValueError` here, so a caller catches one type.
-`from_obj` goes through the constructor, so it has the checks of the coordinate fields.
+**How:** Parametrized with the object and the message. Each case changes or removes one
+key of the `to_obj` of a valid ENVELOPE series and checks for `ValueError` with `match=`
+of the message. The case `rc2-object` has no `coord_unit` and the rc2 keys of the three
+coordinate fields, with their values, so it also has unknown keys. The `TypeError` of the
+series is a `ValueError` here, so a caller catches one type. `from_obj` goes through the
+constructor, so it has the checks of the coordinate fields.
 
 **Assumptions:** None.
 
@@ -3907,17 +4083,23 @@ change to another decompressor fails this test.
 #### `test_decode_array_refuses`
 
 **Checks:** `decode_array` raises `ValueError` for a value that is not a dict, a dict with
-a missing key or an unknown key, a `length` that is too large, too small, negative, a float
-or a bool, a dtype that is `object`, `datetime64[s]`, a string dtype, an unknown name, a
-short name (`f4`) or not a string, `data` that is not a string, not base64, not gzip or cut
-short, and data with a number of bytes that is not a whole number of items, more than
-`length` or fewer than `length`.
+a missing key or an unknown key, a `length` that is too large, too small, negative, a
+float or a bool, a dtype that is `object`, `datetime64[s]`, a string dtype, an unknown
+name, a short name (`f4`) or not a string, `data` that is not a string, not base64, not
+gzip or cut short, and data with a number of bytes that is not a whole number of items,
+more than `length` or fewer than `length`. Each case raises `ValueError` with the message
+of its own check. The case `data-not-base64` is a valid gzip text with a "!" in the middle
+and its own padding, so only `validate=True` refuses it. The case `length-a-bool` is
+refused as a bool, not as a wrong length.
 
-**How:** Parametrized. Each case changes one key of a valid dict (or builds a gzip text of
-zero bytes) and checks for `ValueError`.
+**How:** Parametrized with the dict and the message. Each case changes one key of a valid
+dict (or builds a gzip text of zero bytes) and checks for `ValueError` with `match=` of
+the message.
 
-**Assumptions:** The test does not check each byte of a damaged gzip stream, only the cases
-in the list.
+**Assumptions:** The messages are the messages of the Python of the project (3.12), for
+example "Only base64 data is allowed" of base64 and "Error -3 while decompressing data"
+of zlib. The test does not check
+each byte of a damaged gzip stream, only the cases in the list.
 
 ### 2.9 Analyses (`test_analyses.py`)
 
@@ -4033,16 +4215,17 @@ of the registry checks the identity of each).
 
 #### `test_analysis_spec_raises_for_params_that_disagree_with_necessary_and_defaults`
 
-**Checks:** `AnalysisSpec` raises `ValueError` for each of: a name of `necessary` that is not
-in `params`; a name that has a default and is in `necessary`; a name of `params` with neither;
-a default name that is not in `params`; a default name that is repeated; defaults that are not
-in the order of `params`; a default that is a dict, a list, a tuple with a list in it, or an
-object.
+**Checks:** `AnalysisSpec` raises `ValueError` with the message of its own check for a
+name of `necessary` that is not in `params`, a name with a default that is also in
+`necessary`, a name of `params` with neither, a default name that is not in `params`, a
+default name that is repeated (also when `params` repeats the name, so that the order of
+defaults is right), defaults that are not in the order of `params`, and a default that is
+not None, a `bool`, an `int`, a `float`, a `str` or a tuple of these.
 
-**How:** Parametrized over ten specs, each with the fields that are valid except one. Each is
-built in `pytest.raises(ValueError)`.
+**How:** Parametrized with `params`, `necessary`, `defaults` and the message. Each case
+checks for `ValueError` with `match=` of the message.
 
-**Assumptions:** The test does not check the text of the message.
+**Assumptions:** None.
 
 #### `test_analysis_spec_accepts_the_defaults_of_each_json_type_and_stays_hashable`
 
@@ -5171,4 +5354,26 @@ offset, the integral, and the first, the first offset and the last value must be
 
 **Assumptions:** `_polyline_values` is the calculation of the earlier `_event_values`; it
 is tested with the results of `gradient_peaks` in section 2.6.
+
+#### `test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_computed_values`
+
+**Checks:** `grad_peaks._event_values` gives the peak, the time of the peak, the slew, the
+time of the slew and the integral of amplitude² of an x trapezoid with a delay and of a y
+arbitrary gradient, equal to values that are computed by hand from the numbers given to
+the `make_*` functions.
+
+**How:** The trapezoid has A = 1e5 Hz/m, delay 100 µs, rise 200 µs, flat 400 µs and fall
+300 µs. Expected: peak A at delay + rise, slew A / rise from the delay, integral A²
+(rise/3 + flat + fall/3). The arbitrary gradient has the waveform `[1, 2, -3, -1, 2] u`
+with u = 1e4 Hz/m, first and last 0, and raster r. Its points are at 0, 0.5 r, 1.5 r, 2.5
+r, 3.5 r, 4.5 r and 5 r. Expected: peak 3 u at 2.5 r, slew 5 u / r from 1.5 r, integral
+65/6 r u² (the sum of dt (a² + ab + b²) / 3 over the six segments). The test compares with
+`pytest.approx` (relative 1e-12, and absolute 1e-12 s for the times). The test above
+compares `_event_values` with `_polyline_values`, so a wrong `_polyline_values` does not
+fail it. This test does.
+
+**Assumptions:** The trapezoid has a fall longer than its rise, so the rise is the
+steepest segment without a tie. The arbitrary gradient has 5 samples, because pypulseq
+reads back an arbitrary gradient of 4 samples or fewer with a shape that ends at the last
+sample, not half a raster after it.
 
