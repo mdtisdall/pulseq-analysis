@@ -46,10 +46,12 @@ event, a ramp from 0 to the block of the later event, and the step or the line a
 or a short gap to the block of the later event. The step before the first point is credited to
 the block of the first event, and the step after the last point to the block of the last event.
 The time of a segment is its start (the start of the cut when a range edge cuts it), and the time
-of a step is its time. A step is in the range `[lo, hi]` when its time `t` has `lo <= t < hi`. The
-block of the vector peak is the block that has its time, seen from the side where the value is
-(`_vector_candidates`). Of equal values, the first in time order wins, and in one block the line
-or the step into the event is before the segments of the event.
+of a step is its time. A step is in the range `[lo, hi]` when its time `t` has `lo <= t < hi` and
+`t < end_s - TIME_TOLERANCE`, with `end_s` the end of the sequence: the step after the last point
+of an axis is in no range when that point is within `TIME_TOLERANCE` of the end, whatever the
+rounding of the times is. The block of the vector peak is the block that has its time, seen from
+the side where the value is (`_vector_candidates`). Of equal values, the first in time order wins,
+and in one block the line or the step into the event is before the segments of the event.
 
 This computes the per-event values one time for each unique gradient event, from the points of
 `_events.event_points` (which reads one block with `get_block` for each unique event, one time for
@@ -179,8 +181,9 @@ class BlockGradientValues:
     `peak_time_s` its time. `slew_hz_per_m_per_s` is the largest slope among the segments of that
     event and the ramps of that event, and `slew_time_s` the start of that segment. The ramps
     are the ramp from 0 before the event and the ramp to 0 after it, across a long gap (the module
-    docstring); the step after the last point of the axis, when that point is before the end of
-    the sequence and its value is not 0, is also in the slew of the block of the last event.
+    docstring); the step after the last point of the axis, when that point is more than
+    `TIME_TOLERANCE` before the end of the sequence and its value is not 0, is also in the slew of
+    the block of the last event.
     `junction_hz_per_m_per_s` is the step into the event, `|last value of the earlier event -
     first value of this event|` divided by `seq.grad_raster_time`, across a zero gap, or the
     slope of the line into the event across a short gap, `|last value - first value|` divided by
@@ -356,8 +359,8 @@ class _AxisColumns:
 def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: float) -> _AxisColumns:
     """The `_AxisColumns` of one axis, by the model of the module docstring, for the whole
     file: the window `[0, index.end_s]` of the oracle (a step at the last point of the axis is
-    in it when that point is before the end of the sequence). `dt` is the gradient raster of
-    the sequence.
+    in it when that point is more than `TIME_TOLERANCE` before the end of the sequence). `dt` is
+    the gradient raster of the sequence.
 
     The piece of a block is its event, the line or the step into it (at its first point, or
     from the last point of the earlier event across a short gap), the ramp from 0 before it
@@ -409,8 +412,8 @@ def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: flo
     has_to[:-1] = long[1:] & (last[:-1] != 0.0)
     after = np.where(has_to, np.abs(last) / to_len, 0.0)
     # The step to 0 after the last point of the axis, at that point, counts in the window
-    # `[0, end]` when its time is before the end.
-    final_step = bool(last[-1] != 0.0 and lt[-1] < index.end_s)
+    # `[0, end]` when its time is more than `TIME_TOLERANCE` before the end.
+    final_step = bool(last[-1] != 0.0 and lt[-1] < index.end_s - TIME_TOLERANCE)
     if final_step:
         after[-1] = abs(last[-1]) / dt
 
@@ -607,23 +610,6 @@ def _limit_after(t: np.ndarray, g: np.ndarray, q: np.ndarray) -> np.ndarray:
     return np.where((q >= t[0]) & (q < t[-1]), value, 0.0)
 
 
-def _sum_of_squares(values: list[np.ndarray]) -> np.ndarray:
-    """The sum of the squares of the arrays `values`, with the arithmetic of Python's `sum` of
-    floats (Python 3.12 adds with a running compensation). The squares are products, and the
-    sum is not numpy's: two values of the vector peak that are equal up to the last bit are
-    found in the same order as the oracle finds them, so a tie goes to the same time."""
-    total = np.zeros(values[0].shape)
-    compensation = np.zeros(values[0].shape)
-    for value in values:
-        square = value * value
-        new = total + square
-        compensation += np.where(
-            np.abs(total) >= np.abs(square), (total - new) + square, (square - new) + total
-        )
-        total = new
-    return total + compensation
-
-
 def _vector_candidates(
     polys: list[_Polyline], start_s: np.ndarray, end_s: np.ndarray, lo: float, hi: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -633,14 +619,17 @@ def _vector_candidates(
     A candidate is a time that is `lo`, `hi` or the time of a point of a polyline in the window,
     and a side. At a time that is not `lo`, the side "before" has the values of the polylines
     just before the time, and at a time that is not `hi` the side "after" has the values just
-    after it (`_limit_before`, `_limit_after`). The value is the magnitude of the three values.
+    after it (`_limit_before`, `_limit_after`). The value is `sqrt(gx * gx + gy * gy + gz * gz)`
+    of the three values, with `polys` in the order x, y, z.
     The block of a candidate is the block that has the time on that side: the first block that
     ends at or after the time, for "before", and the last block that starts at or before the
     time, for "after", each within `TIME_TOLERANCE`. `start_s` and `end_s` are the start and
     the end of each block."""
     times = np.unique(np.concatenate([[lo, hi]] + [p.t[(p.t >= lo) & (p.t <= hi)] for p in polys]))
-    before = np.sqrt(_sum_of_squares([_limit_before(p.t, p.g, times) for p in polys]))
-    after = np.sqrt(_sum_of_squares([_limit_after(p.t, p.g, times) for p in polys]))
+    gx, gy, gz = (_limit_before(p.t, p.g, times) for p in polys)
+    before = np.sqrt(gx * gx + gy * gy + gz * gz)
+    gx, gy, gz = (_limit_after(p.t, p.g, times) for p in polys)
+    after = np.sqrt(gx * gx + gy * gy + gz * gz)
     before[times == lo] = 0.0
     after[times == hi] = 0.0
     last = start_s.size - 1
@@ -859,13 +848,14 @@ class _AxisState:
 
 
 def _evaluate_axis(
-    poly: _Polyline, dt: float, lo: float, hi: float, play_lo: int, play_hi: int
+    poly: _Polyline, dt: float, lo: float, hi: float, end_s: float, play_lo: int, play_hi: int
 ) -> tuple[_AxisState, bool]:
     """The values of the window `[lo, hi]` of the polyline `poly` that are credited to the play
     indexes `play_lo` to `play_hi` (exclusive), with the rules of the oracle: the peak from the
     end points of the segments of positive length in the window, a segment that an edge cuts
     with its value at the edge; the slew from the segments of `TIME_TOLERANCE` or more in the
-    window (not the steps between events) and from the steps with `lo <= time < hi`; the
+    window (not the steps between events) and from the steps with `lo <= time < hi` and
+    `time < end_s - TIME_TOLERANCE`, with `end_s` the end of the sequence; the
     integral of the square over the cut segments. Of equal values, the first in the order of the
     polyline wins. Also whether a segment of an event of those blocks is in the window."""
     state = _AxisState()
@@ -908,9 +898,10 @@ def _evaluate_axis(
         credit_end = np.empty(0, dtype=np.int64)
     # The steps are in the order of the polyline: a step after the point `p` is before the
     # segment `p` (the segment from the point `p`), and after the segment `p - 1`.
+    step_hi = min(hi, end_s - TIME_TOLERANCE)
     step_in = (
         (poly.step_time >= lo)
-        & (poly.step_time < hi)
+        & (poly.step_time < step_hi)
         & (poly.step_play >= play_lo)
         & (poly.step_play < play_hi)
     )
@@ -964,7 +955,7 @@ def _exact_edge_blocks(
             ae, max(e0 - 1, 0), min(max(e1, e0) + 1, ae.pos.size), points, index.start_s, dt
         )
         polys.append(poly)
-        axis_state, own = _evaluate_axis(poly, dt, lo, hi, first_play, stop_play)
+        axis_state, own = _evaluate_axis(poly, dt, lo, hi, index.end_s, first_play, stop_play)
         st = state[axis]
         st.has_event |= own or axis_state.peak.play is not None or axis_state.slew.play is not None
         st.rms_sum += axis_state.rms_sum
@@ -1098,7 +1089,8 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     is not within the sequence raise `ValueError`. A segment of the gradient (of an event, a
     ramp or a line, see the module docstring) that crosses a range edge is cut at the edge, with
     the amplitude at the edge found by linear interpolation. A step counts in the range when its
-    time is at the start of the range or after it, and before the end of the range.
+    time is at the start of the range or after it, and before the end of the range, and more than
+    `TIME_TOLERANCE` before the end of the sequence.
     `range_s` is the window clipped to `(0.0, total_duration)`, so its start is never after its
     end: a window that lies past an end of the sequence by less than `TIME_TOLERANCE` gives a
     range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and zero values.
