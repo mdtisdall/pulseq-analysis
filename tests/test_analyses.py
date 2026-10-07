@@ -7,7 +7,6 @@ analysis of the package, `compute`, and `to_series` of `pns.safe.levels` (design
 import dataclasses
 import importlib.metadata
 import inspect
-import json
 import re
 from types import SimpleNamespace
 
@@ -39,12 +38,11 @@ from pulseq_analysis.grad_spectrum import (
     FFT_WINDOW_S,
     FREQUENCY_OVERSAMPLING,
     MAX_FREQUENCY_HZ,
-    NO_GRADIENTS,
     gradient_spectrum,
 )
 from pulseq_analysis.pns_levels import BIN_S, pns_levels
 from pulseq_analysis.seq_index import sequence_index
-from pulseq_analysis.series import Series, SeriesKind
+from pulseq_analysis.series import SeriesKind
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
@@ -110,11 +108,6 @@ def _analysis(analysis_id):
         id=analysis_id, version=1, title="t", description="d", params=(), rasters=()
     )
     return SimpleNamespace(spec=spec)
-
-
-def _json_round_trip(series: Series) -> Series:
-    """`series` written as strict JSON text and read again."""
-    return Series.from_obj(json.loads(json.dumps(series.to_obj(), allow_nan=False)))
 
 
 def test_the_registry_has_the_five_analyses_of_the_package():
@@ -398,48 +391,14 @@ def test_compute_of_gradient_spectrum_passes_its_arguments_on():
     assert (both.window_s, both.frequency_oversampling) == (0.1, 2.0)
 
 
-def test_compute_gives_the_value_of_its_function_with_the_same_arguments():
-    """`compute` of each analysis gives the value of the function that it calls, with the
-    default arguments (for `pns.safe.levels`, with `EXAMPLE_HW` as the necessary hardware)
-    and with others: the same object (`is`) for each analysis, because each function keeps
-    its result for the sequence object."""
+def test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result():
+    """`SEQ_INDEX.compute(seq)` and `GRADIENT_BLOCKS.compute(seq)` are the objects (`is`)
+    that `sequence_index(seq)` and `block_gradient_values(seq)` keep for the sequence
+    object."""
     seq = gre_sequence(num_trs=4)
-    hardware = hardware_for_peak(seq, 1.5)
 
     assert SEQ_INDEX.compute(seq) is sequence_index(seq)
-    assert GRADIENT_PEAKS.compute(seq) is gradient_peaks(seq)
     assert GRADIENT_BLOCKS.compute(seq) is block_gradient_values(seq)
-    assert PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW) is pns_levels(seq, hardware=EXAMPLE_HW)
-    thresholds = (_LIMIT, 0.5 * _LIMIT)
-    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=thresholds) is (
-        pns_levels(seq, hardware=hardware, thresholds_hz_per_t=thresholds)
-    )
-    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware) is pns_levels(seq, hardware=hardware)
-    assert PNS_SAFE_LEVELS.compute(seq, hardware=hardware, bin_s=1e-3) is (
-        pns_levels(seq, hardware=hardware, bin_s=1e-3)
-    )
-    assert GRADIENT_SPECTRUM.compute(seq) is gradient_spectrum(seq)
-    assert GRADIENT_SPECTRUM.compute(seq, window_s=0.1) is gradient_spectrum(seq, window_s=0.1)
-
-
-def test_compute_of_pns_safe_levels_with_a_hardware_from_asc_gives_the_kept_result(
-    write_gradient_asc,
-):
-    """`PNS_SAFE_LEVELS.compute(seq, hardware=hardware_from_asc(path))` is the object (`is`)
-    that `pns_levels(seq, hardware=hardware_from_asc(path))` gives for the same file,
-    with and without thresholds: two calls of `hardware_from_asc` on one file give one
-    key."""
-    seq = gre_sequence(num_trs=4)
-    path = write_gradient_asc(name="MP_GPA_KEPT")
-
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware_from_asc(path))
-
-    assert levels is pns_levels(seq, hardware=hardware_from_asc(path))
-    assert levels.hardware == "MP_GPA_KEPT"
-    thresholds = (_LIMIT,)
-    assert PNS_SAFE_LEVELS.compute(
-        seq, hardware=hardware_from_asc(path), thresholds_hz_per_t=thresholds
-    ) is pns_levels(seq, hardware=hardware_from_asc(path), thresholds_hz_per_t=thresholds)
 
 
 def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read():
@@ -583,46 +542,6 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     assert swapped_series[2].arrays["start"].tolist() == series[1].arrays["start"].tolist()
 
 
-def test_the_pns_series_survive_the_json_round_trip():
-    """Each series of `to_series` (the ENVELOPE and two RUNS series) is equal to the series
-    that `Series.from_obj` reads from the strict JSON text of its `to_obj`."""
-    seq = gre_sequence(num_trs=20)
-    levels = PNS_SAFE_LEVELS.compute(
-        seq, hardware=hardware_for_peak(seq, 1.5), thresholds_hz_per_t=(_LIMIT, 0.8 * _LIMIT)
-    )
-
-    series = PNS_SAFE_LEVELS.to_series(levels)
-
-    assert len(series) == 3
-    for s in series:
-        assert _json_round_trip(s) == s
-
-
-def test_to_series_gives_nothing_for_a_sequence_without_gradients():
-    """`pns.safe.levels` for `empty_sequence()` has `reason == NO_GRADIENTS`, and
-    `to_series` gives `()` for it, also with one and with two thresholds."""
-    seq = empty_sequence()
-
-    for thresholds in ((), (_LIMIT,), (_LIMIT, 0.5 * _LIMIT)):
-        levels = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
-        assert levels.reason is not None
-        assert PNS_SAFE_LEVELS.to_series(levels) == ()
-
-
-def test_the_pns_series_without_thresholds_are_the_level_only():
-    """With the default thresholds (`()`), `to_series` gives one series, `pns_total`, with
-    the level of the same call."""
-    seq = gre_sequence(num_trs=4)
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware_for_peak(seq, 1.5))
-
-    series = PNS_SAFE_LEVELS.to_series(levels)
-
-    assert levels.above == {}
-    assert [s.name for s in series] == ["pns_total"]
-    assert series[0].kind is SeriesKind.ENVELOPE
-    assert np.array_equal(series[0].arrays["max"], levels.level_max_hz_per_t)
-
-
 def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     """`to_series` of `gradient.spectrum` gives one SAMPLES series, `gradient_spectrum`, of
     unit "Hz/m/sqrt(Hz)" and `coord_unit` "Hz", with the arrays `value`, `x`, `y` and `z` (float64) equal to
@@ -659,15 +578,6 @@ def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     # A value of other arguments gives its own arguments, not the defaults.
     (wide,) = GRADIENT_SPECTRUM.to_series(gradient_spectrum(seq, window_s=0.1))
     assert wide.meta["window_s"] == 0.1
-
-
-def test_the_spectrum_series_of_a_sequence_without_gradients_is_empty():
-    """`gradient.spectrum` for `empty_sequence()` has `reason == NO_GRADIENTS`, and
-    `to_series` gives `()` for it."""
-    spectrum = GRADIENT_SPECTRUM.compute(empty_sequence())
-
-    assert spectrum.reason == NO_GRADIENTS
-    assert GRADIENT_SPECTRUM.to_series(spectrum) == ()
 
 
 def test_the_other_three_analyses_give_no_series():

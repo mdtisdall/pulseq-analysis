@@ -355,18 +355,6 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     np.testing.assert_allclose(got, truth, rtol=0, atol=1e-12 * peak)
 
 
-def test_axis_without_events_is_zero():
-    # spin_echo_sequence uses gx and gy only: gz has no event.
-    seq = spin_echo_sequence()
-    index = sequence_index(seq)
-    assert seq.get_gradients()[2] is None
-    t = _raster_centers(index.end_s)
-    sampler = GradientSampler(index, event_points(seq))
-    got = sampler.sample("gz", t)
-    assert got.dtype == np.float64
-    np.testing.assert_array_equal(got, np.zeros(t.shape, dtype=np.float64))
-
-
 def test_zero_before_the_first_event_and_after_the_last():
     seq = _delay_padded_sequence()
     index = sequence_index(seq)

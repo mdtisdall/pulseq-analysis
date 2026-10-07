@@ -30,18 +30,12 @@ def write_gradient_asc(tmp_path):
 
     With `split`, it writes the layout of a scanner file: an `ASCCONV` block with CRLF line
     ends and `asCOMP[0].tName`, which includes a `_GSWD_SAFETY.asc` file with the SAFE
-    parameters under `GradPatSup.Phys.PNS`.
-
-    With `gpa`, it also writes the GPA limits: a dict from the Siemens mode name (`Fast`,
-    `UltraFast`, ...) to `(amplitude in mT/m, rise time in µs per mT/m)`, as the lines
-    `asGPAParameters[0].flGradMaxAmpl<Mode>` and `...flGradMinRiseTime<Mode>` (in the main
-    file of the split layout). Without `gpa`, the file has no GPA limits."""
+    parameters under `GradPatSup.Phys.PNS`."""
 
     def write(
         limit_scale: float = 1.0,
         name: str = "MP_GPA_TEST",
         split: bool = False,
-        gpa: dict[str, tuple[float, float]] | None = None,
     ):
         hw = safe_example_hw()
         prefix = "GradPatSup.Phys.PNS." if split else ""
@@ -61,16 +55,10 @@ def write_gradient_asc(tmp_path):
             scale_lines.append(
                 f"asGPAParameters[0].sGCParameters.flGScaleFactor{suffix} = {a.g_scale!r}"
             )
-        gpa_lines = []
-        for mode, (amplitude, rise_time) in (gpa or {}).items():
-            gpa_lines += [
-                f"asGPAParameters[0].flGradMaxAmpl{mode} = {amplitude!r}",
-                f"asGPAParameters[0].flGradMinRiseTime{mode} = {rise_time!r}",
-            ]
         path = tmp_path / f"{name}_{limit_scale:g}.asc"
         if not split:
             path.write_text(
-                "\n".join([f'asCOMP.tName = "{name}"', *pns_lines, *scale_lines, *gpa_lines]) + "\n"
+                "\n".join([f'asCOMP.tName = "{name}"', *pns_lines, *scale_lines]) + "\n"
             )
             return path
 
@@ -80,7 +68,7 @@ def write_gradient_asc(tmp_path):
 
         safety = path.with_name(f"{path.stem}_GSWD_SAFETY.asc")
         safety.write_bytes(ascconv(pns_lines).encode())
-        main = [f'asCOMP[0].tName = "{name}"', *scale_lines, *gpa_lines, f"$INCLUDE {safety.name}"]
+        main = [f'asCOMP[0].tName = "{name}"', *scale_lines, f"$INCLUDE {safety.name}"]
         path.write_bytes(ascconv(main).encode())
         return path
 

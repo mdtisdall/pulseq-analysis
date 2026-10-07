@@ -1,10 +1,7 @@
-"""Gradient spectrum of a Pulseq sequence, and its largest values in the acoustic
-resonance bands that the caller gives.
+"""Gradient spectrum of a Pulseq sequence.
 
 Oracle: the earlier implementation, which samples through `Sequence.get_gradients()`. Do
-not change its method. A resonance is a pair (frequency_hz, bandwidth_hz), the centre
-frequency and the full width of its band in Hz, as in the library; the default is no
-resonance.
+not change its method.
 
 `gradient_spectrum` uses the same method as pypulseq's
 `calculate_gradient_spectrum`: 50 ms Hann windows with 50% overlap, the
@@ -37,33 +34,19 @@ NO_GRADIENTS = "no gradients"
 
 
 @dataclass(frozen=True)
-class BandPeak:
-    resonance: tuple[float, float]  # (frequency_hz, bandwidth_hz) of the band
-    peak: float  # largest RSS spectrum value in the band, mT/m/sqrt(Hz)
-    frequency_hz: float  # where that value is
-    relative: float  # peak / the largest RSS spectrum value at any frequency
-
-
-@dataclass(frozen=True)
 class GradientSpectrum:
     reason: str | None  # why there is no spectrum, or None
-    resonances: tuple[tuple[float, float], ...]
     frequency_hz: np.ndarray
     axes: dict[str, np.ndarray]  # "x", "y", "z": spectrum, mT/m/sqrt(Hz)
     rss: np.ndarray  # root-sum-of-squares of the axes in each window, then the maximum
-    band_peaks: tuple[BandPeak, ...]
 
 
-def gradient_spectrum(
-    seq: pp.Sequence,
-    resonances: tuple[tuple[float, float], ...] = (),
-) -> GradientSpectrum:
-    """The spectrum of each gradient axis up to `MAX_FREQUENCY_HZ`, and the largest
-    RSS value in each resonance band."""
+def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
+    """The spectrum of each gradient axis up to `MAX_FREQUENCY_HZ`."""
     gradients = seq.get_gradients()
     if all(g is None for g in gradients):
         empty = np.zeros(0)
-        return GradientSpectrum(NO_GRADIENTS, resonances, empty, {}, empty, ())
+        return GradientSpectrum(NO_GRADIENTS, empty, {}, empty)
 
     dt = seq.grad_raster_time
     nwin = round(WINDOW_S / dt)
@@ -102,9 +85,7 @@ def gradient_spectrum(
         chunk_rss = np.sqrt(rss_sq).max(axis=1)
         rss_max = chunk_rss if rss_max is None else np.maximum(rss_max, chunk_rss)
     freq = freq[freq <= MAX_FREQUENCY_HZ + 1e-6]
-    return GradientSpectrum(
-        None, resonances, freq, axes_max, rss_max, _band_peaks(freq, rss_max, resonances)
-    )
+    return GradientSpectrum(None, freq, axes_max, rss_max)
 
 
 def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, to_mt):
@@ -146,26 +127,3 @@ def _num_samples(seq: pp.Sequence, dt: float) -> int:
     for d in durations:
         end += d
     return max(math.ceil((end - 1e-10) / dt), 0)
-
-
-def _band_peaks(
-    freq: np.ndarray, rss: np.ndarray, resonances: tuple[tuple[float, float], ...]
-) -> tuple[BandPeak, ...]:
-    """The largest RSS value in each resonance band that has a frequency bin."""
-    peak = float(rss.max())
-    band_peaks = []
-    for r in resonances:
-        low_hz, high_hz = r[0] - r[1] / 2, r[0] + r[1] / 2
-        inside = np.flatnonzero((freq >= low_hz) & (freq <= high_hz))
-        if inside.size == 0:
-            continue
-        i = inside[np.argmax(rss[inside])]
-        band_peaks.append(
-            BandPeak(
-                resonance=r,
-                peak=float(rss[i]),
-                frequency_hz=float(freq[i]),
-                relative=float(rss[i]) / peak if peak > 0 else 0.0,
-            )
-        )
-    return tuple(band_peaks)

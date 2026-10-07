@@ -38,11 +38,7 @@ def test_the_package_has_no_gamma():
         for attribute in dir(module):
             assert "gamma" not in attribute.lower(), f"{info.name} has the attribute {attribute}"
         for name, function in _defined_callables(module):
-            try:
-                parameters = inspect.signature(function).parameters
-            except (ValueError, TypeError):
-                continue
-            for parameter in parameters:
+            for parameter in inspect.signature(function).parameters:
                 assert "gamma" not in parameter.lower(), (
                     f"{info.name}.{name} has the parameter {parameter}"
                 )

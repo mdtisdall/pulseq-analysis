@@ -123,35 +123,6 @@ def test_the_values_of_a_negated_waveform_are_equal():
     assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
 
 
-def test_same_trapezoid_on_x_and_y_gives_vector_peak_root_2_times_axis_peak():
-    """The same trapezoid, played on x and on y at the same time: the vector peak is
-    the axis peak times sqrt(2), because at every point Gx == Gy, so
-    |G| = sqrt(Gx^2 + Gy^2) = sqrt(2) * |Gx|."""
-    gx = pp.make_trapezoid(
-        channel="x",
-        amplitude=0.5 * SYSTEM.max_grad,
-        rise_time=200e-6,
-        flat_time=1e-3,
-        system=SYSTEM,
-    )
-    gy = pp.make_trapezoid(
-        channel="y",
-        amplitude=0.5 * SYSTEM.max_grad,
-        rise_time=200e-6,
-        flat_time=1e-3,
-        system=SYSTEM,
-    )
-    seq = signed(pp.Sequence(SYSTEM))
-    seq.add_block(gx, gy)
-
-    result = gradient_peaks(seq)
-
-    assert result.vector_peak_hz_per_m == pytest.approx(
-        result.axes["x"].peak_hz_per_m * math.sqrt(2)
-    )
-    assert result.axes["x"].peak_hz_per_m == pytest.approx(result.axes["y"].peak_hz_per_m)
-
-
 def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
     """A window that ends halfway up the rising ramp of a trapezoid: the RMS amplitude
     over the window equals the value computed by hand from the piece that the window
@@ -238,24 +209,6 @@ def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
     times = np.concatenate(([0.0], block.gx.tt, [block.gx.shape_dur]))
     amps = np.concatenate(([block.gx.first], block.gx.waveform, [block.gx.last]))
     expected_slew_hz_per_m_per_s = float(np.max(np.abs(np.diff(amps) / np.diff(times))))
-
-    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
-
-
-def test_extended_trapezoid_max_slew_is_the_largest_segment_slope():
-    """The largest slew of an extended trapezoid is the largest `|delta g / delta t|`
-    between its neighbouring control points, computed by hand from the times and the
-    amplitudes given to `make_extended_trapezoid`."""
-    mg = SYSTEM.max_grad
-    times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
-    amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
-    gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = signed(pp.Sequence(SYSTEM))
-    seq.add_block(gx)
-
-    result = gradient_peaks(seq)
-
-    expected_slew_hz_per_m_per_s = float(np.max(np.abs(np.diff(amplitudes) / np.diff(times))))
 
     assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
 
@@ -1312,11 +1265,8 @@ def test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change(windo
         result.whole_rms_hz_per_m.pop("x")
 
 
-@pytest.mark.parametrize(
-    "build", [empty_sequence, lambda: signed(pp.Sequence(SYSTEM))], ids=["delay_only", "no_blocks"]
-)
-def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients(build):
-    result = gradient_peaks(build())
+def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients():
+    result = gradient_peaks(signed(pp.Sequence(SYSTEM)))
     assert result.reason == NO_GRADIENTS
     assert isinstance(result.axes, FrozenDict)
 

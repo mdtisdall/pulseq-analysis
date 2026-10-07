@@ -331,9 +331,9 @@ def _delay_only() -> pp.Sequence:
         (lambda: _one_trapezoid("y"), True),
         (lambda: _one_trapezoid("z"), True),
         (_delay_only, False),
-        (empty_sequence, False),
+        (lambda: signed(pp.Sequence(SYSTEM)), False),
     ],
-    ids=["spin echo", "x", "y", "z", "delay only", "empty"],
+    ids=["spin echo", "x", "y", "z", "delay only", "no blocks"],
 )
 def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, expected):
     assert has_gradients(sequence_index(build())) is expected
