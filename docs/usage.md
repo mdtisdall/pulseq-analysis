@@ -205,10 +205,11 @@ by the rule "Kept results" at the top of this document: a second call gives the
 same object, and `add_block`, a new read of a file into the object and a change
 of `seq.grad_raster_time` give a new one. A result with a window is a new
 object for each call and is not kept, because a caller can ask for many
-windows. A call with a window uses the per-event values and the values over the
-blocks (the junction steps and the RMS of the whole file) that the object keeps,
-so it does not read the unique gradient events again, and its cost is the
-number of blocks in the window, not the number of blocks of the file.
+windows. A call with a window uses the values of each block that the object
+keeps (the peak, the slew, the junction step, the RMS integral and the vector
+peak, with their times). It reads no block with `get_block`, and
+its cost is the number of blocks in the window, not the number of blocks of the
+file and not the number of unique gradient events.
 
 `GradientPeaks`, a frozen dataclass:
 
@@ -244,8 +245,8 @@ is the larger of the largest segment slew and the largest junction step. The
 first play index of a largest value is the block of that value. It keeps its
 result for the sequence object, as `gradient_peaks(seq)` does. It reads one
 block with `get_block` for each unique gradient event, and no other block.
-`gradient_peaks` does the same, and also reads the blocks that a window edge
-cuts.
+`gradient_peaks` does the same, and a window of `gradient_peaks` reads no
+block with `get_block`.
 
 `BlockGradientValues`, a frozen dataclass. Each array has N entries, in play
 order. A dict has the keys `"x"`, `"y"` and `"z"`, each with an array. Each of

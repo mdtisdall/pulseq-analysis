@@ -12,10 +12,14 @@ an oblique slice one physical axis can see amplitude up to the vector peak,
 
 This computes the per-event values one time for each unique gradient event, from the points
 of `_events.event_points` (which reads one block with `get_block` for each unique event, one
-time for each sequence), then combines them over the blocks of `seq_index.sequence_index`
-with numpy, instead of reading every block with `get_block`. Thus its cost grows with the
-number of unique events and the number of blocks, but it makes no pypulseq call for each
-block. `gradient_peaks` also reads the blocks that a window edge cuts.
+time for each sequence). It then makes the values of each block one time for each sequence
+(`_BlockData`): for each axis the peak, the slew, their times, the junction step and time and
+the RMS integral, and the vector peak. A window of `gradient_peaks` is then an `argmax` over
+the columns of the blocks of the window and a sum of the RMS integrals of those blocks, plus
+the at most two blocks that a window edge cuts, which it clips from the points of
+`_events.event_points`. It reads no block with `get_block` for a window, and its cost is the
+number of blocks of the window, not the number of unique events or the number of blocks of
+the file.
 
 The peak slew rate is the largest of two kinds of value: the slope of each straight segment
 of each gradient event, and the step at each block junction divided by the gradient raster
@@ -36,12 +40,13 @@ end of the delay. A junction step is in a range `[lo, hi]` when its time `t` has
 
 `block_gradient_values` gives the same measurements for each block of the whole file, in play
 order, instead of the one largest value for each axis that `gradient_peaks` gives. It is for a
-caller that needs each place where a value is above a limit. `gradient_peaks` does not call it.
+caller that needs each place where a value is above a limit. It gives copies of the columns
+of `_BlockData` that `gradient_peaks` takes its values from.
 
 Both public functions keep their results for the sequence object (`_kept.kept_results`):
 `gradient_peaks` for `window=None`, and `block_gradient_values`. The per-event values
-(`_EventData`) are kept too, with the values over the blocks that a window needs (`_BlockData`),
-so a call of `gradient_peaks` with a window uses them. A result with a window is not kept,
+(`_EventData`) are kept too, with the values of each block (`_BlockData`), so a call of
+`gradient_peaks` with a window uses them. A result with a window is not kept,
 because a caller can ask for many windows. The kept results are built again after `add_block`,
 after a new read of a file into the object, and after a change of `seq.grad_raster_time` (the
 rule of `_kept`). A block replaced in place is not seen
@@ -61,14 +66,8 @@ from ._events import EventPoints, event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
-from .seq_index import (
-    NO_GRADIENTS,
-    NO_GRADIENTS_IN_WINDOW,
-    SequenceIndex,
-    block_cache_off,
-    sequence_index,
-)
-from .seq_utils import AXES, TIME_TOLERANCE, gradient_points
+from .seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
+from .seq_utils import AXES, TIME_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -346,8 +345,7 @@ def _junction_steps(col: np.ndarray, ev: _EventData, grad_raster: float) -> np.n
     """For each block, the step at its incoming junction on one axis, in Hz/m/s:
     |last value of the previous block - first value of this block| / `grad_raster`. The value
     of a block without an event on the axis is 0.0, and the value before the first block is
-    0.0. `col` is the dense event column of the axis. Both `_range_result` and
-    `block_gradient_values` use it."""
+    0.0. `col` is the dense event column of the axis. `_kept_block_data` uses it."""
     first_vals = _event_column(col, ev.first)
     last_vals = _event_column(col, ev.last)
     prev_last = np.concatenate(([0.0], last_vals[:-1]))
@@ -358,7 +356,7 @@ def _junction_times(col: np.ndarray, ev: _EventData, start_s: np.ndarray) -> np.
     """For each block, the time of its incoming junction step on one axis, in seconds from the
     sequence start: the block start plus the delay of the block's event on the axis (the time of
     its first point), and the block start for a block without an event on the axis. `col` is the
-    dense event column of the axis. `_range_result` uses it."""
+    dense event column of the axis. `_kept_block_data` uses it."""
     return start_s + _event_column(col, ev.first_offset)
 
 
@@ -372,7 +370,7 @@ def _distinct_triples(
 
     The triple is one number in two steps, `(rank of (gx, gy)) * base + gz`, so that the number
     stays far from the int64 limit: `(gx * base + gy) * base + gz` can wrap around above about
-    2.6 million unique events. Both `_range_result` and `_block_vector_peaks` use it."""
+    2.6 million unique events. `_block_vector_peaks` uses it."""
     base = num_events + 1
     gx, gy, gz = (np.asarray(g, dtype=np.int64) for g in (gx, gy, gz))
     _, pair = np.unique(gx * base + gy, return_inverse=True)
@@ -399,34 +397,76 @@ def _triple_vector_peak(
     return _vector_peak_in_block(axis_points)
 
 
-def _whole_file_rms(
-    index: SequenceIndex, ev: _EventData, total_duration: float
-) -> dict[str, float]:
-    """The RMS amplitude (Hz/m) of each axis over the whole sequence, from the per-event
-    integrals and how many times each event plays on each axis (`numpy.bincount`)."""
+def _whole_file_integrals(index: SequenceIndex, ev: _EventData) -> dict[str, float]:
+    """The integral of amplitude^2 dt of each axis over the whole sequence, from the per-event
+    integrals and how many times each event plays on each axis (`numpy.bincount`). It is 0.0
+    for each axis when there is no event."""
     axis_cols = {"x": index.gx, "y": index.gy, "z": index.gz}
     k = ev.integral.size
     result = {}
     for axis, col in axis_cols.items():
-        if k == 0 or total_duration <= 0.0:
+        if k == 0:
             result[axis] = 0.0
             continue
         counts = np.bincount(col, minlength=k + 1)[1:]
-        rms_sum = float(np.sum(counts * ev.integral))
-        result[axis] = math.sqrt(rms_sum / total_duration)
+        result[axis] = float(np.sum(counts * ev.integral))
     return result
+
+
+def _whole_file_rms(integrals: dict[str, float], total_duration: float) -> dict[str, float]:
+    """The RMS amplitude (Hz/m) of each axis over the whole sequence, from the integrals of
+    `_whole_file_integrals`. It is 0.0 for a sequence of no duration."""
+    return {
+        axis: math.sqrt(rms_sum / total_duration) if total_duration > 0.0 else 0.0
+        for axis, rms_sum in integrals.items()
+    }
+
+
+def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarray, np.ndarray]:
+    """The peak of |G| of each block in Hz/m, and its time from the block start, from
+    `_triple_vector_peak` one time for each distinct triple of dense event indexes
+    (`_distinct_triples` over the blocks that have a gradient, mapped back to every such
+    block). A block without a gradient has 0 and 0. `_kept_block_data` calls it one time for
+    each sequence."""
+    peak = np.zeros(index.num_blocks)
+    offset = np.zeros(index.num_blocks)
+    gx, gy, gz = (col.astype(np.int64) for col in (index.gx, index.gy, index.gz))
+    selected = np.flatnonzero((gx > 0) | (gy > 0) | (gz > 0))
+    if selected.size == 0:
+        return peak, offset
+    gx, gy, gz = gx[selected], gy[selected], gz[selected]
+    first, inverse = _distinct_triples(gx, gy, gz, ev.peak.size)
+    triple_peak = np.zeros(first.size)
+    triple_offset = np.zeros(first.size)
+    for t, local in enumerate(first.tolist()):
+        triple = _triple_vector_peak(ev, int(gx[local]), int(gy[local]), int(gz[local]))
+        if triple is not None:
+            triple_offset[t], triple_peak[t] = triple
+    peak[selected] = triple_peak[inverse]
+    offset[selected] = triple_offset[inverse]
+    return peak, offset
 
 
 @dataclass
 class _BlockData:
-    """The values over all the blocks that `_range_result` and `gradient_peaks` take from for each
-    window, built one time for each sequence object (`_kept_block_data`), so that a window does
-    not calculate them again. The arrays are read-only and the dicts are `FrozenDict`s, because
-    all callers share them."""
+    """The values of each block that `gradient_peaks` and `block_gradient_values` take from,
+    built one time for each sequence object (`_kept_block_data`), so that a window does not
+    calculate them again and does not read the K unique events. N is the number of blocks. The
+    arrays are read-only and the dicts are `FrozenDict`s, because all callers share them. The
+    dicts have the keys "x", "y" and "z"."""
 
     end_s: np.ndarray  # N: the end of each block, `start_s + duration_s`
-    junction_steps: dict[str, np.ndarray]  # for each axis, `_junction_steps` over all the blocks
-    junction_times: dict[str, np.ndarray]  # for each axis, `_junction_times` over all the blocks
+    peak: dict[str, np.ndarray]  # N: the largest |amplitude| of the block's event on the axis
+    peak_time: dict[str, np.ndarray]  # N: the time of that peak, from the sequence start
+    slew: dict[str, np.ndarray]  # N: the largest slope of a segment of the block's event
+    slew_time: dict[str, np.ndarray]  # N: the start of that segment, from the sequence start
+    junction_steps: dict[str, np.ndarray]  # N: `_junction_steps`
+    junction_times: dict[str, np.ndarray]  # N: `_junction_times`
+    rms_integral: dict[str, np.ndarray]  # N: the integral of amplitude^2 dt of the block's whole
+    # event on the axis (0.0 for a block with no event on it)
+    vector_peak: np.ndarray  # N: the largest |G| of the block (`_block_vector_peaks`)
+    vector_peak_time: np.ndarray  # N: the first time of that peak, from the sequence start
+    whole_integral: dict[str, float]  # for each axis, `_whole_file_integrals`
     whole_rms: dict[str, float]  # for each axis, `_whole_file_rms`
 
 
@@ -437,17 +477,43 @@ def _kept_block_data(
     `ev` are the index and the `_EventData` of `seq`."""
     if "block_data" not in kept:
         grad_raster = seq.grad_raster_time
-        axis_cols = {"x": index.gx, "y": index.gy, "z": index.gz}
-        end_s = index.start_s + index.duration_s
+        start_s = index.start_s
+        axis_cols = dict(zip(AXES, (index.gx, index.gy, index.gz), strict=True))
+        end_s = start_s + index.duration_s
+        peak = {axis: _event_column(col, ev.peak) for axis, col in axis_cols.items()}
+        peak_time = {
+            axis: start_s + _event_column(col, ev.peak_offset) for axis, col in axis_cols.items()
+        }
+        slew = {axis: _event_column(col, ev.slew) for axis, col in axis_cols.items()}
+        slew_time = {
+            axis: start_s + _event_column(col, ev.slew_offset) for axis, col in axis_cols.items()
+        }
         steps = {axis: _junction_steps(col, ev, grad_raster) for axis, col in axis_cols.items()}
-        times = {axis: _junction_times(col, ev, index.start_s) for axis, col in axis_cols.items()}
-        for array in (end_s, *steps.values(), *times.values()):
+        times = {axis: _junction_times(col, ev, start_s) for axis, col in axis_cols.items()}
+        rms_integral = {axis: _event_column(col, ev.integral) for axis, col in axis_cols.items()}
+        vector_peak, vector_offset = _block_vector_peaks(index, ev)
+        vector_peak_time = start_s + vector_offset
+        whole_integral = _whole_file_integrals(index, ev)
+        dicts = (peak, peak_time, slew, slew_time, steps, times, rms_integral)
+        arrays = (
+            end_s, vector_peak, vector_peak_time,
+            *(array for values in dicts for array in values.values()),
+        )  # fmt: skip
+        for array in arrays:
             array.flags.writeable = False
         kept["block_data"] = _BlockData(
             end_s,
+            FrozenDict(peak),
+            FrozenDict(peak_time),
+            FrozenDict(slew),
+            FrozenDict(slew_time),
             FrozenDict(steps),
             FrozenDict(times),
-            FrozenDict(_whole_file_rms(index, ev, index.end_s)),
+            FrozenDict(rms_integral),
+            vector_peak,
+            vector_peak_time,
+            FrozenDict(whole_integral),
+            FrozenDict(_whole_file_rms(whole_integral, index.end_s)),
         )
     return kept["block_data"]
 
@@ -463,56 +529,20 @@ def _credit_goes_to(value: float, play: int, best: float, best_play: int | None)
     return value == best and best_play is not None and play < best_play
 
 
-def _axis_slice_stats(
-    col_slice: np.ndarray, ev: _EventData, i0: int, start_s: np.ndarray
-) -> dict | None:
-    """The peak amplitude, the peak slew (segments only) and the RMS sum for one axis, from the
-    per-event values, restricted to the contiguous play-index slice `col_slice = axis_col[i0:i1]`
-    (every block of the slice fully inside the range). None when the axis has no event there.
-
-    The credited block for the peak (respectively the slew) is the smallest play index in the
-    slice whose event reaches the largest value (`_credit_goes_to`); a largest value of 0
-    credits no block (`None`).
-    """
-    k = ev.peak.size
-    if k == 0 or col_slice.size == 0:
-        return None
-    counts = np.bincount(col_slice, minlength=k + 1)[1:]
-    present = counts > 0
-    if not np.any(present):
-        return None
-
-    peak_vals = np.where(present, ev.peak, -np.inf)
-    slew_vals = np.where(present, ev.slew, -np.inf)
-    max_peak = float(np.max(peak_vals))
-    max_slew = float(np.max(slew_vals))
-    peak_events = np.flatnonzero(peak_vals == max_peak) + 1
-    slew_events = np.flatnonzero(slew_vals == max_slew) + 1
-    peak_play, peak_time, slew_play, slew_time = None, 0.0, None, 0.0
-    if max_peak > 0.0:
-        peak_local = int(np.argmax(np.isin(col_slice, peak_events)))
-        peak_play = i0 + peak_local
-        peak_time = float(start_s[peak_play] + ev.peak_offset[int(col_slice[peak_local]) - 1])
-    if max_slew > 0.0:
-        slew_local = int(np.argmax(np.isin(col_slice, slew_events)))
-        slew_play = i0 + slew_local
-        slew_time = float(start_s[slew_play] + ev.slew_offset[int(col_slice[slew_local]) - 1])
-
-    return {
-        "peak": max_peak,
-        "peak_play": peak_play,
-        "peak_time": peak_time,
-        "slew": max_slew,
-        "slew_play": slew_play,
-        "slew_time": slew_time,
-        "rms_sum": float(np.sum(counts * ev.integral)),
-    }
+def _first_largest(column: np.ndarray, i0: int, i1: int) -> tuple[float, int | None]:
+    """The largest value of `column[i0:i1]` (not empty) and the first play index that has it,
+    the credit rule of `_credit_goes_to` over the slice. A largest value of 0 credits no block:
+    it is `(0.0, None)`."""
+    j = int(np.argmax(column[i0:i1]))
+    value = float(column[i0 + j])
+    if value > 0.0:
+        return value, i0 + j
+    return 0.0, None
 
 
 def _range_result(
-    seq: pp.Sequence,
     index: SequenceIndex,
-    ev: _EventData,
+    points: EventPoints,
     blocks: _BlockData,
     lo: float,
     hi: float,
@@ -527,22 +557,26 @@ def _range_result(
     outside the range, is not in `[a, b)`. Every mask, the selection of the junction steps and
     the slices are of `[a, b)` only, and index the arrays of `blocks` (`_BlockData`, kept for the
     sequence), so the cost of a range is the number of blocks in it, not the number of blocks of
-    the file.
+    the file and not the number of unique events.
 
-    Blocks fully inside the range use the per-event values (`_axis_slice_stats`,
-    `_triple_vector_peak`), over the contiguous play-index range that
-    `seq_index.SequenceIndex.start_s` gives (blocks are in time order, so the "fully inside"
-    blocks are one contiguous run). The few blocks that a range edge cuts (at most two: a
-    block of zero duration at a range edge is not in `[a, b)`) are read with `get_block` and
-    clipped exactly as the oracle (`tests/oracles/grad_peaks.py`) clips every block. Passing
-    `lo=0.0, hi=index.end_s` (`window=None`) makes every block of non-zero duration fully
-    inside (a block of zero duration at 0 or at the end is not in `[a, b)`, and it has no
+    The blocks fully inside the range are one contiguous run of play indexes `[i0, i1)` (blocks
+    are in time order). For each axis, the credited block of the peak (respectively the slew)
+    is the first `argmax` of its column of `blocks` over the run (`_first_largest`), and the RMS
+    integral is the sum of `blocks.rms_integral` over the run (`numpy.sum`), or, for the range
+    `(0.0, index.end_s)`, the kept `blocks.whole_integral`, so the whole-file RMS is the one of
+    `_whole_file_rms`. The vector peak is the first `argmax` of `blocks.vector_peak` over the
+    run. The few blocks that a range edge cuts (at most two: a block of zero duration at a range
+    edge is not in `[a, b)`) are built from the points of `points` (`_events.event_points`), with the times `(block start +
+    delay) + offsets` of `seq_utils.gradient_points`, and clipped exactly as the oracle
+    (`tests/oracles/grad_peaks.py`) clips every block. No block is read with `get_block`.
+    Passing `lo=0.0, hi=index.end_s` (`window=None`) makes every block of non-zero duration
+    fully inside (a block of zero duration at 0 or at the end is not in `[a, b)`, and it has no
     gradient), so this same code computes the whole-file result too.
 
-    The slice is computed before the edge blocks, and its triples are not in play order, so
-    each candidate for a credit (an edge block, a triple of the slice) is compared with
-    `_credit_goes_to`, which gives the result of a single pass over the blocks in play order.
-    The junction steps follow the same rule. A range with `hi <= lo` has no event.
+    The run is computed before the edge blocks, so each candidate for a credit (an edge block)
+    is compared with `_credit_goes_to`, which gives the result of a single pass over the blocks
+    in play order. The junction steps follow the same rule. A range with `hi <= lo` has no
+    event.
     """
     n = index.num_blocks
     start_s = index.start_s
@@ -574,80 +608,69 @@ def _range_result(
     inside_idx = np.flatnonzero(fully_inside)
     i0, i1 = (a + int(inside_idx[0]), a + int(inside_idx[-1]) + 1) if inside_idx.size else (0, 0)
 
+    # The whole file (`window=None`): its integral is the kept `blocks.whole_integral`, a sum
+    # over the unique events, not over the blocks of the run.
+    whole_file = lo == 0.0 and hi == index.end_s
+    vector_peak_hz, vector_peak_time, vector_peak_play = 0.0, 0.0, None
     if i1 > i0:
         for axis in AXES:
-            stats = _axis_slice_stats(axis_cols[axis][i0:i1], ev, i0, start_s)
-            if stats is not None:
-                state[axis].update(stats)
-                state[axis]["has_event"] = True
+            if not np.any(axis_cols[axis][i0:i1]):
+                continue
+            st = state[axis]
+            st["has_event"] = True
+            st["peak"], st["peak_play"] = _first_largest(blocks.peak[axis], i0, i1)
+            if st["peak_play"] is not None:
+                st["peak_time"] = float(blocks.peak_time[axis][st["peak_play"]])
+            st["slew"], st["slew_play"] = _first_largest(blocks.slew[axis], i0, i1)
+            if st["slew_play"] is not None:
+                st["slew_time"] = float(blocks.slew_time[axis][st["slew_play"]])
+            if whole_file:
+                st["rms_sum"] = blocks.whole_integral[axis]
+            else:
+                st["rms_sum"] = float(np.sum(blocks.rms_integral[axis][i0:i1]))
+        vector_peak_hz, vector_peak_play = _first_largest(blocks.vector_peak, i0, i1)
+        if vector_peak_play is not None:
+            vector_peak_time = float(blocks.vector_peak_time[vector_peak_play])
 
-    # The blocks a range edge cuts: read individually and clipped, as the oracle does.
+    # The blocks a range edge cuts: their points are from `points`, clipped as the oracle does.
     edge_positions = a + np.flatnonzero(~fully_inside)
-    axis_points_by_play: dict[int, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
-    if edge_positions.size:
-        with block_cache_off(seq):
-            for play in edge_positions.tolist():
-                block = seq.get_block(int(index.block_id[play]))
-                block_start = float(start_s[play])
-                axis_points: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-                for axis in AXES:
-                    g = getattr(block, f"g{axis}", None)
-                    if g is None:
-                        continue
-                    t, amp = gradient_points(g, block_start)
-                    t_c, amp_c = _clip_polyline(t, amp, lo, hi)
-                    if t_c.size < 2:
-                        continue
-                    axis_points[axis] = (t_c, amp_c)
-                    st = state[axis]
-                    st["has_event"] = True
-                    values = _polyline_values(t_c, amp_c)
-                    if _credit_goes_to(values.peak, play, st["peak"], st["peak_play"]):
-                        st["peak"], st["peak_time"], st["peak_play"] = (
-                            values.peak,
-                            values.peak_time,
-                            play,
-                        )
-                    st["rms_sum"] += values.integral
-                    # A clipped event with no segment of `TIME_TOLERANCE` or more has the
-                    # slew 0.0, which `_credit_goes_to` never credits.
-                    if _credit_goes_to(values.slew, play, st["slew"], st["slew_play"]):
-                        st["slew"], st["slew_play"], st["slew_time"] = (
-                            values.slew,
-                            play,
-                            values.slew_time,
-                        )
-                if axis_points:
-                    axis_points_by_play[play] = axis_points
-
-    # The vector peak of |G|: the distinct triples of the "fully inside" range, one
-    # _triple_vector_peak call for each, plus the edge blocks' own
-    # clipped points, exactly as the oracle computes them.
-    vector_peak_hz, vector_peak_time, vector_peak_play = 0.0, 0.0, None
-    k = ev.peak.size
-    if i1 > i0 and k:
-        gx_s = index.gx[i0:i1].astype(np.int64)
-        gy_s = index.gy[i0:i1].astype(np.int64)
-        gz_s = index.gz[i0:i1].astype(np.int64)
-        selected = np.flatnonzero((gx_s > 0) | (gy_s > 0) | (gz_s > 0))
-        if selected.size:
-            first, _ = _distinct_triples(gx_s[selected], gy_s[selected], gz_s[selected], k)
-            for local in selected[first].tolist():
-                triple = _triple_vector_peak(
-                    ev, int(gx_s[local]), int(gy_s[local]), int(gz_s[local])
+    for play in edge_positions.tolist():
+        block_start = float(start_s[play])
+        axis_points: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for axis in AXES:
+            event = int(axis_cols[axis][play])
+            if event == 0:
+                continue
+            k = event - 1
+            at = int(points.at[k])
+            end = at + int(points.count[k])
+            t = (block_start + points.delay[k]) + points.offsets[at:end]
+            t_c, amp_c = _clip_polyline(t, points.amp[at:end], lo, hi)
+            if t_c.size < 2:
+                continue
+            axis_points[axis] = (t_c, amp_c)
+            st = state[axis]
+            st["has_event"] = True
+            values = _polyline_values(t_c, amp_c)
+            if _credit_goes_to(values.peak, play, st["peak"], st["peak_play"]):
+                st["peak"], st["peak_time"], st["peak_play"] = (
+                    values.peak,
+                    values.peak_time,
+                    play,
                 )
-                if triple is None:
-                    continue
-                rel_t, mag = triple
-                # `first` is in the order of the triples, not of play.
-                if _credit_goes_to(mag, i0 + local, vector_peak_hz, vector_peak_play):
-                    vector_peak_hz, vector_peak_play = mag, i0 + local
-                    vector_peak_time = float(start_s[i0 + local]) + rel_t
-
-    for play, axis_points in axis_points_by_play.items():
-        block_time, block_peak = _vector_peak_in_block(axis_points)
-        if _credit_goes_to(block_peak, play, vector_peak_hz, vector_peak_play):
-            vector_peak_hz, vector_peak_time, vector_peak_play = block_peak, block_time, play
+            st["rms_sum"] += values.integral
+            # A clipped event with no segment of `TIME_TOLERANCE` or more has the
+            # slew 0.0, which `_credit_goes_to` never credits.
+            if _credit_goes_to(values.slew, play, st["slew"], st["slew_play"]):
+                st["slew"], st["slew_play"], st["slew_time"] = (
+                    values.slew,
+                    play,
+                    values.slew_time,
+                )
+        if axis_points:
+            block_time, block_peak = _vector_peak_in_block(axis_points)
+            if _credit_goes_to(block_peak, play, vector_peak_hz, vector_peak_play):
+                vector_peak_hz, vector_peak_time, vector_peak_play = block_peak, block_time, play
 
     # The junction steps (see the module docstring): for each axis, the step at the
     # incoming junction of each block of the range whose junction time is in `[lo, hi)`
@@ -739,12 +762,12 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
 
     The result for `window=None` is kept for the sequence object, so that callers of one
     sequence calculate it one time. A result with a window is not kept, because a caller can
-    ask for many windows, but it uses the kept per-event values and the kept values over the
-    blocks (`_BlockData`), so its cost is the number of blocks in the window. The kept results
-    are built again after `add_block`, after a new read of a file into the object, and after a
-    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
-    (`seq_index.sequence_index`). The kept result is read-only: `axes` and
-    `whole_rms_hz_per_m` are `FrozenDict`s and the result is a frozen dataclass.
+    ask for many windows, but it uses the kept values of each block (`_BlockData`), so its cost is
+    the number of blocks in the window. The kept results are built again after `add_block`,
+    after a new read of a file into the object, and after a change of `seq.grad_raster_time` (the
+    rule of `_kept`). A block replaced in place is not seen (`seq_index.sequence_index`). The
+    kept result is read-only: `axes` and `whole_rms_hz_per_m` are `FrozenDict`s and the result
+    is a frozen dataclass.
 
     The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
@@ -754,12 +777,12 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     sequence. Then it builds `seq_index.sequence_index(seq)`, returns the kept result for
     `window=None` when there is one, and checks the window against the length of the
     sequence. Only then does it take the per-event values (`_event_values` of the points of
-    `_events.event_points`, built one time for each sequence) and the values over the blocks
-    (the end of each block, the junction steps and times, and the RMS of the whole file, built
-    one time for each sequence), and combine them with numpy over the blocks of the range. It
-    calls `get_block` one time for each unique gradient event (in `_events.event_points`, one
-    time for each sequence), and for the few blocks that a range edge cuts, so its cost does not
-    grow with the number of blocks of the file the way that reading every block would.
+    `_events.event_points`) and the values of each block (`_BlockData`), both built one time for
+    each sequence, and combine them with numpy over the blocks of the range: an `argmax` and a
+    sum of the RMS integrals over the blocks that lie whole in the range, and the points of
+    `_events.event_points` for the at most two blocks that a range edge cuts. It reads no block
+    with `get_block` for a window. The one `get_block` call for each unique gradient event is in
+    `_events.event_points`, one time for each sequence.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
@@ -801,7 +824,7 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
-        seq, index, ev, blocks, lo, hi
+        index, event_points(seq), blocks, lo, hi
     )
 
     if has_event:
@@ -825,30 +848,6 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     return result
 
 
-def _block_vector_peaks(index: SequenceIndex, ev: _EventData) -> tuple[np.ndarray, np.ndarray]:
-    """The peak of |G| of each block in Hz/m, and its time from the block start, from
-    `_triple_vector_peak` one time for each distinct triple of dense event indexes
-    (`_distinct_triples` over the blocks that have a gradient, mapped back to every such
-    block). A block without a gradient has 0 and 0."""
-    peak = np.zeros(index.num_blocks)
-    offset = np.zeros(index.num_blocks)
-    gx, gy, gz = (col.astype(np.int64) for col in (index.gx, index.gy, index.gz))
-    selected = np.flatnonzero((gx > 0) | (gy > 0) | (gz > 0))
-    if selected.size == 0:
-        return peak, offset
-    gx, gy, gz = gx[selected], gy[selected], gz[selected]
-    first, inverse = _distinct_triples(gx, gy, gz, ev.peak.size)
-    triple_peak = np.zeros(first.size)
-    triple_offset = np.zeros(first.size)
-    for t, local in enumerate(first.tolist()):
-        triple = _triple_vector_peak(ev, int(gx[local]), int(gy[local]), int(gz[local]))
-        if triple is not None:
-            triple_offset[t], triple_peak[t] = triple
-    peak[selected] = triple_peak[inverse]
-    offset[selected] = triple_offset[inverse]
-    return peak, offset
-
-
 def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     """The gradient values of each block of `seq`, in play order (`BlockGradientValues`).
 
@@ -863,11 +862,13 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     `window=None` (the module docstring), so a second call gives the same object. The result
     is read-only: its arrays are not writeable and its dicts are `FrozenDict`s.
 
-    This builds `seq_index.sequence_index(seq)` and the per-event values of
-    `_events.event_points` one time (`_event_values`, shared with `gradient_peaks`), then
-    combines them with numpy over the blocks. It computes the peak of |G| one time for each
-    distinct triple of events. It reads one block with `get_block` for each unique gradient
-    event (in `_events.event_points`, one time for each sequence), and no other block.
+    This builds `seq_index.sequence_index(seq)`, the per-event values of
+    `_events.event_points` (`_event_values`) and the values of each block (`_BlockData`), all
+    shared with `gradient_peaks` and built one time for each sequence. Its result holds copies
+    of the arrays of `_BlockData`, so a caller cannot change what `gradient_peaks` uses. It
+    computes the peak of |G| one time for each distinct triple of events. It reads one block
+    with `get_block` for each unique gradient event (in `_events.event_points`, one time for
+    each sequence), and no other block.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the values are of the logical axes as they are stored.
@@ -878,25 +879,17 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     if "block_values" in kept:
         return kept["block_values"]
     ev = _kept_event_values(seq, kept)
-    grad_raster = seq.grad_raster_time
-    start_s = index.start_s
+    blocks = _kept_block_data(seq, kept, index, ev)
 
-    peak_hz_per_m: dict[str, np.ndarray] = {}
-    peak_time_s: dict[str, np.ndarray] = {}
-    slew_hz_per_m_per_s: dict[str, np.ndarray] = {}
-    slew_time_s: dict[str, np.ndarray] = {}
-    junction_hz_per_m_per_s: dict[str, np.ndarray] = {}
-    for axis, col in zip(AXES, (index.gx, index.gy, index.gz), strict=True):
-        peak_hz_per_m[axis] = _event_column(col, ev.peak)
-        peak_time_s[axis] = start_s + _event_column(col, ev.peak_offset)
-        slew_hz_per_m_per_s[axis] = _event_column(col, ev.slew)
-        slew_time_s[axis] = start_s + _event_column(col, ev.slew_offset)
-        junction_hz_per_m_per_s[axis] = _junction_steps(col, ev, grad_raster)
-
-    vector_peak_hz_per_m, vector_offset = _block_vector_peaks(index, ev)
+    peak_hz_per_m = {axis: array.copy() for axis, array in blocks.peak.items()}
+    peak_time_s = {axis: array.copy() for axis, array in blocks.peak_time.items()}
+    slew_hz_per_m_per_s = {axis: array.copy() for axis, array in blocks.slew.items()}
+    slew_time_s = {axis: array.copy() for axis, array in blocks.slew_time.items()}
+    junction_hz_per_m_per_s = {axis: array.copy() for axis, array in blocks.junction_steps.items()}
+    vector_peak_hz_per_m = blocks.vector_peak.copy()
+    vector_peak_time_s = blocks.vector_peak_time.copy()
     block_id = index.block_id.astype(np.int64)
-    result_start_s = start_s.copy()
-    vector_peak_time_s = start_s + vector_offset
+    result_start_s = index.start_s.copy()
     dicts = (peak_hz_per_m, peak_time_s, slew_hz_per_m_per_s, slew_time_s, junction_hz_per_m_per_s)
     arrays = (
         block_id, result_start_s, vector_peak_hz_per_m, vector_peak_time_s,
