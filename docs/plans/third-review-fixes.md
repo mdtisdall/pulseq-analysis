@@ -1,6 +1,8 @@
 # Implementation plan: the fixes of the third code review (0.1.0rc6)
 
-Status: draft. Written on 2026-10-07.
+Status: approved. Written on 2026-10-07. Amended on 2026-10-07 after wave 3:
+task 2.7 (one decorator for the classes that compare by value, D23) joins
+wave 4.
 
 ## 1. Scope
 
@@ -39,6 +41,7 @@ Each task is one branch and one PR (`CLAUDE.md`: one branch, one concern):
 | 2.3 | `feature/public-sampler` | A public way to make a `GradientSampler` (review 6.2). |
 | 2.4 | `feature/pns-runs-at-edges` | The runs of the PNS model from the start of the first sample to the end of the last (review 6.5). |
 | 2.5 | `feature/drop-whole-rms` | No `GradientPeaks.whole_rms_hz_per_m` (review 6.4). |
+| 2.7 | `refactor/value-dataclass` | One decorator for the six classes that compare by value (D23). No value changes. |
 | 2.6 | `docs/release-0.1.0rc6` | `CHANGELOG.md`, the README, `docs/usage.md`, the status of the three reviews, the version, and tag `v0.1.0rc6`. |
 
 Section 8 gives the facts for the follow-up work in pulseq-checks and in
@@ -56,7 +59,7 @@ This plan merged
   Wave 2:  1.5 test prune  ||  1.6 block columns  ||  1.7 small duplicates
   Wave 3:  2.1 gradient gap model
   Wave 4:  2.2 rasters  ||  2.3 public sampler  ||  2.4 runs at edges
-           ||  2.5 drop whole_rms
+           ||  2.5 drop whole_rms  ||  2.7 value dataclass (merges last)
   Wave 5:  2.6 release  ->  tag v0.1.0rc6
                               |
                               +->  pulseq-checks: pin v0.1.0rc6 (section 8.1)
@@ -80,6 +83,10 @@ Why this order:
   tests. No other task of wave 3 runs with it.
 - The tasks of wave 4 change different functions. Tasks 2.2 and 2.4 both
   change `analyses.py`, in different specs.
+- Task 2.7 changes the class header of `GradientPeaks`, which task 2.5 also
+  changes, and the class header of `PnsLevels`, near the text that task 2.4
+  changes. It merges last in wave 4, and its branch is rebased on the others
+  if it conflicts.
 
 pulseq-checks and pulseq-reports pin `v0.1.0rc5`. No task before the tag
 breaks them.
@@ -201,6 +208,7 @@ move).
 | D20 | `PnsInterval.start_s` is `first * dt` and `PnsInterval.end_s` is `(last + 1) * dt`, the edges of the samples of the run. `peak_time_s` stays the time of a sample, `(k + 0.5) * dt`. The series `pns_above_<k>` gives these values. | U3, review 6.5. The bins of `pns_total` use the same edges. |
 | D21 | `GradientPeaks.whole_rms_hz_per_m` goes away. A caller uses `gradient_peaks(seq).axes[axis].rms_hz_per_m`, which is kept. | U3, review 6.4. |
 | D22 | Task 2.6 starts a new branch from `origin/main` for the release, and uses the text of `341ebec` and of task 2.5 of the second plan as a start. It does not rebase the draft. The draft branch is renamed `wip/release-0.1.0rc6-draft` first, with the approval of the user. | Fact 3. |
+| D23 | `_equality.value_dataclass` is a class decorator: it applies `dataclasses.dataclass(frozen=True, eq=False)`, then sets `__eq__ = fields_equal` and `__hash__ = None`. `SequenceIndex`, `GradientPeaks`, `BlockGradientValues`, `PnsLevels`, `GradientSpectrum` and `Series` use it in place of the three settings. `__hash__ = None` stays explicit in the decorator: with `eq=False` the class would get the hash of `object`, by identity. The docstring of `_equality` gives the rule in one place. | The question of the user on 2026-10-07. The six classes repeat three settings, and the rule of equality is then in one place. |
 
 ## 4. How to execute this plan
 
@@ -229,6 +237,7 @@ plan.
 | 2.3 | 4 | 1 (M) | — |
 | 2.4 | 4 | 1 (M) | — |
 | 2.5 | 4 | 1 (M) | — |
+| 2.7 | 4 | 1 (M) | — |
 | 2.6 | 5 | 3: L (H), D (M), U (H) | L, D and U at the same time |
 
 ### 4.2 The baseline of a refactor
@@ -545,6 +554,17 @@ As task 2.5 of the second plan, and D22, with these additions:
   `docs/reviews/2026-10-06-code-review.md`: each finding with its task, or
   "not changed" with the reason.
 - `README.md`: the line of this plan, and the install line of `v0.1.0rc6`.
+
+### 6.15 Task 2.7: one decorator for value equality (wave 4)
+
+D23. `_equality.value_dataclass` and its docstring, the six classes, and the
+docstring of `_equality` (which names the classes that use it). A test in
+`tests/test_equality.py`: a class with `@value_dataclass` is frozen, compares
+by value with `fields_equal` (arrays, NaN, dicts in order), is not equal to an
+object of another class, and is not hashable. The existing tests of the six
+classes must pass with no change. X runs the baseline script of section 4.2
+before and after: its output must be equal byte for byte. Merge after tasks
+2.2 to 2.5.
 
 ## 7. Checks of the release
 
