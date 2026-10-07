@@ -130,10 +130,13 @@ The step or the line into an event is before the segments of that event.
 A range is `[lo, hi]` (the whole file, or a window of `gradient_peaks`). A
 segment that crosses an edge of the range is cut at the edge. The value at the
 edge is found by linear interpolation. A step is in the range when
-`lo <= t < hi`. So a step at the start of a window is in it, and a step at the
-end of a window is not. The step after the last point of the axis is at the
-time of that point. When that point is at the end of the sequence, no range has
-the step: the whole file does not have it.
+`lo <= t < hi` and `t < end_s - TIME_TOLERANCE`, with `end_s` the end of the
+sequence. So a step at the start of a window is in it, and a step at the end of
+a window is not. The step after the last point of the axis is at the time of
+that point. When that point is within `TIME_TOLERANCE` of the end of the
+sequence, no range has the step: the whole file does not have it. The result
+does not depend on whether `(start + delay) + shape_dur` rounds to `end_s` or to
+one ulp before it.
 
 ### 1.8 The RMS and the vector peak
 
@@ -192,10 +195,9 @@ of the sequence, so its start is never after its end. A window that is past an
 end of the sequence by less than `seq_utils.TIME_TOLERANCE` has the range
 `(end_s, end_s)` (or `(0.0, 0.0)`), of length 0, with the `reason`
 `seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values. A segment that crosses
-an end of the window is cut there, and a step is in the window when
-`start_s <= t < end_s` (section 1.7). The `reason` is `None` when the range has
-a part of a gradient event, or a ramp, a line or a step with a value that is
-not 0.
+an end of the window is cut there, and a step is in the window by the rule of
+section 1.7. The `reason` is `None` when the range has a part of a gradient
+event, or a ramp, a line or a step with a value that is not 0.
 
 A call with a window uses the values of each block that the sequence object
 keeps (the peak, the slew, the junction, the RMS integral and the vector peak,
@@ -214,8 +216,8 @@ waveform, so an edge is not limited to one or two blocks.
 - `slew_hz_per_m_per_s` is the largest slope of a segment of the event of the
   block or of its ramps. The ramp to 0 after the event and the ramp from 0
   before it are in the slew of this block. So is the step after the last point
-  of the axis, in the block of the last event, when that point is before the
-  end of the sequence.
+  of the axis, in the block of the last event, when that point is more than
+  `TIME_TOLERANCE` before the end of the sequence.
 - `junction_hz_per_m_per_s` is the step into the event of the block across a
   zero gap, `|last - first|` divided by `seq.grad_raster_time`, or the slope of
   the line into it across a short gap, `|last - first|` divided by the gap. It

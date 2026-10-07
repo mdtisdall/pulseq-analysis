@@ -482,6 +482,86 @@ def test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_it
     assert result.axes["x"].slew_time_s == pytest.approx(200e-6, abs=1e-12)
 
 
+def _end_step_sequence(flat_time: float, early: float = 0.0) -> pp.Sequence:
+    """An x trapezoid with a slope of 1e9 Hz/m/s that ends at 0 after 100 µs + `flat_time` +
+    100 µs, then a block of 0.6 ms with an x extended trapezoid that ends at `A` (the step to 0
+    is `A / DT`, 3.19e9 Hz/m/s, above the slope of the trapezoid). The last point of the extended
+    trapezoid is `early` before the end of its block, which is the end of the sequence.
+    pypulseq accepts an `early` of 0, of up to 1e-9 s (the time is on the raster within that
+    tolerance), or of a multiple of the gradient raster."""
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(
+        pp.make_trapezoid(
+            channel="x", amplitude=1e5, rise_time=100e-6, flat_time=flat_time, system=SYSTEM
+        )
+    )
+    seq.add_block(extended([0.0, 100e-6, 600e-6 - early], [0.0, A, A]), pp.make_delay(600e-6))
+    return seq
+
+
+@pytest.mark.parametrize("k", range(20))
+def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_round_trip(
+    k, tmp_path
+):
+    """A gradient that ends at `A` at the end of the sequence: the step to 0 after its last
+    point is in no range, so the largest slew is the 1e9 Hz/m/s of the trapezoid, in block 1,
+    with the sequence in memory and after `write` and `read`. The 20 values of `k` give 20 end
+    times, for which `(start + delay) + shape_dur` and `end_s` can differ by one ulp."""
+    built = _end_step_sequence((5 + k) * DT)
+    path = tmp_path / "end_step.seq"
+    built.write(str(path))
+    read = pp.Sequence()
+    read.read(str(path))
+    block_a_id, _block_b_id = read.block_events
+
+    for seq in (built, read):
+        result = gradient_peaks(seq).axes["x"]
+        assert result.max_slew_hz_per_m_per_s == pytest.approx(1e9, rel=1e-6)
+        assert result.slew_block == block_a_id
+        slew = block_gradient_values(seq).slew_hz_per_m_per_s["x"]
+        assert slew[0] == pytest.approx(1e9, rel=1e-6)
+        assert slew[1] == pytest.approx(A / 100e-6, rel=1e-6)
+        assert oracle.peaks(seq)["x"]["max_slew"] == pytest.approx(1e9, rel=1e-6)
+        assert oracle.peaks(seq)["x"]["slew_block"] == block_a_id
+
+
+@pytest.mark.parametrize("early", [0.0, 0.5 * TIME_TOLERANCE, 0.9 * TIME_TOLERANCE, DT])
+def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(early):
+    """The last point of the extended trapezoid is `early` before the end of the sequence. The
+    step to 0 is counted only when `early` is more than `TIME_TOLERANCE`: then it is the largest
+    slew, `A / DT`, in block 2, at the last point (`early` is one raster time then). Else the
+    largest slew is the 1e9 Hz/m/s of the trapezoid. The whole file, the window that ends at the
+    end of the sequence, the window that ends `0.5 * TIME_TOLERANCE` before it (the step of an
+    `early` of 0.9 * `TIME_TOLERANCE` is before the end of that window, and is not counted) and the
+    values of each block agree with the oracle."""
+    seq = _end_step_sequence(100e-6, early)
+    index = sequence_index(seq)
+    block_a_id, block_b_id = seq.block_events
+    counted = early > TIME_TOLERANCE
+
+    expected = oracle.peaks(seq)["x"]
+    assert expected["max_slew"] == pytest.approx(A / DT if counted else 1e9, rel=1e-6)
+    assert expected["slew_block"] == (block_b_id if counted else block_a_id)
+    for result in (
+        gradient_peaks(seq).axes["x"],
+        gradient_peaks(seq, window=(0.0, index.end_s)).axes["x"],
+    ):
+        assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert result.slew_block == expected["slew_block"]
+        assert result.slew_time_s == pytest.approx(expected["slew_time"], abs=1e-12)
+    window = (0.0, index.end_s - 0.5 * TIME_TOLERANCE)
+    expected_window = oracle.peaks(seq, window)["x"]
+    result = gradient_peaks(seq, window=window).axes["x"]
+    assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
+    assert expected_window["slew_block"] == expected["slew_block"]
+    assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+    assert result.slew_block == expected["slew_block"]
+    slew = block_gradient_values(seq).slew_hz_per_m_per_s["x"]
+    assert slew[1] == pytest.approx(A / DT if counted else A / 100e-6, rel=1e-6)
+    if counted:
+        assert expected["slew_time"] == pytest.approx(index.end_s - early, abs=1e-12)
+
+
 def test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_block():
     """A first block whose gradient starts at a non-zero value within the tolerance
     `add_block` accepts: the junction before the first block uses 0 for "the block
@@ -715,16 +795,19 @@ def _assert_slew_item(
     """The time and the block of the slew of this package are the oracle's, or they are those of
     another item of the polyline of `axis` with a slope within `bound` of the largest slope: a
     segment of `TIME_TOLERANCE` or more in the window (its time is the start of its cut, its block
-    the block of its end point), or a step with `lo <= time < hi`. Two items of equal slope
-    (the rise and the fall of a symmetric trapezoid, or the same event in two blocks) have
-    slopes that differ by the rounding of the times, so the oracle can pick the other one."""
+    the block of its end point), or a step with `lo <= time < hi` and
+    `time < end - TIME_TOLERANCE`. Two items of equal slope (the rise and the fall of a symmetric
+    trapezoid, or the same event in two blocks) have slopes that differ by the rounding of the
+    times, so the oracle can pick the other one."""
     if (
         ours.slew_time_s == pytest.approx(theirs["slew_time"], rel=0, abs=1e-12)
         and ours.slew_block == theirs["slew_block"]
     ):
         return
     poly = oracle.axis_polyline(seq, axis)
-    lo, hi = window if window is not None else (0.0, float(poly.block_end[-1]))
+    end = float(poly.block_end[-1])
+    lo, hi = window if window is not None else (0.0, end)
+    step_hi = min(hi, end - TIME_TOLERANCE)
     items = []
     for s in range(poly.t.size - 1):
         t0, t1 = poly.t[s], poly.t[s + 1]
@@ -733,7 +816,7 @@ def _assert_slew_item(
             slope = abs(poly.g[s + 1] - poly.g[s]) / (t1 - t0)
             items.append((slope, a, poly.block_id[poly.point_play[s + 1]]))
     for time, size, play in zip(poly.step_time, poly.step_size, poly.step_play, strict=True):
-        if lo <= time < hi:
+        if lo <= time < step_hi:
             items.append((abs(size) / seq.grad_raster_time, time, poly.block_id[play]))
     assert any(
         abs(slope - theirs["max_slew"]) <= bound
@@ -2278,8 +2361,9 @@ def _block_values_of_the_polyline(seq: pp.Sequence, axis: str) -> dict:
     """The values of each block on `axis`, from the polyline of the oracle only: the peak and its
     time, the junction (the items of a segment from a point of one block to a point of another,
     and the steps before the last point), and the slew (the other segments, and the step after the
-    last point when it is before the end of the sequence), each with the items of the block that
-    have the largest value. The credit of an item is the play index of the polyline."""
+    last point when it is more than `TIME_TOLERANCE` before the end of the sequence), each with
+    the items of the block that have the largest value. The credit of an item is the play index of
+    the polyline."""
     poly = oracle.axis_polyline(seq, axis)
     n = len(poly.block_id)
     end = float(poly.block_end[-1])
@@ -2298,7 +2382,7 @@ def _block_values_of_the_polyline(seq: pp.Sequence, axis: str) -> dict:
         poly.step_point, poly.step_time, poly.step_size, poly.step_play, strict=True
     ):
         last = point == poly.t.size - 1
-        if not last or time < end:
+        if not last or time < end - TIME_TOLERANCE:
             items.append((point - 0.5, not last, play, abs(size) / seq.grad_raster_time, time))
     junction = np.zeros(n)
     slew = np.zeros(n)

@@ -52,10 +52,12 @@ A window `(lo, hi)` cuts the polyline. Its values are:
   earlier event at `lo`, the first point of a later event at `hi`) is not in the window.
 - The slew: the steps with `lo <= time < hi`, and the segments, cut at the edges, whose
   length in the window is `TIME_TOLERANCE` or more. The time of a cut segment is the start
-  of its cut.
+  of its cut. A step is also in no window when `time >= end_s - TIME_TOLERANCE`, with `end_s`
+  the end of the sequence (the end of the last block), so the step after the last point of the
+  axis is not in a window when that point is within `TIME_TOLERANCE` of the end.
 - The RMS: `sqrt(integral of g^2 over the cut polyline / (hi - lo))`. The value is 0 where
   there is no point. A step adds nothing.
-- The vector peak: the largest `sqrt(gx^2 + gy^2 + gz^2)` at the union of the times of the
+- The vector peak: the largest `sqrt(gx * gx + gy * gy + gz * gz)` at the union of the times of the
   points of the three axes in the window, and at `lo` and `hi`. At a time that is not an
   edge, it evaluates the values after and before the time. At `lo` it evaluates the
   values after `lo`, and at `hi` the values before `hi`. The block of the vector peak is the
@@ -284,13 +286,15 @@ def _limit(poly: Polyline, q: float, side: str) -> float:
     return float(g[j] + (g[i] - g[j]) * (q - t[j]) / (t[i] - t[j]))
 
 
-def _axis_values(poly: Polyline, dt: float, lo: float, hi: float) -> dict:
+def _axis_values(poly: Polyline, dt: float, lo: float, hi: float, end_s: float) -> dict:
     peak, peak_time, peak_play = 0.0, 0.0, None
     slew, slew_time, slew_play = 0.0, 0.0, None
     integral = 0.0
     t, g, point_play = poly.t, poly.g, poly.point_play
     steps = list(zip(poly.step_point, poly.step_time, poly.step_size, poly.step_play, strict=True))
     next_step = 0
+    # A step within `TIME_TOLERANCE` of the end of the sequence is in no range (the docstring).
+    step_hi = min(hi, end_s - TIME_TOLERANCE)
 
     def take_steps(before_segment: int) -> None:
         # The steps in the order of the polyline: a step at `step_point` k is before the
@@ -299,7 +303,7 @@ def _axis_values(poly: Polyline, dt: float, lo: float, hi: float) -> dict:
         while next_step < len(steps) and steps[next_step][0] <= before_segment:
             _, time, size, credit = steps[next_step]
             next_step += 1
-            if lo <= time < hi and abs(size) / dt > slew:
+            if lo <= time < step_hi and abs(size) / dt > slew:
                 slew, slew_time, slew_play = abs(size) / dt, float(time), int(credit)
 
     for s in range(t.size - 1):
@@ -349,7 +353,8 @@ def _vector_peak(
         for side in ("before", "after"):
             if (side == "before" and time == lo) or (side == "after" and time == hi):
                 continue
-            value = float(np.sqrt(sum(_limit(p, float(time), side) ** 2 for p in polys.values())))
+            gx, gy, gz = (_limit(polys[axis], float(time), side) for axis in _AXES)
+            value = float(np.sqrt(gx * gx + gy * gy + gz * gz))
             if value > best:
                 if side == "before":
                     play = int(
@@ -381,14 +386,15 @@ def peaks(seq: pp.Sequence, window: tuple[float, float] | None = None) -> dict:
     peak is 0). The time of a value that is 0 is 0.0."""
     polys = polylines(seq)
     reference = polys["x"]
+    end_s = float(reference.block_end[-1]) if reference.block_end.size else 0.0
     if window is None:
-        lo, hi = 0.0, float(reference.block_end[-1]) if reference.block_end.size else 0.0
+        lo, hi = 0.0, end_s
     else:
         lo, hi = window
         if not lo < hi:
             raise ValueError(f"window {window!r} must have a start before its end")
     dt = seq.grad_raster_time
-    result: dict = {axis: _axis_values(polys[axis], dt, lo, hi) for axis in _AXES}
+    result: dict = {axis: _axis_values(polys[axis], dt, lo, hi, end_s) for axis in _AXES}
     if hi > lo:
         vector, time, block = _vector_peak(polys, lo, hi)
     else:

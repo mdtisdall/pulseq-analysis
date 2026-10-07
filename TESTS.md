@@ -2625,6 +2625,55 @@ the rise. The test checks that the x slew is that value, that `slew_block` is bl
 (decision D5 of `docs/plans/third-review-fixes.md`). Before task 2.1 of that plan, the step was
 the junction of the block after it.
 
+#### `test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_round_trip`
+
+**Checks:** A gradient that ends at a value that is not 0 at the end of the sequence has no step
+after its last point, whether the sequence is in memory or was written and read. The result does
+not depend on one ulp of `(start + delay) + shape_dur`. Review 1.2 of
+`docs/reviews/2026-10-07-code-review.md` and decision D1 of `docs/plans/fourth-review-fixes.md`.
+
+**How:** The test is run for 20 values of `k`. It builds an x trapezoid with a slope of
+1e9 Hz/m/s and a flat time of `(5 + k)` raster times, then a block of 0.6 ms with an x extended
+trapezoid that rises to `A` in 100 µs and holds it to the end of the block. The step to 0 after
+the last point would be `A / DT` (3.19e9 Hz/m/s), above the slope of the trapezoid. The test
+writes the sequence to a `.seq` file in `tmp_path` and reads it. For the sequence in memory and
+for the sequence that was read, it checks that the largest x slew of `gradient_peaks` is 1e9
+Hz/m/s and is credited to block 1, that the slew of block 1 in `block_gradient_values` is 1e9, and
+that the slew of block 2 is `A / 100 µs` (the rise: the step is not counted). It checks the same
+slew and credit in the oracle.
+
+**Assumptions:** The 20 end times do not each give a different rounding of the last time: the
+test relies on some of them giving a last time one ulp before `end_s` and others giving it equal
+to `end_s`. The slew of 1e9 Hz/m/s and the values of `A` hold for the system of
+`tests/synthetic.py`, and the compare has a relative tolerance of 1e-6 because the file keeps
+the amplitudes with fewer digits.
+
+#### `test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`
+
+**Checks:** The step to 0 after the last point of an axis, at the end of the sequence, is counted
+when the last point is more than `TIME_TOLERANCE` before the end, and is in no range when the
+last point is within `TIME_TOLERANCE` of the end, also in a window that ends a little before the
+end of the sequence (decision D1 of `docs/plans/fourth-review-fixes.md`: a step is in `[lo, hi]`
+when `lo <= t < hi` and `t < end_s - TIME_TOLERANCE`).
+
+**How:** The test is run for four values of `early`, the time from the last point of the
+extended trapezoid to the end of the sequence: 0, half of `TIME_TOLERANCE`, 0.9 of
+`TIME_TOLERANCE`, and one raster time. The sequence is an x trapezoid (slope 1e9 Hz/m/s), then a
+block of 0.6 ms with an x extended trapezoid that ends at `A` at `0.6 ms - early`. The step is
+`A / DT` (3.19e9 Hz/m/s). Only the one raster time counts it. Then the oracle, the whole file
+and the window `(0.0, end_s)` of `gradient_peaks` give `A / DT` credited to block 2 at
+`end_s - early`. For the other values they give 1e9 Hz/m/s in block 1. The window
+`(0.0, end_s - 0.5 * TIME_TOLERANCE)`, in the oracle and in `gradient_peaks`, gives the same
+slew and block: for an `early` of 0.9 of `TIME_TOLERANCE` the step is before the end of this
+window, so only the rule `t < end_s - TIME_TOLERANCE` leaves it out. In every case the slew of
+block 2 in `block_gradient_values` is `A / DT` (counted) or `A / 100 µs` (not counted).
+
+**Assumptions:** pypulseq accepts a last time off the gradient raster by 1e-9 s or less, and no
+more, so a value of `early` between `TIME_TOLERANCE` and one raster time cannot be built with
+`make_extended_trapezoid`. The test does not cover a value between them. The window ends at
+`end_s` of the index of the package, and the oracle uses the end of its last block: the two are
+the same number for this sequence.
+
 #### `test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_block`
 
 **Checks:** A first block whose gradient starts at a non-zero value within
