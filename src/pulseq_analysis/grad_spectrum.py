@@ -14,7 +14,7 @@ the window attenuates a gradient near the end no more than one in the middle. Th
 samples is `sampling.sequence_samples`, the rule of the whole package.
 
 The gradients are the waveform of `sampling.GradientSampler.sample`, the model of MATLAB
-Pulseq (`docs/usage.md`, "The gradient waveform"). pypulseq's `calculate_gradient_spectrum`
+Pulseq (`docs/implementation.md`, "The gradient waveform"). pypulseq's `calculate_gradient_spectrum`
 uses `Sequence.get_gradients()`, which draws a line across each gap between two events. The
 two spectra differ for a sequence with an event that starts or ends at a value that is not 0
 next to a gap of more than one raster time (the model has a ramp to 0 and from 0 of half a

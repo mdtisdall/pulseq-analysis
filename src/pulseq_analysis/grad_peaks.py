@@ -1,7 +1,7 @@
 """The peak amplitude, the peak slew rate and the RMS amplitude of a sequence's gradients.
 
 The gradient of each logical axis (x, y, z) is the polyline of the model of MATLAB Pulseq
-(`docs/usage.md`, "The gradient waveform"). This module computes the values of that polyline
+(`docs/implementation.md`, "The gradient waveform"). This module computes the values of that polyline
 for each axis and for the three-axis vector, over a time range. It does not compare them with
 limits: a caller that has the hardware limits compares the values with them.
 

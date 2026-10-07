@@ -1,6 +1,6 @@
 """The gradient waveform of one axis at given times, from the sequence index.
 
-The waveform is a polyline in Hz/m, the model of MATLAB Pulseq (`docs/usage.md`, "The
+The waveform is a polyline in Hz/m, the model of MATLAB Pulseq (`docs/implementation.md`, "The
 gradient waveform"). With `dt = seq.grad_raster_time`:
 
 1. The points. For each block, in play order, that has an event on the axis: the corner

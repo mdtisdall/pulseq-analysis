@@ -355,7 +355,7 @@ sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradie
 `seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
 `seq.system.gamma` before they compare it with `calc_pns`.
 
-`pns_levels` uses the gradient waveform of MATLAB Pulseq (`docs/usage.md`, section 2). pypulseq
+`pns_levels` uses the gradient waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). pypulseq
 draws a line across each gap between two events and has no step at a block junction
 (pypulseq-issues 12). So a comparison with `calc_pns` holds only for a sequence with no end that
 is not 0 next to a gap of more than one raster time, and no step at a block junction. All the
@@ -1626,7 +1626,7 @@ the test would fail.
 waveform of one axis at sorted times, from
 the sequence index and the kept points of the unique gradient events
 (`_events.event_points`), made with `gradient_sampler(seq)`. The waveform is the gradient
-waveform of MATLAB Pulseq (`docs/usage.md`, section 2). The reference is the oracle waveform of
+waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the oracle waveform of
 `tests/oracles/waveform.py` (section 2.15) for every sequence with an end that is not 0 next to
 a long gap, or with a step at a block junction. For the other sequences it is also pypulseq's
 `seq.get_gradients()`, because pypulseq draws a line across each gap and has no step at a
@@ -2295,7 +2295,7 @@ raster.
 `grad_peaks.py` computes its values from the per-event values of `seq_index.grad_events` and
 the columns of `seq_index.sequence_index`, instead of reading every block with `get_block`. It
 uses the gradient waveform of MATLAB Pulseq: a step across a zero gap, a line across a short gap,
-and a ramp to 0 and a ramp from 0 across a long gap (`docs/usage.md`, section 2). The slew
+and a ramp to 0 and a ramp from 0 across a long gap (`docs/implementation.md`, section 1). The slew
 includes the steps, the lines and the ramps. The tests below the first group add: the largest
 slew of an arbitrary gradient and of an extended trapezoid (computed from the event's own corner
 points), the credited block for a value that several blocks and axes share, a window that keeps
@@ -5554,7 +5554,7 @@ sample, not half a raster after it.
 ### 2.15 The oracle of the gradient waveform (`test_oracle_waveform.py`)
 
 `test_oracle_waveform.py` tests `tests/oracles/waveform.py`, the oracle of the gradient
-waveform (the model of `docs/usage.md`, section 2, and of section 5.1 of
+waveform (the model of `docs/implementation.md`, section 1, and of section 5.1 of
 `docs/plans/third-review-fixes.md`). The oracle
 does not import the package. The tests do not call the package either. Each expected value
 is computed by hand from the numbers given to the `make_*` functions, and the text of the
