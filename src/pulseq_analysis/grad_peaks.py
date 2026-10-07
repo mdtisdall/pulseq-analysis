@@ -134,8 +134,7 @@ class GradientPeaks:
 
     `reason` is None when the range has at least one gradient event on some axis. Otherwise
     it is `seq_index.NO_GRADIENTS` (`window` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW`
-    (`window` was given), and every numeric field is its zero value, except
-    `whole_rms_hz_per_m`, which is the RMS of the whole file when `window` is given. The
+    (`window` was given), and every numeric field is its zero value. The
     zero value is 0.0 for an amplitude, slew or RMS field, and 0.0 for a time field; every
     block field (`AxisResult.peak_block`, `AxisResult.slew_block`, `vector_peak_block`) is
     None. `range_s` still holds the range that was used.
@@ -147,13 +146,8 @@ class GradientPeaks:
     slew field. The RMS of the vector magnitude is the square root of the sum of the squares of
     the three axis RMS values, because the mean of |G|² is the sum of the three axis means of G².
 
-    `whole_rms_hz_per_m` is the RMS amplitude of each axis (Hz/m) over the whole sequence,
-    computed in the same call that computes `axes`, so that a caller that wants both the
-    window's values and the whole file's RMS needs only one call. It is None when `window` was
-    None (then `axes`' own RMS already is the whole file's).
-
-    `axes` and `whole_rms_hz_per_m` are `_equality.FrozenDict`s (read-only dicts): all callers
-    of a result share it, so a change of a dict would change it for all of them.
+    `axes` is a `_equality.FrozenDict` (a read-only dict): all callers of a result share it,
+    so a change of the dict would change it for all of them.
 
     `==` compares the values of the fields (`_equality.fields_equal`), the dicts with their keys
     in order. A `GradientPeaks` is not hashable.
@@ -165,7 +159,6 @@ class GradientPeaks:
     vector_peak_hz_per_m: float
     vector_peak_time_s: float
     vector_peak_block: int | None
-    whole_rms_hz_per_m: dict[str, float] | None = None  # a FrozenDict
 
     __eq__ = fields_equal
     __hash__ = None  # type: ignore[assignment]
@@ -461,15 +454,6 @@ def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: flo
     return c
 
 
-def _whole_file_rms(integrals: dict[str, float], total_duration: float) -> dict[str, float]:
-    """The RMS amplitude (Hz/m) of each axis over the whole sequence, from the integrals of
-    the square of each axis over the whole sequence. It is 0.0 for a sequence of no duration."""
-    return {
-        axis: math.sqrt(rms_sum / total_duration) if total_duration > 0.0 else 0.0
-        for axis, rms_sum in integrals.items()
-    }
-
-
 # ---- The exact polyline of an axis ----
 #
 # The code below builds the polyline of the model of the module docstring from a run of
@@ -735,7 +719,6 @@ class _BlockData:
     vector_peak: np.ndarray  # N: the largest |G| of the block (`_exact_vector_peaks`)
     vector_peak_time: np.ndarray  # N: the first time of that peak, from the sequence start
     whole_integral: dict[str, float]  # for each axis, the sum of `rms_integral`
-    whole_rms: dict[str, float]  # for each axis, `_whole_file_rms`
     axis_events: dict[str, _AxisEvents]  # the events of each axis, for the exact blocks
     reach_start: np.ndarray  # N: the earliest time that the block (its pieces, its vector peak
     # range) has, from the sequence start
@@ -799,7 +782,6 @@ def _kept_block_data(
             vector_peak,
             vector_peak_time,
             FrozenDict(whole_integral),
-            FrozenDict(_whole_file_rms(whole_integral, index.end_s)),
             FrozenDict(axis_events),
             reach_start,
             reach_end,
@@ -1119,8 +1101,6 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     `range_s` is the window clipped to `(0.0, total_duration)`, so its start is never after its
     end: a window that lies past an end of the sequence by less than `TIME_TOLERANCE` gives a
     range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and zero values.
-    With `window` given, `GradientPeaks.whole_rms_hz_per_m` also gives each axis's RMS
-    over the whole sequence, computed in this same call.
 
     The result for `window=None` is kept for the sequence object, so that callers of one
     sequence calculate it one time. A result with a window is not kept, because a caller can
@@ -1128,8 +1108,8 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     the number of blocks in the window. The kept results are built again after `add_block`,
     after a new read of a file into the object, and after a change of `seq.grad_raster_time` (the
     rule of `_kept`). A block replaced in place is not seen (`seq_index.sequence_index`). The
-    kept result is read-only: `axes` and `whole_rms_hz_per_m` are `FrozenDict`s and the result
-    is a frozen dataclass.
+    kept result is read-only: `axes` is a `FrozenDict` and the result is a
+    frozen dataclass.
 
     The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
@@ -1183,7 +1163,6 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     points = event_points(seq)
     ev = _kept_event_values(seq, kept)
     blocks = _kept_block_data(seq, kept, index, points, ev)
-    whole_rms_hz_per_m = None if window is None else blocks.whole_rms
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
@@ -1204,7 +1183,6 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=vector_peak_time_s,
         vector_peak_block=vector_peak_block,
-        whole_rms_hz_per_m=whole_rms_hz_per_m,
     )
     if window is None:
         kept["peaks"] = result

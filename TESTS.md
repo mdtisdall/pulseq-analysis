@@ -2754,16 +2754,14 @@ of another item of the polyline with the same slope (`_assert_slew_item`).
 **Checks:** 50 random sequences of trapezoids, extended trapezoids and arbitrary gradients on
 random axes, each event built so that it starts and ends at 0 (so no gap has a step, a line or
 a ramp, and the values come from the events alone): `gradient_peaks` matches the oracle on the
-whole file and on up to 6 windows, and the `whole_rms_hz_per_m` of a window matches the RMS of
-the whole file of the oracle.
+whole file and on up to 6 windows.
 
 **How:** For each of 50 seeds, the test builds a sequence of 2 to 6 blocks, each with 0 to 3
 random axes, each a trapezoid, an extended trapezoid or an arbitrary gradient built with
 pypulseq's `make_*` functions (so pypulseq's own limit checks apply) and an explicit `first`
 and `last` of 0 where the function does not default to that. It compares the whole-file result
 and the results of up to 6 windows from `_oracle_windows` with the oracle, as
-`test_matches_oracle_on_synthetic_sequences` does. It also compares `whole_rms_hz_per_m` of a
-window with the RMS of the whole file of the oracle.
+`test_matches_oracle_on_synthetic_sequences` does.
 
 **Assumptions:**
 
@@ -2964,14 +2962,13 @@ z that refuses a change.
 
 **Assumptions:** None.
 
-#### `test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change`
+#### `test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change`
 
-**Checks:** `GradientPeaks.axes` is a `FrozenDict`, and `whole_rms_hz_per_m` is a `FrozenDict` with a
-window and None without, and each refuses a change.
+**Checks:** `GradientPeaks.axes` is a `FrozenDict` with the keys `x`, `y` and `z`, and refuses
+a change.
 
 **How:** Parametrized with no window and with the window `(0.0, 1e-3)` on the spin echo. A set
-item and `clear` on `axes` raise `TypeError`. With a window, a set item and `pop` on
-`whole_rms_hz_per_m` raise `TypeError`.
+item and `clear` on `axes` raise `TypeError`.
 
 **Assumptions:** None.
 
@@ -3126,19 +3123,19 @@ empty kept data.
 #### `test_a_window_does_not_calculate_the_values_over_all_the_blocks_again`
 
 **Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept
-data, `gradient_peaks` with a window of four TRs calculates no column of a block, no vector peak
-of a block and no RMS of the whole file again. This holds for a window with its ends inside
+data, `gradient_peaks` with a window of four TRs calculates no column of a block and no vector peak
+of a block again. This holds for a window with its ends inside
 blocks and for a window with its ends on block edges.
 
-**How:** After a first call with another window, the test replaces `_axis_columns`,
-`_exact_vector_peaks` and `_whole_file_rms` of `grad_peaks` with functions that fail. The window
+**How:** After a first call with another window, the test replaces `_axis_columns` and
+`_exact_vector_peaks` of `grad_peaks` with functions that fail. The window
 is from play index 2503 to 2507, with its start a third of the way into block 2503 and its end
 half way into block 2507, or from the start of block 2500 to the start of block 2510. The test
 calls `gradient_peaks` with the window and checks that the result has gradients.
 
 **Assumptions:** The test cannot measure the time: a loop over all the blocks in numpy is fast.
 The failing functions are the ones that calculate a value over all the blocks. The test needs the
-three names. It does not check the values of the result.
+two names. It does not check the values of the result.
 
 #### `test_a_window_of_gradient_peaks_calls_no_get_block`
 
@@ -5219,11 +5216,10 @@ result of `window=None`.
 
 **How:** For the synthetic spin echo and the window of its first half, the test calls
 `gradient_peaks(seq)`, then `gradient_peaks(seq, window=window)` two times. The two windowed
-results are equal and are not the same object (`is not`); neither is the whole-file result,
-and the windowed one has `whole_rms_hz_per_m` set. A new call of `gradient_peaks(seq)` gives
+results are equal and are not the same object (`is not`); and neither is the whole-file
+result. A new call of `gradient_peaks(seq)` gives
 the first whole-file object (`is`). For a new sequence object, a call with the window comes
-first: the next call of `gradient_peaks(fresh)` is not that object and has no
-`whole_rms_hz_per_m`.
+first: the next call of `gradient_peaks(fresh)` is not that object.
 
 **Assumptions:** The window gives a result that is equal each time, so `==` between the two
 windowed results is meaningful (`GradientPeaks` compares by value).
