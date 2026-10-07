@@ -42,8 +42,9 @@ Both public functions keep their results for the sequence object (`_kept.kept_re
 `gradient_peaks` for `window=None`, and `block_gradient_values`. The per-event values
 (`_EventData`) are kept too, with the values over the blocks that a window needs (`_BlockData`),
 so a call of `gradient_peaks` with a window uses them. A result with a window is not kept,
-because a caller can ask for many windows. The kept results are built again after `add_block`, after a new read of a file into the object, and after a change
-of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
+because a caller can ask for many windows. The kept results are built again after `add_block`,
+after a new read of a file into the object, and after a change of `seq.grad_raster_time` (the
+rule of `_kept`). A block replaced in place is not seen
 (`seq_index.sequence_index`). Each kept result is read-only, because all callers share it.
 """
 
@@ -752,13 +753,13 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     This checks `window` first (its form, its numbers and their order), before it reads the
     sequence. Then it builds `seq_index.sequence_index(seq)`, returns the kept result for
     `window=None` when there is one, and checks the window against the length of the
-    sequence. Only then does it take the per-event values (`_event_values` of
-    `_events.event_points`, which uses the points of the unique gradient events and calls no
-    `get_block`, built one time for each sequence) and the values over the blocks (the end of
-    each block, the junction steps and times, and the RMS of the whole file, built one time for
-    each sequence), and combine them with numpy over the blocks of the range. It also reads the
-    few blocks that a range edge cuts with `get_block`, so its cost does not grow with the
-    number of blocks of the file the way that reading every block would.
+    sequence. Only then does it take the per-event values (`_event_values` of the points of
+    `_events.event_points`, built one time for each sequence) and the values over the blocks
+    (the end of each block, the junction steps and times, and the RMS of the whole file, built
+    one time for each sequence), and combine them with numpy over the blocks of the range. It
+    calls `get_block` one time for each unique gradient event (in `_events.event_points`, one
+    time for each sequence), and for the few blocks that a range edge cuts, so its cost does not
+    grow with the number of blocks of the file the way that reading every block would.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.

@@ -194,8 +194,8 @@ cannot be read. The comparison ignores the case.
 ### 2.1 Shared sequence helpers (`test_seq_utils.py`)
 
 `test_seq_utils.py` tests the shared helpers in `seq_utils.py` that the
-report cards use to read a pypulseq sequence: the RF resampling helper and
-the gradient corner/sample helper. It also checks that the synthetic
+measurements use to read a pypulseq sequence: `gradient_offsets` and
+`gradient_points`, the gradient corner/sample helpers. It also checks that the synthetic
 sequences in `tests/synthetic.py` are legal Pulseq.
 
 #### `test_time_tolerance`
@@ -249,8 +249,9 @@ gradient's own sample times (`g.tt`) and waveform, unchanged.
 **Assumptions:**
 
 - pypulseq's `make_arbitrary_grad` gives the shape both `first` and
-  `shape_dur` by default. The test checks that before it tests the helper,
-  so the case without them (used only for a shape that already has points at
+  `shape_dur` by default. The test does not check that. It takes `g.first` and
+  `g.shape_dur` as the expected values of the helper, so the case without
+  them (used only for a shape that already has points at
   its own ends) is not covered here.
 
 #### `test_gradient_points_matches_gradient_offsets_exactly`
@@ -314,7 +315,7 @@ passes, showing the report if it does not.
 
 - pypulseq's timing check is trusted to cover raster alignment, RF dead time
   and ringdown, and ADC dead time before and after the ADC. This test does
-  not check the report cards' own reading of the sequence, only that the
+  not check the package's own reading of the sequence, only that the
   synthetic sequences are legal Pulseq.
 
 ### 2.2 PNS levels (`test_pns_levels.py`)
@@ -1123,7 +1124,9 @@ the two results with `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 ### 2.3 Sequence extensions (`test_extensions.py`)
 
 `test_extensions.py` tests the two guards of `extensions.py`. `refuse_rotations` is the guard
-that `cards/spectrum.py`, `cards/pns.py` and `cards/gradient_limits.py` (of pulseq-reports)
+that `grad_peaks.gradient_peaks`, `grad_peaks.block_gradient_values`,
+`pns_levels._compute_levels` (of `pns_levels.pns_levels`) and
+`grad_spectrum.gradient_spectrum`
 call before they read any gradient. `refuse_unsigned` refuses a sequence with no
 `[SIGNATURE]` hash: `sequence_index` calls it, so each measurement refuses an unsigned
 sequence. Its tests build a sequence in memory with `add_block` (it has no hash), and sign
@@ -2730,8 +2733,8 @@ fail the test, so it also checks that the error comes before the sequence is rea
 window as a tuple of floats.
 
 **How:** The spin echo; the expected result is that of `(0.0, total / 2)`. The results for
-`[0.0, total / 2]`, `(0, np.float64(...))`, `(np.int64(0), np.float64(...))` and
-`(np.float64(0.0), np.float64(...))` are `==` to it.
+`[0.0, total / 2]`, `(0, np.float64(...))` and `(np.int64(0), np.float64(...))` are
+`==` to it.
 
 **Assumptions:** None.
 #### `test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence`
@@ -3323,7 +3326,10 @@ which write one numpy array as `{"dtype", "length", "data"}`. The encoding is th
 `encode_tables` of pulseq-reports (commit `a322517`): the little-endian bytes of the array,
 gzipped and base64-encoded.
 
-The tests build small series by hand, with no sequence and no pypulseq. The round trip
+Most tests build small series by hand, with no sequence and no pypulseq.
+`test_the_series_of_pns_safe_levels_are_valid` and
+`test_the_series_of_gradient_spectrum_is_valid` use synthetic sequences and pypulseq.
+The round trip
 of a series is `Series.from_obj(json.loads(json.dumps(s.to_obj(), allow_nan=False)))`,
 the path that a report takes.
 
@@ -4052,8 +4058,9 @@ raises `AssertionError` when the code reads any attribute of it.
 `TypeError` (a missing required keyword-only argument `hardware`), also with
 `thresholds_hz_per_t=(_LIMIT,)`. A `hardware` that is not a tuple of two items with a `str`
 second item (`None`, the bare struct, a 1-tuple, a pair with a label that is not a `str`, a
-list, a 3-tuple) raises `TypeError` with the message that names `asc.hardware_from_asc(path)`
-and `safe_example_hw()`. Both happen before the sequence is read.
+list, a 3-tuple) raises `TypeError` with a message that contains
+`asc.hardware_from_asc(path)` (the test checks only
+that text). Both happen before the sequence is read.
 
 **How:** The test passes an object whose `__getattr__` raises `AssertionError`, so a read of
 the sequence gives another error.
@@ -4262,7 +4269,8 @@ peak must be within 2 % of `SINE_PEAK`.
 "no gradients", empty frequencies and RSS, and no axes.
 
 **How:** The test makes a sequence with only a block pulse. It checks the
-reason, that `frequency_hz` and `rss` have shape (0,), and that `axes` is `{}`. The
+reason, that `frequency_hz` and `rss` have shape (0,), and that `axes` has the keys
+`x`, `y` and `z`, each with an empty array (shape (0,)). The
 reason is the object `seq_index.NO_GRADIENTS`, and `grad_spectrum.NO_GRADIENTS` is that
 object.
 
@@ -4555,7 +4563,9 @@ no arguments again must give the first object. A call with
 ### 2.11 Value equality (`test_equality.py`)
 
 `test_equality.py` tests `_equality.py`: `values_equal`, the rules by which two values
-are equal, and `fields_equal`, the `__eq__` of `PnsLevels` and `GradientSpectrum`. The
+are equal, and `fields_equal`, the `__eq__` of `SequenceIndex`, `GradientPeaks`,
+`BlockGradientValues`,
+`PnsLevels`, `GradientSpectrum` and `Series`. The
 tests use small values and two dataclasses of the test file, not results of the package.
 Sections 2.2 and 2.10 test the `==` of the results.
 
