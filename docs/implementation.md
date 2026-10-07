@@ -523,7 +523,7 @@ windows:
    raster times.
 2. A strided view gives the windows, with no copy. The mean of each window is
    removed, and the Hann window is applied.
-3. `np.fft.rfft` of length nfft. Only the frequencies up to
+3. `scipy.fft.rfft` of length nfft, in one thread. Only the frequencies up to
    `max_frequency_hz` are kept.
 4. The running maximum over the windows, for each axis and for the RSS.
 
