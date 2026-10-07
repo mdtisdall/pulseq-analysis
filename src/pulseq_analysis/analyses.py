@@ -323,9 +323,10 @@ class _PnsSafeLevels:
             "`thresholds_hz_per_t`: `pns_above_<k>`, with `<k>` the position of the "
             'threshold from 0 (`pns_above_0`, `pns_above_1`), RUNS, unit "Hz/T", '
             '`coord_unit` "s", arrays `start`, `end`, `num_samples` (int64), `peak` and '
-            "`peak_time_s` (float64), one entry for each run (the times of its first and "
-            "last sample), `meta` `threshold` (the value in Hz/T). With no threshold, "
-            "`to_series` gives only `pns_total`. The values of `min`, `max`, `peak`, "
+            "`peak_time_s` (float64), one entry for each run (`start` and `end` are the "
+            "edges of its samples, `first * dt_s` and `(last + 1) * dt_s`, so a run of one "
+            "sample has `end - start == dt_s`), `meta` `threshold` (the value in Hz/T). "
+            "With no threshold, `to_series` gives only `pns_total`. The values of `min`, `max`, `peak`, "
             "`axis_peaks_<axis>` and `threshold` are in Hz/T."
         ),
     )
