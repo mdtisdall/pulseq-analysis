@@ -11,8 +11,9 @@ resonance.
 magnitude spectrum of each window, and the maximum over windows. pypulseq
 stops sampling at the last gradient point and starts the first window at 0.
 Here the gradients are sampled to the end of the sequence and padded with half
-a window of zeros at each end, so a sequence shorter than one window still has
-a spectrum and gradients near either end are not attenuated by the window.
+a window of zeros at the start, and with half a window or more at the end, so a sequence
+shorter than one window still has a spectrum. The end padding makes the last sample
+within half a hop of the centre of a window, as in the middle of the sequence.
 
 The gradients are sampled in chunks of `CHUNK_WINDOWS` windows, so the memory does not
 grow with the length of the sequence. Each chunk starts at a multiple of the hop and
@@ -67,24 +68,27 @@ def gradient_spectrum(
     dt = seq.grad_raster_time
     nwin = round(WINDOW_S / dt)
     pad = nwin // 2
-    nt = math.ceil(sum(seq.block_durations.values()) / dt)
     to_mt = 1e3 / seq.system.gamma  # Hz/m to mT/m
+    nt = _num_samples(seq, dt)
 
-    # The padded waveform has n samples: pad zeros, the nt gradient samples, pad zeros.
-    # scipy's spectrogram does not pad, so window j covers samples [j * hop, j * hop + nwin).
-    n = nt + 2 * pad
+    # The padded waveform has n samples: pad zeros, the nt gradient samples, and the end
+    # padding. scipy's spectrogram does not pad, so window j covers samples
+    # [j * hop, j * hop + nwin). The end padding is `pad + (-nt) % hop` zeros for an even
+    # nwin, so that n - nwin is a whole number of hops, and the last sample is within half
+    # a hop of the centre of a window. For an odd nwin, n - nwin is `nt + r - 1`, so the
+    # padding is `pad + (1 - nt) % hop`.
     hop = nwin - nwin // 2
-    num_windows = (n - nwin) // hop + 1 if n >= nwin else 1
+    n = nt + pad + pad + (nwin % 2 - nt) % hop
+    num_windows = (n - nwin) // hop + 1
 
     axes_max: dict[str, np.ndarray] = {}
     rss_max = None
     freq = None
     for first in range(0, num_windows, CHUNK_WINDOWS):
         last = min(first + CHUNK_WINDOWS, num_windows)
-        # The samples of windows first to last - 1. For a waveform shorter than one
-        # window, the whole waveform (scipy then shortens the window, as in one call).
+        # The samples of windows first to last - 1.
         start = first * hop
-        stop = n if n < nwin else (last - 1) * hop + nwin
+        stop = (last - 1) * hop + nwin
         rss_sq = 0.0
         for axis, g in zip("xyz", gradients):
             freq, sxx = _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, to_mt)
@@ -127,6 +131,21 @@ def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, to_mt):
         window=("tukey", 1),
     )
     return freq, sxx
+
+
+def _num_samples(seq: pp.Sequence, dt: float) -> int:
+    """The number of samples of the sequence: the sum of `round(duration / dt)` of the
+    blocks when each block is within 1e-6 samples of a whole number, else
+    `ceil((end - 1e-10) / dt)` with `end` the sequential sum of the block durations (at
+    least 0)."""
+    durations = [seq.block_durations[b] for b in seq.block_events]
+    lengths = [round(d / dt) for d in durations]
+    if all(abs(d / dt - n) <= 1e-6 for d, n in zip(durations, lengths)):
+        return sum(lengths)
+    end = 0.0
+    for d in durations:
+        end += d
+    return max(math.ceil((end - 1e-10) / dt), 0)
 
 
 def _band_peaks(

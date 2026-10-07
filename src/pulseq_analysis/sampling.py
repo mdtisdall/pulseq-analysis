@@ -327,3 +327,18 @@ def _raster_lengths(duration_s: np.ndarray, dt: float) -> tuple[np.ndarray, bool
     ratio = duration_s / dt
     n = np.rint(ratio).astype(np.int64)
     return n, bool(np.all(np.abs(ratio - n) <= ON_RASTER_TOLERANCE))
+
+
+def sequence_samples(index: SequenceIndex, dt: float) -> int:
+    """The number of samples of the whole sequence at the raster `dt`: the one rule of the
+    package, which `pns_levels.pns_levels` and `grad_spectrum.gradient_spectrum` use.
+
+    When every block is on the raster (`raster_block_lengths`), it is the sum of the block
+    lengths. Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 0 (the
+    value of an empty sequence). `index.end_s` is the sequential sum of the block
+    durations. A `ceil` of the compensated sum of Python's `sum`, or of `index.end_s`
+    without the 1e-10, can give one sample more (`tests/test_sampling.py`)."""
+    n, on_raster = raster_block_lengths(index, dt)
+    if on_raster:
+        return int(n.sum())
+    return max(math.ceil((index.end_s - 1e-10) / dt), 0)

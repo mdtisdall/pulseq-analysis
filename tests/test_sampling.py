@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pypulseq as pp
 import pytest
@@ -11,7 +13,7 @@ from synthetic import (
 )
 
 from pulseq_analysis._events import event_points
-from pulseq_analysis.sampling import GradientSampler, raster_block_lengths
+from pulseq_analysis.sampling import GradientSampler, raster_block_lengths, sequence_samples
 from pulseq_analysis.seq_index import sequence_index
 
 _AXES = ("gx", "gy", "gz")
@@ -702,3 +704,37 @@ def test_raster_block_lengths_detects_a_block_off_the_raster():
     n, on_raster = raster_block_lengths(index, dt)
     assert not on_raster
     np.testing.assert_array_equal(n, np.array([2, 2]))
+
+
+def _delay_sequence(durations_s: list[float]) -> pp.Sequence:
+    seq = signed(pp.Sequence(SYSTEM))
+    for duration_s in durations_s:
+        seq.add_block(pp.make_delay(duration_s))
+    return seq
+
+
+def test_sequence_samples_on_the_raster_is_the_sum_of_the_block_lengths():
+    """The blocks 0.01938 s and 0.01268 s are 1938 and 1268 samples at 1e-5 s. The sequence
+    has 3206 samples. `index.end_s` is 3206.0000000000005 samples, so a `ceil` of it gives
+    3207."""
+    dt = SYSTEM.grad_raster_time
+    index = sequence_index(_delay_sequence([0.01938, 0.01268]))
+    assert sequence_samples(index, dt) == 3206
+    assert math.ceil(index.end_s / dt) == 3207
+
+
+@pytest.mark.parametrize(
+    ("durations_s", "expected"),
+    [
+        # 2.8 samples. The rounded block lengths sum to 2.
+        pytest.param([1.4e-5, 1.4e-5], 3, id="more_than_the_rounded_lengths"),
+        # 3.000005 samples less 1e-10 s is 3.000000 samples.
+        pytest.param([1.5e-5, 1.500005e-5], 3, id="end_within_1e-10_s_above_a_sample"),
+    ],
+)
+def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, expected):
+    dt = SYSTEM.grad_raster_time
+    index = sequence_index(_delay_sequence(durations_s))
+    assert not raster_block_lengths(index, dt)[1]
+    assert sequence_samples(index, dt) == expected
+    assert sequence_samples(index, dt) == math.ceil((index.end_s - 1e-10) / dt)

@@ -1996,6 +1996,37 @@ dt)`. `raster_block_lengths(index, dt)` must give `on_raster = False` and `n =
 
 **Assumptions:** None.
 
+#### `test_sequence_samples_on_the_raster_is_the_sum_of_the_block_lengths`
+
+**Checks:** `sequence_samples` gives the sum of the block lengths for a sequence
+on the raster, and not a `ceil` of the end time, which can give one sample more.
+
+**How:** A sequence of two delay blocks of 0.01938 s and 0.01268 s (1938 and 1268
+samples at 1e-5 s). `sequence_samples(index, dt)` must be 3206. The test also
+checks that `ceil(index.end_s / dt)` is 3207, so the sequence has the case that
+the rule is for.
+
+**Assumptions:**
+
+- `index.end_s` is 3206.0000000000005 samples (the float sum of the two
+  durations). A change of pypulseq or of numpy that makes it exact makes the
+  second check fail, and the test then needs another pair of blocks.
+
+#### `test_sequence_samples_off_the_raster_is_the_ceil_of_the_end`
+
+**Checks:** For a sequence with a block off the raster, `sequence_samples` gives
+`ceil((index.end_s - 1e-10) / dt)`.
+
+**How:** Two sequences of two delay blocks. For 1.4 and 1.4 samples, the end is
+2.8 samples and the result must be 3 (the sum of the rounded block lengths is 2).
+For 1.5 and 1.500005 samples, the end is 3.000005 samples, which is less than
+1e-10 s above 3 samples, and the result must be 3 (a `ceil` of the end without
+the 1e-10 s gives 4). Each sequence must be off the raster in
+`raster_block_lengths`, and the result must equal `ceil((index.end_s - 1e-10) /
+dt)`.
+
+**Assumptions:** None.
+
 ### 2.6 Gradient peaks (`test_grad_peaks.py`)
 
 `test_grad_peaks.py` tests `grad_peaks.py`: the peak amplitude, the peak slew
@@ -4175,7 +4206,10 @@ for a sequence with gradients and for one without.
 The spectrum is calculated as in pypulseq: Hann windows (50 ms by default) with
 50 % overlap, the magnitude spectrum of each window, and the maximum over
 windows. Here the gradients are sampled to the end of the sequence, with half a
-window of zeros added at each end. The RSS spectrum is the root-sum-of-squares
+window of zeros added at the start, and half a window or more at the end. The
+end padding is the fewest zeros that make the padded waveform one window plus a
+whole number of hops long. A hop is the step between two windows (25 ms by
+default). The number of samples is `sampling.sequence_samples`. The RSS spectrum is the root-sum-of-squares
 of the three axes in each window, then the maximum over windows. The values are
 in Hz/m/√Hz, the unit of the gradients of a `.seq` file, with no gamma. To get
 mT/m/√Hz, a caller multiplies the values by `1e3 / gamma`. The gradients are
@@ -4241,20 +4275,41 @@ RSS peak must be within 20 Hz of 600 Hz.
 - A 20 ms sine has a wide spectral peak, so the tolerance is wider than one
   frequency bin.
 
-#### `test_gradients_at_the_end_are_not_attenuated`
+#### `test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle`
 
-**Checks:** A sine at the end of the sequence has its full amplitude in the
-spectrum.
+**Checks:** A gradient at the end of the sequence gives the same spectrum as the
+same gradient in the middle of the sequence. This holds when the number of
+samples is a whole number of hops and when it is not, for a window of an even and
+of an odd number of samples. The test replaces
+`test_gradients_at_the_end_are_not_attenuated`: that test had a sequence of a
+whole number of hops, so it could not find the bug.
 
-**How:** The test makes a sequence with 440 ms of no gradient and then 60 ms
-of a 600 Hz sine, so the last sample is at the end of the sequence. The RSS
-peak must be within 2 % of `SINE_PEAK`.
+**How:** For 5000, 6000, 7000 and 7499 samples, and for a window of 5000 samples
+(`window_s=0.05`) and one of 4999 samples (`window_s=0.04999`), the test makes a
+sequence of one block. The block has a trapezoid on x (`area=3000`) that ends at the end of the
+block, and a delay that sets the length of the block to the number of samples. A
+second sequence has the same block and then a delay block of 0.06 s, more than one
+window, so the trapezoid is in the middle of that sequence. The spectrum of the
+first sequence must have an RSS above 0. The RSS and the x spectrum of the two
+sequences must agree with a relative tolerance of 1e-12 (the y and z spectra are
+0 in both).
 
 **Assumptions:**
 
-- The sine is 60 ms long, so at least one 50 ms window is fully inside it and
-  the full amplitude is expected. The test fails if the gradient samples near
-  the end of the sequence are lost, or are only at the edge of a window.
+- The window grid starts at the start of the sequence, so the test does not
+  compare the trapezoid at the end with a trapezoid at the start. The end
+  padding puts each sample within half a hop of the centre of a window. It cannot
+  put the centre of a window on the last sample, so the value at the end can be
+  below the value at the start. The test compares the end with the middle, where
+  the same bound holds.
+- The two spectra are equal bit for bit when measured (the maximum relative
+  difference is 0). The tolerance of 1e-12 allows for a platform with another
+  FFT rounding.
+- With the old padding of half a window, the test fails for 7000 and 7499 samples
+  (the largest RSS at the end is 48 % and 50 % of that in the middle). It passes for
+  5000 and 6000 samples: for these two, the window that holds the trapezoid
+  already exists, and a later window gives a smaller value.
+- The test has no sequence with a window of an odd number of samples.
 
 #### `test_no_gradients`
 
@@ -4276,14 +4331,16 @@ object.
 25 windows). It calls `_compute_spectrum` (the calculation without the kept
 result) with the default arguments as plain floats, with `CHUNK_WINDOWS` set to
 1,000,000 (one chunk) and to 4 (7 chunks, the last one shorter). The two results
-must not be the same object. The frequencies must be equal, and each axis spectrum and the RSS must agree with a relative tolerance
-of 1e-12.
+must not be the same object. The frequencies, each axis spectrum and the RSS must
+be equal bit for bit (`array_equal`).
 
 **Assumptions:**
 
-- The results are not always bit-for-bit equal, because scipy computes the
-  FFTs of a different number of windows in each call. The tolerance allows for
-  that rounding.
+- The results are equal bit for bit, because each window has the same samples
+  and the module takes the FFT of each row of windows with numpy, so a row does
+  not depend on the other rows. (Measured: also for chunks of 1 and 3 windows.) A
+  change that makes the FFT of a row depend on the chunk, for example another FFT
+  library, can make the test fail by a rounding difference.
 
 #### `test_matches_scipy_spectrogram`
 
@@ -4296,8 +4353,9 @@ a GRE of 30 TRs and the arbitrary-gradient sequence.
 **How:** The test sets `CHUNK_WINDOWS` to 4, so the sequences make several
 chunks, and calls `_compute_spectrum` with the default arguments as plain floats
 (the calculation without the kept result). For the reference, it samples each axis
-with `GradientSampler` at the sample times of the module, pads half a window of
-zeros at each end, and calls `scipy.signal.spectrogram` on the whole padded
+with `GradientSampler` at the sample times of the module (the number of samples
+is `sequence_samples`), pads half a window of zeros at the start and `pad + (-nt) %
+hop` zeros at the end, and calls `scipy.signal.spectrogram` on the whole padded
 waveform with `mode="magnitude"`, `nperseg=nwin`, `noverlap=nwin // 2`,
 `nfft=nfft`, `detrend="constant"`, `window=("tukey", 1)` and `fs=1 / dt`. It
 keeps the bins up to `MAX_FREQUENCY_HZ + 1e-6`, takes the maximum over windows
