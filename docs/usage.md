@@ -39,7 +39,7 @@ seq = pp.Sequence()
 seq.read("sequence.seq")  # a file that seq.write made: it has a [SIGNATURE] hash
 
 peaks = gradient_peaks(seq)
-print(peaks.axes["x"].peak_hz_per_m / abs(gamma) * 1e3, "mT/m")
+print((peaks.axes["x"].peak_hz_per_m / abs(gamma)) * 1e3, "mT/m")  # T/m -> mT/m
 print(peaks.axes["x"].max_slew_hz_per_m_per_s / abs(gamma), "T/m/s")
 
 levels = pns_levels(seq, hardware=hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc"))
@@ -265,7 +265,7 @@ default):
 import numpy as np
 
 t_s = np.arange(levels.level_max_hz_per_t.size) * levels.bin_samples * levels.dt_s
-percent = levels.level_max_hz_per_t / abs(gamma) * 100  # a new array
+percent = (levels.level_max_hz_per_t / abs(gamma)) * 100  # fraction -> %, a new array
 ```
 
 `PnsLevels`:
@@ -317,7 +317,7 @@ resonances = [(590.0, 100.0), (1140.0, 220.0)]  # (Hz, Hz): the resonances of th
 s = gradient_spectrum(seq)
 for frequency, bandwidth in resonances:
     band = np.abs(s.frequency_hz - frequency) <= bandwidth / 2
-    peak = s.rss[band].max() / abs(gamma) * 1e3  # mT/m/sqrt(Hz)
+    peak = (s.rss[band].max() / abs(gamma)) * 1e3  # T/m/sqrt(Hz) -> mT/m/sqrt(Hz)
     print(f"{frequency:.0f} Hz: {peak:.3g} mT/m/sqrt(Hz)")
 ```
 
@@ -539,5 +539,5 @@ Thus the `Opts` of a target gives limits in the units of the values
 ([section 3](#3-check-the-gradient-limits)).
 
 The arrays of a result are read-only. Convert an array to a new array
-(`s.rss / abs(gamma) * 1e3`, `levels.level_max_hz_per_t / abs(gamma) * 100`).
+(`(s.rss / abs(gamma)) * 1e3`, `(levels.level_max_hz_per_t / abs(gamma)) * 100`).
 Do not change it in place: `s.rss *= 1e3 / abs(gamma)` raises `ValueError`.
