@@ -53,34 +53,6 @@ def test_gradient_offsets_arbitrary():
     assert amp[1:-1] == pytest.approx(waveform)
 
 
-def test_gradient_points_trapezoid():
-    g = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
-    t0 = 1e-3
-    t, amp = seq_utils.gradient_points(g, t0)
-    expected_t = t0 + g.delay + np.cumsum([0.0, g.rise_time, g.flat_time, g.fall_time])
-    expected_amp = np.array([0.0, g.amplitude, g.amplitude, 0.0])
-    assert t == pytest.approx(expected_t)
-    assert amp == pytest.approx(expected_amp)
-
-
-def test_gradient_points_arbitrary():
-    n = 10
-    waveform = np.linspace(100.0, 500.0, n)
-    g = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    t0 = 2e-3
-    t, amp = seq_utils.gradient_points(g, t0)
-
-    # The first and last points are g.first and g.last at the ends of the shape.
-    assert amp[0] == pytest.approx(g.first)
-    assert amp[-1] == pytest.approx(g.last)
-    assert t[0] == pytest.approx(t0 + g.delay)
-    assert t[-1] == pytest.approx(t0 + g.delay + g.shape_dur)
-
-    # The interior points are the waveform samples, unchanged (already Hz/m).
-    assert amp[1:-1] == pytest.approx(waveform)
-    assert t[1:-1] == pytest.approx(t0 + g.delay + np.asarray(g.tt, dtype=float))
-
-
 @pytest.mark.parametrize(
     "g",
     [

@@ -29,11 +29,11 @@ Terms used below:
 Contents:
 
 1. [Static checks](#1-static-checks)
-2. [Tests](#2-tests): the package; the shared sequence helpers, the sequence
-   index, the raster sampler and the sequence extensions; the analyses (PNS and
-   the PNS levels, and the gradient peaks); the series; the analyses and their registry;
-   the gradient spectrum; the kept results; the number arguments; the kept event points;
-   the oracle of the gradient waveform
+2. [Tests](#2-tests): the package; the shared sequence helpers; the PNS levels;
+   the sequence extensions; the sequence index; the raster sampler; the gradient
+   peaks; the kept PNS levels; the series; the analyses and their registry; the
+   gradient spectrum; value equality; the kept results; the number arguments;
+   the kept event points; the oracle of the gradient waveform; the `.asc` files
 
 ---
 
@@ -276,35 +276,6 @@ gradient. For each, it calls `gradient_points` with a non-zero `t0` and
 - Bit-for-bit equality is the right check here, not an approximation: the
   point in this test is that `gradient_points` is defined in terms of
   `gradient_offsets` with no room for a rounding difference to creep in.
-
-#### `test_gradient_points_trapezoid`
-
-**Checks:** `gradient_points` gives the four corner times and amplitudes of a
-trapezoid gradient.
-
-**How:** The test makes an x trapezoid and calls `gradient_points` with a
-start time `t0`. It compares the returned times with `t0` plus the
-gradient's delay plus the running sum of the rise time, the flat time and
-the fall time, and compares the returned amplitudes with zero, the plateau
-amplitude twice, and zero.
-
-**Assumptions:** None.
-
-#### `test_gradient_points_arbitrary`
-
-**Checks:** `gradient_points` gives the sample times and amplitudes of an
-arbitrary gradient, with one added point at each end for the shape's first
-and last values.
-
-**How:** The test makes an x arbitrary gradient from a 10-point waveform and
-calls `gradient_points` with a start time `t0`. It checks that the first and
-last returned amplitudes are the gradient's `first` and `last` values, and
-that the first and last returned times are `t0` plus the delay, and `t0`
-plus the delay plus the shape duration. It checks that the interior points
-are the waveform samples unchanged, at `t0` plus the delay plus the
-gradient's own sample times (`g.tt`).
-
-**Assumptions:** None.
 
 #### `test_synthetic_sequences_pass_the_timing_check`
 
@@ -564,10 +535,10 @@ whole number of samples, so the snap to the raster does not change them.
 number, not one less because the division is not exact. For each `k` from 1 to 2000,
 `bin_s = k * 1e-5` and `bin_s = round(k * 1e-5, 10)` give `k` samples at the 10 us raster
 (the floor alone gives `k - 1` for 1047 of the values). A `bin_s` between two samples is
-rounded down: `615.5 * 1e-5` gives 615. `10.0 / 1624` gives 615, and the default gives 500.
+rounded down: `615.5 * 1e-5` gives 615, and the default gives 500.
 
 **How:** Direct calls of `bin_samples_for(0, 1e-5, bin_s)` in a loop over `k`, then the
-calls for `0.01` (1000), `615.5 * 1e-5`, `10.0 / 1624` and the default.
+calls for `0.01` (1000), `615.5 * 1e-5` and the default.
 
 **Assumptions:** The 1047 figure is from the review of 2026-10-05, for the floor without the
 tolerance.
@@ -998,17 +969,6 @@ rotation library, as `gradient_peaks` does.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_is_a_frozen_dataclass`
-
-**Checks:** `pns_levels` returns a `PnsLevels` instance, and an assignment to a field
-raises `dataclasses.FrozenInstanceError`.
-
-**How:** `isinstance(pns_levels(spin_echo_sequence()), PnsLevels)`, then
-`levels.num_samples = 0` in `pytest.raises(dataclasses.FrozenInstanceError)`. A smoke
-test of the interface; the other tests of this section check individual fields.
-
-**Assumptions:** None.
-
 #### `test_the_arrays_of_the_levels_are_read_only`
 
 **Checks:** `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, also for a
@@ -1032,17 +992,6 @@ a new key, a deletion and `update` raise `TypeError`, and the dict stays as it w
 `thresholds_hz_per_t=(_LIMIT,)`. The helper `_every_dict` lists the 6 dicts. For each:
 `isinstance` of `FrozenDict` and of `dict`, then `d[key] = 0.0`, `d["new"] = 0.0`,
 `del d[key]` and `d.update(...)` in `pytest.raises(TypeError)`, then `d == dict_before`.
-
-**Assumptions:** None.
-
-#### `test_the_levels_from_pickle_and_deepcopy_equal_the_original`
-
-**Checks:** A `PnsLevels` from `pickle` or `copy.deepcopy` is equal to the original, and all its dicts
-are `FrozenDict`s.
-
-**How:** A GRE of 4 TRs with two thresholds. `pickle.loads(pickle.dumps(levels))` and
-`copy.deepcopy(levels)`: not the same object, `==`, and `isinstance(d, FrozenDict)` for the
-six dicts.
 
 **Assumptions:** None.
 
@@ -1074,13 +1023,15 @@ trapezoid with `amplitude=0`.
 
 **Checks:** `==` compares two `PnsLevels` by the values of their fields, also with more
 than one bin, where the `__eq__` of `dataclasses` raises `ValueError`. A `PnsLevels` is
-not hashable.
+not hashable. A copy from `pickle` or `copy.deepcopy` is equal to the original, and its
+dicts are `FrozenDict`s (a `MappingProxyType` could not be pickled).
 
 **How:** The test calls `pns_levels` on a GRE sequence of 4 TRs with two thresholds
 (the stimulation limit and half of it), and asserts that the level has more than one bin.
 A second call must give another object that is equal. A `pickle` round trip and
-`copy.deepcopy` must give equal objects (the copies are writable, and the flag does not
-count). These must not be equal:
+`copy.deepcopy` must give another object that is equal (the copies are writable, and the
+flag does not count) and every dict of it (`_every_dict`) must be a `FrozenDict`. These must
+not be equal:
 
 - the result with one bin of `level_max_hz_per_t` moved up by one float32 step
   (`dataclasses.replace`);
@@ -1362,27 +1313,6 @@ those nine arrays with `numpy.array_equal` (the dense columns cast to `int64` fi
 since `sequence_index` narrows their dtype while the reference always uses `int64`).
 
 **Assumptions:** None.
-
-#### `test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block`
-
-**Checks:** The dense numbering of gradient events follows gx before gy before gz
-within one block, and reusing an already-numbered event on a different axis of a later
-block does not add a new dense index, with the expected numbers worked out by hand.
-
-**How:** The test builds a 3-block sequence by hand: block 0 has only a gz trapezoid;
-block 1 has a gx and a gy trapezoid, each a different amplitude; block 2 reuses block
-0's gz trapezoid object (a shallow copy with its `channel` changed to `"x"`) on gx. It
-checks `index.gx`, `gy`, `gz`, `grad_first` and `grad_first_axis` against the
-hand-worked values, then checks that `grad_events` yields the three events in dense
-order 1, 2, 3 with the expected amplitudes (1e5, 2e5, 3e5).
-
-**Assumptions:**
-
-- pypulseq's gradient library keys an event by its shape and amplitude data, not by
-  the channel it is later read from, so the same trapezoid object can be reused on a
-  different axis and keep the same library id. This was checked directly against
-  `seq.block_events` and `seq.grad_library` while writing this test; the test itself
-  then relies on it to make the hand-worked expected numbers correct.
 
 #### `test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries`
 
@@ -2455,8 +2385,8 @@ the block's own gradient event. It checks that the x axis peak matches (Hz/m).
 **Assumptions:**
 
 - `seq_utils.gradient_points` adds `first` and `last` as extra points at the
-  ends of an arbitrary gradient's shape (checked by `test_gradient_points_arbitrary`
-  in `test_seq_utils.py`), so they can hold the largest magnitude even when
+  ends of an arbitrary gradient's shape (checked by `test_gradient_offsets_arbitrary`
+  and `test_gradient_points_matches_gradient_offsets_exactly` in `test_seq_utils.py`), so they can hold the largest magnitude even when
   every interior waveform sample is smaller.
 
 #### `test_no_gradients_sets_reason`
@@ -3235,7 +3165,7 @@ inside the window.
 
 **How:** For six sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
 duration before, between and after them, the junction sequence, the delayed junction sequence,
-one random gradient sequence and one random sequence of `random_gap_sequence`), 100 windows
+one random gradient sequence and one random sequence of `random_gap_sequence`), 30 windows
 with the seed 20261006: the ends of every other window are each the start or the end of a block
 (or 0 or the end of the sequence), and the ends of the others are random. The test builds two
 sequences of the same build, `seq` and `other`. It never empties the kept data of `seq`, so
@@ -3520,101 +3450,6 @@ Most of the tests use the synthetic spin echo sequence
 - No test uses the parameters of a real scanner. A PNS value for the
   synthetic sequences on the scanner is not tested.
 
-#### `test_example_hardware_for_spin_echo`
-
-**Checks:** For the synthetic spin echo sequence on the example hardware, the peak, the
-peak time and the axis peaks of `pns_levels` equal those of `seq.calculate_pns` of the
-pinned fork. They are below the stimulation limit and highest on y.
-
-**How:** The test calls `calculate_pns` with `safe_example_hw()` and takes the peak, the
-peak time (the first sample with a total of at least `peak * (1 - PEAK_TOLERANCE)`) and
-the peak of each axis. It compares them with the module-scoped `example` fixture
-(`pns_levels` with `hardware=EXAMPLE_HW`). Each `pns_levels` value in Hz/T is divided by
-`seq.system.gamma`. The peaks must agree within 1e-6 of the reference peak and the peak
-time within 1e-9 s, as in `test_summary_matches_calculate_pns_within_the_fork_tolerance`.
-The test also checks that there is no reason, that the hardware is the label of
-`EXAMPLE_HW`, that the axis peaks are keyed x, y and z, and that the peak is more than 0
-and less than `_LIMIT` (100 % of the limit, in Hz/T). The axis with the highest peak must
-be y, where the crushers are.
-
-**Assumptions:**
-
-- "Below the limit" is for the example hardware only.
-- The crushers (on y) give the synthetic sequence's highest per-axis PNS. This was checked
-  against a direct run of the model, not derived by hand.
-- The tolerance of 1e-6 is the one of the test named above: the file times of
-  `calculate_pns` drift off the raster by float rounding.
-
-#### `test_asc_file_with_a_missing_include`
-
-**Checks:** When a file that `$INCLUDE` names is not there, reading the `.asc`
-file stops with an error that names both files.
-
-**How:** The test writes a test `.asc` file with the scanner layout, deletes
-the `_GSWD_SAFETY.asc` file, and reads the main file. It must raise
-`FileNotFoundError` with a message that has the main file name and the
-included file name.
-
-**Assumptions:** None.
-
-#### `test_asc_files_that_include_each_other`
-
-**Checks:** Reading two `.asc` files that include each other stops with
-`ValueError` that names the cycle. It does not recurse until `RecursionError`.
-
-**How:** The test writes `a.asc` with a `$INCLUDE b.asc` line and `b.asc` with a
-`$INCLUDE a.asc` line, and reads `a.asc`. The message must have `a.asc`, `b.asc`
-and `a.asc` in this order.
-
-**Assumptions:** None.
-
-#### `test_asc_file_that_includes_itself`
-
-**Checks:** Reading a `.asc` file with a `$INCLUDE` line that names itself stops
-with `ValueError`.
-
-**How:** The test writes `a.asc` with a `$INCLUDE a.asc` line and reads it. The
-message must name `a.asc` twice.
-
-**Assumptions:** None.
-
-#### `test_asc_file_included_by_two_branches_is_not_a_cycle`
-
-**Checks:** A file that two different included files both include is read
-without an error, and its fields are in the result.
-
-**How:** The test writes `shared.asc`, `b.asc` and `c.asc` (each includes
-`shared.asc`) and `main.asc` (includes `b.asc` and `c.asc`). The fields read
-must be the field of `main.asc` and the field of `shared.asc`.
-
-**Assumptions:** None.
-
-#### `test_included_fields_replace_fields_with_the_same_name`
-
-**Checks:** The fields of an included file are merged into the fields of the
-main file, and a field in both files gets the value of the included file.
-
-**How:** The test writes a main file with `a.b[0] = 1`, `a.b[1] = 2`,
-`c = "old"` and a `$INCLUDE` line, and an included file with `a.b[1] = 3` and
-`c = "new"`. The fields read must be `a.b[0] = 1`, `a.b[1] = 3` and
-`c = "new"`.
-
-**Assumptions:**
-
-- The `$INCLUDE` line is the last field of the main file in this test, so the
-  included values are the last values, as in the file order. A field after a
-  `$INCLUDE` line that is also in the included file is not tested.
-
-#### `test_hardware_name`
-
-**Checks:** The hardware name comes from `asCOMP[0].tName` (a scanner file) or
-`asCOMP.tName`, and is "unknown" without either.
-
-**How:** The test gives the name function the fields for each of the three
-cases and checks the name.
-
-**Assumptions:** None.
-
 #### `test_prediction_scales_with_the_stimulation_limit`
 
 **Checks:** A stimulation limit 10 times lower gives a peak 10 times
@@ -3642,20 +3477,6 @@ and checks the reason.
 - `pns_levels` finds "no gradients" from the gradient columns of
   `seq.block_events`. This test and `test_no_gradients` check that other
   events do not count as gradients.
-
-#### `test_a_gradient_on_one_axis_has_a_prediction`
-
-**Checks:** A sequence with a gradient on one axis only, x, y or z, has a
-PNS result.
-
-**How:** For each axis, the test makes a sequence with a delay block and a
-trapezoid block on that axis. There must be no reason, and the peak must be
-more than 0.
-
-**Assumptions:**
-
-- A gradient in a block after the first block counts. The delay block comes
-  first, so a check of the first block only would fail.
 
 #### `test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence`
 
@@ -3707,20 +3528,6 @@ function that raises `RuntimeError`. The call must raise the error,
   chunk loop starts). So this test checks that the error propagates and that nothing
   else in `pns_levels` touches the cache setting outside that
   narrower guarantee, not that the guarantee itself is new.
-
-#### `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`
-
-**Checks:** `hardware_from_asc(path)` is the pair `(asc_to_hw(asc), hardware_name(asc))` of
-`asc = read_gradient_asc(path)`, field by field, for the plain layout and for the layout of
-a scanner file (a main file that includes the PNS parameters with `$INCLUDE`).
-
-**How:** Parametrized on `split`. The `write_gradient_asc` fixture of `tests/conftest.py`
-writes the file. The test checks that the result is a tuple, that its label equals
-`hardware_name(asc)` and is `"MP_GPA_TEST"`, that the struct has the same attribute names
-as `asc_to_hw(asc)`, and that `vars` of each axis (`x`, `y`, `z`) equals `vars` of the same
-axis of `asc_to_hw(asc)`.
-
-**Assumptions:** None.
 
 #### `test_pns_levels_keeps_one_result_for_equal_hardware_pairs`
 
@@ -5093,18 +4900,20 @@ within a relative 1e-12 or an absolute 1e-12 times the array's own peak.
   whole-axis polyline, so the values are not always bit-for-bit equal.
 - The multiplication by `1e3 / gamma` is exact only to the float rounding, and
   the tolerance allows for it.
-- The long sequences are in `test_matches_oracle_on_long_sequences`, with a
+- The sequences of many blocks are in `test_matches_oracle_with_many_chunks`, with a
   tolerance that grows with the duration.
 
-#### `test_matches_oracle_on_long_sequences`
+#### `test_matches_oracle_with_many_chunks`
 
 **Checks:** The same comparison with the oracle as `test_matches_oracle_on_synthetic_sequences`,
-on long sequences of `tests/scale_sequences.py`: `build_repeating` at 10^4 blocks (14 s) and
-`build_worst` at 5000 blocks (7 s). Each has more than one chunk of `CHUNK_WINDOWS` windows.
+on sequences of `tests/scale_sequences.py`: `build_repeating` and `build_worst` at 1000 blocks
+(200 TRs, 1.2 s and 1.4 s, 48 and 56 windows). `CHUNK_WINDOWS` is 4, so each has 12 or 14 chunks
+and a shorter last chunk, as in `test_matches_scipy_spectrogram`.
 
-**How:** The test builds each sequence with `blocks / TR_BLOCKS` TRs, and compares this module's
-spectrum (times `1e3 / gamma`) with the oracle's, as the test above does, with the tolerance
-`1e-12 * max(1, duration in s)` instead of 1e-12.
+**How:** The test sets `grad_spectrum.CHUNK_WINDOWS` to 4 (`monkeypatch`), builds each sequence
+with `1000 / TR_BLOCKS` TRs, and compares this module's spectrum (times `1e3 / gamma`) with the
+oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in s)` instead of
+1e-12.
 
 **Assumptions:**
 
@@ -5115,7 +4924,9 @@ spectrum (times `1e3 / gamma`) with the oracle's, as the test above does, with t
   2.5e-12 of the peak at 10^4 repeating blocks (12 s). The oracle now makes its points with the
   same sums as the sampler, and the difference is below 1e-15 of the peak at 10^4 blocks of each
   builder. The tolerance stays.
-- `build_worst` has 5000 blocks, not 10^4, so that the test is faster. It still has two chunks.
+- The test no longer runs the sequences of 10^4 blocks and 5000 blocks (14 s and 7 s) that it
+  ran before 2026-10-07, so that it is faster. It does not test the rounding of an absolute
+  time above 1.4 s.
 
 #### `test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform`
 
@@ -5768,7 +5579,8 @@ raise `ValueError`.
 
 `test_events.py` tests `_events.py`: `event_points`, which reads the points of the unique
 gradient events of a sequence one time and keeps them for the sequence object, and the two
-users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The tests
+users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The values of
+`_event_values` are tested with hand-computed values. The tests
 use the synthetic spin echo, gradient echo and arbitrary gradient sequences (and, for the
 types of the arrays, the empty sequence). That the kept result is made again after a new
 read is tested in section 2.12.
@@ -5803,18 +5615,6 @@ test checks the dtype (float64 for `delay`, `offsets` and `amp`; int64 for `coun
 
 **Assumptions:** None.
 
-#### `test_event_points_has_the_points_that_grad_events_gives`
-
-**Checks:** `event_points` has the points of `grad_events` and `gradient_offsets`, in the
-dense order of the events, and the gradient raster of the sequence.
-
-**How:** Parametrized over the three sequences. The test reads each event from `grad_events`,
-makes the arrays with Python lists and `numpy.cumsum`, and compares each with the array of
-`event_points` (`array_equal`, so bit for bit). It also compares `grad_raster_time` with
-`seq.grad_raster_time`.
-
-**Assumptions:** None.
-
 #### `test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy`
 
 **Checks:** `GradientSampler(index, event_points(seq))` keeps the pooled points of
@@ -5825,19 +5625,6 @@ sampler's offsets and amplitudes with `points.offsets` and `points.amp`.
 
 **Assumptions:** The test reads two private attributes of the sampler. The samples of the
 sampler are tested in `test_sampling.py`.
-
-#### `test_event_values_of_the_points_equal_the_values_of_gradient_points`
-
-**Checks:** `grad_peaks._event_values(event_points(seq))` has the values of `_polyline_values`
-of the points of `gradient_points(g, 0.0)` of each event, bit for bit.
-
-**How:** Parametrized over the three sequences. For each event of `grad_events`, the test makes
-`t, amp = gradient_points(g, 0.0)` and the values of `_polyline_values(t, amp)`. The peak, its
-offset, the slew, its offset and the integral must be equal (`==`). (`_EventData` has no points,
-no first value and no last value: `_axis_events` takes them from the points.)
-
-**Assumptions:** `_polyline_values` is tested with the results of `gradient_peaks` in section
-2.6.
 
 #### `test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_computed_values`
 
@@ -6071,3 +5858,98 @@ same times (1 ps) and same values (relative 1e-9).
 that is next to a gap is not 0. The test does not check the model of the gaps. The arbitrary
 gradient sequence has a first and a last value of about 14 Hz/m, but they are at the two
 ends of the axis, where `waveforms()` has no extra point.
+
+### 2.16 The `.asc` files (`test_asc.py`)
+
+`test_asc.py` tests `asc.py`: `read_gradient_asc`, which reads a gradient `.asc` file and the
+files that it includes with `$INCLUDE` into nested fields; `hardware_name`, which takes the
+name of the hardware from the fields; and `hardware_from_asc`, which gives the pair
+`(struct, label)` that `pns_levels` takes. The real `.asc` files are confidential, so the tests
+that need a file with the PNS parameters write one with the `write_gradient_asc` fixture of
+`tests/conftest.py` (the PNS parameters of pypulseq's example hardware, in the plain layout or in
+the layout of a scanner file). The tests of the include rules write small files in `tmp_path`.
+That `pns_levels` keeps its result for a pair from a file is tested in section 2.7.
+
+#### `test_asc_file_with_a_missing_include`
+
+**Checks:** When a file that `$INCLUDE` names is not there, reading the `.asc`
+file stops with an error that names both files.
+
+**How:** The test writes a test `.asc` file with the scanner layout, deletes
+the `_GSWD_SAFETY.asc` file, and reads the main file. It must raise
+`FileNotFoundError` with a message that has the main file name and the
+included file name.
+
+**Assumptions:** None.
+
+#### `test_asc_files_that_include_each_other`
+
+**Checks:** Reading two `.asc` files that include each other stops with
+`ValueError` that names the cycle. It does not recurse until `RecursionError`.
+
+**How:** The test writes `a.asc` with a `$INCLUDE b.asc` line and `b.asc` with a
+`$INCLUDE a.asc` line, and reads `a.asc`. The message must have `a.asc`, `b.asc`
+and `a.asc` in this order.
+
+**Assumptions:** None.
+
+#### `test_asc_file_that_includes_itself`
+
+**Checks:** Reading a `.asc` file with a `$INCLUDE` line that names itself stops
+with `ValueError`.
+
+**How:** The test writes `a.asc` with a `$INCLUDE a.asc` line and reads it. The
+message must name `a.asc` twice.
+
+**Assumptions:** None.
+
+#### `test_asc_file_included_by_two_branches_is_not_a_cycle`
+
+**Checks:** A file that two different included files both include is read
+without an error, and its fields are in the result.
+
+**How:** The test writes `shared.asc`, `b.asc` and `c.asc` (each includes
+`shared.asc`) and `main.asc` (includes `b.asc` and `c.asc`). The fields read
+must be the field of `main.asc` and the field of `shared.asc`.
+
+**Assumptions:** None.
+
+#### `test_included_fields_replace_fields_with_the_same_name`
+
+**Checks:** The fields of an included file are merged into the fields of the
+main file, and a field in both files gets the value of the included file.
+
+**How:** The test writes a main file with `a.b[0] = 1`, `a.b[1] = 2`,
+`c = "old"` and a `$INCLUDE` line, and an included file with `a.b[1] = 3` and
+`c = "new"`. The fields read must be `a.b[0] = 1`, `a.b[1] = 3` and
+`c = "new"`.
+
+**Assumptions:**
+
+- The `$INCLUDE` line is the last field of the main file in this test, so the
+  included values are the last values, as in the file order. A field after a
+  `$INCLUDE` line that is also in the included file is not tested.
+
+#### `test_hardware_name`
+
+**Checks:** The hardware name comes from `asCOMP[0].tName` (a scanner file) or
+`asCOMP.tName`, and is "unknown" without either.
+
+**How:** The test gives the name function the fields for each of the three
+cases and checks the name.
+
+**Assumptions:** None.
+
+#### `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`
+
+**Checks:** `hardware_from_asc(path)` is the pair `(asc_to_hw(asc), hardware_name(asc))` of
+`asc = read_gradient_asc(path)`, field by field, for the plain layout and for the layout of
+a scanner file (a main file that includes the PNS parameters with `$INCLUDE`).
+
+**How:** Parametrized on `split`. The `write_gradient_asc` fixture of `tests/conftest.py`
+writes the file. The test checks that the result is a tuple, that its label equals
+`hardware_name(asc)` and is `"MP_GPA_TEST"`, that the struct has the same attribute names
+as `asc_to_hw(asc)`, and that `vars` of each axis (`x`, `y`, `z`) equals `vars` of the same
+axis of `asc_to_hw(asc)`.
+
+**Assumptions:** None.

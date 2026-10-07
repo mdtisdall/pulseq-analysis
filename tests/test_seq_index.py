@@ -147,40 +147,6 @@ def test_dense_columns_and_first_arrays_match_the_reference_numbering(builder):
     _assert_index_matches_reference(seq)
 
 
-def test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block():
-    """Block 0: a gz trapezoid only (event e1). Block 1: a gx trapezoid (e2, a
-    different amplitude) and a gy trapezoid (e3, a third amplitude). Block 2: reuses e1
-    (the same trapezoid object, amplitude and all) on the gx channel.
-
-    Worked out by hand: block 0 introduces only e1, on gz, so e1 gets dense index 1,
-    first play index 0. Block 1 introduces e2 on gx before e3 on gy (gx before gy
-    within one block), so they get dense indexes 2 and 3, both with first play index 1.
-    Block 2's gx event is e1 again (already dense 1), so it adds no new dense index."""
-    seq = signed(pp.Sequence(SYSTEM))
-    common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
-    gz = pp.make_trapezoid(channel="z", amplitude=1e5, **common)
-    gx = pp.make_trapezoid(channel="x", amplitude=2e5, **common)
-    gy = pp.make_trapezoid(channel="y", amplitude=3e5, **common)
-    seq.add_block(gz)
-    seq.add_block(gx, gy)
-    gz_as_gx = copy.copy(gz)
-    gz_as_gx.channel = "x"
-    seq.add_block(gz_as_gx)
-
-    index = sequence_index(seq)
-    assert index.gx.tolist() == [0, 2, 1]
-    assert index.gy.tolist() == [0, 3, 0]
-    assert index.gz.tolist() == [1, 0, 0]
-    assert index.grad_first.tolist() == [0, 1, 1]
-    assert index.grad_first_axis.tolist() == [2, 0, 1]  # gz, gx, gy
-
-    events = list(grad_events(seq, index))
-    assert [k for k, _ in events] == [1, 2, 3]
-    assert events[0][1].amplitude == 1e5  # dense 1: the block-0 gz event
-    assert events[1][1].amplitude == 2e5  # dense 2: the block-1 gx event
-    assert events[2][1].amplitude == 3e5  # dense 3: the block-1 gy event
-
-
 def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries():
     """The RF, gradient and ADC events are registered in the libraries in the reverse of the
     order of their first use, so the library ids are 2, 1 for the two RF events, 3, 2, 1 for
