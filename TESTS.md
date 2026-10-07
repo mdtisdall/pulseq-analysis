@@ -5017,10 +5017,10 @@ no arguments again must give the first object. A call with
 ### 2.11 Value equality (`test_equality.py`)
 
 `test_equality.py` tests `_equality.py`: `values_equal`, the rules by which two values
-are equal, and `fields_equal`, the `__eq__` of `SequenceIndex`, `GradientPeaks`,
-`BlockGradientValues`,
-`PnsLevels`, `GradientSpectrum` and `Series`. The
-tests use small values and two dataclasses of the test file, not results of the package.
+are equal, `fields_equal`, and `value_dataclass`, the decorator that makes
+`fields_equal` the `__eq__` of `SequenceIndex`, `GradientPeaks`, `BlockGradientValues`,
+`PnsLevels`, `GradientSpectrum` and `Series`. The tests use small values and three
+dataclasses of the test file, not results of the package.
 Sections 2.2 and 2.10 test the `==` of the results.
 
 #### `test_values_equal`
@@ -5055,6 +5055,20 @@ equal to an object of another class, and is not hashable.
 values must be equal. An object with another array value or another dict value must not
 be equal. An object must not equal a string, and `fields_equal(a, "a")` must be
 `NotImplemented`. `hash` must raise `TypeError`.
+
+**Assumptions:** None.
+
+#### `test_value_dataclass_makes_a_frozen_class_with_value_equality`
+
+**Checks:** A class with `@value_dataclass` is a frozen dataclass that compares its fields
+with `fields_equal`, is not equal to an object of another class with the same fields, and
+is not hashable.
+
+**How:** A class of the test file with an array and a dict, and a second class with the
+same fields. A change of a field must raise `dataclasses.FrozenInstanceError`. Two objects
+with the same values, a NaN in the array, must be equal. An object with another array
+value, or with the same dict items in another order, must not be equal. An object of the
+second class with the same values must not be equal. `hash` must raise `TypeError`.
 
 **Assumptions:** None.
 
