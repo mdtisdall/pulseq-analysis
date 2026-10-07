@@ -27,11 +27,11 @@ as one spectrogram of the whole padded waveform.
 
 pypulseq makes the windows with scipy's `spectrogram` (mode="magnitude"), which calculates
 the magnitude of every FFT bin. Here `_chunk_spectrogram` gives the same values with
-the same steps as scipy: the windows, the constant detrend, the Hann window, the FFT and
-the scale of the magnitude mode. The windows are a read-only view of the samples of the
-chunk, and the magnitude is taken only of the bins up to `max_frequency_hz`, about
-1/25 of the bins at the defaults, so the chunk needs less memory and time than scipy's
-call. The values agree with scipy's to the float rounding
+the same steps as scipy: the windows, the constant detrend, the Hann window, the FFT
+(`scipy.fft.rfft` in one thread) and the scale of the magnitude mode. The windows are a
+read-only view of the samples of the chunk, and the magnitude is taken only of the bins up
+to `max_frequency_hz`, about 1/25 of the bins at the defaults, so the chunk needs less
+memory and time than scipy's call. The values agree with scipy's to the float rounding
 (`tests/test_grad_spectrum.py`, `test_matches_scipy_spectrogram`).
 
 The spectrum is in Hz/m/sqrt(Hz), the unit of the gradients of a .seq file, with no
@@ -53,6 +53,7 @@ import weakref
 
 import numpy as np
 import pypulseq as pp
+from scipy import fft as scipy_fft
 from scipy.signal import get_window
 
 from ._equality import FrozenDict, value_dataclass
@@ -282,8 +283,9 @@ def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep
 
     The steps are those of scipy's `_spectral_helper`: the windows (a read-only view with a
     hop of `nwin - nwin // 2`), the mean of each window taken off, the window function, the
-    FFT with `nfft` points, and the scale of the magnitude mode with the density scaling,
-    `sqrt(1 / (fs * sum(window**2)))`. Only the `keep_n` bins are made into magnitudes."""
+    FFT with `nfft` points (`scipy.fft.rfft` in one thread), and the scale of the magnitude
+    mode with the density scaling, `sqrt(1 / (fs * sum(window**2)))`. Only the `keep_n` bins
+    are made into magnitudes."""
     w = np.zeros(stop - start)
     # Sequence sample i is at (i + 0.5) * dt, and is padded sample i + pad.
     lo, hi = max(start - pad, 0), min(stop - pad, nt)
@@ -306,5 +308,5 @@ def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep
     )
     scale = np.sqrt(1.0 / ((1 / dt) * (window * window).sum()))
     detrended = (windows - windows.mean(axis=1, keepdims=True)) * window
-    kept = np.fft.rfft(detrended, n=nfft, axis=1)[:, :keep_n]
+    kept = scipy_fft.rfft(detrended, n=nfft, axis=1, workers=1)[:, :keep_n]
     return np.abs(kept).T * scale
