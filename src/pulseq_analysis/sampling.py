@@ -98,9 +98,10 @@ class GradientSampler:
         self._amp = points.amp
         # Filled lazily, one time for each axis that `sample` is called with.
         self._axis_blocks: dict[str, np.ndarray] = {}
-        # The samples of each (event, n, dt) that `block_samples` has computed, up to the last
-        # one at or before the last point of the event (`_kept_samples`).
-        self._block_sample_cache: dict[tuple[int, int, float], np.ndarray] = {}
+        # The samples of each (event, dt) that `block_samples` has computed, from the first
+        # to the last one at or before the last point of the event (`_kept_samples`). A block
+        # of `n` samples has the first `n` of them.
+        self._block_sample_cache: dict[tuple[int, float], np.ndarray] = {}
 
     def _event_blocks(self, axis: str) -> np.ndarray:
         """The play indexes that have an event on `axis`, sorted, computed one time and
@@ -229,10 +230,11 @@ class GradientSampler:
 
         return _polyline_values(times, values, t)
 
-    def _kept_samples(self, event_k: int, count_n: int, dt: float) -> int:
-        """The number of the first samples of a block of `count_n` samples that can be
-        nonzero for gradient event `event_k`: the samples at or before its last point, or
-        within `TIME_TOLERANCE` after it (`block_samples` gives 0 after that)."""
+    def _kept_samples(self, event_k: int, dt: float) -> int:
+        """The number of the first samples of a block that can be nonzero for gradient event
+        `event_k`: the samples at or before its last point, or within `TIME_TOLERANCE`
+        after it (`block_samples` gives 0 after that). A block of `n` samples has the
+        first `min(n, _kept_samples)` of them."""
         last_t = self._delay[event_k] + self._offsets[int(self._at[event_k] + self._n[event_k]) - 1]
         limit = last_t + TIME_TOLERANCE
         # The count of j with (j + 0.5) * dt <= limit, from a guess that the two loops
@@ -242,7 +244,7 @@ class GradientSampler:
             j += 1
         while j >= 0 and (j + 0.5) * dt > limit:
             j -= 1
-        return min(count_n, j + 1)
+        return j + 1
 
     def _event_samples(self, event_k: int, first: int, stop: int, dt: float) -> np.ndarray:
         """The samples (Hz/m) `first` to `stop - 1` of a block with gradient event
@@ -291,15 +293,18 @@ class GradientSampler:
         for `skip=0, count=None`. The first and the last block of that sample range give
         only their samples inside it; they are computed for that part only and are not
         kept, so the cost does not grow with the parts of these blocks outside the
-        range. The samples of each unique (event, n) of a block that lies whole in the
+        range. The samples of each unique event of a block that lies whole in the
         range are computed one time and kept, up to the last sample at or before the
         last point of the event, or within `TIME_TOLERANCE` after it (the samples after it
-        are 0 and are not kept), and a call gathers them with numpy for all these blocks,
-        not with a Python loop over the blocks. The samples in a gap are written after
-        that, for the pieces of the gaps that overlap the range (`_write_gaps`). Cost: O(samples in the range + blocks in the
-        range + points of the events not yet kept), and one time for each sequence and
-        axis O(blocks with an event on the axis) for the gaps (`_find_gaps`). Memory: the result, and the kept samples of the events of
-        whole blocks, so it does not grow with the length of a block that the range cuts.
+        are 0 and are not kept), and a call gathers them with one indexed copy for all these
+        blocks, not with a Python loop over the blocks: a block of `n` samples has the first
+        `n` of the kept samples of its event, whatever the length of the other blocks that
+        have the event. The samples in a gap are written after that, for the pieces of the
+        gaps that overlap the range (`_write_gaps`). Cost: O(samples in the range + blocks in
+        the range + points of the events not yet kept), and one time for each sequence and
+        axis O(blocks with an event on the axis) for the gaps (`_find_gaps`). Memory: the
+        result, and the kept samples of the events of whole blocks, so it does not grow with
+        the length of a block that the range cuts.
 
         Raises ValueError for an unknown axis, for `first`/`stop` outside
         `0 <= first <= stop <= num_blocks`, when a block of the range is not on the
@@ -379,7 +384,7 @@ class GradientSampler:
             block_start = int(starts_touched[position])
             lo = max(-block_start, 0)
             hi = min(int(n_touched[position]), count - block_start)
-            hi = min(hi, self._kept_samples(event_k, int(n_touched[position]), dt))
+            hi = min(hi, self._kept_samples(event_k, dt))
             if lo < hi:
                 out[block_start + lo : block_start + hi] = self._event_samples(event_k, lo, hi, dt)
 
@@ -387,34 +392,34 @@ class GradientSampler:
             return
 
         cache = self._block_sample_cache
-
-        def event_samples(event_k: int, count_n: int) -> np.ndarray:
-            """The samples (Hz/m) of gradient event `event_k` in a block of `count_n`
-            samples, up to the last one that `_kept_samples` counts, cached by
-            `(event_k, count_n, dt)`."""
-            cache_key = (event_k, count_n, dt)
-            samples = cache.get(cache_key)
-            if samples is None:
-                kept = self._kept_samples(event_k, count_n, dt)
-                samples = self._event_samples(event_k, 0, kept, dt)
-                cache[cache_key] = samples
-            return samples
-
-        # One (event, n) pair for each distinct combination in the range: a Python loop
-        # over these (normally few), not over the blocks themselves.
-        pairs = np.stack([k[whole], n_touched[whole]], axis=1)
-        starts_whole = starts_touched[whole]
-        unique_pairs, inverse = np.unique(pairs, axis=0, return_inverse=True)
+        # One entry for each distinct event in the range: a Python loop over these (normally
+        # few), not over the blocks themselves. A block of `n` samples has the first `n` of
+        # the samples of its event (the samples do not depend on `n`), or all of them when
+        # there are fewer.
+        unique_k, inverse = np.unique(k[whole], return_inverse=True)
         inverse = np.asarray(inverse).reshape(-1)
-        for pair_index in range(unique_pairs.shape[0]):
-            event_k = int(unique_pairs[pair_index, 0])
-            count_n = int(unique_pairs[pair_index, 1])
-            samples = event_samples(event_k, count_n)
-            if samples.size == 0:
-                continue
-            block_starts = starts_whole[inverse == pair_index]
-            idx = (block_starts[:, None] + np.arange(samples.size, dtype=np.int64)[None, :]).ravel()
-            out[idx] = np.tile(samples, block_starts.size)
+        kept = []
+        for event_k in unique_k.tolist():
+            samples = cache.get((event_k, dt))
+            if samples is None:
+                samples = self._event_samples(event_k, 0, self._kept_samples(event_k, dt), dt)
+                cache[(event_k, dt)] = samples
+            kept.append(samples)
+        sizes = np.fromiter((samples.size for samples in kept), dtype=np.int64, count=len(kept))
+        pool = np.concatenate(kept)
+        pool_starts = np.cumsum(sizes) - sizes
+
+        # The samples of block `b` are `pool[pool_starts[inverse[b]] :][:length[b]]`, written
+        # at `starts_touched[whole][b]`: one gather over the blocks.
+        length = np.minimum(n_touched[whole], sizes[inverse])
+        total = int(length.sum())
+        if total == 0:
+            return
+        group_starts = np.cumsum(length) - length
+        local = np.arange(total, dtype=np.int64)
+        source = local + np.repeat(pool_starts[inverse] - group_starts, length)
+        target = local + np.repeat(starts_touched[whole] - group_starts, length)
+        out[target] = pool[source]
 
     def _write_gaps(
         self,

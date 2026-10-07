@@ -399,7 +399,7 @@ slow.
 | K | The number of unique gradient events (`index.grad_first.size`). |
 | P | The number of points of the unique gradient events. |
 | P_play | The number of points of all the gradient events that play: the sum, over the blocks, of the points of the events of the block. |
-| U | The number of unique pairs (gradient event, block length in samples) of the blocks that play. |
+| U | The number of unique gradient events of the blocks that play. |
 | S | The number of samples on the gradient raster: the duration divided by `dt`. A sequence of 2 minutes at 10 µs has 12 million. |
 | Q | The number of times of a call of `sample`. |
 | nwin, nfft | The samples of a window of the spectrum, and the length of its FFT. |
@@ -477,12 +477,13 @@ O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
 of that axis (section 3.2).
 
 **`GradientSampler.block_samples(...)`.** The samples of each block of a
-range, on the raster. The samples of one event in a block of one length are
-the same in each block, so the sampler makes them one time for each unique
-pair (event, block length) and copies them into each block. The samples of the
-gaps are then written over them, vectorised. Time O(samples of the range),
-plus O(pairs × blocks of the range) to find the blocks of each pair, plus the
-samples of each new pair one time. A sequence that repeats a TR has few pairs.
+range, on the raster. The samples of one event do not depend on the length
+of its block (a block of n samples has the first n of them), so the sampler
+makes them one time for each unique event and gathers them into all the blocks
+with one indexed copy. The samples of the gaps are then written over them,
+vectorised. Time O(samples of the range + blocks of the range), plus the
+samples of each new event one time. A sequence that repeats a TR has few
+unique events.
 
 **`pns_levels`.** The model runs on chunks of about 30,000 samples, or of one
 bin when a bin is longer (a chunk is `bin_samples * ceil(CHUNK_SAMPLES /
@@ -500,11 +501,10 @@ memory does not grow with the duration:
 After the last chunk, the model runs again on the one chunk of the peak, to
 find the time of the peak. Time O(S), plus O(S) for each threshold (a
 comparison, which adds a few percent), plus O(U) for the samples of the unique
-pairs (event, block length) that `block_samples` makes one time for each pair
-(section 2.4). Memory O(chunk) for the samples (at the default `bin_s`, about
+events that `block_samples` makes one time for each event (section 2.4). Memory O(chunk) for the samples (at the default `bin_s`, about
 6 MB; 34 MB for a `bin_s` of 2 s), plus the bins (at most `MAX_BINS`, 16 MB), the
 runs, and the cache of `block_samples`, which holds the samples of each unique
-pair up to the last point of its event, 8 bytes for each sample: 16 MB for 1000
+event up to its last point, 8 bytes for each sample: 16 MB for 1000
 different arbitrary gradients of 2000 samples.
 
 The cost grows with the duration, not with the number of blocks, when the
@@ -545,7 +545,7 @@ points of the installed packages. An analysis `compute` is its function.
 | `gradient_peaks(seq)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
 | `gradient_peaks(seq, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
 | `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
-| `pns_levels` | O(S + U) | O(chunk + bins + samples of the U pairs) | duration, and unique events |
+| `pns_levels` | O(S + U) | O(chunk + bins + samples of the U events) | duration, and unique events |
 | `gradient_spectrum` | O(S · oversampling · log nfft) | O(256 · nfft) | duration |
 
 ### 3.5 Measured times

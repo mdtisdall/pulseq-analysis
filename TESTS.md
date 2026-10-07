@@ -2184,6 +2184,26 @@ sampler of the test and on a new one.
 
 **Assumptions:** The tolerance to the oracle is the one of the test above.
 
+#### `test_one_event_in_blocks_of_two_lengths_gives_the_samples_of_each_length`
+
+**Checks:** One gradient event in two blocks of different lengths gives the samples of each
+length: the samples of `oracle.block_samples` for the block, and exactly the samples of a new
+sampler that meets only that range. `block_samples` keeps the samples of an event for all the
+lengths (the cache key is `(event, dt)`, and a block of `n` samples has the first `n` of them), so
+this holds whichever length the sampler meets first.
+
+**How:** Parametrized by the order of the two blocks (short then long, long then short). A
+trapezoid on x (rise 50 us, flat 30 us, fall 50 us) is in both. The short block has the trapezoid
+alone: 13 samples. The long block has it and a delay of 400 us: 40 samples, of which the last 27
+are 0. The test checks that the two blocks have one event ID. For each of two orders of calls
+(block 0 first, block 1 first), a new sampler gives block 0, block 1 and both blocks. Each range
+is compared with the same samples of the oracle (1e-9 of the peak), and with the same range from
+a new sampler (`numpy.array_equal`).
+
+**Assumptions:** A block is never shorter than its event, so no block cuts the samples of its
+event: the number of samples of an event is at most the number of samples of each block that has
+it.
+
 #### `test_the_samples_in_a_short_gap_are_the_line_by_hand`
 
 **Checks:** A sample in a short gap (one raster time) is on the line from the last value of the
