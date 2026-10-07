@@ -7,6 +7,7 @@
 import base64
 import gzip
 import json
+import zlib
 from dataclasses import replace
 from fractions import Fraction
 
@@ -591,6 +592,24 @@ def test_series_copies_arrays_and_meta():
     assert s.meta is not meta
 
 
+def test_series_dicts_cannot_be_changed():
+    """A change of `arrays` or `meta` of a series (setitem, delitem, update, pop) raises
+    `TypeError`, and the series is the same after it."""
+    s = _samples(arrays={"value": np.arange(4.0)}, meta={"k": 1})
+    before = s.to_obj()
+    for d, key, value in ((s.arrays, "value", np.zeros(2)), (s.meta, "k", object())):
+        with pytest.raises(TypeError):
+            d[key] = value
+        with pytest.raises(TypeError):
+            del d[key]
+        with pytest.raises(TypeError):
+            d.update({key: value})
+        with pytest.raises(TypeError):
+            d.pop(key)
+    assert s.to_obj() == before
+    assert json.dumps(s.to_obj(), allow_nan=False)
+
+
 def test_series_arrays_are_read_only_and_the_callers_array_is_not():
     """Each array of a series is read-only, and the caller's own array stays writable."""
     value = np.arange(4, dtype=np.float32)
@@ -1007,6 +1026,32 @@ def _encoded(**overrides) -> dict:
 
 def _gzip_text(raw: bytes) -> str:
     return base64.b64encode(gzip.compress(raw)).decode("ascii")
+
+
+def test_decode_array_does_not_decompress_more_than_length_needs(monkeypatch):
+    """Data that decompresses to far more bytes than `length` needs is refused, and the
+    decompressor gives at most `length * itemsize + 1` bytes."""
+    real = zlib.decompressobj
+    produced = []
+
+    class Spy:
+        def __init__(self, *args, **kwargs):
+            self.inner = real(*args, **kwargs)
+
+        def decompress(self, data, *args, **kwargs):
+            out = self.inner.decompress(data, *args, **kwargs)
+            produced.append(len(out))
+            return out
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    monkeypatch.setattr(zlib, "decompressobj", Spy)
+    d = _encoded(dtype="uint8", length=1, data=_gzip_text(b"\x00" * 10_000_000))
+    with pytest.raises(ValueError, match="more than 1 bytes"):
+        decode_array(d)
+    assert produced
+    assert sum(produced) <= 2
 
 
 @pytest.mark.parametrize(

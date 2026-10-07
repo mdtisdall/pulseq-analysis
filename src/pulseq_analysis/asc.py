@@ -20,8 +20,15 @@ def read_gradient_asc(path: str | Path) -> dict:
     """The fields of the .asc file `path`, as pypulseq's `readasc` gives them, and the fields
     of each file that a `$INCLUDE` line names. `readasc` ignores `$INCLUDE`. An included
     file is in the same directory as the file that includes it, and its fields replace
-    fields with the same name."""
-    path = Path(path)
+    fields with the same name. When a `$INCLUDE` line names a file that is already on the
+    chain of includes that leads to it (or the file itself), `ValueError` names the cycle.
+    A file that two branches include is not a cycle."""
+    return _read_with_includes(Path(path), ())
+
+
+def _read_with_includes(path: Path, chain_before: tuple[Path, ...]) -> dict:
+    """`read_gradient_asc` of `path`, which the files of `chain_before` include in turn."""
+    chain = (*chain_before, path.resolve())
     asc, _ = readasc(str(path))
     for line in path.read_text().splitlines():
         match = INCLUDE_LINE.match(line)
@@ -31,7 +38,10 @@ def read_gradient_asc(path: str | Path) -> dict:
                 raise FileNotFoundError(
                     f"{path.name} includes {match[1]}, which is not in {path.parent}"
                 )
-            _merge(asc, read_gradient_asc(included))
+            if included.resolve() in chain:
+                names = [p.name for p in chain[chain.index(included.resolve()) :]]
+                raise ValueError(f"$INCLUDE cycle: {' -> '.join([*names, included.name])}")
+            _merge(asc, _read_with_includes(included, chain))
     return asc
 
 

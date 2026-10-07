@@ -39,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-from ._equality import fields_equal
+from ._equality import FrozenDict, fields_equal
 from ._validate import real
 
 # The strings that stand for a float that is not finite in the JSON form.
@@ -179,8 +179,9 @@ class Series:
     writes a float that is not finite as one of these strings.
 
     A series raises `TypeError` for a value of a wrong type and `ValueError` for a wrong
-    value. It keeps a new dict for `arrays` and one for `meta`, so a change to the caller's
-    dict does not change the series. It keeps a copy of each array, in native byte order, and
+    value. It keeps a `FrozenDict` for `arrays` and one for `meta`, so a change to the caller's
+    dict does not change the series, and a change to the dict of the series raises
+    `TypeError`. It keeps a copy of each array, in native byte order, and
     the copy is read-only. The caller's own array stays writable, and a change to it does not
     change the series. An int in `coord_start`, `coord_step` or `coord_end` becomes a float.
 
@@ -279,11 +280,11 @@ class Series:
             copy = np.array(a, dtype=a.dtype.newbyteorder("="), copy=True)
             copy.flags.writeable = False
             arrays[key] = copy
-        object.__setattr__(self, "arrays", arrays)
+        object.__setattr__(self, "arrays", FrozenDict(arrays))
         object.__setattr__(self, "coord_start", coord_start)
         object.__setattr__(self, "coord_step", coord_step)
         object.__setattr__(self, "coord_end", coord_end)
-        object.__setattr__(self, "meta", meta)
+        object.__setattr__(self, "meta", FrozenDict(meta))
 
     def _check_coordinates(
         self, coord_start: float, coord_step: float | None, coord_end: float | None
@@ -438,7 +439,7 @@ def decode_array(d: Any) -> np.ndarray:
     dict with exactly the keys `dtype`, `length` and `data`, else `ValueError`. It is also a
     `ValueError` when `dtype` is not the name of a bool, integer, float or complex numpy
     dtype, when `data` does not decode, or when `length` is not the number of elements in
-    the decoded bytes."""
+    the decoded bytes. It decompresses at most `length` items and one byte more."""
     _check_keys(d, _ARRAY_KEYS, "an encoded array")
     name, length, data = d["dtype"], d["length"], d["data"]
     try:
@@ -455,10 +456,23 @@ def decode_array(d: Any) -> np.ndarray:
         )
     if not isinstance(data, str):
         raise ValueError('"data" of an encoded array must be a string')  # noqa: TRY004
+    # One byte more than `length` items, so that more data than `length` shows, and no more
+    # than that is decompressed (wbits=31 reads the gzip format).
+    limit = length * dtype.itemsize
     try:
-        raw = gzip.decompress(base64.b64decode(data, validate=True))
-    except (binascii.Error, OSError, EOFError, zlib.error, ValueError) as exc:
+        decompressor = zlib.decompressobj(wbits=31)
+        raw = decompressor.decompress(base64.b64decode(data, validate=True), limit + 1)
+    except (binascii.Error, zlib.error, ValueError) as exc:
         raise ValueError(f'"data" of an encoded array does not decode: {exc}') from exc
+    if len(raw) > limit:
+        raise ValueError(
+            f'"length" of an encoded array is {length}, but its data has more than {limit} '
+            f"bytes of {name}"
+        )
+    if not decompressor.eof:
+        raise ValueError('"data" of an encoded array does not decode: the stream is not complete')
+    if decompressor.unused_data:
+        raise ValueError('"data" of an encoded array does not decode: there are bytes after it')
     count, rest = divmod(len(raw), dtype.itemsize)
     if rest or count != length:
         raise ValueError(

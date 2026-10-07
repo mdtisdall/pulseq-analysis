@@ -2948,6 +2948,38 @@ included file name.
 
 **Assumptions:** None.
 
+#### `test_asc_files_that_include_each_other`
+
+**Checks:** Reading two `.asc` files that include each other stops with
+`ValueError` that names the cycle. It does not recurse until `RecursionError`.
+
+**How:** The test writes `a.asc` with a `$INCLUDE b.asc` line and `b.asc` with a
+`$INCLUDE a.asc` line, and reads `a.asc`. The message must have `a.asc`, `b.asc`
+and `a.asc` in this order.
+
+**Assumptions:** None.
+
+#### `test_asc_file_that_includes_itself`
+
+**Checks:** Reading a `.asc` file with a `$INCLUDE` line that names itself stops
+with `ValueError`.
+
+**How:** The test writes `a.asc` with a `$INCLUDE a.asc` line and reads it. The
+message must name `a.asc` twice.
+
+**Assumptions:** None.
+
+#### `test_asc_file_included_by_two_branches_is_not_a_cycle`
+
+**Checks:** A file that two different included files both include is read
+without an error, and its fields are in the result.
+
+**How:** The test writes `shared.asc`, `b.asc` and `c.asc` (each includes
+`shared.asc`) and `main.asc` (includes `b.asc` and `c.asc`). The fields read
+must be the field of `main.asc` and the field of `shared.asc`.
+
+**Assumptions:** None.
+
 #### `test_included_fields_replace_fields_with_the_same_name`
 
 **Checks:** The fields of an included file are merged into the fields of the
@@ -3564,6 +3596,18 @@ that the series has other dict objects.
 **Assumptions:** The series keeps a copy of each array, not a view, so a change to the
 caller's array does not reach it. The docstring of `Series` says so.
 
+#### `test_series_dicts_cannot_be_changed`
+
+**Checks:** A change to `arrays` or to `meta` of a series raises `TypeError`, and
+the series does not change.
+
+**How:** The test builds a series, and for each of the two dicts it tries
+`d[key] = value` (a shorter array, an `object()`), `del`, `update` and `pop`.
+Each must raise `TypeError`. The test then checks that `to_obj()` is the same as
+before and that `json.dumps` writes it.
+
+**Assumptions:** None.
+
 #### `test_series_arrays_are_read_only_and_the_callers_array_is_not`
 
 **Checks:** Each array of a series is read-only, and the array that the caller gave stays
@@ -3815,6 +3859,19 @@ array, an array of strings and an array of objects.
 **How:** Parametrized. The test calls `encode_array` in `pytest.raises` for each.
 
 **Assumptions:** None.
+
+#### `test_decode_array_does_not_decompress_more_than_length_needs`
+
+**Checks:** `decode_array` refuses data that decompresses to far more bytes than
+`length` needs, and it does not decompress the whole stream.
+
+**How:** The test replaces `zlib.decompressobj` with a spy that records the size
+of each output. It decodes a gzip of 10 MB of zeros with `length` 1 and dtype
+`uint8`. It must raise `ValueError`, the spy must have been called, and the sum
+of the output sizes must be at most 2 bytes (`length * itemsize + 1`).
+
+**Assumptions:** `decode_array` reads the stream with `zlib.decompressobj`. A
+change to another decompressor fails this test.
 
 #### `test_decode_array_refuses`
 
