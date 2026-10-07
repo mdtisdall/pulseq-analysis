@@ -53,9 +53,10 @@ rounding of the times is. The block of the vector peak is the block that has its
 the side where the value is (`_vector_candidates`). Of equal values, the first in time order wins,
 and in one block the line or the step into the event is before the segments of the event.
 
-This computes the per-event values one time for each unique gradient event, from the points of
-`_events.event_points` (which reads one block with `get_block` for each unique event, one time for
-each sequence). It then makes the values of each block one time for each sequence (`_BlockData`):
+This computes the per-event values (`_EventData`) for each unique gradient event, with numpy over
+the points of `_events.event_points` (which reads one block with `get_block` for each unique event,
+one time for each sequence). It then makes the values of each block one time for each sequence
+(`_BlockData`; the per-event values are made with it and are not kept):
 for each axis the peak, the slew with the ramps, the junction (the step or the line into the
 event) and the RMS integral of the piece of the block, with their times, and the vector peak. The
 piece of a block is its event, the ramps of its event, the line into it and the step after the
@@ -78,13 +79,12 @@ of its event. The junction of a block is the step or the line into its event, an
 gap and for a block with no event on the axis.
 
 Both public functions keep their results for the sequence object (`_kept.kept_results`):
-`gradient_peaks` for `window=None`, and `block_gradient_values`. The per-event values
-(`_EventData`) are kept too, with the values of each block (`_BlockData`), so a call of
-`gradient_peaks` with a window uses them. A result with a window is not kept, because a caller
-can ask for many windows. The kept results are built again after `add_block`, after a new read of
-a file into the object, and after a change of `seq.grad_raster_time` (the rule of `_kept`). A
-block replaced in place is not seen (`seq_index.sequence_index`). Each kept result is read-only,
-because all callers share it.
+`gradient_peaks` for `window=None`, and `block_gradient_values`. The values of each block
+(`_BlockData`) are kept too, so a call of `gradient_peaks` with a window uses them. A result
+with a window is not kept, because a caller can ask for many windows. The kept results are
+built again after `add_block`, after a new read of a file into the object, and after a change
+of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
+(`seq_index.sequence_index`). Each kept result is read-only, because all callers share it.
 """
 
 import math
@@ -221,35 +221,6 @@ class BlockGradientValues:
     vector_peak_time_s: np.ndarray
 
 
-class _PolylineValues(NamedTuple):
-    """The values of one polyline, from `_polyline_values`."""
-
-    peak: float  # the largest |amplitude| of the points
-    peak_time: float  # the time of the first point with that value
-    slew: float  # the largest |slope| of a segment of `TIME_TOLERANCE` or more (0.0 if none)
-    slew_time: float  # the start time of the first such segment (0.0 if none)
-    integral: float  # the integral of amplitude^2 dt over the polyline
-
-
-def _polyline_values(t: np.ndarray, amp: np.ndarray) -> _PolylineValues:
-    """The peak, the slew and the integral of the piecewise-linear polyline `(t, amp)`. The
-    first point wins a tie of the peak, and the first segment wins a tie of the slew. A segment
-    shorter than `TIME_TOLERANCE` has no slope. `_event_values` uses it for a whole event."""
-    abs_amp = np.abs(amp)
-    pk = int(np.argmax(abs_amp))
-    dt = np.diff(t)
-    a, b = amp[:-1], amp[1:]
-    integral = float(np.sum(dt * (a * a + a * b + b * b) / 3.0))
-    slew, slew_time = 0.0, 0.0
-    valid = dt >= TIME_TOLERANCE
-    if np.any(valid):
-        seg_slew = np.abs((b - a)[valid] / dt[valid])
-        j = int(np.argmax(seg_slew))
-        slew = float(seg_slew[j])
-        slew_time = float(t[:-1][valid][j])
-    return _PolylineValues(float(abs_amp[pk]), float(t[pk]), slew, slew_time, integral)
-
-
 @dataclass
 class _EventData:
     """The per-unique-gradient-event values that `gradient_peaks` needs, indexed by the dense
@@ -269,38 +240,54 @@ class _EventData:
 def _event_values(points: EventPoints) -> _EventData:
     """`_EventData` for every unique gradient event of `points` (`_events.event_points`, which
     reads each event one time). The corner times of event `k` are `points.delay[k] +
-    points.offsets[...]`, the same values as `seq_utils.gradient_points(g, 0.0)`."""
+    points.offsets[...]`, the same values as `seq_utils.gradient_points(g, 0.0)`.
+
+    This is numpy over the pooled points of all the events, a `reduceat` over the points of each
+    event. The peak is the largest |amplitude| of the points, and the first point wins a tie. The
+    slew is the largest |slope| of a segment of `TIME_TOLERANCE` or more (0.0 if none), and the
+    first segment wins a tie. The integral is the sum of `dt * (a * a + a * b + b * b) / 3` of
+    the segments, in the order of the points. The pooled points have a segment from the last
+    point of an event to the first point of the next event: it has a length of 0 here, so it
+    has no slope and adds nothing to the integral."""
     k = points.delay.size
-    peak = np.zeros(k)
-    peak_offset = np.zeros(k)
-    slew = np.zeros(k)
-    slew_offset = np.zeros(k)
-    integral = np.zeros(k)
+    if k == 0:
+        zeros = np.zeros(0)
+        return _EventData(zeros, zeros, zeros, zeros, zeros)
+    n = points.amp.size
+    at = points.at
+    event = np.repeat(np.arange(k), points.count)
+    position = np.arange(n)
+    t = points.delay[event] + points.offsets
+    amp = points.amp
 
-    for i, (start, count) in enumerate(zip(points.at.tolist(), points.count.tolist(), strict=True)):
-        t = points.delay[i] + points.offsets[start : start + count]
-        amp = points.amp[start : start + count]
-        values = _polyline_values(t, amp)
-        peak[i] = values.peak
-        peak_offset[i] = values.peak_time
-        integral[i] = values.integral
-        slew[i] = values.slew
-        slew_offset[i] = values.slew_time
+    abs_amp = np.abs(amp)
+    peak = np.maximum.reduceat(abs_amp, at)
+    first_peak = np.minimum.reduceat(np.where(abs_amp == peak[event], position, n), at)
 
-    return _EventData(peak, peak_offset, slew, slew_offset, integral)
+    # Segment `i` joins the points `i` and `i + 1` of one event, and the last point of each
+    # event has none.
+    dt = np.append(np.diff(t), 0.0)
+    dt[at + points.count - 1] = 0.0
+    a, b = amp, np.append(amp[1:], 0.0)
+    integral = np.add.reduceat(dt * (a * a + a * b + b * b) / 3.0, at)
+    valid = dt >= TIME_TOLERANCE
+    seg_slew = np.where(valid, np.abs((b - a) / np.where(valid, dt, 1.0)), -1.0)
+    slew = np.maximum.reduceat(seg_slew, at)
+    first_slew = np.minimum.reduceat(np.where(seg_slew == slew[event], position, n), at)
+    has_slew = slew >= 0.0  # an event with no segment of `TIME_TOLERANCE` or more has no slew
+    return _EventData(
+        peak,
+        t[first_peak],
+        np.where(has_slew, slew, 0.0),
+        np.where(has_slew, t[first_slew], 0.0),
+        integral,
+    )
 
 
-# For each sequence object: the kept results (`_kept.kept_results`), under the keys "events" (the
-# `_EventData`), "block_data" (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`)
-# and "block_values" (the `BlockGradientValues`).
+# For each sequence object: the kept results (`_kept.kept_results`), under the keys "block_data"
+# (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`) and "block_values" (the
+# `BlockGradientValues`).
 _CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
-
-
-def _kept_event_values(seq: pp.Sequence, kept: dict) -> _EventData:
-    """The `_EventData` of `seq`, built one time for the kept results `kept` of `seq`."""
-    if "events" not in kept:
-        kept["events"] = _event_values(event_points(seq))
-    return kept["events"]
 
 
 # ---- The events of one axis, and the gaps between them ----
@@ -610,6 +597,24 @@ def _limit_after(t: np.ndarray, g: np.ndarray, q: np.ndarray) -> np.ndarray:
     return np.where((q >= t[0]) & (q < t[-1]), value, 0.0)
 
 
+def _limits(t: np.ndarray, g: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The values of the polyline `(t, g)` just before and just after the sorted times `q`, as
+    `(_limit_before, _limit_after)`. With no two points at one time the two are equal, except at
+    the first point of the polyline (0 before, `g[0]` after) and at the last point (`g[-1]`
+    before, 0 after), so then only those two are set."""
+    before = _limit_before(t, g, q)
+    if t.size < 2 or np.any(t[1:] == t[:-1]):
+        return before, _limit_after(t, g, q)
+    after = before.copy()
+    first = np.searchsorted(q, t[0])
+    if first < q.size and q[first] == t[0]:
+        after[first] = g[0]
+    last = np.searchsorted(q, t[-1])
+    if last < q.size and q[last] == t[-1]:
+        after[last] = 0.0
+    return before, after
+
+
 def _vector_candidates(
     polys: list[_Polyline], start_s: np.ndarray, end_s: np.ndarray, lo: float, hi: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -625,10 +630,14 @@ def _vector_candidates(
     ends at or after the time, for "before", and the last block that starts at or before the
     time, for "after", each within `TIME_TOLERANCE`. `start_s` and `end_s` are the start and
     the end of each block."""
-    times = np.unique(np.concatenate([[lo, hi]] + [p.t[(p.t >= lo) & (p.t <= hi)] for p in polys]))
-    gx, gy, gz = (_limit_before(p.t, p.g, times) for p in polys)
+    # The times of each polyline are sorted, so the stable sort merges the sorted runs.
+    times = np.concatenate([[lo, hi]] + [p.t[(p.t >= lo) & (p.t <= hi)] for p in polys])
+    times.sort(kind="stable")
+    times = times[np.concatenate(([True], times[1:] != times[:-1]))]
+    limits = [_limits(p.t, p.g, times) for p in polys]
+    gx, gy, gz = (before for before, _ in limits)
     before = np.sqrt(gx * gx + gy * gy + gz * gz)
-    gx, gy, gz = (_limit_after(p.t, p.g, times) for p in polys)
+    gx, gy, gz = (after for _, after in limits)
     after = np.sqrt(gx * gx + gy * gy + gz * gz)
     before[times == lo] = 0.0
     after[times == hi] = 0.0
@@ -717,11 +726,13 @@ class _BlockData:
 
 
 def _kept_block_data(
-    seq: pp.Sequence, kept: dict, index: SequenceIndex, points: EventPoints, ev: _EventData
+    seq: pp.Sequence, kept: dict, index: SequenceIndex, points: EventPoints
 ) -> _BlockData:
-    """The `_BlockData` of `seq`, built one time for the kept results `kept` of `seq`. `index`,
-    `points` and `ev` are the index, the event points and the `_EventData` of `seq`."""
+    """The `_BlockData` of `seq`, built one time for the kept results `kept` of `seq`. `index`
+    and `points` are the index and the event points of `seq`. The `_EventData` that it is made
+    from is not kept: nothing else reads it."""
     if "block_data" not in kept:
+        ev = _event_values(points)
         dt = points.grad_raster_time
         start_s = index.start_s
         end_s = start_s + index.duration_s
@@ -1112,13 +1123,14 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     numbers and their order), before it reads the sequence. Then it builds
     `seq_index.sequence_index(seq)` (which refuses a sequence with no `[SIGNATURE]` hash, also
     when the result is kept), returns the kept result for `window=None` when there is one,
-    and checks the window against the length of the sequence. Only then does it take the per-event values (`_event_values` of the points of
-    `_events.event_points`) and the values of each block (`_BlockData`), both built one time for
-    each sequence, and combine them with numpy over the blocks of the range: an `argmax` and a
-    sum of the RMS integrals over the blocks that lie whole in the range, and the points of
-    `_events.event_points` for the few edge blocks (`_range_result`). It reads no block with
-    `get_block` for a window. The one `get_block` call for each unique gradient event is in
-    `_events.event_points`, one time for each sequence.
+    and checks the window against the length of the sequence. Only then does it take the values
+    of each block (`_BlockData`, built one time for each sequence from the per-event values
+    `_event_values` of the points of `_events.event_points`), and combine them with numpy over
+    the blocks of the range: an `argmax` and a sum of the RMS integrals over the blocks that lie
+    whole in the range, and the points of `_events.event_points` for the few edge blocks
+    (`_range_result`). It reads no block with `get_block` for a window. The one `get_block`
+    call for each unique gradient event is in `_events.event_points`, one time for each
+    sequence.
 
     Raises NotImplementedError for a sequence with the rotation extension
     (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
@@ -1155,8 +1167,7 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         )
 
     points = event_points(seq)
-    ev = _kept_event_values(seq, kept)
-    blocks = _kept_block_data(seq, kept, index, points, ev)
+    blocks = _kept_block_data(seq, kept, index, points)
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
@@ -1198,9 +1209,9 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     `window=None` (the module docstring), so a second call gives the same object. The result
     is read-only: its arrays are not writeable and its dicts are `FrozenDict`s.
 
-    This builds `seq_index.sequence_index(seq)`, the per-event values of
-    `_events.event_points` (`_event_values`) and the values of each block (`_BlockData`), all
-    shared with `gradient_peaks` and built one time for each sequence. Its result holds copies
+    This builds `seq_index.sequence_index(seq)` and the values of each block (`_BlockData`, from
+    the per-event values `_event_values` of `_events.event_points`), both shared with
+    `gradient_peaks` and built one time for each sequence. Its result holds copies
     of the arrays of `_BlockData`, so a caller cannot change what `gradient_peaks` uses. It
     computes the peak of |G| of each block from the exact polylines of the whole file. It reads
     one block with `get_block` for each unique gradient event (in `_events.event_points`, one
@@ -1214,8 +1225,7 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
     kept = kept_results(_CACHE, seq)
     if "block_values" in kept:
         return kept["block_values"]
-    ev = _kept_event_values(seq, kept)
-    blocks = _kept_block_data(seq, kept, index, event_points(seq), ev)
+    blocks = _kept_block_data(seq, kept, index, event_points(seq))
 
     peak_hz_per_m = {axis: array.copy() for axis, array in blocks.peak.items()}
     peak_time_s = {axis: array.copy() for axis, array in blocks.peak_time.items()}
