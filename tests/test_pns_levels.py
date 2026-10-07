@@ -9,8 +9,15 @@ import numpy as np
 import pypulseq as pp
 import pytest
 from asserts import assert_levels_equal
+from gap_sequences import (
+    delayed_sequence,
+    early_end_sequence,
+    long_gap_sequence,
+    non_zero_ends_sequence,
+)
+from oracles import waveform as oracle
 from pns_hardware import hardware_for_peak
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
+from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk, safe_example_hw
 from synthetic import (
     EXAMPLE_HW,
     GAMMA_1H,
@@ -97,7 +104,7 @@ def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     """The peak, the peak time and the axis peaks of `pns_levels` (example hardware)
     equal `seq.calculate_pns` of the pinned fork within a relative 1e-6 of the peak.
     `pns_levels` gives Hz/T, so each of its values is divided by `seq.system.gamma`
-    first, as the rule of `docs/usage.md` section 8 says: this also tests that
+    first, as the rule of `docs/usage.md` section 9 says: this also tests that
     conversion.
 
     The two are not exactly equal: `calc_pns` samples `seq.get_gradients()` at the
@@ -137,7 +144,7 @@ def test_stored_bins_match_calculate_pns_totals(build):
     `seq.calculate_pns`'s totals over the same samples, within the same 1e-6-of-peak
     tolerance as `test_summary_matches_calculate_pns_within_the_fork_tolerance` (same
     reason: the file-time drift of `calc_pns`'s own gradient sampling). The values of
-    `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md` section 8).
+    `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md` section 9).
 
     `calc_pns`'s own array can be shorter than `pns_levels`'s (a trailing block with no
     gradient event, for example `gre_sequence`'s TR padding, extends `pns_levels`'s
@@ -168,6 +175,84 @@ def test_stored_bins_match_calculate_pns_totals(build):
         assert level_max == pytest.approx(float(segment.max()), abs=tol)
         compared += 1
     assert compared > 0
+
+
+def _two_axis_short_gap_sequence() -> pp.Sequence:
+    """Two blocks of 110 us (11 samples) on x and y. Each block has an event that ends at a
+    value that is not 0 at 100 us, 10 us (one raster time) before the end of the block, and
+    the event of the next block starts at a value that is not 0. The gap on each axis is
+    short. The first value of x is 3 U at the start of the sequence, and the last value of x
+    is 5 U at the end of the last event (a step to 0 there). U = 1e4 Hz/m."""
+    unit = 1e4
+
+    def event(channel, amplitudes):
+        return pp.make_extended_trapezoid(
+            channel, times=[0.0, 100e-6], amplitudes=np.array(amplitudes) * unit, system=SYSTEM
+        )
+
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(event("x", [3, 4]), event("y", [0, 2]), pp.make_delay(110e-6))
+    seq.add_block(event("x", [2, 5]), event("y", [1, 0]), pp.make_delay(110e-6))
+    return seq
+
+
+def _long_gap_then_an_off_raster_block_sequence() -> pp.Sequence:
+    """`long_gap_sequence` and a last block of 1.5 raster times, which is not on the raster,
+    so that `pns_levels` samples the whole sequence with `GradientSampler.sample`."""
+    seq = signed(long_gap_sequence())
+    seq.add_block(pp.make_delay(1.5 * SYSTEM.grad_raster_time))
+    return seq
+
+
+_GAP_SEQUENCES = {
+    "short_gap_two_axes": _two_axis_short_gap_sequence,
+    "long_gap": lambda: signed(long_gap_sequence()),
+    "issue_12_delayed": lambda: signed(delayed_sequence()),
+    "issue_12_early_end": lambda: signed(early_end_sequence()),
+    "non_zero_ends": lambda: signed(non_zero_ends_sequence()),
+    "long_gap_off_raster": _long_gap_then_an_off_raster_block_sequence,
+}
+
+
+@pytest.mark.parametrize("build", _GAP_SEQUENCES.values(), ids=_GAP_SEQUENCES.keys())
+def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
+    build,
+):
+    """For a sequence with a short gap or a long gap and ends that are not 0 next to it (and
+    the first value and the last value of an axis that are not 0), `pns_levels` equals the SAFE
+    model of the fork, `_safe_gwf_to_pns_chunk` in one chunk on the stacked `(N, 3)` samples of
+    the oracle (`oracle.block_samples` at the gradient raster, `oracle.sample` at the file times
+    `(k + 0.5) * dt` for the sequence that has a block that is not on the raster), with the
+    percent times 0.01 and the total `sqrt(sum of squares)`, as `pns_levels` does. The peak
+    and the axis peaks are equal to a relative 1e-9, and each bin of one sample (`bin_s=dt`)
+    holds the total of its sample. `calculate_pns` of pypulseq is not the reference: it draws
+    a line across each gap (pypulseq-issues 12)."""
+    seq = build()
+    dt = seq.grad_raster_time
+    levels = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=dt)
+    if levels.on_raster:
+        columns = [oracle.block_samples(seq, axis, dt) for axis in "xyz"]
+    else:
+        t = (np.arange(levels.num_samples) + 0.5) * dt
+        columns = [oracle.sample(seq, axis, t) for axis in "xyz"]
+    gwf = np.stack(columns, axis=1)
+    percent, _ = _safe_gwf_to_pns_chunk(gwf, dt, EXAMPLE_HW[0], None)
+    axis_values = 0.01 * percent
+    total = np.sqrt((axis_values**2).sum(axis=1))
+
+    assert levels.num_samples == total.size
+    assert levels.on_raster is (build is not _long_gap_then_an_off_raster_block_sequence)
+    assert levels.peak_hz_per_t == pytest.approx(total.max(), rel=1e-9)
+    for i, axis in enumerate("xyz"):
+        peak = axis_values[:, i].max()
+        assert levels.axis_peaks_hz_per_t[axis] == pytest.approx(
+            peak, rel=1e-9, abs=1e-12 * total.max()
+        )
+    assert levels.peak_time_s == pytest.approx(
+        (np.flatnonzero(total >= total.max() * (1 - PEAK_TOLERANCE))[0] + 0.5) * dt, abs=1e-12
+    )
+    np.testing.assert_allclose(levels.level_max_hz_per_t, total, rtol=1e-6)
+    np.testing.assert_allclose(levels.level_min_hz_per_t, total, rtol=1e-6)
 
 
 def test_cast_outward_bounds_every_input_value():
@@ -457,7 +542,7 @@ def test_off_raster_block_falls_back_to_sampling():
     now (`test_sampling.py` tests that the two agree to about float rounding), so no
     drift-based tolerance is needed here. The
     values of `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md`
-    section 8)."""
+    section 9)."""
     seq = _off_raster_sequence()
     hw = safe_example_hw()
     _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)

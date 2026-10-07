@@ -1,7 +1,9 @@
 """Gradient spectrum of a Pulseq sequence.
 
-Oracle: the earlier implementation, which samples through `Sequence.get_gradients()`. Do
-not change its method.
+Oracle: the earlier implementation, with the waveform of the gradient oracle
+(`oracles/waveform.py`, the model of MATLAB Pulseq) in place of `Sequence.get_gradients()`.
+`get_gradients()` draws a line across each gap between two events. The model does so only
+across a gap of one raster time or less. Do not change its method.
 
 `gradient_spectrum` uses the same method as pypulseq's
 `calculate_gradient_spectrum`: 50 ms Hann windows with 50% overlap, the
@@ -23,6 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pypulseq as pp
+from oracles import waveform
 from scipy.signal import spectrogram
 
 MAX_FREQUENCY_HZ = 2000.0
@@ -43,8 +46,11 @@ class GradientSpectrum:
 
 def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
     """The spectrum of each gradient axis up to `MAX_FREQUENCY_HZ`."""
-    gradients = seq.get_gradients()
-    if all(g is None for g in gradients):
+    # One pass over the blocks gives the polyline of each axis (`axis_polyline` makes all three
+    # for each call), and `values_at` reads it at all the sample times with numpy, so the
+    # spectrum of 10^4 blocks takes no more than the Python loop over the blocks.
+    polylines = waveform.polylines(seq)
+    if all(poly.t.size == 0 for poly in polylines.values()):
         empty = np.zeros(0)
         return GradientSpectrum(NO_GRADIENTS, empty, {}, empty)
 
@@ -53,6 +59,9 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
     pad = nwin // 2
     to_mt = 1e3 / seq.system.gamma  # Hz/m to mT/m
     nt = _num_samples(seq, dt)
+    # The sequence sample i is at (i + 0.5) * dt. The waveform of each axis, in mT/m.
+    times = (np.arange(nt) + 0.5) * dt
+    gradients = {axis: waveform.values_at(polylines[axis], times) * to_mt for axis in "xyz"}
 
     # The padded waveform has n samples: pad zeros, the nt gradient samples, and the end
     # padding. scipy's spectrogram does not pad, so window j covers samples
@@ -73,8 +82,8 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
         start = first * hop
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
-        for axis, g in zip("xyz", gradients):
-            freq, sxx = _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, to_mt)
+        for axis in "xyz":
+            freq, sxx = _chunk_spectrogram(gradients[axis], start, stop, pad, nt, dt, nwin)
             keep = freq <= MAX_FREQUENCY_HZ + 1e-6
             sxx = sxx[keep]
             chunk_max = sxx.max(axis=1)
@@ -88,19 +97,15 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
     return GradientSpectrum(None, freq, axes_max, rss_max)
 
 
-def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, to_mt):
+def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin):
     """The frequencies and the magnitude spectrogram of samples [start, stop) of one
     axis's padded waveform, with the arguments of pypulseq's
-    `calculate_gradient_spectrum`. `g` is the axis's piecewise polynomial from
-    `Sequence.get_gradients` (Hz/m), or None for an axis with no gradient."""
+    `calculate_gradient_spectrum`. `g` is the `nt` samples of the axis (mT/m)."""
     w = np.zeros(stop - start)
-    if g is not None:
-        # Sequence sample i is at (i + 0.5) * dt, and is padded sample i + pad.
-        lo, hi = max(start - pad, 0), min(stop - pad, nt)
-        if hi > lo:
-            t = (np.arange(lo, hi) + 0.5) * dt
-            inside = (t >= g.x[0]) & (t <= g.x[-1])
-            w[lo + pad - start : hi + pad - start][inside] = g(t[inside]) * to_mt
+    # Sequence sample i is padded sample i + pad.
+    lo, hi = max(start - pad, 0), min(stop - pad, nt)
+    if hi > lo:
+        w[lo + pad - start : hi + pad - start] = g[lo:hi]
     freq, _, sxx = spectrogram(
         w,
         fs=1 / dt,

@@ -6,6 +6,14 @@ import pickle
 import numpy as np
 import pypulseq as pp
 import pytest
+from gap_sequences import (
+    delayed_sequence,
+    early_end_sequence,
+    long_gap_sequence,
+    non_zero_ends_sequence,
+    short_gap_sequence,
+    zero_gap_sequence,
+)
 from oracles import grad_spectrum as oracle
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
 from scipy.signal import spectrogram
@@ -198,12 +206,12 @@ def _assert_matches_oracle(
 ) -> None:
     """`got` (this module, the sampler-based implementation, in Hz/m/sqrt(Hz)) times
     `1e3 / seq.system.gamma` equals `ref` (`tests/oracles/grad_spectrum.py`, the earlier
-    implementation, which samples through `Sequence.get_gradients()` and gives
-    mT/m/sqrt(Hz)) within a tolerance: the sampler builds the waveform from each block's
-    own corner points and `numpy.interp`, in a different order of float operations than
-    `Sequence.get_gradients()`'s one whole-axis `scipy.interpolate.PPoly`, so the tests
-    allow a relative difference of 1e-12, or an absolute difference of 1e-12 times the
-    largest value of the same array. `tol` replaces 1e-12 for a long sequence (see
+    implementation, which samples the polyline of `tests/oracles/waveform.py`, the model
+    of MATLAB Pulseq, and gives mT/m/sqrt(Hz)) within a tolerance: the sampler builds the
+    waveform from each block's own corner points and `numpy.interp`, in a different order of
+    float operations than the oracle's whole-axis polyline, so the tests allow a relative
+    difference of 1e-12, or an absolute difference of 1e-12 times the largest value of the
+    same array. `tol` replaces 1e-12 for a long sequence (see
     `test_matches_oracle_on_long_sequences`). This also tests the conversion of the
     module docstring: the values of this module times `1e3 / gamma` are the values of the
     oracle.
@@ -237,24 +245,49 @@ def test_matches_oracle_on_synthetic_sequences(seq):
     _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
 
 
-@pytest.mark.parametrize("case", ["repeating", "worst"])
+# The blocks of each long sequence. `build_repeating` has 10^4 (14 s). `build_worst` has 5000 (7 s,
+# 280 windows, so it still has two chunks of `CHUNK_WINDOWS` windows).
+_LONG_SEQUENCES = {"repeating": (build_repeating, 10_000), "worst": (build_worst, 5_000)}
+
+
+@pytest.mark.parametrize("case", _LONG_SEQUENCES)
 def test_matches_oracle_on_long_sequences(case):
-    """The builders of `scale_sequences` (`build_repeating` and `build_worst`) at 10^4
-    blocks. The tolerance is `1e-12 * max(1, duration in s)`, not 1e-12 (the user,
-    2026-09-28). Both implementations place each gradient corner at an absolute time with
-    float rounding, in a different order of additions: the sampler adds
-    `(block start + delay) + offset`, and pypulseq's `get_gradients()` adds the segment
-    durations one at a time. The rounding of an absolute time grows with the time, and a
-    gradient ramp turns it into a value difference, so the difference grows with the
-    duration of the sequence. Measured: 2.5e-12 of the peak at 10^4 repeating blocks
-    (12 s), 3.6e-12 at 10^5 blocks. Neither is more correct than the other."""
-    n_trs = 10_000 // TR_BLOCKS
-    build = build_repeating if case == "repeating" else build_worst
-    seq = build(n_trs)
+    """The builders of `scale_sequences`: `build_repeating` at 10^4 blocks and `build_worst`
+    at 5000 blocks, more than one chunk of `CHUNK_WINDOWS` windows each. The tolerance is
+    `1e-12 * max(1, duration in s)`, not 1e-12 (the user, 2026-09-28). It was set when the
+    oracle sampled `Sequence.get_gradients()`, which adds the segment durations one at a time
+    and not `(block start + delay) + offset` as the sampler does: the rounding of an absolute
+    time grows with the time, a gradient ramp turns it into a value difference, and the
+    difference was 2.5e-12 of the peak at 10^4 repeating blocks (12 s). The oracle now makes
+    its points with the same sums as the sampler, and the difference is below 1e-15 of the
+    peak at 10^4 blocks of each builder; the tolerance stays."""
+    build, blocks = _LONG_SEQUENCES[case]
+    seq = build(blocks // TR_BLOCKS)
     tol = 1e-12 * max(1.0, seq.duration()[0])
     _assert_matches_oracle(
         grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq, tol=tol
     )
+
+
+_GAP_SEQUENCES = {
+    "zero_gap": zero_gap_sequence,
+    "short_gap": short_gap_sequence,
+    "long_gap": long_gap_sequence,
+    "non_zero_ends": non_zero_ends_sequence,
+    "issue_12_delayed": delayed_sequence,
+    "issue_12_early_end": early_end_sequence,
+}
+
+
+@pytest.mark.parametrize("build", _GAP_SEQUENCES.values(), ids=_GAP_SEQUENCES.keys())
+def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform(build):
+    """The spectrum of a sequence with a short gap, a long gap, or a step at a junction, and
+    ends that are not 0 next to it (and a first and a last value that are not 0), equals the
+    spectrum that the oracle calculates from `oracle.sample` (the model of MATLAB Pulseq).
+    pypulseq's `calculate_gradient_spectrum` draws a line across a long gap
+    (pypulseq-issues 12) and gives another spectrum, so it is not the reference here."""
+    seq = signed(build())
+    _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
 
 
 def test_spectrum_does_not_depend_on_the_gamma_of_the_system():

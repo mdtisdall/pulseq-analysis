@@ -10,7 +10,7 @@ The points of the K unique events are in two pools, event by event, in the dense
 of `seq_index`. Event `k` (0-based) has its points at `offsets[at[k] : at[k] + count[k]]`
 and `amp[at[k] : at[k] + count[k]]`, and the times of its points from the start of the
 block that plays it are `delay[k] + offsets[...]`. The values are those of
-`seq_utils.gradient_offsets`.
+`seq_utils.gradient_offsets`. `grad_raster_time` is the gradient raster of the sequence.
 
 All the arrays are read-only: all callers share the kept result. The rule that makes the
 kept result old is the one of `_kept`.
@@ -36,6 +36,9 @@ class EventPoints:
     at: np.ndarray  # int64, K: the start of the points of each event in `offsets` and `amp`
     offsets: np.ndarray  # float64: the offsets of all the points, event by event (s)
     amp: np.ndarray  # float64: the amplitudes of all the points, event by event (Hz/m)
+    # The gradient raster of the sequence (s), `seq.grad_raster_time`. The gap rule of
+    # `sampling` needs it, and the kept result is read again when it changes (`_kept`).
+    grad_raster_time: float
 
 
 # One `EventPoints` for each sequence object, under the key "points" of its kept results.
@@ -81,4 +84,4 @@ def _read_points(seq: pp.Sequence) -> EventPoints:
     )
     for array in arrays:
         array.flags.writeable = False  # shared by all callers through the kept result
-    return EventPoints(*arrays)
+    return EventPoints(*arrays, grad_raster_time=float(seq.grad_raster_time))

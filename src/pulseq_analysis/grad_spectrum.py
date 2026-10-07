@@ -13,6 +13,13 @@ half a hop of the centre of some window, as a sample in the middle of the sequen
 the window attenuates a gradient near the end no more than one in the middle. The number of
 samples is `sampling.sequence_samples`, the rule of the whole package.
 
+The gradients are the waveform of `sampling.GradientSampler.sample`, the model of MATLAB
+Pulseq (`docs/usage.md`, "The gradient waveform"). pypulseq's `calculate_gradient_spectrum`
+uses `Sequence.get_gradients()`, which draws a line across each gap between two events. The
+two spectra differ for a sequence with an event that starts or ends at a value that is not 0
+next to a gap of more than one raster time (the model has a ramp to 0 and from 0 of half a
+raster time each, and 0 between them), and with a step at a block junction.
+
 The gradients are sampled in chunks of `CHUNK_WINDOWS` windows, so the memory does not
 grow with the length of the sequence. Each chunk starts at a multiple of the hop and
 overlaps the next chunk by one window less one hop, so the chunks give the same windows
@@ -39,7 +46,7 @@ proportion to a positive scale of the waveform: the constant detrend, the Hann w
 the magnitude of the FFT, the maximum over windows and the root-sum-of-squares of the
 three axes. This includes the RSS spectrum.
 
-`docs/usage.md` section 8 gives the rule for all the values of the package.
+`docs/usage.md` section 9 gives the rule for all the values of the package.
 """
 
 import weakref
@@ -148,6 +155,10 @@ def gradient_spectrum(
 ) -> GradientSpectrum:
     """The spectrum of each gradient axis up to `max_frequency_hz`, and its RSS, in
     Hz/m/sqrt(Hz) (see the module docstring for the conversion).
+
+    The waveform is the model of MATLAB Pulseq (see the module docstring), not the one of
+    pypulseq's `calculate_gradient_spectrum`, for a sequence with an event that starts or
+    ends at a value that is not 0 next to a gap of more than one raster time.
 
     The arguments are those of pypulseq's `calculate_gradient_spectrum`, with the same
     defaults: `max_frequency_hz` is the highest frequency of the result (`max_frequency`),

@@ -9,7 +9,7 @@ one value for each sample.
 A PNS value is in Hz/T: the fraction of the stimulation limit times the magnitude of
 gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get the fraction
 (1 is 100 %). The model runs on the gradient samples in Hz/m and reads no gamma
-(`docs/usage.md` section 8).
+(`docs/usage.md` section 9).
 
 `pns_levels` is the one entry point. It keeps its result for the sequence object, for each
 (hardware, thresholds, bin size), so a caller that needs both the summary and the level of
@@ -27,8 +27,16 @@ and is the vendor-neutral pair `(struct, label)`: the package has no default. A 
 the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
 hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
 
+The gradient waveform is the model of MATLAB Pulseq (`sampling`, `docs/usage.md` "The
+gradient waveform"): a line across a gap of one raster time or less between two events, a
+ramp to 0 and from 0 (half a raster time each) across a longer gap, and a step at a block
+junction. pypulseq's `calculate_pns` draws a line across each gap (pypulseq-issues 12), so it
+gives other values for a sequence with an event that starts or ends at a value that is not 0
+next to a gap, or with a step at a junction.
+
 The samples of each block start at the start of that block, not at a time summed over the
-earlier blocks. Thus a block gives the same samples wherever it is in the sequence, and
+earlier blocks. Thus a block gives the same samples wherever it is in the sequence (apart
+from the samples in a gap, which use the sum of the block durations before the block), and
 a drawing tool that samples one block with the same rule gets the same values.
 """
 
@@ -271,9 +279,13 @@ def pns_levels(
     The model is `calc_pns` of the pinned fork, on other samples:
 
     1. `dt = seq.grad_raster_time`. The samples are `GradientSampler.block_samples` of
-       each axis, in Hz/m. They are not divided by a gamma. (`calc_pns` divides them by
+       each axis, in Hz/m, the waveform of the model of MATLAB Pulseq (see the module
+       docstring). They are not divided by a gamma. (`calc_pns` divides them by
        `seq.system.gamma`.) Thus each value is the value of `calc_pns` times the magnitude
-       of `seq.system.gamma`, to the float rounding. When a block is not on the raster
+       of `seq.system.gamma`, to the float rounding, for a sequence with no end that is not
+       0 next to a gap of more than one raster time and no step at a block junction (there
+       `calc_pns` has pypulseq's line across the gap, and a line from the earlier value
+       across the first segment of the later event). When a block is not on the raster
        (`on_raster` False), the samples are `GradientSampler.sample` at the file times
        `(k + 0.5) * dt`, as `calc_pns` samples, with `k = 0 .. ceil((end - 1e-10) / dt) - 1`
        and `end` the end of the last block (`calc_pns` stops at the last gradient point
