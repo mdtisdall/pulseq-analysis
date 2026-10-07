@@ -524,14 +524,15 @@ pulseq-checks).
 
 ## 5. The other modules
 
-`sampling.GradientSampler(index, points)` gives the gradient waveform of one
-axis (`"gx"`, `"gy"` or `"gz"`), in Hz/m. It is the waveform of MATLAB Pulseq
-([section 2](#2-the-gradient-waveform)). `index` is `sequence_index(seq)`, and
-`points` is `_events.event_points(seq)`: the points of the unique gradient
-events and the gradient raster of the sequence (`grad_raster_time`), read one
-time for each sequence object and kept (the rule of the kept results above). A
-`GradientSampler` does not copy them. It finds the gaps of each axis one time for
-each sequence, and keeps them with the points.
+`sampling.gradient_sampler(seq)` gives a `GradientSampler`. The sampler gives
+the gradient waveform of one axis (`"gx"`, `"gy"` or `"gz"`), in Hz/m. It is the
+waveform of MATLAB Pulseq ([section 2](#2-the-gradient-waveform)).
+`gradient_sampler` raises `NotImplementedError` for a sequence with the Pulseq
+rotation extension (`extensions.refuse_rotations`). The sampler does not copy
+the points of the unique gradient events. They are read one time for each
+sequence object and kept (the rule of the kept results above), with the
+sequence index. The sampler finds the gaps of each axis one time for each
+sequence, and keeps them with the points. The sampler itself is not kept.
 
 - `sample(axis, t)`: the values at the sorted times `t`. They are the straight
   lines between the points of all the events of the axis, with the ramps to 0

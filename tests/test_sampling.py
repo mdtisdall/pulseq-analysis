@@ -19,10 +19,16 @@ from synthetic import (
     gre_sequence,
     signed,
     spin_echo_sequence,
+    with_rotation_library,
 )
 
 from pulseq_analysis._events import event_points
-from pulseq_analysis.sampling import GradientSampler, raster_block_lengths, sequence_samples
+from pulseq_analysis.sampling import (
+    GradientSampler,
+    gradient_sampler,
+    raster_block_lengths,
+    sequence_samples,
+)
 from pulseq_analysis.seq_index import sequence_index
 
 _AXES = ("gx", "gy", "gz")
@@ -53,8 +59,7 @@ def _assert_matches_pypulseq(seq: pp.Sequence, t: np.ndarray) -> None:
     only for a sequence with no end that is not 0 next to a gap of more than one raster
     time, and with no step at a junction. `_assert_matches_oracle` is for the others.
     """
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     pp_gradients = seq.get_gradients()
     for axis_index, axis in enumerate(_AXES):
         ppoly = pp_gradients[axis_index]
@@ -71,7 +76,7 @@ def _assert_matches_oracle(seq: pp.Sequence, t: np.ndarray) -> None:
     MATLAB Pulseq, `tests/oracles/waveform.py`) within a relative 1e-12 and an absolute
     1e-12 times the largest |value| of that axis's reference at `t`. The two build the same
     points and differ by the float rounding of the interpolation formula only."""
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     for axis in "xyz":
         ref = oracle.sample(seq, axis, t)
         got = sampler.sample(f"g{axis}", t)
@@ -261,7 +266,7 @@ def test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_ora
             ]
         )
     )
-    got = GradientSampler(index, event_points(seq)).sample("gx", t)
+    got = gradient_sampler(seq).sample("gx", t)
     assert np.all(got[:5] != 0.0)
     assert np.all(got[5:25] == 0.0)
     assert np.all(got[25:] != 0.0)
@@ -271,7 +276,7 @@ def test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_ora
 def test_range_across_a_step_and_a_ramp_equals_the_same_slice_of_the_whole_grid():
     seq, t = _step_then_gap_sequence()
     index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     whole = sampler.sample("gx", t)
     # The waveform after the last value of block 1 is the ramp to 0 (half a raster time),
     # and 0 after it, so a range that starts in the gap needs the event before it.
@@ -316,7 +321,7 @@ def test_times_before_an_event_that_starts_at_a_value_that_is_not_0_have_the_ram
     assert index.start_s[1] == pytest.approx(1e-3)
     t = np.array([600e-6, 800e-6, 995e-6, 996e-6, 997.5e-6, 999e-6, 1e-3])
     expected = np.array([0.0, 0.0, 0.0, 0.2 * step, 0.5 * step, 0.8 * step, step])
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.sample("gx", t)
     np.testing.assert_allclose(got, expected, rtol=1e-9, atol=1e-9 * step)
     _assert_matches_oracle(seq, t)
@@ -347,7 +352,7 @@ def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
     raster = SYSTEM.grad_raster_time
     t = np.sort(junction_s + np.linspace(-20, 20, 41) * raster)
     _assert_matches_oracle(seq, t)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.sample(
         "gx", np.array([junction_s - 10 * raster, junction_s, junction_s + 10 * raster])
     )
@@ -420,7 +425,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     truth = np.interp(grid, tt, vv)
     peak = np.abs(truth).max()
 
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.sample("gx", grid)
     np.testing.assert_allclose(got, truth, rtol=0, atol=1e-12 * peak)
 
@@ -428,7 +433,7 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
 def test_zero_before_the_first_event_and_after_the_last():
     seq = _delay_padded_sequence()
     index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     before = np.linspace(0.0, index.start_s[1] - 1e-6, 50)
     after = np.linspace(index.start_s[2] + 1e-6, index.end_s, 50)
     got_before = sampler.sample("gx", before)
@@ -439,8 +444,7 @@ def test_zero_before_the_first_event_and_after_the_last():
 
 def test_empty_sequence_is_zero_for_any_t():
     seq = empty_sequence()
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     t = np.array([0.0, 1e-3, 5.0])  # 5.0 s is well past the sequence's own duration
     for axis in _AXES:
         got = sampler.sample(axis, t)
@@ -450,7 +454,7 @@ def test_empty_sequence_is_zero_for_any_t():
 
 def test_empty_times_gives_empty_output():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.sample("gx", np.array([]))
     assert got.dtype == np.float64
     assert got.shape == (0,)
@@ -458,7 +462,7 @@ def test_empty_times_gives_empty_output():
 
 def test_invalid_axis_name_raises_value_error():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     with pytest.raises(ValueError):
         sampler.sample("gw", np.array([0.0]))
 
@@ -541,10 +545,9 @@ def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_gri
     the whole grid exactly (a range that starts or ends inside a gap or a ramp has the
     events around it)."""
     seq = _model_sequence(name)
-    index = sequence_index(seq)
     full = _model_times(seq)
     t = full[:: max(1, full.size // 40)]
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     for axis in "xyz":
         whole = sampler.sample(f"g{axis}", t)
         ref = oracle.sample(seq, axis, t)
@@ -562,7 +565,7 @@ def test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand():
     seq = _off_raster_events_sequence()
     t = _RASTER * np.array([3.3, 3.5, 3.8, 5.0, 8.2, 8.5, 8.7, 11.7, 12.0])
     expected = _A * np.array([1.0, 0.6, 0.0, 0.0, 0.0, 0.3, 0.5, 0.0, 0.0])
-    got = GradientSampler(sequence_index(seq), event_points(seq)).sample("gx", t)
+    got = gradient_sampler(seq).sample("gx", t)
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-9 * _A)
     # A line across the gap, which pypulseq draws, would give about 0.8 A at 5.
     assert abs(seq.get_gradients()[0](t[3]) - 0.0) > 0.5 * _A
@@ -574,10 +577,9 @@ def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
     `_AxisGaps` object (read-only arrays). An axis with no event has none. A block added to the
     sequence gives new points, so the gaps are found again."""
     seq = _model_sequence("long_gap")
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     gaps = sampler._gaps("gx")
-    assert GradientSampler(index, event_points(seq))._gaps("gx") is gaps
+    assert gradient_sampler(seq)._gaps("gx") is gaps
     np.testing.assert_allclose(gaps.start_s, [100e-6, 295e-6], rtol=0, atol=1e-12)
     np.testing.assert_allclose(gaps.end_s, [105e-6, 300e-6], rtol=0, atol=1e-12)
     np.testing.assert_allclose(gaps.start_hz_per_m, [3e4, 0.0])
@@ -587,7 +589,7 @@ def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
         assert not array.flags.writeable
     assert sampler._gaps("gy").start_s.size == 0
     seq.add_block(pp.make_delay(1e-3))
-    again = GradientSampler(sequence_index(seq), event_points(seq))._gaps("gx")
+    again = gradient_sampler(seq)._gaps("gx")
     assert again is not gaps
     np.testing.assert_array_equal(again.start_s, gaps.start_s)
 
@@ -616,7 +618,7 @@ def test_block_samples_matches_sample_at_file_raster_times(seq):
     assert on_raster
     total = int(n.sum())
     t_file = (np.arange(total, dtype=np.float64) + 0.5) * dt
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     for axis in _AXES:
         got = sampler.block_samples(axis, 0, index.num_blocks, dt)
         ref = sampler.sample(axis, t_file)
@@ -652,8 +654,7 @@ def test_hand_made_ramp_and_no_event_block():
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(gx, gz)
     seq.add_block(pp.make_delay(n_block * dt))
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
 
     j = np.arange(n_block, dtype=np.float64)
     t = (j + 0.5) * dt
@@ -679,7 +680,7 @@ def test_range_inside_the_file_equals_the_same_slice_of_the_whole_file():
     seq = gre_sequence(num_trs=3)
     dt = SYSTEM.grad_raster_time
     index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     n, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     first, stop = 2, index.num_blocks - 1
@@ -747,7 +748,7 @@ def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
     n_all, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     assert n_all[2] == n_all[4] == 120  # the event of block 2 stops 60 samples before its end
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     checked = 0
     for first, stop in [(0, 5), (1, 5), (2, 5), (1, 4), (2, 3), (3, 5), (0, 2), (4, 5)]:
         n = n_all[first:stop]
@@ -758,7 +759,7 @@ def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
                 got = sampler.block_samples(axis, first, stop, dt, skip=skip, count=count)
                 assert got.dtype == np.float64
                 assert np.array_equal(got, expected), (axis, first, stop, skip, count)
-                fresh = GradientSampler(index, event_points(seq))
+                fresh = gradient_sampler(seq)
                 got = fresh.block_samples(axis, first, stop, dt, skip=skip, count=count)
                 assert np.array_equal(got, expected), (axis, first, stop, skip, count)
                 checked += 1
@@ -788,7 +789,7 @@ def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
     n, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     assert n[0] == n_block
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     whole = sampler.block_samples("gx", 0, 2, dt)
     nonzero = np.flatnonzero(whole[:n_block])
     assert 0 < nonzero.size < 1000
@@ -823,7 +824,7 @@ def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
     )
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay(4 * raster))
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     dt = 2 * raster
     assert 0.5 * dt == raster
     np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt), [amp, 0.0])
@@ -850,7 +851,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
     )
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(ramp, pp.make_delay((n_ramp + 3) * raster))
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.block_samples("gx", 0, 1, dt)
     assert got.shape == (last + 2,)
     assert got[last] == amp
@@ -872,7 +873,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
 )
 def test_block_samples_bad_skip_or_count_raises_value_error(skip, count):
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     with pytest.raises(ValueError, match="skip"):
         sampler.block_samples("gx", 1, 3, SYSTEM.grad_raster_time, skip=skip, count=count)
 
@@ -883,7 +884,7 @@ def test_skip_plus_count_up_to_the_range_end_is_accepted():
     seq = gre_sequence(num_trs=1)
     dt = SYSTEM.grad_raster_time
     index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     n, _ = raster_block_lengths(index, dt)
     total = int(n[1:3].sum())
     assert sampler.block_samples("gx", 1, 3, dt, skip=total, count=0).size == 0
@@ -895,7 +896,7 @@ def test_skip_plus_count_up_to_the_range_end_is_accepted():
 
 def test_block_samples_invalid_axis_name_raises_value_error():
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     with pytest.raises(ValueError):
         sampler.block_samples("gw", 0, 1, SYSTEM.grad_raster_time)
 
@@ -907,7 +908,7 @@ def test_block_samples_invalid_axis_name_raises_value_error():
 )
 def test_block_samples_bad_range_raises_value_error(first, stop):
     seq = gre_sequence(num_trs=1)
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     with pytest.raises(ValueError):
         sampler.block_samples("gx", first, stop, SYSTEM.grad_raster_time)
 
@@ -918,8 +919,7 @@ def test_block_samples_off_raster_block_raises_value_error():
     dt = SYSTEM.grad_raster_time
     seq = signed(pp.Sequence(SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     with pytest.raises(ValueError):
         sampler.block_samples("gx", 0, 1, dt)
 
@@ -1043,7 +1043,7 @@ def test_block_samples_equals_the_oracle_for_the_whole_sequence(name, divisor):
     index = sequence_index(seq)
     dt = _RASTER / divisor
     assert raster_block_lengths(index, dt)[1]
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     for axis in "xyz":
         got = sampler.block_samples(f"g{axis}", 0, index.num_blocks, dt)
         _assert_samples_match(got, oracle.block_samples(seq, axis, dt))
@@ -1073,7 +1073,7 @@ def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole
     dt = _RASTER / divisor
     n_all, on_raster = raster_block_lengths(index, dt)
     assert on_raster
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     for axis in "xyz":
         reference = oracle.block_samples(seq, axis, dt)
         whole = sampler.block_samples(f"g{axis}", 0, index.num_blocks, dt)
@@ -1092,7 +1092,7 @@ def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole
                         skip,
                         count,
                     )
-                    fresh = GradientSampler(index, event_points(seq))
+                    fresh = gradient_sampler(seq)
                     got = fresh.block_samples(f"g{axis}", first, stop, dt, skip=skip, count=count)
                     assert np.array_equal(got, part[skip : skip + count]), (
                         first,
@@ -1109,8 +1109,7 @@ def test_the_samples_in_a_short_gap_are_the_line_by_hand():
     of block 0, after its last point. The other samples are those of the own events. The
     first sample of block 1 (5 us) is on the ramp down of block 1."""
     seq = _model_sequence("short_gap")
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.block_samples("gx", 0, 2, _RASTER)
     assert got.shape == (21,)
     unit = 1e4
@@ -1133,7 +1132,7 @@ def test_the_samples_in_a_ramp_of_a_long_gap_that_are_not_at_its_ends_are_the_ra
     in `test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand`. The other samples are
     those of the own events."""
     seq = _off_raster_events_sequence()
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.block_samples("gx", 0, 2, _RASTER)
     expected = _A * np.array(
         [
@@ -1164,10 +1163,29 @@ def test_a_ramp_from_a_raster_edge_changes_no_sample_at_the_gradient_raster():
     `block_samples` at the gradient raster has the samples of the own events, 0 in the gap
     (D7 of `docs/plans/third-review-fixes.md`)."""
     seq = _model_sequence("long_gap")
-    index = sequence_index(seq)
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(seq)
     got = sampler.block_samples("gx", 0, 3, _RASTER)
     assert got.shape == (40,)
     np.testing.assert_allclose(got[10:30], 0.0, rtol=0, atol=1e-9 * 3e4)
     assert got[9] == pytest.approx(2.85e4)
     assert got[30] == pytest.approx(1.9e4, rel=1e-9)
+
+
+@pytest.mark.parametrize("build", [gre_sequence, spin_echo_sequence, arbitrary_gradient_sequence])
+def test_gradient_sampler_equals_the_sampler_of_the_constructor(build):
+    """`gradient_sampler(seq)` gives the same samples as
+    `GradientSampler(sequence_index(seq), event_points(seq))`, each equal bit for bit, on
+    each axis at the raster centers of the sequence."""
+    seq = build()
+    made = gradient_sampler(seq)
+    built = GradientSampler(sequence_index(seq), event_points(seq))
+    t = _raster_centers(float(sequence_index(seq).start_s[-1]) + 1e-3)
+    for axis in _AXES:
+        assert np.array_equal(made.sample(axis, t), built.sample(axis, t)), axis
+
+
+def test_gradient_sampler_refuses_rotations():
+    """`gradient_sampler` raises `NotImplementedError` for a sequence with a rotation
+    library (`extensions.refuse_rotations`): the sampler does not apply a rotation."""
+    with pytest.raises(NotImplementedError, match="rotation extension"):
+        gradient_sampler(with_rotation_library())

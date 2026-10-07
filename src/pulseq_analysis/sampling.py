@@ -36,9 +36,11 @@ import weakref
 from dataclasses import dataclass
 
 import numpy as np
+import pypulseq as pp
 
-from ._events import EventPoints
-from .seq_index import SequenceIndex
+from ._events import EventPoints, event_points
+from .extensions import refuse_rotations
+from .seq_index import SequenceIndex, sequence_index
 from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE
 
 
@@ -78,6 +80,8 @@ class GradientSampler:
     axis (the module docstring) are found one time for each sequence and axis, from the
     index and the points, and kept (`_GAPS`). Apart from that one time, a call to `sample`
     costs O(samples + blocks between the first and the last sample), not O(all blocks).
+
+    `gradient_sampler(seq)` makes a sampler of a sequence.
     """
 
     def __init__(self, index: SequenceIndex, points: EventPoints) -> None:
@@ -515,6 +519,17 @@ class GradientSampler:
         v0_in = np.broadcast_to(v0[piece][:, None], time.shape)[inside]
         v1_in = np.broadcast_to(v1[piece][:, None], time.shape)[inside]
         out[position[inside]] = v0_in + (v1_in - v0_in) * ((time[inside] - t0_in) / (t1_in - t0_in))
+
+
+def gradient_sampler(seq: pp.Sequence) -> GradientSampler:
+    """The `GradientSampler` of `seq`: the public way to make a sampler.
+
+    It is `GradientSampler(sequence_index(seq), event_points(seq))`. The index and the
+    event points are kept for each sequence object, so the sampler is not kept. Raises
+    NotImplementedError for a sequence with the rotation extension
+    (`extensions.refuse_rotations`): the sampler does not apply a rotation."""
+    refuse_rotations(seq)
+    return GradientSampler(sequence_index(seq), event_points(seq))
 
 
 def _frozen_gaps(*arrays: np.ndarray) -> _AxisGaps:
