@@ -327,12 +327,11 @@ blocks (about 20 ms for 20,000 blocks).
 
 | Field | Meaning |
 |---|---|
-| `reason` | `None` when the range has a part of a gradient event, or a ramp, a line or a step with a value that is not 0. Otherwise `seq_index.NO_GRADIENTS` (no window) or `seq_index.NO_GRADIENTS_IN_WINDOW` (with a window), each number is 0.0 (except `whole_rms_hz_per_m`) and each block is `None`. |
+| `reason` | `None` when the range has a part of a gradient event, or a ramp, a line or a step with a value that is not 0. Otherwise `seq_index.NO_GRADIENTS` (no window) or `seq_index.NO_GRADIENTS_IN_WINDOW` (with a window), each number is 0.0 and each block is `None`. |
 | `range_s` | The range of the measurement: `(0.0, end_s)`, or the window. |
 | `axes` | A read-only dict (`_equality.FrozenDict`) from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector in the range (Hz/m). |
 | `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and the block ID of the block that has that time, seen from the side where the value is ([section 2](#2-the-gradient-waveform)). |
-| `whole_rms_hz_per_m` | With a window: a read-only dict (`FrozenDict`) from each axis to its RMS over the whole file (Hz/m). `None` without a window. |
 
 A `FrozenDict` is a `dict` (`isinstance(x, dict)`, `json.dumps` and `pickle`
 work) whose methods that change it raise `TypeError`. A result is shared by all
@@ -949,7 +948,7 @@ pypulseq's `Opts` also converts with `abs(gamma)`.
 
 | Values | Unit | Divided by \|γ\| | For ¹H (γ = 42.576 MHz/T) |
 |---|---|---|---|
-| Amplitudes: `AxisResult.peak_hz_per_m`, `AxisResult.rms_hz_per_m`, `GradientPeaks.vector_peak_hz_per_m`, `GradientPeaks.whole_rms_hz_per_m`, `BlockGradientValues.peak_hz_per_m`, `BlockGradientValues.vector_peak_hz_per_m` | Hz/m | T/m (times 1e3: mT/m) | 1 mT/m is 42 576 Hz/m |
+| Amplitudes: `AxisResult.peak_hz_per_m`, `AxisResult.rms_hz_per_m`, `GradientPeaks.vector_peak_hz_per_m`, `BlockGradientValues.peak_hz_per_m`, `BlockGradientValues.vector_peak_hz_per_m` | Hz/m | T/m (times 1e3: mT/m) | 1 mT/m is 42 576 Hz/m |
 | Slew rates: `AxisResult.max_slew_hz_per_m_per_s`, `BlockGradientValues.slew_hz_per_m_per_s`, `BlockGradientValues.junction_hz_per_m_per_s` | Hz/m/s | T/m/s | 1 T/m/s is 4.2576 × 10⁷ Hz/m/s |
 | The spectrum: `GradientSpectrum.axes`, `GradientSpectrum.rss`, the series `gradient_spectrum` | Hz/m/√Hz | T/m/√Hz (times 1e3: mT/m/√Hz) | 1 Hz/m/√Hz is 2.3487 × 10⁻⁵ mT/m/√Hz |
 | PNS: `PnsLevels.peak_hz_per_t`, `PnsLevels.axis_peaks_hz_per_t`, `PnsLevels.level_min_hz_per_t`, `PnsLevels.level_max_hz_per_t`, `PnsInterval.peak_hz_per_t`, the series `pns_total` and `pns_above_<k>` | Hz/T | The fraction of the stimulation limit (1 is 100 %) | The limit is 4.2576 × 10⁷ Hz/T |

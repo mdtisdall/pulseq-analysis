@@ -97,7 +97,6 @@ def _assert_limits_equal(a: GradientPeaks, b: GradientPeaks) -> None:
     assert a.vector_peak_hz_per_m == b.vector_peak_hz_per_m
     assert a.vector_peak_time_s == b.vector_peak_time_s
     assert a.vector_peak_block == b.vector_peak_block
-    assert a.whole_rms_hz_per_m == b.whole_rms_hz_per_m
 
 
 def test_the_values_do_not_depend_on_the_gamma_of_the_system():
@@ -1027,24 +1026,11 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
     on random axes, each event starting and ending at 0 (so no gap has a step, a line or a ramp,
     and the values come from the events alone): `gradient_peaks` matches the oracle, on the
     whole file and on 6 windows (`_oracle_windows`), within `_rounding_tol` (see the comment
-    above). The whole-file RMS that `gradient_peaks` gives with a window matches the oracle's RMS
-    of the whole file."""
+    above)."""
     rng = np.random.default_rng(seed)
     seq = _random_gradient_sequence(rng)
     windows = _oracle_windows(seq, rng, 6)
     _assert_matches_oracle_on_windows(seq, windows)
-
-    tol = _rounding_tol(seq)
-    theirs_whole = oracle.peaks(seq)
-    ours_window = gradient_peaks(seq, window=windows[0])
-    for axis in AXES:
-        _assert_close(
-            ours_window.whole_rms_hz_per_m[axis],
-            theirs_whole[axis]["rms"],
-            SYSTEM.max_grad,
-            tol,
-            f"whole_rms_hz_per_m[{axis}]",
-        )
 
 
 @pytest.mark.parametrize("seed", range(40))
@@ -1499,7 +1485,7 @@ def test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_chang
 
 
 @pytest.mark.parametrize("window", [None, (0.0, 1e-3)], ids=["whole", "window"])
-def test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change(window):
+def test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change(window):
     result = gradient_peaks(spin_echo_sequence(), window=window)
     assert isinstance(result.axes, FrozenDict)
     assert list(result.axes) == ["x", "y", "z"]
@@ -1507,15 +1493,6 @@ def test_the_dicts_of_gradient_peaks_are_frozen_dicts_that_refuse_a_change(windo
         result.axes["x"] = result.axes["y"]
     with pytest.raises(TypeError):
         result.axes.clear()
-    if window is None:
-        assert result.whole_rms_hz_per_m is None
-        return
-    assert isinstance(result.whole_rms_hz_per_m, FrozenDict)
-    assert list(result.whole_rms_hz_per_m) == ["x", "y", "z"]
-    with pytest.raises(TypeError):
-        result.whole_rms_hz_per_m["x"] = 0.0
-    with pytest.raises(TypeError):
-        result.whole_rms_hz_per_m.pop("x")
 
 
 def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients():
@@ -1783,7 +1760,7 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
 ):
     """In `build_repeating(1000)` (5000 blocks), with the kept data built by a first call, a
     window over several TRs calculates no column of a block (`_axis_columns`), no vector peak
-    of a block and no whole-file RMS again, for a window with its edges in
+    of a block again, for a window with its edges in
     blocks and for one with its edges on block edges."""
     seq = build_repeating(1000)
     index = sequence_index(seq)
@@ -1797,7 +1774,6 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
     for name in (
         "_axis_columns",
         "_exact_vector_peaks",
-        "_whole_file_rms",
     ):
         monkeypatch.setattr(grad_peaks, name, fail)
 

@@ -166,13 +166,11 @@ def test_gradient_peaks_with_a_window_is_a_new_object_for_each_call_and_is_not_k
     assert first is not second
     assert first == second
     assert first is not whole
-    assert first.whole_rms_hz_per_m is not None
     assert gradient_peaks(seq) is whole
 
     fresh = spin_echo_sequence()
     windowed_first = gradient_peaks(fresh, window=window)
     assert gradient_peaks(fresh) is not windowed_first
-    assert gradient_peaks(fresh).whole_rms_hz_per_m is None
 
 
 def test_a_windowed_gradient_peaks_uses_the_kept_per_event_values(monkeypatch):
