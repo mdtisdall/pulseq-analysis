@@ -102,10 +102,12 @@ _LEVELS_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKe
 @dataclass(frozen=True)
 class PnsInterval:
     """A run of consecutive samples whose total is at or above a threshold
-    (`PnsLevels.above`). The time of sample `k` is `(k + 0.5) * dt`."""
+    (`PnsLevels.above`). The time of sample `k` is `(k + 0.5) * dt`. `start_s` and `end_s`
+    are the edges of the samples of the run: `first * dt` and `(last + 1) * dt`, so a run of
+    one sample has `end_s - start_s == dt`. `peak_time_s` is the time of a sample."""
 
-    start_s: float  # the time of the first sample of the interval
-    end_s: float  # the time of the last sample of the interval
+    start_s: float  # the start of the first sample of the interval, `first * dt`
+    end_s: float  # the end of the last sample of the interval, `(last + 1) * dt`
     peak_hz_per_t: float  # the largest total (float64) in the interval, in Hz/T
     peak_time_s: float  # the time of the first sample of the interval with that total
     num_samples: int  # the number of samples of the interval
@@ -636,8 +638,8 @@ class _IntervalFinder:
     def _interval(self, run: tuple[int, int, float, int]) -> PnsInterval:
         first, last, peak, peak_sample = run
         return PnsInterval(
-            start_s=(first + 0.5) * self._dt,
-            end_s=(last + 0.5) * self._dt,
+            start_s=first * self._dt,
+            end_s=(last + 1) * self._dt,
             peak_hz_per_t=peak,
             peak_time_s=(peak_sample + 0.5) * self._dt,
             num_samples=last - first + 1,

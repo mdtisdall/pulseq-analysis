@@ -291,7 +291,7 @@ def test_interval_finder_tie_across_a_chunk_boundary_keeps_the_earlier_peak_samp
     finder.add_chunk(0, np.array([0.0, 1.0]))
     finder.add_chunk(2, np.array([1.0, 0.0]))
     (interval,) = finder.finish()
-    assert (interval.start_s, interval.end_s) == (1.5, 2.5)
+    assert (interval.start_s, interval.end_s) == (1.0, 3.0)
     assert interval.num_samples == 2
     assert interval.peak_time_s == 1.5
 
@@ -304,9 +304,22 @@ def test_interval_finder_gap_at_the_start_of_a_chunk_does_not_join_the_open_run(
     finder.add_chunk(2, np.array([0.0, 1.0]))
     intervals = finder.finish()
     assert [(i.start_s, i.end_s, i.num_samples) for i in intervals] == [
-        (1.5, 1.5, 1),
-        (3.5, 3.5, 1),
+        (1.0, 2.0, 1),
+        (3.0, 4.0, 1),
     ]
+
+
+def test_an_interval_of_one_sample_spans_one_sample_interval_from_its_first_sample_edge():
+    """A run of one sample, sample 2 of `[0, 0, 1, 0]`, has `start_s == 2 * dt` and
+    `end_s - start_s == dt`, and the peak time is the time of the sample, `2.5 * dt`."""
+    dt = 0.25  # a power of 2, so the products and the difference are exact
+    finder = _IntervalFinder(dt, 0.5)
+    finder.add_chunk(0, np.array([0.0, 0.0, 1.0, 0.0]))
+    (interval,) = finder.finish()
+    assert interval.num_samples == 1
+    assert interval.start_s == 2 * dt
+    assert interval.end_s - interval.start_s == dt
+    assert interval.peak_time_s == 2.5 * dt
 
 
 def test_bin_samples_for_matches_the_formula():
@@ -628,8 +641,9 @@ _ACROSS_BIN_S = 10.0 / 1624
 
 
 def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
-    """The first and the last sample of `interval`, from its times `(k + 0.5) * dt`."""
-    return round(interval.start_s / dt - 0.5), round(interval.end_s / dt - 0.5)
+    """The first and the last sample of `interval`, from its edges `first * dt` and
+    `(last + 1) * dt`."""
+    return round(interval.start_s / dt), round(interval.end_s / dt) - 1
 
 
 def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
@@ -652,7 +666,7 @@ def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
         assert i.start_s <= i.peak_time_s <= i.end_s
         assert i.num_samples == last - first + 1
     for a, b in itertools.pairwise(levels.above[_LIMIT]):
-        assert a.end_s + dt < b.start_s  # at least one sample below the limit between them
+        assert a.end_s + dt / 2 < b.start_s  # at least one sample below the limit between them
 
 
 def test_a_threshold_equal_to_the_peak_gives_an_interval():
@@ -777,8 +791,8 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
             peak_sample = position + int(np.flatnonzero(run == run.max())[0])
             expected.append(
                 PnsInterval(
-                    start_s=(position + 0.5) * dt,
-                    end_s=(position + length - 1 + 0.5) * dt,
+                    start_s=position * dt,
+                    end_s=(position + length) * dt,
                     peak_hz_per_t=float(run.max()),
                     peak_time_s=(peak_sample + 0.5) * dt,
                     num_samples=length,

@@ -513,8 +513,9 @@ thresholds in another order give a result that is not equal. The read-only
 flag does not count, so a copy from `pickle` or `copy.deepcopy` equals the
 original. A `PnsLevels` is not hashable.
 
-`PnsInterval`, a frozen dataclass: `start_s` and `end_s` (the times of the
-first and the last sample), `peak_hz_per_t` (the largest total, in Hz/T),
+`PnsInterval`, a frozen dataclass: `start_s` and `end_s` (the edges of the
+samples of the run, `first * dt` and `(last + 1) * dt`, so a run of one sample
+has `end_s - start_s == dt`), `peak_hz_per_t` (the largest total, in Hz/T),
 `peak_time_s` (the first sample with it) and `num_samples`.
 
 `pns_levels.SAFE_FIELDS` is the nine fields of each axis of a SAFE hardware
@@ -788,8 +789,9 @@ keep their names. `meta["peak"]`, `meta["axis_peaks_<axis>"]`, the array
 
 In `pns_total`, `coord_start` is 0, `coord_step` is `bin_samples * dt_s` and
 `coord_end` is `num_samples * dt_s`. The sample with the index `j` is at
-`(j + 0.5) * dt_s`, and `start` and `end` of a run are the times of its first
-and last sample.
+`(j + 0.5) * dt_s`. `start` and `end` of a run are the edges of its samples,
+`first * dt_s` and `(last + 1) * dt_s`, and `peak_time_s` is the time of a
+sample.
 `peak_time_s` and the `meta` keys `dt_s` and `peak_time_s` are times in
 seconds.
 

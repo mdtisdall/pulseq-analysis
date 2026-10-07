@@ -490,10 +490,11 @@ sides, is one interval whose peak sample is the earlier one (the tie rule of the
 two chunks).
 
 **How:** `_IntervalFinder(1.0, 0.5)`, `add_chunk(0, [0, 1])`, `add_chunk(2, [1, 0])`.
-`finish()` gives one interval with `start_s == 1.5`, `end_s == 2.5`, `num_samples == 2` and
+`finish()` gives one interval with `start_s == 1.0`, `end_s == 3.0`, `num_samples == 2` and
 `peak_time_s == 1.5`.
 
-**Assumptions:** The time of sample `s` is `(s + 0.5) * dt`.
+**Assumptions:** The edges of the samples `first` to `last` are `first * dt` and
+`(last + 1) * dt`. The time of sample `s` is `(s + 0.5) * dt`.
 
 #### `test_interval_finder_gap_at_the_start_of_a_chunk_does_not_join_the_open_run`
 
@@ -501,10 +502,22 @@ two chunks).
 chunk that does not start at its first sample.
 
 **How:** `_IntervalFinder(1.0, 0.5)`, `add_chunk(0, [0, 1])`, `add_chunk(2, [0, 1])`.
-`finish()` gives two intervals, with `(start_s, end_s, num_samples)` of `(1.5, 1.5, 1)` and
-`(3.5, 3.5, 1)`.
+`finish()` gives two intervals, with `(start_s, end_s, num_samples)` of `(1.0, 2.0, 1)` and
+`(3.0, 4.0, 1)`.
 
 **Assumptions:** None.
+
+#### `test_an_interval_of_one_sample_spans_one_sample_interval_from_its_first_sample_edge`
+
+**Checks:** A run of one sample has `start_s == first * dt` and `end_s - start_s == dt`, and
+its peak time is the time of the sample, `(first + 0.5) * dt`.
+
+**How:** `_IntervalFinder(0.25, 0.5)`, `add_chunk(0, [0, 0, 1, 0])`. `finish()` gives one
+interval with `num_samples == 1`, `start_s == 0.5`, `end_s - start_s == 0.25` and
+`peak_time_s == 0.625`.
+
+**Assumptions:** `dt` is 0.25, a power of 2, so the products and the difference are exact in
+floats.
 
 #### `test_bin_samples_for_matches_the_formula`
 
@@ -731,7 +744,9 @@ one sample below the limit between two of them.
 `gre_sequence(num_trs=20)` with the example hardware has a peak below `_LIMIT` and no
 interval. Then the stimulation limit of each axis is scaled with the peak of the example
 hardware, so that the peak is 1.5 times `_LIMIT` (`hardware_for_peak` of `tests/pns_hardware.py`; the total is the
-percent of the limit), and `pns_levels` runs with that hardware as `hardware`. The sample of a time is `round(t / dt - 0.5)`.
+percent of the limit), and `pns_levels` runs with that hardware as `hardware`. The first sample of an interval is `round(start_s / dt)`, and the last is
+`round(end_s / dt) - 1`. Two intervals are apart by more than `dt / 2`, so at least one
+sample is between them.
 
 **Assumptions:** The sequence gives more than one interval at that peak.
 
