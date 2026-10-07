@@ -6,7 +6,7 @@ The waveform is the polyline of pypulseq's `Sequence.get_gradients()`, in Hz/m:
    corner or sample points of that event (`seq_utils.gradient_offsets`), at the times
    `(block start + delay) + offsets`, with the event's amplitudes.
 2. The join. The points of all these blocks make one list. A point whose time is not
-   more than `pypulseq.eps` (1e-9 s) after the time of the point before it in the list
+   more than `seq_utils.TIME_TOLERANCE` after the time of the point before it in the list
    is left out. pypulseq's `waveforms()` leaves out the first point of an event at the
    time of the last point of the event before it, so the step at such a junction takes
    the value of the earlier event. The same rule removes the repeated points that
