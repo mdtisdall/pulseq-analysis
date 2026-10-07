@@ -422,8 +422,14 @@ The kind gives the shape of the data:
 | `POINTS` | `value[k]` is at `coord[k]`. | `coord`, `value`, and more of the same length | `coord_start` is 0.0, `coord_step` and `coord_end` are `None` |
 | `RUNS` | A boolean that is true from `start[k]` to `end[k]`. | `start`, `end`, and a value of each run | `coord_start` is 0.0, `coord_step` and `coord_end` are `None` |
 
+A `Series` is read-only: its arrays cannot be made writable, also in a copy from
+`pickle` or `copy.deepcopy`. An `ENVELOPE` has `min` and `max` of one integer or
+float dtype with `min <= max`, and `POINTS` has a `coord` of an integer or float
+dtype. A numpy scalar in `meta` is stored as a Python scalar.
+
 `Series.to_obj()` gives a dict that `json.dumps(obj, allow_nan=False)` writes,
-and `Series.from_obj(obj)` is the inverse. `encode_array(a)` gives an array as
+and `Series.from_obj(obj)` is the inverse (it raises `ValueError` for a bad
+object, also for a number that is too large for a float). `encode_array(a)` gives an array as
 compact text (`{"dtype", "length", "data"}`, gzipped and base64-encoded), the
 encoding of the tables of pulseq-reports, and `decode_array(d)` is the
 inverse ([implementation, section 8](implementation.md#8-series-checks-and-the-array-encoding)).

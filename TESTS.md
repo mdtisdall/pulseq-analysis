@@ -4082,11 +4082,43 @@ does not refuse it. The other kinds use the valid `coord_step` that the kind nee
 **Assumptions:** The test does not try each necessary array of each kind with a bad dtype,
 only the dtypes in the list.
 
+#### `test_envelope_refuses_bad_min_and_max`
+
+**Checks:** An ENVELOPE with a complex or bool `min` or `max`, with a different dtype for `min` and `max` (two float dtypes, and an integer with a float), or with `min[i] > max[i]` (floats, integers, and reversed infinities) raises `ValueError` with the message of its own check.
+
+**How:** Parametrized with `min`, `max` and the message. Build an ENVELOPE of valid coordinates (`_bins`) with the two arrays and check for `ValueError` with `match=`.
+
+**Assumptions:** None.
+
+#### `test_envelope_accepts_a_nan_and_min_equal_to_max`
+
+**Checks:** An ENVELOPE accepts a NaN in `min`, in `max` or in both, `min[i] == max[i]`, integer arrays and arrays with no element, and the round trip is equal.
+
+**How:** Parametrized. Build the ENVELOPE and check `_round_trip(s) == s`.
+
+**Assumptions:** A bin with a NaN is not checked for the order, because a comparison with a NaN is false.
+
+#### `test_points_refuses_a_coord_of_a_complex_or_bool_dtype`
+
+**Checks:** A POINTS series with a `coord` of a complex or a bool dtype raises `ValueError`.
+
+**How:** Parametrized over the two dtypes; check for `ValueError` with `match=` of the message.
+
+**Assumptions:** None.
+
+#### `test_points_accepts_a_coord_that_is_not_finite_or_not_a_float64`
+
+**Checks:** A POINTS series accepts a `coord` of dtype int32, uint8, float32 or float64, and for a float dtype also an infinity, and the round trip is equal.
+
+**How:** Parametrized over the four dtypes; set the last value of a float `coord` to infinity; check `_round_trip(s) == s`.
+
+**Assumptions:** None.
+
 #### `test_series_refuses_bad_meta`
 
 **Checks:** A series raises when `meta` is not a mapping, has a key that is not a string,
-has a value that is a list, a dict or a numpy number, or has the string value "inf",
-"-inf" or "nan".
+has a value that is a list, a dict, a numpy complex, a numpy datetime or a numpy array, or
+has the string value "inf", "-inf" or "nan".
 
 **How:** Parametrized. Each case builds a valid SAMPLES series with the bad `meta` and
 checks for `TypeError` (a wrong type) or `ValueError` (the three strings). The rules are
@@ -4106,6 +4138,46 @@ after the round trip.
 
 **Assumptions:** A `np.float64` is a subclass of `float`, so it passes the type check of
 `meta`. Without the conversion it would stay a `np.float64`.
+
+#### `test_series_meta_makes_a_numpy_scalar_a_python_scalar`
+
+**Checks:** A numpy scalar of a bool, integer or float dtype in `meta` (float16, float32, float64, a NaN, int8, int64, uint32 and bool) is stored as a Python scalar of the exact type `bool`, `int` or `float`. The series equals the series made with the Python scalar, and its JSON round trip is equal.
+
+**How:** Parametrized. Build a SAMPLES series with the numpy scalar in `meta`, check the exact type of the stored value, `values_equal` with the series made with the Python scalar (`values_equal`, because a NaN is not equal by `==` of the values), and `_round_trip`.
+
+**Assumptions:** None.
+
+#### `test_series_stores_a_str_subclass_as_a_str`
+
+**Checks:** A `np.str_` as the name, the unit, the `coord_unit`, a key of `arrays`, a key of `meta` and a value of `meta` is stored as a plain `str`, and the JSON round trip gives an equal series.
+
+**How:** Build a SAMPLES series with a `np.str_` in each of the six places, check that the type of each stored string is exactly `str`, and check `_round_trip(s) == s`.
+
+**Assumptions:** None.
+
+#### `test_a_copy_of_a_series_is_equal_and_read_only`
+
+**Checks:** A series of each kind from `copy.deepcopy` or from `pickle` equals the original, is another object, has a `FrozenDict` for `arrays` and for `meta`, and has read-only arrays whose flag `writeable` cannot be set to True.
+
+**How:** Parametrized over the four kinds and the two ways to copy. Check `==`, the type of the two dicts (and that a write raises `TypeError`), the flag of each array, and that `flags.writeable = True` raises `ValueError`.
+
+**Assumptions:** `Series.__reduce__` rebuilds the copy with the constructor.
+
+#### `test_series_rebuilds_a_copy_with_the_constructor`
+
+**Checks:** `Series.__reduce__` gives the class and the fields, so the same arguments give an equal series, and a damaged state (a `coord_step` below 0, and an ENVELOPE with `min` above `max`) raises `ValueError` and does not make an invalid series.
+
+**How:** Call `__reduce__` of an ENVELOPE series, check that the first item is `Series` and that it makes an equal series from the arguments, then change one argument to a bad value and check for `ValueError`.
+
+**Assumptions:** `pickle` and `copy.deepcopy` call the first item of `__reduce__` with the arguments; the test calls it directly and does not make a damaged pickle stream.
+
+#### `test_series_arrays_cannot_be_made_writable`
+
+**Checks:** For a bool, integer, float and complex dtype, also with no element, an array of a series has the dtype and the values of the array that the caller gave, is read-only, and `flags.writeable = True` raises `ValueError`.
+
+**How:** Parametrized. Build a POINTS series with the array of the dtype (and with an empty array), check the dtype, the values and the flag, and check for `ValueError` when the flag is set to True.
+
+**Assumptions:** The message of numpy is "cannot set WRITEABLE flag to True of this array"; the test matches it.
 
 #### `test_series_copies_arrays_and_meta`
 
@@ -4271,8 +4343,8 @@ enough.
 writes the floats of `meta` as "inf", "-inf" and "nan", and `json.dumps(allow_nan=False)`
 accepts the object. The coordinate fields are finite.
 
-**How:** The test builds an ENVELOPE series with the four kinds of value in the arrays,
-finite coordinate fields, and `meta` with infinity, -infinity, NaN, a finite float and the
+**How:** The test builds an ENVELOPE series with the four kinds of value in the arrays
+(`min` and `max` are in order, where neither is NaN), finite coordinate fields, and `meta` with infinity, -infinity, NaN, a finite float and the
 string "nan?" (a string that is not one of the three). It checks the strings in `to_obj`,
 that `json.dumps` accepts the object, that the round trip is equal, and that the non-finite
 values of `meta` are floats again.
@@ -4413,6 +4485,38 @@ of the output sizes must be at most 2 bytes (`length * itemsize + 1`).
 
 **Assumptions:** `decode_array` reads the stream with `zlib.decompressobj`. A
 change to another decompressor fails this test.
+
+#### `test_decode_array_refuses_a_length_that_overflows`
+
+**Checks:** `decode_array` raises `ValueError` (not `OverflowError`) for a `length` of `10**30`, for a `length` of `sys.maxsize` with dtype uint8 and for a `length` with `length * itemsize` above `sys.maxsize`.
+
+**How:** Call `decode_array` with a valid dict and each `length` in `pytest.raises(ValueError)` with `match="too large"`.
+
+**Assumptions:** None.
+
+#### `test_decode_array_refuses_bytes_after_the_gzip_stream`
+
+**Checks:** `decode_array` raises `ValueError` for data that has bytes after the gzip stream (a second gzip stream, and one byte of 0), also when the first stream has the right length.
+
+**How:** Build the text of a valid stream followed by each extra, check for `ValueError` with the message "there are bytes after it", and check that the valid stream alone decodes.
+
+**Assumptions:** The test kills the mutation of `if decompressor.unused_data:` to `if False:`.
+
+#### `test_decode_array_stores_a_bool_as_0_or_1`
+
+**Checks:** A bool byte of 2 or 255 in the data decodes to True, the array has the bytes 0 and 1, and it encodes to the text of the canonical array.
+
+**How:** Build the text of the bytes 0, 1, 2 and 255 with dtype `bool`, decode it, check the values and `view(np.uint8)`, and compare `encode_array` with that of `[False, True, True, True]`.
+
+**Assumptions:** None.
+
+#### `test_from_obj_refuses_a_number_that_overflows`
+
+**Checks:** `Series.from_obj` raises `ValueError` (not `OverflowError`) for `coord_start`, `coord_step` or `coord_end` of `10**400`, and for an array with a `length` of `10**30`.
+
+**How:** Take the object of an ENVELOPE series, change one key, and check for `ValueError` with `match=`.
+
+**Assumptions:** None.
 
 #### `test_decode_array_refuses`
 
@@ -5272,6 +5376,20 @@ equal) and another key (not equal). Each case runs in both orders and with the o
 dict made a `FrozenDict`. The `FrozenDict` and a list are not equal.
 
 **Assumptions:** None.
+
+#### `test_freeze_gives_a_read_only_copy_that_cannot_be_made_writable`
+
+**Checks:** `_freeze` gives, for each array, a new array with the same dtype, shape and
+values (a bool, integer, float and complex dtype, and an empty array), that is read-only,
+whose flag `writeable` cannot be set to True (`ValueError`), and that does not share memory
+with the original, which stays writable. `_freeze()` gives an empty tuple.
+
+**How:** Parametrized over the dtypes. Freeze an array and an empty array of the dtype
+together and check each property. After a write into the original, the frozen copy must be
+unchanged.
+
+**Assumptions:** The message of numpy is "cannot set WRITEABLE flag to True of this
+array"; the test matches it.
 
 ### 2.12 Kept results (`test_kept.py`)
 

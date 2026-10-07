@@ -55,6 +55,14 @@ class FrozenDict(dict):
         return f"FrozenDict({dict.__repr__(self)})"
 
 
+def _freeze(*arrays: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Read-only copies of the one-dimensional numpy arrays `arrays`, in the same order, with
+    the same dtype, shape and values. The base of each copy is an immutable `bytes` object, so
+    `copy.flags.writeable = True` raises `ValueError`. (A copy that owns its data, with the
+    flag set to False, can be made writable again.)"""
+    return tuple(np.frombuffer(a.tobytes(), dtype=a.dtype).reshape(a.shape) for a in arrays)
+
+
 def values_equal(a: Any, b: Any) -> bool:
     """Whether `a` and `b` are equal by the rules of the module docstring."""
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):

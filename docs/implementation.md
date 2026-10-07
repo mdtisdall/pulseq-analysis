@@ -755,17 +755,31 @@ finite and in order, else `ValueError`:
   complex), every value is finite, and `end[k] >= start[k]` for each run. A
   run with `end == start` is valid.
 
-`coord` of `POINTS` and the other arrays are not checked: a value that is not
-finite is valid there. A float in `meta` can be not finite too. A string of
+- For `ENVELOPE`, `min` and `max` have an integer or float dtype (not bool or
+  complex), the same dtype, and `min[i] <= max[i]` for each bin where neither
+  is NaN.
+- For `POINTS`, `coord` has an integer or float dtype (not bool or complex).
+
+A value of `coord` of `POINTS` that is not finite is valid, and so is a value
+of the other arrays. A float in `meta` can be not finite too. A string of
 `meta` cannot be `"inf"`, `"-inf"` or `"nan"`.
 
+A numpy scalar of a bool, integer or float dtype in `meta` is stored as a
+Python `bool`, `int` or `float`.
+
 A `Series` raises `TypeError` for a value of a wrong type and `ValueError` for
-a wrong value. It keeps its own `FrozenDict`s for `arrays` and `meta`, and a
-read-only copy of each array, in native byte order. A change to the caller's
+a wrong value. It stores each string field and each key of `arrays` and `meta`
+as a plain `str` (so a `np.str_` round-trips). It keeps its own `FrozenDict`s
+for `arrays` and `meta`, and a read-only copy of each array, in native byte
+order, that `flags.writeable = True` cannot make writable (its base is an
+immutable `bytes` object). A copy from `pickle` or `copy.deepcopy` is made by
+the constructor, so it is checked and read-only too. A change to the caller's
 dicts or arrays does not change it. `to_obj` and `from_obj` keep the order of
 the keys of `meta`. In `to_obj`, a float of `meta` that is not finite is the
 string `"inf"`, `"-inf"` or `"nan"`. `from_obj` raises `ValueError` for a bad
-object, also for a coordinate field that is not finite or not in order.
+object, also for a coordinate field that is not finite or not in order, and
+for a number that is too large for a float (a caller catches `ValueError`
+only).
 
 `encode_array(a)` gives an array as `{"dtype", "length", "data"}`: the numpy
 dtype name, the number of elements, and the little-endian bytes of the array,
@@ -773,4 +787,6 @@ gzipped (level 6, no time stamp, OS byte 255) and base64-encoded. This is the
 text of `encode_tables` of pulseq-reports, so a report puts it into its page
 with no new encoding. One array always gives the same text. A float that is
 not finite is in the bytes. `decode_array(d)` is the inverse, and raises
-`ValueError` when `"length"` does not agree with the data.
+`ValueError` when `"length"` does not agree with the data, or when
+`length * itemsize` is more than `sys.maxsize`. It stores a bool byte other
+than 0 as `True`, so one array always gives the same text.

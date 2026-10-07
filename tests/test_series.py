@@ -5,9 +5,12 @@
 """
 
 import base64
+import copy
 import gzip
 import json
+import pickle
 import re
+import sys
 import zlib
 from dataclasses import replace
 from fractions import Fraction
@@ -26,10 +29,12 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis._equality import FrozenDict, values_equal
 from pulseq_analysis.analyses import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
 from pulseq_analysis.series import Series, SeriesKind, decode_array, encode_array
 
-_NON_FINITE = np.array([0.0, np.inf, -np.inf, np.nan, 1.5], dtype=np.float32)
+_NON_FINITE_MIN = np.array([-np.inf, 0.0, np.nan, 1.5, -np.inf], dtype=np.float32)
+_NON_FINITE_MAX = np.array([np.inf, np.inf, np.nan, 1.5, 0.0], dtype=np.float32)
 
 
 def _samples(**overrides) -> Series:
@@ -677,22 +682,126 @@ def test_series_refuses_bad_arrays(kind, arrays, error, message):
 
 
 @pytest.mark.parametrize(
+    ("low", "high", "message"),
+    [
+        pytest.param(
+            np.zeros(2, dtype=complex),
+            np.ones(2, dtype=complex),
+            "must have an integer or float",
+            id="complex",
+        ),
+        pytest.param(
+            np.zeros(2, dtype=bool),
+            np.ones(2, dtype=bool),
+            "must have an integer or float",
+            id="bool",
+        ),
+        pytest.param(
+            np.zeros(2),
+            np.ones(2, dtype=complex),
+            "'max' of an envelope series must have an",
+            id="complex-max",
+        ),
+        pytest.param(
+            np.zeros(2, dtype=np.float32),
+            np.ones(2),
+            "must have one dtype, not float32 and float64",
+            id="two-float-dtypes",
+        ),
+        pytest.param(
+            np.zeros(2, dtype=np.int32),
+            np.ones(2),
+            "must have one dtype, not int32 and float64",
+            id="int-and-float",
+        ),
+        pytest.param(
+            np.array([0.0, 2.0]),
+            np.array([1.0, 1.0]),
+            "min[1] is 2.0 and max[1] is 1.0",
+            id="min-above-max",
+        ),
+        pytest.param(
+            np.array([0, 2]), np.array([1, 1]), "min[1] is 2 and max[1] is 1", id="int-min-above"
+        ),
+        pytest.param(
+            np.array([np.inf]), np.array([-np.inf]), "min[0] is inf", id="infinities-reversed"
+        ),
+    ],
+)
+def test_envelope_refuses_bad_min_and_max(low, high, message):
+    """An ENVELOPE with a complex or bool `min` or `max`, with two dtypes for `min` and `max`
+    (also an integer and a float), or with `min[i] > max[i]` (also for integers and for
+    infinities) raises `ValueError` with the message of its own check."""
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _bins(low.size, arrays={"min": low, "max": high})
+
+
+@pytest.mark.parametrize(
+    ("low", "high"),
+    [
+        pytest.param(np.array([np.nan, 0.0]), np.array([1.0, np.nan]), id="nan-in-each"),
+        pytest.param(np.array([np.nan]), np.array([np.nan]), id="nan-in-both"),
+        pytest.param(np.array([1.0, 2.0]), np.array([1.0, 2.0]), id="min-equals-max"),
+        pytest.param(np.array([0, 1], dtype=np.uint8), np.array([1, 1], dtype=np.uint8), id="uint"),
+        pytest.param(np.zeros(0, dtype=np.float32), np.zeros(0, dtype=np.float32), id="empty"),
+    ],
+)
+def test_envelope_accepts_a_nan_and_min_equal_to_max(low, high):
+    """An ENVELOPE accepts `min[i]` or `max[i]` that is NaN (the check of the order is for the
+    bins where neither is NaN), `min[i] == max[i]`, integer arrays and empty arrays."""
+    s = _bins(low.size, arrays={"min": low, "max": high})
+    assert _round_trip(s) == s
+
+
+@pytest.mark.parametrize("dtype", [complex, bool])
+def test_points_refuses_a_coord_of_a_complex_or_bool_dtype(dtype):
+    """A POINTS series with a `coord` array of a complex or bool dtype raises `ValueError`."""
+    with pytest.raises(ValueError, match="'coord' of a points series must have an integer or"):
+        Series(
+            name="p",
+            kind=SeriesKind.POINTS,
+            unit="1",
+            coord_unit="s",
+            arrays={"coord": np.zeros(2, dtype=dtype), "value": np.zeros(2)},
+        )
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.uint8, np.float32, np.float64])
+def test_points_accepts_a_coord_that_is_not_finite_or_not_a_float64(dtype):
+    """A POINTS series accepts a `coord` of an integer or float dtype, and for a float dtype
+    also a value that is not finite."""
+    coord = np.array([0, 1], dtype=dtype)
+    if np.dtype(dtype).kind == "f":
+        coord[1] = np.inf
+    s = Series(
+        name="p",
+        kind=SeriesKind.POINTS,
+        unit="1",
+        coord_unit="s",
+        arrays={"coord": coord, "value": np.zeros(2)},
+    )
+    assert _round_trip(s) == s
+
+
+@pytest.mark.parametrize(
     ("meta", "error"),
     [
         pytest.param([("a", 1)], TypeError, id="not-a-mapping"),
         pytest.param({1: "a"}, TypeError, id="key-not-a-string"),
         pytest.param({"a": [1, 2]}, TypeError, id="list-value"),
         pytest.param({"a": {"b": 1}}, TypeError, id="dict-value"),
-        pytest.param({"a": np.int64(3)}, TypeError, id="numpy-int-value"),
-        pytest.param({"a": np.float32(3.0)}, TypeError, id="numpy-float32-value"),
+        pytest.param({"a": np.complex128(3)}, TypeError, id="numpy-complex-value"),
+        pytest.param({"a": np.datetime64("2020-01-01")}, TypeError, id="numpy-datetime-value"),
+        pytest.param({"a": np.array([1.0])}, TypeError, id="numpy-array-value"),
         pytest.param({"a": "inf"}, ValueError, id="string-inf"),
         pytest.param({"a": "-inf"}, ValueError, id="string-minus-inf"),
         pytest.param({"a": "nan"}, ValueError, id="string-nan"),
     ],
 )
 def test_series_refuses_bad_meta(meta, error):
-    """Each `meta` that is not a mapping of strings to JSON scalars, and each string value
-    "inf", "-inf" or "nan", raises `TypeError` or `ValueError`."""
+    """Each `meta` that is not a mapping of strings to JSON scalars (a numpy complex, a numpy
+    datetime and a numpy array are not scalars of a bool, integer or float dtype), and each
+    string value "inf", "-inf" or "nan", raises `TypeError` or `ValueError`."""
     with pytest.raises(error):
         _samples(meta=meta)
 
@@ -706,6 +815,109 @@ def test_series_meta_makes_a_numpy_float64_a_plain_float():
     assert s == _samples(meta={"a": 1.5})
     assert _round_trip(s) == s
     assert type(_round_trip(s).meta["a"]) is float
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(np.float32(1.5), 1.5, id="float32"),
+        pytest.param(np.float16(0.5), 0.5, id="float16"),
+        pytest.param(np.float64(1.5), 1.5, id="float64"),
+        pytest.param(np.float32("nan"), float("nan"), id="float32-nan"),
+        pytest.param(np.int64(3), 3, id="int64"),
+        pytest.param(np.int8(-3), -3, id="int8"),
+        pytest.param(np.uint32(7), 7, id="uint32"),
+        pytest.param(np.bool_(True), True, id="bool"),
+        pytest.param(np.bool_(False), False, id="bool-false"),
+    ],
+)
+def test_series_meta_makes_a_numpy_scalar_a_python_scalar(value, expected):
+    """A numpy scalar of a bool, integer or float dtype in `meta` is stored as a Python
+    `bool`, `int` or `float` of the exact type (also a NaN), so the series equals the series
+    made with the Python scalar and its JSON round trip is equal."""
+    s = _samples(meta={"a": value})
+    assert type(s.meta["a"]) is type(expected)
+    assert values_equal(s, _samples(meta={"a": expected}))
+    assert _round_trip(s) == s
+
+
+def test_series_stores_a_str_subclass_as_a_str():
+    """A `np.str_` as the name, unit, coord_unit, key of `arrays`, key of `meta` or value of
+    `meta` is stored as a plain `str`, and the JSON round trip gives an equal series."""
+    s = Series(
+        name=np.str_("g"),
+        kind=SeriesKind.SAMPLES,
+        unit=np.str_("mT/m"),
+        coord_unit=np.str_("s"),
+        arrays={np.str_("value"): np.arange(4.0)},
+        coord_step=1e-5,
+        meta={np.str_("k"): np.str_("v")},
+    )
+    strings = [s.name, s.unit, s.coord_unit, *s.arrays, *s.meta, *s.meta.values()]
+    assert [type(x) for x in strings] == [str] * 6
+    assert _round_trip(s) == s
+
+
+@pytest.mark.parametrize("copier", [copy.deepcopy, lambda s: pickle.loads(pickle.dumps(s))])
+@pytest.mark.parametrize("make", _ONE_OF_EACH_KIND)
+def test_a_copy_of_a_series_is_equal_and_read_only(make, copier):
+    """A series from `copy.deepcopy` or from `pickle`, of each kind, equals the original and
+    has read-only arrays whose flag cannot be set, and a `FrozenDict` for `arrays` and for
+    `meta`."""
+    s = make()
+    c = copier(s)
+    assert c is not s
+    assert c == s
+    for d in (c.arrays, c.meta):
+        assert type(d) is FrozenDict
+        with pytest.raises(TypeError):
+            d["new"] = 1
+    for a in c.arrays.values():
+        assert not a.flags.writeable
+        with pytest.raises(ValueError, match="cannot set WRITEABLE"):
+            a.flags.writeable = True
+
+
+def test_series_rebuilds_a_copy_with_the_constructor():
+    """`Series.__reduce__` gives the class and the fields, so the copy is made by the
+    constructor: the same arguments give an equal series, and an argument that is changed to
+    a bad value raises `ValueError` (a copy from a damaged state is refused, and not made
+    invalid)."""
+    s = _envelope()
+    rebuild, args = s.__reduce__()
+    assert rebuild is Series
+    assert rebuild(*args) == s
+    bad_step = (*args[:5], args[5], -1.0, *args[7:])
+    with pytest.raises(ValueError, match="coord_step"):
+        rebuild(*bad_step)
+    bad_arrays = {"min": np.ones(3, dtype=np.float32), "max": np.zeros(3, dtype=np.float32)}
+    with pytest.raises(ValueError, match="must not be above"):
+        rebuild(*args[:4], bad_arrays, *args[5:])
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    ["bool", "int8", "uint16", "int64", "float16", "float32", "float64", "complex64", "complex128"],
+)
+def test_series_arrays_cannot_be_made_writable(dtype):
+    """The flag `writeable` of an array of a series cannot be set to True: it raises
+    `ValueError`. This holds for each dtype, also with no element, and the arrays keep their
+    dtype and values."""
+    original = np.arange(4).astype(dtype)
+    for a in (original, original[:0]):
+        s = Series(
+            name="p",
+            kind=SeriesKind.POINTS,
+            unit="1",
+            coord_unit="s",
+            arrays={"coord": np.zeros(a.size), "value": a},
+        )
+        frozen = s.arrays["value"]
+        assert frozen.dtype == a.dtype
+        assert np.array_equal(frozen, a)
+        with pytest.raises(ValueError, match="cannot set WRITEABLE"):
+            frozen.flags.writeable = True
+        assert not frozen.flags.writeable
 
 
 def test_series_copies_arrays_and_meta():
@@ -955,7 +1167,7 @@ def test_series_round_trip_of_values_that_are_not_finite():
         kind=SeriesKind.ENVELOPE,
         unit="1",
         coord_unit="s",
-        arrays={"min": _NON_FINITE, "max": _NON_FINITE[::-1]},
+        arrays={"min": _NON_FINITE_MIN, "max": _NON_FINITE_MAX},
         coord_start=-1.0,
         coord_step=0.5,
         coord_end=1.5,
@@ -1249,6 +1461,57 @@ def test_decode_array_does_not_decompress_more_than_length_needs(monkeypatch):
         decode_array(d)
     assert produced
     assert sum(produced) <= 2
+
+
+def test_decode_array_refuses_a_length_that_overflows():
+    """A `length` of `10**30`, and a `length` with `length * itemsize` above `sys.maxsize` (or
+    equal, so that `limit + 1` overflows), raise `ValueError` and not `OverflowError`, for
+    each item size."""
+    for length, dtype in (
+        (10**30, "uint8"),
+        (sys.maxsize, "uint8"),
+        (sys.maxsize // 4 + 1, "float32"),
+    ):
+        with pytest.raises(ValueError, match="too large"):
+            decode_array(_encoded(dtype=dtype, length=length))
+
+
+def test_decode_array_refuses_bytes_after_the_gzip_stream():
+    """Data that has bytes after the end of the gzip stream raises `ValueError` (here the
+    bytes of a second gzip stream, and one byte of zero), also when the first stream has the
+    right length."""
+    raw = np.arange(4, dtype=np.float32).tobytes()
+    for extra in (gzip.compress(b""), b"\x00"):
+        text = base64.b64encode(gzip.compress(raw) + extra).decode("ascii")
+        with pytest.raises(ValueError, match="there are bytes after it"):
+            decode_array(_encoded(data=text))
+    assert np.array_equal(decode_array(_encoded(data=_gzip_text(raw))), np.arange(4.0))
+
+
+def test_decode_array_stores_a_bool_as_0_or_1():
+    """A bool byte of 2 or 255 in the data decodes to True, and the array encodes to the
+    text of the canonical array (bytes 0 and 1)."""
+    raw = bytes([0, 1, 2, 255])
+    d = {"dtype": "bool", "length": 4, "data": _gzip_text(raw)}
+    a = decode_array(d)
+    assert a.dtype == np.dtype(bool)
+    assert a.flags.writeable
+    assert a.tolist() == [False, True, True, True]
+    assert a.view(np.uint8).tolist() == [0, 1, 1, 1]
+    assert encode_array(a) == encode_array(np.array([False, True, True, True]))
+
+
+def test_from_obj_refuses_a_number_that_overflows():
+    """A coordinate of `10**400` (an int too large for a float) in `coord_start`,
+    `coord_step` or `coord_end`, and a `length` of `10**30`, raise `ValueError` from
+    `Series.from_obj`, and not `OverflowError`."""
+    obj = _envelope().to_obj()
+    for key in ("coord_start", "coord_step", "coord_end"):
+        with pytest.raises(ValueError, match="too large for a float"):
+            Series.from_obj({**obj, key: 10**400})
+    arrays = {**obj["arrays"], "min": {**obj["arrays"]["min"], "length": 10**30}}
+    with pytest.raises(ValueError, match="too large"):
+        Series.from_obj({**obj, "arrays": arrays})
 
 
 def _with_a_stray_character(text: str) -> str:
