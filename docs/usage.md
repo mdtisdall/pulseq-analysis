@@ -96,10 +96,24 @@ print(spectrum.frequency_hz[spectrum.rss.argmax()], "Hz")
   share a kept result, so its arrays and dicts are read-only. Make a copy to
   change one: `np.array(a)`, `dict(d)`
   ([implementation, sections 4 and 5](implementation.md#4-kept-results)).
+- **Changes that the kept results do not see.** Some pypulseq calls change a
+  sequence in place and keep the number of blocks and the last block ID:
+  `mod_grad_axis` and `flip_grad_axis` (they rewrite the entries of the
+  gradient library), `set_block` on a block ID that exists, `apply_soft_delay`
+  (it writes the block durations), and a direct write into `seq.block_events`,
+  `seq.block_durations` or a library. The package does not see them, so a
+  measurement that the object has kept gives the old value. After such a
+  change, make a new `Sequence` object, for example by reading the file again.
 - **No result.** A result without a value has the `reason`
   `seq_index.NO_GRADIENTS` ("no gradients"), or
   `seq_index.NO_GRADIENTS_IN_WINDOW` for a window of `gradient_peaks`. Its
-  numbers are 0.0 and its arrays are empty.
+  numbers are 0.0, its block fields are `None` and its arrays are empty, but
+  the fields that say how it was made stay. `GradientPeaks` keeps `range_s`.
+  `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_samples` and `on_raster`, has
+  `num_samples` 0, and has `peak_time_s` `None` and an empty tuple in `above`
+  for each threshold. `GradientSpectrum` keeps its three arguments.
+  `block_gradient_values` has no `reason`: for a sequence with no gradient it
+  gives zero arrays of length N.
 - **Bad arguments.** An argument of a wrong type raises `TypeError`, and a
   value out of range raises `ValueError`, before the sequence is read
   ([implementation, section 6](implementation.md#6-argument-checks)).
@@ -493,8 +507,19 @@ those fields.
 
 **`extensions`.** `refuse_rotations(seq)` raises `NotImplementedError` when
 `seq` uses the Pulseq rotation extension, and `refuse_unsigned(seq)` raises
-`ValueError` for a sequence with no `[SIGNATURE]` hash. Each measurement calls
-them first.
+`ValueError` for a sequence with no `[SIGNATURE]` hash. The gradient
+measurements call them, in this order:
+
+- `gradient_peaks`, `block_gradient_values`, `gradient_spectrum` and
+  `gradient_sampler` call `refuse_rotations` first, before they check their other
+  arguments. `gradient_peaks` checks the form of `window` next, and then
+  `sequence_index`, which calls `refuse_unsigned`, so a window that is not a
+  pair of numbers in order raises before an unsigned sequence does.
+  `gradient_spectrum` checks its arguments before `sequence_index`.
+- `pns_levels` checks its arguments first. It calls `refuse_rotations` and
+  `sequence_index` (so `refuse_unsigned`) only when it builds a result: a result
+  that it has kept for the sequence object skips them. `gradient_spectrum` skips
+  `sequence_index` for a kept result in the same way.
 
 ## 9. Units and gamma
 

@@ -200,9 +200,14 @@ not 0.
 A call with a window uses the values of each block that the sequence object
 keeps (the peak, the slew, the junction, the RMS integral and the vector peak,
 with their times) for the blocks that are whole in the window. It makes the
-blocks that an edge of the window cuts from the exact waveform. A ramp can be
-up to half a raster time outside the block of its event, so a block that is
-near an edge is one of them.
+other blocks of an edge of the window from the exact waveform. The time range
+of a block is the span of the block and of its items on the three axes: its
+event, its ramps, the line into it and the step after the last point of the
+axis. The line across a short gap starts at the last point of the earlier
+event, up to `dt + TIME_TOLERANCE` before the event, and can cross blocks that
+are shorter than `dt`. A ramp to 0 ends half a raster time after its event. A
+block whose time range an edge of the window crosses is made from the exact
+waveform, so an edge is not limited to one or two blocks.
 
 **The values of each block.** In `BlockGradientValues`:
 
@@ -389,6 +394,7 @@ slow.
 | K | The number of unique gradient events (`index.grad_first.size`). |
 | P | The number of points of the unique gradient events. |
 | P_play | The number of points of all the gradient events that play: the sum, over the blocks, of the points of the events of the block. |
+| U | The number of unique pairs (gradient event, block length in samples) of the blocks that play. |
 | S | The number of samples on the gradient raster: the duration divided by `dt`. A sequence of 2 minutes at 10 µs has 12 million. |
 | Q | The number of times of a call of `sample`. |
 | nwin, nfft | The samples of a window of the spectrum, and the length of its FFT. |
@@ -401,9 +407,9 @@ K that grows with B.
 
 ### 3.2 The shared work
 
-Each gradient measurement starts from the same parts. The package makes each
-part one time for each sequence object and keeps it (section 4), so only the
-first measurement of a sequence pays for it.
+Each gradient measurement starts from some of the same parts. The package makes
+each part one time for each sequence object and keeps it (section 4), so only
+the first measurement that needs a part pays for it.
 
 - **The block table** (`sequence_index`). A Python loop over
   `seq.block_events` and `seq.block_durations`, then numpy: a cumulative sum
@@ -411,12 +417,20 @@ first measurement of a sequence pays for it.
   their first use. It calls no `get_block`. Time O(B), memory O(B).
 - **The points of the unique gradient events.** One `get_block` and one
   `seq_utils.gradient_offsets` for each unique gradient event, in a Python
-  loop. The points go into flat arrays for all the events. Time O(K) calls of
-  pypulseq, plus O(P). This is the one part whose cost grows with K: about
-  19 µs for each unique event (section 3.5).
+  loop. The points go into flat arrays for all the events, and all the
+  measurements share them. Time O(K) calls of pypulseq, plus O(P). This is a
+  part whose cost grows with K: about 7 µs for each unique event (section 3.5).
+  The first call of `gradient_peaks` also makes the values of each unique event
+  (`_event_values`), a Python loop over the K events that takes about 13 µs for
+  each of them. So that first call grows by about 19 µs for each unique event
+  in all.
 - **The gaps of each axis.** The consecutive events of an axis, the length of
   each gap between them, and its kind (section 1.3). Vectorised. Time
-  O(M log M) for the M blocks with an event on the axis.
+  O(M log M) for the M blocks with an event on the axis. Only `GradientSampler`
+  uses these gaps, and so only `pns_levels`, `gradient_spectrum` and
+  `gradient_sampler` share them. `gradient_peaks` and `block_gradient_values`
+  do not: they classify the gaps of each axis themselves, with the values of
+  each block, in a vectorised step of their first call.
 
 ### 3.3 Each call
 
@@ -425,7 +439,8 @@ makes the values of each block, and keeps them for the two functions and for
 all windows:
 
 1. The peak, the slew and the RMS integral of each unique event, from its
-   points. A Python loop over the K events, with small numpy operations.
+   points. A Python loop over the K events, with small numpy operations: about
+   13 µs for each event.
 2. The values of each block: the values of its event on each axis, by index
    into the values of step 1, with the ramps, the lines and the steps of the
    gaps. Vectorised. Time O(B).
@@ -440,8 +455,8 @@ Time of the first call O(K + B + P_play log P_play), memory O(B + P_play).
 
 **`gradient_peaks(seq, window=...)`.** A binary search finds the blocks of the
 window in the kept arrays. The blocks that are whole in the window give their
-kept values (a vectorised largest value and sum over them). The blocks that an
-edge of the window cuts (one or two at each edge) are made from the exact
+kept values (a vectorised largest value and sum over them). The blocks whose
+time range an edge of the window crosses (section 2.1) are made from the exact
 polyline of their events. Time O(log B + blocks in the window), with no term
 for K or for the blocks of the file. The work at the edges is most of the
 time: a window of 5000 blocks takes about the time of a window of one TR.
@@ -450,6 +465,11 @@ time: a window of 5000 blocks takes about the time of a window of one TR.
 `t[0]` to `t[-1]`. The points of their events, with the ramps of the long gaps,
 make the polyline of that range, and `np.interp` gives the values. Time
 O(log B + points of the events in the range + Q), memory O(Q + those points).
+This leaves out two costs of the first call. `gradient_sampler(seq)` makes a
+new sampler for each call, and the first `sample` of a sampler on an axis scans
+all B blocks for the blocks with an event on that axis (`_event_blocks`, time
+O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
+of that axis (section 3.2).
 
 **`GradientSampler.block_samples(...)`.** The samples of each block of a
 range, on the raster. The samples of one event in a block of one length are
@@ -459,7 +479,9 @@ gaps are then written over them, vectorised. Time O(samples of the range),
 plus O(pairs × blocks of the range) to find the blocks of each pair, plus the
 samples of each new pair one time. A sequence that repeats a TR has few pairs.
 
-**`pns_levels`.** The model runs on chunks of about 30,000 samples, so the
+**`pns_levels`.** The model runs on chunks of about 30,000 samples, or of one
+bin when a bin is longer (a chunk is `bin_samples * ceil(CHUNK_SAMPLES /
+bin_samples)` samples, so a `bin_s` of 2 s gives chunks of 200,000 samples). The
 memory does not grow with the duration:
 
 1. `block_samples` gives the samples of the chunk on each axis. A sequence
@@ -472,10 +494,18 @@ memory does not grow with the duration:
 
 After the last chunk, the model runs again on the one chunk of the peak, to
 find the time of the peak. Time O(S), plus O(S) for each threshold (a
-comparison, which adds a few percent). Memory O(chunk) for the samples, plus
-the bins (at most `MAX_BINS`, 16 MB) and the runs. The cost grows with the
-duration, not with the number of blocks: one block of 120 s took 0.83 s, and
-1200 blocks of 0.1 s (12 million samples in each case) took 0.86 s.
+comparison, which adds a few percent), plus O(U) for the samples of the unique
+pairs (event, block length) that `block_samples` makes one time for each pair
+(section 2.4). Memory O(chunk) for the samples (at the default `bin_s`, about
+6 MB; 34 MB for a `bin_s` of 2 s), plus the bins (at most `MAX_BINS`, 16 MB), the
+runs, and the cache of `block_samples`, which holds the samples of each unique
+pair up to the last point of its event, 8 bytes for each sample: 16 MB for 1000
+different arbitrary gradients of 2000 samples.
+
+The cost grows with the duration, not with the number of blocks, when the
+sequence has few unique events: one block of 120 s took 0.83 s, and 1200 blocks
+of 0.1 s (12 million samples in each case) took 0.86 s. A sequence with many
+unique events pays for each of them, about 20 µs for each one (section 3.5).
 
 **`gradient_spectrum`.** The windows go through the FFT in chunks of 256
 windows:
@@ -490,9 +520,10 @@ windows:
 
 There are about `2 * S / nwin` windows, so the time is
 O(S · frequency_oversampling · log nfft): the FFT is most of it. Memory
-O(256 · nfft) for one chunk: about 40 MB with the default arguments at the
-10 µs raster. The spectrum does not reuse samples between blocks: each sample
-is made for each window that has it.
+O(256 · nfft) for one chunk: about 54 MB with the default arguments at the
+10 µs raster. The spectrum samples each chunk one time, and the windows are a
+view of those samples with no copy. Only the overlap of two chunks, one window
+less one hop (half a window) for each 256 windows, is sampled twice.
 
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
 `decode_array` take time O(n) for n values. `asc.read_gradient_asc` takes time
@@ -508,8 +539,8 @@ points of the installed packages. An analysis `compute` is its function.
 | First gradient measurement (the points of the unique events) | O(K) `get_block` | O(P) | unique events |
 | `gradient_peaks(seq)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
 | `gradient_peaks(seq, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
-| `GradientSampler.sample` | O(log B + points in the range + Q) | O(Q) | times asked |
-| `pns_levels` | O(S) | O(chunk + bins) | duration |
+| `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
+| `pns_levels` | O(S + U) | O(chunk + bins + samples of the U pairs) | duration, and unique events |
 | `gradient_spectrum` | O(S · oversampling · log nfft) | O(256 · nfft) | duration |
 
 ### 3.5 Measured times
@@ -540,6 +571,29 @@ gradient event (the second column). `scripts/time_pns_levels.py` builds only
 `build_repeating`, so the `pns_levels` rows have no value for `build_worst`. `pns_levels` takes about 80 ns for each
 sample, and `gradient_spectrum` about 85 ns.
 
+Four more measurements, on the same machine and software, at commit `22b57af`
+(2026-10-07). The sequences are those of `tests/scale_sequences.py`, and
+`scripts/` has no script for these:
+
+- The 19 µs of the first call of `gradient_peaks` are about 7 µs for each unique
+  event to read it (`_events._read_points`) and about 13 µs in
+  `grad_peaks._event_values`. They are the best of 3 runs on `build_worst(20000)`
+  (K = 20,002).
+- `pns_levels._compute_levels`, with no kept result, the block table and the
+  points already made, on about 14 million samples: `build_repeating(23333)`
+  (K = 258) 1.19 s, and `build_worst(20000)` (K = 20,002) 1.59 s. The 0.40 s
+  difference is about 20 µs for each of the 19,744 more unique events. The cache of
+  `block_samples` held 19,978 arrays, 5.8 MB, for `build_worst(20000)`, and 258
+  arrays, 0.08 MB, for `build_repeating(20000)`.
+- The peak memory (`tracemalloc`) of `gradient_spectrum` with the defaults on
+  `build_repeating(4000)` and on `build_repeating(10000)`: 54 MB in both cases.
+  The peak memory of `_compute_levels` on `build_repeating(4000)`: 5.8 MB with
+  the default `bin_s`, and 34 MB with a `bin_s` of 2 s.
+- For `build_repeating(20000)` (100,000 blocks), the first `sample` on one axis
+  of a new sampler takes about 0.14 ms more than a later one, for the scan of the
+  blocks. For the first sampler of the sequence it takes about 0.5 ms more, for
+  the gaps of the axis.
+
 To measure again:
 
 ```
@@ -567,15 +621,30 @@ Each measurement keeps its result for the sequence object:
 
 A second call with the same arguments gives the same object. A result with a
 window is not kept, because a caller can ask for many windows, but it uses the
-kept values of each block. The points of the unique gradient events, and the
-gaps of each axis, are kept too, and all the measurements share them.
+kept values of each block. The points of the unique gradient events are kept
+too, and all the gradient measurements share them. The gaps of each axis are
+kept with the points, but only `GradientSampler` (so `pns_levels`,
+`gradient_spectrum` and `gradient_sampler`) uses them: `gradient_peaks` and
+`block_gradient_values` classify their gaps themselves.
 
 The package builds a result again after `add_block`, after a new read of a
 file into the object (`seq.read`), and after a change of
 `seq.grad_raster_time`. It sees these by the identity of `seq.block_events`,
 `seq.block_durations` and `seq.grad_library`, the number of blocks, the last
-block ID and `seq.grad_raster_time`. A block replaced in place is not seen:
-make a new sequence object for it. A different `bin_s` is another kept result
+block ID and `seq.grad_raster_time`. A change that keeps all of these is not
+seen, so a kept result can be old after it:
+
+- `seq.mod_grad_axis` and `seq.flip_grad_axis`, which rewrite the entries of
+  `seq.grad_library` in place;
+- `seq.set_block` on a block ID that exists;
+- `seq.apply_soft_delay`, which writes the values of `seq.block_durations` in
+  place;
+- a direct write into `seq.block_events`, `seq.block_durations` or a library.
+
+For example, after `gradient_peaks(seq)`, the call `seq.mod_grad_axis("x", 0.5)`
+leaves the kept peak of x as it was, and a new call gives that kept value.
+After such a change, make a new sequence object, for example by reading the file
+again. A different `bin_s` is another kept result
 of `pns_levels`, also when it gives the same `bin_samples`. The same thresholds
 in another order are another kept result too, because the order of `above` is
 the order of `thresholds_hz_per_t`.
@@ -613,8 +682,9 @@ a result are `FrozenDict`s (`_equality.FrozenDict`): subclasses of `dict` whose
 methods that change them (`d[key] = x`, `del d[key]`, `update`, `pop` and the
 like) raise `TypeError`. A `FrozenDict` is still a `dict` for `isinstance`,
 `json.dumps`, `pickle` and `copy.deepcopy`, and it equals a `dict` with the
-same items in the same order. Make a copy to change one: `np.array(a)`,
-`dict(d)`.
+same items in any order (it has the `==` of `dict`). Only the `==` of a result
+checks the order of the keys of its dicts. Make a copy to change one:
+`np.array(a)`, `dict(d)`.
 
 ## 6. Argument checks
 
