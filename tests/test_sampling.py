@@ -1147,6 +1147,34 @@ def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole
                     )
 
 
+@pytest.mark.parametrize("long_first", [False, True])
+def test_one_event_in_blocks_of_two_lengths_gives_the_samples_of_each_length(long_first):
+    """One gradient event in two blocks of 13 and 40 samples (the second has a delay event
+    of 400 us) gives the samples of each length: the oracle's samples for the block, whichever
+    of the two lengths the sampler meets first, and exactly the samples of a new sampler that
+    meets only that range."""
+    g = pp.make_trapezoid("x", amplitude=1e4, rise_time=50e-6, flat_time=30e-6, fall_time=50e-6)
+    short, long = [g], [g, pp.make_delay(400e-6)]
+    seq = signed(pp.Sequence(SYSTEM))
+    for events in (long, short) if long_first else (short, long):
+        seq.add_block(*events)
+    index = sequence_index(seq)
+    n_all, on_raster = raster_block_lengths(index, _RASTER)
+    assert on_raster
+    assert sorted(n_all) == [13, 40]
+    assert index.gx[0] == index.gx[1] > 0  # one event
+    reference = oracle.block_samples(seq, "x", _RASTER)
+    ends = np.cumsum(n_all)
+    for calls in ([(0, 1), (1, 2), (0, 2)], [(1, 2), (0, 1), (0, 2)]):
+        sampler = gradient_sampler(seq)
+        for first, stop in calls:
+            got = sampler.block_samples("gx", first, stop, _RASTER)
+            lo = int(ends[first] - n_all[first])
+            _assert_samples_match(got, reference[lo : int(ends[stop - 1])])
+            fresh = gradient_sampler(seq).block_samples("gx", first, stop, _RASTER)
+            assert np.array_equal(got, fresh), (calls, first, stop)
+
+
 def test_the_samples_in_a_short_gap_are_the_line_by_hand():
     """`short_gap_sequence`: the first gradient ends at 3 U at 100 us, its block ends at 110
     us, and the second block starts at 2 U. The gap is one raster time, so the sample at 105
