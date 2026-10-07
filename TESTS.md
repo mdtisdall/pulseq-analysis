@@ -440,15 +440,21 @@ compared.
 first value and a last value of an axis that are not 0. It also covers a sequence with a block
 that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`.
 
-**How:** Parametrized over six sequences. They are a two-axis short gap with a first value and a
+**How:** Parametrized over 36 sequences. Six are a two-axis short gap with a first value and a
 last value that are not 0, `long_gap_sequence`, the two sequences of pypulseq-issues 12,
-`non_zero_ends_sequence`, and `long_gap_sequence` with a last block of 1.5 raster times. The
+`non_zero_ends_sequence`, and `long_gap_sequence` with a last block of 1.5 raster times. On the
+raster, 17 more are `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Off the raster, 13 more are
+`gap_of_1_5_raster_times`, `short_gap_from_0`, `short_gap_to_0`, the negated long and short
+gaps and the 8 random sequences, each with a last block of 1.5 raster times (the names end in
+`_off_raster`), so `pns_levels` samples them with `GradientSampler.sample`. The new inputs have
+negative end values, a gap between one and two raster times, and a short gap with an end of 0,
+which the six sequences do not have. The
 reference stacks the samples of the oracle into `(N, 3)`. They are `oracle.block_samples` at the
 gradient raster, and `oracle.sample` at `(k + 0.5) * dt` for the sequence that is not on the
 raster. It runs `_safe_gwf_to_pns_chunk` of the fork in one chunk with the example hardware. The
 axis values are 0.01 times the percent, and the total is the root of the sum of squares.
 `pns_levels` runs with `bin_s=dt`, so each bin is one sample. The test checks the number of
-samples, `on_raster`, the peak and the axis peaks (relative 1e-9), the peak time, and the minimum
+samples, `on_raster` (false only for the names that end in `_off_raster`), the peak and the axis peaks (relative 1e-9), the peak time, and the minimum
 and maximum of each bin against the total (relative 1e-6, because of the float32 cast).
 
 **Assumptions:** `calculate_pns` is not the reference, because it draws a line across each gap
@@ -1393,6 +1399,28 @@ from the first use. Then it checks the dense columns against the hand-worked val
 library id, and `add_block` finds the same event again. This was checked against
 `seq.block_events` while writing the test.
 
+#### `test_the_dtype_of_the_dense_columns_changes_at_255_and_at_65_535_unique_events`
+
+**Checks:** The event columns are uint8 for 255 unique events, uint16 for 256 and for 65 535, and
+uint32 for 65 536.
+
+**How:** Parametrized over the four numbers. The test calls the private `seq_index._dense` with the
+event IDs 1 to K, because a sequence of 65 536 unique events would be slow to build, and checks the
+dtype of the columns.
+
+**Assumptions:** `sequence_index` uses `_dense` for its event columns. The next test checks it at
+255 and 256 through `sequence_index`.
+
+#### `test_the_dtype_of_the_index_changes_at_255_unique_events`
+
+**Checks:** Through `sequence_index`, the gradient columns are uint8 for 255 unique gradient events
+and uint16 for 256.
+
+**How:** Parametrized over 255 and 256. A sequence of K blocks, each with a different trapezoid on
+x. The test checks the dtype of `gx`, `gy` and `gz`.
+
+**Assumptions:** None.
+
 #### `test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value`
 
 **Checks:** `index.start_s` is the sequential sum of the block durations from 0.0,
@@ -1874,8 +1902,11 @@ MATLAB Pulseq), with no time drift from the block start sums, except in a gap.
 the model. The sequences cover each gap rule: a zero gap, a short gap, a long gap, the first and
 the last value not 0, the two sequences of pypulseq-issues 12, a step followed by a gap, an event
 that is not on a raster edge, and the synthetic spin echo, GRE and arbitrary-gradient sequences.
+They also cover negative end values, a gap between one and two raster times, and a short gap
+with an end of 0.
 
-**How:** Parametrized over 12 sequences (`_MODEL_SEQUENCES`). `t` is the raster centres, 2001
+**How:** Parametrized over 29 sequences (`_MODEL_SEQUENCES`): 12 hand and synthetic sequences,
+and 17 more, `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). `t` is the raster centres, 2001
 evenly spaced times from one raster time before the start to one after the end, and the times of
 the points of the polyline of the oracle on each axis, each also 0.1 µs before and after. So the
 ramp points, the steps and the ends are in the grid. The test compares all three axes with a
@@ -1890,8 +1921,8 @@ is the rounding of the interpolation formula only.
 slice of `sample` of the whole grid exactly. The ranges start or end at an end of an event,
 inside a gap, inside a ramp, and at a step.
 
-**How:** Parametrized over `long_gap`, `short_gap`, `zero_gap`, `issue_12_delayed` and
-`off_raster_events`. The grid is about 40 times, every n-th time of the grid of the test above.
+**How:** Parametrized over `long_gap`, `short_gap`, `zero_gap`, `issue_12_delayed`,
+`off_raster_events`, `gap_of_1_5_raster_times`, `short_gap_from_0` and `negated_long_gap`. The grid is about 40 times, every n-th time of the grid of the test above.
 For each axis, the test compares the whole grid with the oracle. It then compares
 `sample(t[i:j])` with `whole[i:j]` (`numpy.array_equal`) for each pair `i < j`.
 
@@ -2189,9 +2220,11 @@ expected `on_raster` and `n == [1]`.
 at the gradient raster and, for the sequences with a gap, at finer rasters (one half and one
 fifth of it). At the finer rasters, a ramp of half a raster time has samples in it.
 
-**How:** Parametrized over `_WHOLE_CASES`: the 12 sequences of the model at the gradient raster,
-and `short_gap`, `long_gap`, `issue_12_delayed`, `step_then_gap` and `off_raster_events` at one
-half and one fifth of it (22 cases). The test compares each axis with an absolute 1e-9 of the
+**How:** Parametrized over `_WHOLE_CASES`: the 29 sequences of the model (see
+`test_sample_equals_the_oracle_for_the_whole_sequence`) at the gradient raster, and `short_gap`,
+`long_gap`, `issue_12_delayed`, `step_then_gap`, `off_raster_events`, `gap_of_1_5_raster_times`,
+`short_gap_from_0`, `short_gap_to_0`, `negated_long_gap` and `negated_short_gap` at one half and
+one fifth of it (49 cases). The test compares each axis with an absolute 1e-9 of the
 largest value.
 
 **Assumptions:** The two are not bit-equal. `block_samples` takes the sample time from the block
@@ -2205,10 +2238,11 @@ rounding. The difference is that drift only.
 range exactly. The ranges start or end inside a gap, inside a ramp, and at a block edge. A new
 sampler gives the same values as one that made the whole range first.
 
-**How:** Parametrized over seven cases of a sequence and a sample raster: `long_gap` at one half
+**How:** Parametrized over nine cases of a sequence and a sample raster: `long_gap` at one half
 of the gradient raster, `short_gap` and `zero_gap` at the gradient raster, `issue_12_delayed` at
-one fifth, `step_then_gap` at the gradient raster, and `off_raster_events` at the gradient
-raster and at one fifth. Each gap kind and each raster is in at least one case. For each axis and
+one fifth, `step_then_gap` at the gradient raster, `off_raster_events` at the gradient
+raster and at one fifth, `gap_of_1_5_raster_times` at the gradient raster, and `negated_long_gap`
+at one half. Each gap kind and each raster is in at least one case. For each axis and
 each block range, the test compares the samples with the oracle and with the slice of the whole
 range (`numpy.array_equal`). It does the same for each `(skip, count)` of `_sample_ranges`, on the
 sampler of the test and on a new one.
@@ -2691,6 +2725,33 @@ is credited for either (`peak_block` and `slew_block` are None).
 
 **Assumptions:** None.
 
+#### `test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time`
+
+**Checks:** In `block_gradient_values`, a block whose event has the amplitude 0 (for example the
+centre of a phase-encode table) after a long gap has the slew 0 at the start of its block, not at
+the time of a ramp.
+
+**How:** Block 1 on x goes from 0 to U, then a delay block of 200 µs, then a trapezoid scaled to
+the amplitude 0 (`pp.scale_grad(trapezoid, 0)`). The slew of x is `[2U/DT, 0, 0]` at the times
+`[100, 100, 300]` µs: the zero block has its block start, 300 µs, not 295 µs.
+
+**Assumptions:** None.
+
+#### `test_a_vector_peak_tie_goes_to_the_earlier_time_when_the_later_block_has_it`
+
+**Checks:** When two blocks have the same largest vector peak and the later block in play order has
+the earlier time, the credit goes to the earlier time and its block, on the whole file and in a
+window.
+
+**How:** Parametrized over the whole file and the window from 50 to 450 µs. Two blocks have the
+vector peak `hypot(A, A/2)`. Block 3 has it at 300 µs, and block 2 at 300 µs plus 1 fs (a block
+whose last point is 1 fs after the end of the block). The test checks this order with
+`block_gradient_values`, then checks that `gradient_peaks` credits block 3 at 300 µs, and that the
+oracle gives the same.
+
+**Assumptions:** pypulseq does not make a block longer for a point 1 fs after its end (it does for
+1e-14 s). If that changes, the check of the order with `block_gradient_values` fails first.
+
 #### `test_matches_oracle_on_synthetic_sequences`
 
 **Checks:** `gradient_peaks` matches the oracle of the gradient waveform
@@ -2777,7 +2838,7 @@ the values of the oracle, on the whole file and on up to 8 windows. This covers 
 zero gap, a line across a short gap, the ramps across a long gap, and a first value and a last
 value of an axis that are not 0.
 
-**How:** `_random_gap_sequence` makes 2 to 8 blocks. Each of the three axes has an event for 55%
+**How:** `random_gap_sequence` (`tests/random_gaps.py`) makes 2 to 8 blocks. Each of the three axes has an event for 55%
 of the blocks. Each event is a trapezoid, an extended trapezoid or an arbitrary gradient, with a
 delay of 0 to 7 raster times. The first value and the last value of an extended trapezoid and of
 an arbitrary gradient are 0, or a random value of at most 0.9 of the largest step that
@@ -2824,7 +2885,7 @@ two extended trapezoids, the same with a segment of the second block that has th
 the step, a gradient that ends non-zero before a delay, a first block that starts non-zero, and
 an x extended trapezoid with a delay and a first value that is not 0 after a trapezoid), the
 seven sequences of `tests/gap_sequences.py`, 4 random sequences of `_random_gradient_sequence`
-(seeds 0 to 3) and 8 random sequences of `_random_gap_sequence` (seeds 0 to 7). For each
+(seeds 0 to 3) and 8 random sequences of `random_gap_sequence` (seeds 0 to 7). For each
 sequence the test calls `block_gradient_values` and `gradient_peaks` and compares them with
 `==`, not `pytest.approx`. `_junction_time` reads the first point of the event of the credited
 block with `get_block`. For a line across a short gap, it reads the last point of the event
@@ -2836,7 +2897,7 @@ before it, with `gradient_offsets`.
   each block: the columns of `_BlockData`.
 - The 4 random sequences of `_random_gradient_sequence` have no gap with a value that is not 0
   (every event starts and ends at 0), so their junctions are 0. The 8 sequences of
-  `_random_gap_sequence` have steps, lines and ramps.
+  `random_gap_sequence` have steps, lines and ramps.
 - The test does not compare a window: `block_gradient_values` has no window.
 
 #### `test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time`
@@ -3102,7 +3163,7 @@ inside the window.
 
 **How:** For six sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
 duration before, between and after them, the junction sequence, the delayed junction sequence,
-one random gradient sequence and one random sequence of `_random_gap_sequence`), 100 windows
+one random gradient sequence and one random sequence of `random_gap_sequence`), 100 windows
 with the seed 20261006: the ends of every other window are each the start or the end of a block
 (or 0 or the end of the sequence), and the ends of the others are random. The test builds two
 sequences of the same build, `seq` and `other`. It never empties the kept data of `seq`, so
@@ -3199,6 +3260,35 @@ block 1, RMS U sqrt(7 / 3)). The third window starts at the step and has it (pea
 RMS U / sqrt(3)).
 
 **Assumptions:** The rule is `lo <= time < hi`.
+
+#### `test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step`
+
+**Checks:** A window that ends at a step up does not have the value after the step: the vector
+peak, the peak and the slew are those of the window before the step. A window that goes on past the
+step has the value after it and the slew of the step.
+
+**How:** Block 1 on x goes from 0 to U and stays at U to its end at 200 µs. Block 2 starts at 3U,
+a step of 2U at 200 µs. The window from 100 to 200 µs has the vector peak U at 100 µs in block 1,
+the x peak U, the slew 0 and the RMS U (hand values), and the oracle gives the same vector peak.
+The window from 100 to 250 µs has the vector peak 3U at 200 µs in block 2, and the slew 2U/DT of
+the step.
+
+**Assumptions:** None.
+
+#### `test_a_window_credits_the_segment_before_a_step_of_the_same_slew`
+
+**Checks:** In a window, a segment of an earlier event and a step into a later event with the same
+slew credit the segment, which is first in play order.
+
+**How:** Block 1 is a trapezoid of U with a rise and a fall of 10 µs and no flat. Block 2 starts at
+U, a step of U at 20 µs. The fall of block 1 and the step both have the slew U/DT, equal in floating
+point. The window from 12 to 60 µs gives the slew U/DT in block 1 at 12 µs (the start of the cut),
+and the peak U at 20 µs in block 2.
+
+**Assumptions:** The single-line mutation of the order key of `_evaluate_axis` that the review of
+2026-10-07 lists (`step_point - 0.5` to `step_point + 0.5`) cannot change a result: the segment
+between the two keys is the step itself, which has no slope. This test fails for `- 1.5`, which
+puts the step before the last segment of the earlier event.
 
 #### `test_a_short_gap_gives_a_line_credited_to_the_later_block`
 
@@ -3302,7 +3392,7 @@ block, found in the polyline of the oracle.
 
 **How:** For 25 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`,
 `border_sequence`, `raster_4us_sequence`, the seven sequences of `tests/gap_sequences.py`, and
-14 sequences of `_random_gap_sequence`), `_block_values_of_the_polyline` reads the polyline of
+14 sequences of `random_gap_sequence`), `_block_values_of_the_polyline` reads the polyline of
 the oracle and gives each item to its play index. A point gives the peak. A segment from a point
 of one block to a point of another block, and a step that is not after the last point, give the
 junction. The other segments, and the step after the last point (when its time is before the end
@@ -3583,6 +3673,20 @@ the same. It checks the call count after each change: 1, 1, 2, 3, 3.
 
 **Assumptions:** None.
 
+#### `test_pns_levels_keys_the_hardware_on_each_field_of_each_axis`
+
+**Checks:** Each field of the key of a hardware (`_HW_FIELDS`, on each axis) is in the key: a pair
+with the same label and one field of one axis changed runs the model, and the unchanged pair still
+gives its kept result.
+
+**How:** Parametrized over the 8 fields of `_HW_FIELDS` and the axes x, y and z (24 cases). The
+test changes one field of one axis of `safe_example_hw()`: `a1`, `a2` or `a3` by 0.0005, so the sum
+stays within the tolerance of 1, and each other field to 1.1 times its value. It checks that the
+result of the changed pair is not the kept result of the unchanged pair, and that the unchanged pair
+then gives its kept object again.
+
+**Assumptions:** None.
+
 #### `test_pns_levels_ignores_stim_thresh_in_the_hardware_key`
 
 **Checks:** Two `hardware` pairs with the same label that differ only in `stim_thresh`
@@ -3673,6 +3777,18 @@ of the distance from 1, not of the signed difference.
 
 **How:** `safe_example_hw()` with `x.a1` lowered by 0.1. The test checks that the sum is
 about 0.9, then calls `pns_levels(empty_sequence(), hardware=(struct, "BAD"))` inside
+`pytest.raises`.
+
+**Assumptions:** None.
+
+#### `test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005`
+
+**Checks:** A struct whose `a1 + a2 + a3` is 1.005 on one axis raises `ValueError` that names that
+axis, for a sequence with no gradient event. 1.005 is outside the tolerance of 0.001, and inside a
+tolerance of 0.01.
+
+**How:** Parametrized over the axes x, y and z. `safe_example_hw()` with `a1` of that axis raised
+until the sum is 1.005, then `pns_levels(empty_sequence(), hardware=(struct, "BAD"))` inside
 `pytest.raises`.
 
 **Assumptions:** None.
@@ -4832,8 +4948,9 @@ ends that are not 0 next to it, equals the spectrum that the oracle calculates f
 waveform (`tests/oracles/waveform.py`, the model of MATLAB Pulseq). The sequences also have a
 first value and a last value that are not 0.
 
-**How:** Parametrized over `zero_gap_sequence`, `short_gap_sequence`, `long_gap_sequence`,
-`non_zero_ends_sequence` and the two sequences of pypulseq-issues 12. `_assert_matches_oracle`
+**How:** Parametrized over 23 sequences: `zero_gap_sequence`, `short_gap_sequence`,
+`long_gap_sequence`, `non_zero_ends_sequence`, the two sequences of pypulseq-issues 12, and 17
+more, `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). `_assert_matches_oracle`
 compares the axis spectra and the RSS (times `1e3 / gamma`) with `tests/oracles/grad_spectrum.py`
 within 1e-12.
 
@@ -4922,18 +5039,21 @@ spectrum. `hash` must raise `TypeError`.
 
 #### `test_the_defaults_are_those_of_pypulseq`
 
-**Checks:** A call with the three arguments at the defaults of pypulseq's
-`calculate_gradient_spectrum` gives the same spectrum as a call with no
+**Checks:** The spectrum calculated with the three arguments at the defaults of
+pypulseq's `calculate_gradient_spectrum` equals the spectrum of a call with no
 arguments. The result of a call with no arguments has these defaults in its
-fields `max_frequency_hz`, `window_s` and `frequency_oversampling`.
+fields `max_frequency_hz`, `window_s` and `frequency_oversampling`. The test is
+also a guard on pypulseq's defaults.
 
 **How:** The test reads the defaults of `max_frequency`, `window_width` and
 `frequency_oversampling` from the signature of
-`pp.Sequence.calculate_gradient_spectrum`. It gives them as `max_frequency_hz`,
-`window_s` and `frequency_oversampling` for the synthetic spin echo. The
-frequencies, each axis spectrum and the RSS must be exactly equal to those of a
-call with no arguments. The test also compares the three fields of the result
-with the defaults.
+`pp.Sequence.calculate_gradient_spectrum`. It gives them to
+`grad_spectrum._compute_spectrum` for the synthetic spin echo, so the result is
+calculated and is not the kept result (a call of `gradient_spectrum` with these
+values would give the kept object of the call with no arguments, because the key
+is the same). It checks that the two results are not one object, and that the
+frequencies, each axis spectrum and the RSS are exactly equal. The test also
+compares the three fields of the result with the defaults.
 
 **Assumptions:**
 

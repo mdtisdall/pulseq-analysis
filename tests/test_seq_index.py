@@ -281,6 +281,48 @@ def test_dtype_widens_to_uint16_past_255_unique_gradient_events():
     assert index.gz.dtype == np.uint16
 
 
+@pytest.mark.parametrize(
+    ("unique", "dtype"),
+    [
+        (255, np.uint8),
+        (256, np.uint16),
+        (65_535, np.uint16),
+        (65_536, np.uint32),
+    ],
+)
+def test_the_dtype_of_the_dense_columns_changes_at_255_and_at_65_535_unique_events(unique, dtype):
+    """The dense columns hold the numbers 1 to K, so the dtype is the smallest of uint8, uint16
+    and uint32 that holds K: uint8 for K = 255, uint16 for 256 and for 65 535, and uint32 for
+    65 536. This calls the private `_dense` with the event ids 1 to K, because a sequence of
+    65 535 unique events is slow to build. The next test does 255 and 256 through
+    `sequence_index`."""
+    (dense,), first_use = seq_index._dense([np.arange(1, unique + 1, dtype=np.int32)])
+    assert dense.dtype == dtype
+    assert first_use.size == unique
+    assert dense[0] == 1
+    assert dense[-1] == unique
+
+
+@pytest.mark.parametrize(("unique", "dtype"), [(255, np.uint8), (256, np.uint16)])
+def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
+    """A sequence with K different trapezoids on x (K unique gradient events): the index has
+    K unique gradient events and its gradient columns are uint8 for K = 255 and uint16 for
+    256."""
+    seq = signed(pp.Sequence(SYSTEM))
+    for k in range(1, unique + 1):
+        seq.add_block(
+            pp.make_trapezoid(channel="x", amplitude=100.0 * k, duration=1e-3, system=SYSTEM)
+        )
+
+    index = sequence_index(seq)
+
+    assert index.grad_first.size == unique
+    assert index.gx.dtype == dtype
+    assert index.gy.dtype == dtype
+    assert index.gz.dtype == dtype
+    assert index.gx[-1] == unique
+
+
 @pytest.mark.parametrize("build", [gre_sequence, empty_sequence])
 def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
     index = sequence_index(build())

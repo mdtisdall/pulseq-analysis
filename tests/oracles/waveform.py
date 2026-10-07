@@ -66,6 +66,7 @@ A window `(lo, hi)` cuts the polyline. Its values are:
 Unit: seconds, Hz/m, Hz/m/s.
 """
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 
 import numpy as np
@@ -215,19 +216,30 @@ def axis_polyline(seq: pp.Sequence, axis: str) -> Polyline:
 
 def values_at(poly: Polyline, q: np.ndarray) -> np.ndarray:
     """The values of `poly` at the times `q`: 0 outside the first and the last point, and at the
-    time of a step inside them the value before the step."""
+    time of a step inside them the value before the step.
+
+    A loop over the segments, with the times `q` sorted: the times after the start of a segment
+    and before its end are on its line. Then a loop over the points, from the last to the first,
+    sets the times that are the time of a point to its value, so that of two points at one time
+    the first one has the value. A time that no segment and no point has stays 0."""
     q = np.asarray(q, dtype=float)
-    n = poly.t.size
-    if n == 0:
-        return np.zeros(q.shape)
-    i = np.clip(np.searchsorted(poly.t, q, side="left"), 0, n - 1)
-    j = np.maximum(i - 1, 0)
-    span = poly.t[i] - poly.t[j]
-    safe_span = np.where(span > 0.0, span, 1.0)
-    frac = np.where(span > 0.0, (q - poly.t[j]) / safe_span, 0.0)
-    inside = poly.g[j] + (poly.g[i] - poly.g[j]) * frac
-    value = np.where(poly.t[i] == q, poly.g[i], inside)
-    return np.where((q >= poly.t[0]) & (q <= poly.t[-1]), value, 0.0)
+    flat = q.ravel()
+    order = np.argsort(flat, kind="stable")
+    sorted_q = flat[order]
+    times = sorted_q.tolist()
+    sorted_values = np.zeros(flat.size)
+    t, g = poly.t.tolist(), poly.g.tolist()
+    for s in range(len(t) - 1):
+        if t[s + 1] > t[s]:
+            first, stop = bisect_right(times, t[s]), bisect_left(times, t[s + 1])
+            if stop > first:
+                fraction = (sorted_q[first:stop] - t[s]) / (t[s + 1] - t[s])
+                sorted_values[first:stop] = g[s] + (g[s + 1] - g[s]) * fraction
+    for p in reversed(range(len(t))):
+        sorted_values[bisect_left(times, t[p]) : bisect_right(times, t[p])] = g[p]
+    values = np.empty(flat.size)
+    values[order] = sorted_values
+    return values.reshape(q.shape)
 
 
 def sample(seq: pp.Sequence, axis: str, t) -> np.ndarray:

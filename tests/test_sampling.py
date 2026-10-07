@@ -6,12 +6,17 @@ import pytest
 from gap_sequences import (
     delayed_sequence,
     early_end_sequence,
+    gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
+    negated,
     non_zero_ends_sequence,
+    short_gap_from_0_sequence,
     short_gap_sequence,
+    short_gap_to_0_sequence,
     zero_gap_sequence,
 )
 from oracles import waveform as oracle
+from random_gaps import random_gap_sequence
 from synthetic import (
     SYSTEM,
     arbitrary_gradient_sequence,
@@ -490,6 +495,10 @@ def _off_raster_events_sequence() -> pp.Sequence:
     return seq
 
 
+def _random_gap_builder(seed: int):
+    return lambda: random_gap_sequence(np.random.default_rng(seed))
+
+
 # The sequences of the model: each gap rule (a zero gap, a short gap, a long gap, the first and the
 # last value not 0, the two sequences of pypulseq-issues 12), the synthetic sequences, and
 # events that are not on a raster edge.
@@ -506,7 +515,24 @@ _MODEL_SEQUENCES = {
     "spin_echo": spin_echo_sequence,
     "gre": gre_sequence,
     "arbitrary_gradient": arbitrary_gradient_sequence,
+    "gap_of_1_5_raster_times": gap_of_1_5_raster_times_sequence,
+    "short_gap_from_0": short_gap_from_0_sequence,
+    "short_gap_to_0": short_gap_to_0_sequence,
 }
+# The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on the
+# sign), and the random sequences of `random_gaps` (random signs, zero, short and long gaps).
+_MODEL_SEQUENCES |= {
+    f"negated_{name}": (lambda build=_MODEL_SEQUENCES[name]: negated(build()))
+    for name in (
+        "zero_gap",
+        "short_gap",
+        "long_gap",
+        "non_zero_ends",
+        "issue_12_delayed",
+        "issue_12_early_end",
+    )
+}
+_MODEL_SEQUENCES |= {f"random_gaps_{seed}": _random_gap_builder(seed) for seed in range(8)}
 
 
 def _model_sequence(name: str) -> pp.Sequence:
@@ -537,7 +563,17 @@ def test_sample_equals_the_oracle_for_the_whole_sequence(name):
 
 
 @pytest.mark.parametrize(
-    "name", ["long_gap", "short_gap", "zero_gap", "issue_12_delayed", "off_raster_events"]
+    "name",
+    [
+        "long_gap",
+        "short_gap",
+        "zero_gap",
+        "issue_12_delayed",
+        "off_raster_events",
+        "gap_of_1_5_raster_times",
+        "short_gap_from_0",
+        "negated_long_gap",
+    ],
 )
 def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(name):
     """Each time range `t[i:j]` of a grid of times at the ends of the events, inside the
@@ -1028,6 +1064,11 @@ _GAP_NAMES = (
     "issue_12_delayed",
     "step_then_gap",
     "off_raster_events",
+    "gap_of_1_5_raster_times",
+    "short_gap_from_0",
+    "short_gap_to_0",
+    "negated_long_gap",
+    "negated_short_gap",
 )
 _WHOLE_CASES = [(name, 1) for name in _MODEL_SEQUENCES] + [
     (name, divisor) for name in _GAP_NAMES for divisor in (2, 5)
@@ -1059,6 +1100,8 @@ def test_block_samples_equals_the_oracle_for_the_whole_sequence(name, divisor):
         ("step_then_gap", 1),
         ("off_raster_events", 1),
         ("off_raster_events", 5),
+        ("gap_of_1_5_raster_times", 1),
+        ("negated_long_gap", 2),
     ],
 )
 def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole_range(
