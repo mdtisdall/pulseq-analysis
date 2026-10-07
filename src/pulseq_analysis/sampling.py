@@ -99,7 +99,7 @@ class GradientSampler:
         # Filled lazily, one time for each axis that `sample` is called with.
         self._axis_blocks: dict[str, np.ndarray] = {}
         # The samples of each (event, n, dt) that `block_samples` has computed, up to the last
-        # one at or before the last point of the event.
+        # one at or before the last point of the event (`_kept_samples`).
         self._block_sample_cache: dict[tuple[int, int, float], np.ndarray] = {}
 
     def _event_blocks(self, axis: str) -> np.ndarray:
@@ -119,8 +119,6 @@ class GradientSampler:
         k = col[blocks].astype(np.int64) - 1  # 0-based event index
         counts = self._n[k]
         total = int(counts.sum())
-        if total == 0:
-            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
         base = np.repeat(self._index.start_s[blocks] + self._delay[k], counts)
         group_start = np.cumsum(counts) - counts
         local = np.arange(total, dtype=np.int64) - np.repeat(group_start, counts)
@@ -144,12 +142,10 @@ class GradientSampler:
         """The `_AxisGaps` of `axis`, from the first and the last point of each event, with
         the rule of the module docstring. O(blocks with an event on `axis`)."""
         blocks = self._event_blocks(axis)
-        k = getattr(self._index, axis)[blocks].astype(np.int64) - 1
-        has_points = self._n[k] > 0
-        blocks, k = blocks[has_points], k[has_points]
-        empty = np.empty(0, dtype=np.float64)
         if blocks.size < 2:
+            empty = np.empty(0, dtype=np.float64)
             return _frozen_gaps(empty, empty, empty, empty, empty)
+        k = getattr(self._index, axis)[blocks].astype(np.int64) - 1
 
         # The times are added in the order of `_points`: `(start + delay) + offset`.
         base = self._index.start_s[blocks] + self._delay[k]
@@ -210,8 +206,6 @@ class GradientSampler:
         blocks = event_blocks[max(lo_pos - 1, 0) : min(hi_pos + 1, event_blocks.size)]
 
         times, values = self._points(axis, blocks)
-        if times.size == 0:
-            return np.zeros(t.size, dtype=np.float64)
 
         # A point is never before the point before it (rounding can put the first point of
         # an event an ulp before the last point of the event before it).
@@ -237,56 +231,31 @@ class GradientSampler:
 
     def _kept_samples(self, event_k: int, count_n: int, dt: float) -> int:
         """The number of the first samples of a block of `count_n` samples that can be
-        nonzero for gradient event `event_k`: the samples at or before its last point
-        (`block_samples` gives 0 after it)."""
-        num_points = int(self._n[event_k])
-        if num_points == 0:
-            return 0
-        last_t = self._delay[event_k] + self._offsets[int(self._at[event_k]) + num_points - 1]
-        # The count of j with (j + 0.5) * dt <= last_t, from a guess that the two loops
+        nonzero for gradient event `event_k`: the samples at or before its last point, or
+        within `TIME_TOLERANCE` after it (`block_samples` gives 0 after that)."""
+        last_t = self._delay[event_k] + self._offsets[int(self._at[event_k] + self._n[event_k]) - 1]
+        limit = last_t + TIME_TOLERANCE
+        # The count of j with (j + 0.5) * dt <= limit, from a guess that the two loops
         # correct with the same float product that `_event_samples` uses.
-        j = math.floor(last_t / dt - 0.5)
-        while (j + 1.5) * dt <= last_t:
+        j = math.floor(limit / dt - 0.5)
+        while (j + 1.5) * dt <= limit:
             j += 1
-        while j >= 0 and (j + 0.5) * dt > last_t:
+        while j >= 0 and (j + 0.5) * dt > limit:
             j -= 1
         return min(count_n, j + 1)
 
     def _event_samples(self, event_k: int, first: int, stop: int, dt: float) -> np.ndarray:
         """The samples (Hz/m) `first` to `stop - 1` of a block with gradient event
-        `event_k`, by the rule of `block_samples`."""
-        num_points = int(self._n[event_k])
-        if num_points == 0:
-            return np.zeros(stop - first, dtype=np.float64)
+        `event_k`, by the rule of `block_samples`: the polyline of the event, with the value
+        before a step, and a time within `TIME_TOLERANCE` after the last point taken as the
+        time of that point."""
         at = int(self._at[event_k])
+        num_points = int(self._n[event_k])
         points_t = self._delay[event_k] + self._offsets[at : at + num_points]
         points_v = self._amp[at : at + num_points]
         t = (np.arange(first, stop, dtype=np.float64) + 0.5) * dt
-        # The point at or before `t`: the largest p with points_t[p] <= t. It depends only
-        # on `t` and `points_t`, so a tool that walks the points and the samples in order
-        # with the same comparisons gets the same p.
-        p = np.searchsorted(points_t, t, side="right") - 1
-        p = np.clip(p, 0, num_points - 1)
-        t0 = points_t[p]
-        before = t < t0
-        last = p == num_points - 1
-        samples = np.zeros(stop - first, dtype=np.float64)
-        # The last point's own value, only at exactly its time.
-        at_last = last & ~before & (t == t0)
-        samples[at_last] = points_v[p[at_last]]
-        # Between two points: linear.
-        # t0 <= t < t1 here: `searchsorted(side="right") - 1` gives the last point at or
-        # before t, so t1 > t0. At a step (two points at one time), p is the later point.
-        mid = ~before & ~last
-        if np.any(mid):
-            p_mid = p[mid]
-            t0_mid = t0[mid]
-            t1_mid = points_t[p_mid + 1]
-            v0_mid = points_v[p_mid]
-            v1_mid = points_v[p_mid + 1]
-            t_mid = t[mid]
-            samples[mid] = v0_mid + (v1_mid - v0_mid) / (t1_mid - t0_mid) * (t_mid - t0_mid)
-        return samples
+        t = np.where(t <= points_t[-1] + TIME_TOLERANCE, np.minimum(t, points_t[-1]), t)
+        return _polyline_values(points_t, points_v, t)
 
     def block_samples(
         self,
@@ -307,10 +276,11 @@ class GradientSampler:
         is the waveform of the module docstring at that time. It is the block's own event
         on `axis` (its points at `delay + offset`, `seq_utils.gradient_offsets`, a
         straight line between two points, and 0 before the first point and after the last
-        point; at a local time that two points have (a step), the later point's value), with
-        one change: a sample that a gap covers has the value of the line of a short gap or
-        of the ramp of a long gap, whichever block the sample is in (also a block with no
-        event on `axis`). A ramp from a raster edge ends at a sample time, where it is 0,
+        point; at a local time that two points have (a step), the value before the step, as
+        `sample` has it; a sample within `TIME_TOLERANCE` after the last point has the value
+        of that point), with one change: a sample that a gap covers has the value of the
+        line of a short gap or of the ramp of a long gap, whichever block the sample is in
+        (also a block with no event on `axis`). A ramp from a raster edge ends at a sample time, where it is 0,
         so for events on the raster only the samples in a short gap change, and a sequence
         with no end that is not 0 next to a gap has the samples of the own events only.
         `sample` gives the same waveform, apart from the float drift of the block start sums
@@ -323,10 +293,10 @@ class GradientSampler:
         kept, so the cost does not grow with the parts of these blocks outside the
         range. The samples of each unique (event, n) of a block that lies whole in the
         range are computed one time and kept, up to the last sample at or before the
-        last point of the event (the samples after it are 0 and are not kept), and a
-        call gathers them with numpy for all these blocks, not with a Python loop over
-        the blocks. The samples in a gap are written after that, for the pieces of the gaps
-        that overlap the range (`_write_gaps`). Cost: O(samples in the range + blocks in the
+        last point of the event, or within `TIME_TOLERANCE` after it (the samples after it
+        are 0 and are not kept), and a call gathers them with numpy for all these blocks,
+        not with a Python loop over the blocks. The samples in a gap are written after
+        that, for the pieces of the gaps that overlap the range (`_write_gaps`). Cost: O(samples in the range + blocks in the
         range + points of the events not yet kept), and one time for each sequence and
         axis O(blocks with an event on the axis) for the gaps (`_find_gaps`). Memory: the result, and the kept samples of the events of
         whole blocks, so it does not grow with the length of a block that the range cuts.
@@ -420,7 +390,7 @@ class GradientSampler:
 
         def event_samples(event_k: int, count_n: int) -> np.ndarray:
             """The samples (Hz/m) of gradient event `event_k` in a block of `count_n`
-            samples, up to the last one at or before its last point, cached by
+            samples, up to the last one that `_kept_samples` counts, cached by
             `(event_k, count_n, dt)`."""
             cache_key = (event_k, count_n, dt)
             samples = cache.get(cache_key)

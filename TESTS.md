@@ -440,7 +440,7 @@ compared.
 first value and a last value of an axis that are not 0. It also covers a sequence with a block
 that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`.
 
-**How:** Parametrized over 36 sequences. Six are a two-axis short gap with a first value and a
+**How:** Parametrized over 51 sequences. Six are a two-axis short gap with a first value and a
 last value that are not 0, `long_gap_sequence`, the two sequences of pypulseq-issues 12,
 `non_zero_ends_sequence`, and `long_gap_sequence` with a last block of 1.5 raster times. On the
 raster, 17 more are `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Off the raster, 13 more are
@@ -448,7 +448,12 @@ raster, 17 more are `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster
 gaps and the 8 random sequences, each with a last block of 1.5 raster times (the names end in
 `_off_raster`), so `pns_levels` samples them with `GradientSampler.sample`. The new inputs have
 negative end values, a gap between one and two raster times, and a short gap with an end of 0,
-which the six sequences do not have. The
+which the six sequences do not have. Fifteen more, on the raster, have the last sample of an event
+at a sample time: the 14 ramps of `gap_sequences.DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` after a
+delay of a whole number of raster times and a half (`delayed_ramp_sequence`, behind filler blocks),
+and `short_arbitrary_sequence`, an arbitrary
+gradient of 3 samples with a step at 25 us (the values and the cases are in
+`test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`). The
 reference stacks the samples of the oracle into `(N, 3)`. They are `oracle.block_samples` at the
 gradient raster, and `oracle.sample` at `(k + 0.5) * dt` for the sequence that is not on the
 raster. It runs `_safe_gwf_to_pns_chunk` of the fork in one chunk with the example hardware. The
@@ -2290,16 +2295,34 @@ samples 10 to 29 are 0 (absolute 1e-9 of 3e4), that sample 9 is 2.85e4 and that 
 **Assumptions:** A sample at the end of a ramp can be a rounding error from 0 (below 1e-9 of the
 peak), because the ramp end and the sample time are each a sum of floats.
 
-#### `test_gradient_sampler_equals_the_sampler_of_the_constructor`
+#### `test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`
 
-**Checks:** `gradient_sampler(seq)` gives a sampler with the same samples as
-`GradientSampler(sequence_index(seq), event_points(seq))`.
+**Checks:** `block_samples` of the whole sequence equals `oracle.block_samples` at the gradient
+raster where a sample falls at the last point of an event, and where it falls at a step inside
+one event. The sample at the last point has the value of that point, also when the sum of the
+delay and the offset of the point is one ulp before the sample time (review 1.3 of
+`docs/reviews/2026-10-07-code-review.md`). The sample at a step has the value before the step,
+the rule of `sample` (review 1.4).
 
-**How:** Parametrized with the GRE, spin-echo and arbitrary-gradient sequences. The test
-makes both samplers, samples each of the three axes at the raster centres of the sequence,
-and compares the arrays bit for bit (`np.array_equal`).
+**How:** Parametrized over 15 sequences. Fourteen are `gap_sequences.delayed_ramp_sequence`:
+filler blocks of no gradient, and a ramp on x from 0 to A, after a delay of 0.5 to 4.5 raster
+times, that ends at a sample time. Eight are the cases of `DELAYED_RAMP_CASES`: the sum
+`delay + offset` of the last point is one ulp before the sample time, and `block_samples` gave 0
+at that sample before the fix. Six are the cases of `ULP_EDGE_CASES`, chosen from a scan of 6960
+cases: the sum `(start + delay) + offset` is before the sample time `start + (j + 0.5) * dt`, so
+an oracle with no tolerance after the last point gives 0 there. In three of them `block_samples`
+gave the end value before the fix too, and in three it gave 0. The test fails without the
+tolerance in `block_samples`, and without the same tolerance in `oracle.block_samples`. The
+fifteenth is `gap_sequences.short_arbitrary_sequence`, an arbitrary gradient of 3 samples whose
+points `(tt[-1], wf[-1])` and `(shape_dur, last)` are at 25 us, a sample time. The test checks
+the three axes against the oracle within 1e-9 of the largest absolute value. The same sequences
+are in the parameters of the PNS test
+`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`.
 
-**Assumptions:** The sampler has no random or time-dependent state.
+**Assumptions:** The oracle takes the time of a point from the sum of the block durations
+(`(start + delay) + offset`), and `block_samples` from the block start and the local time. The
+oracle gives the value of the last point to a sample time within `TIME_TOLERANCE` after it, so
+that the two agree on the value at the last point.
 
 #### `test_gradient_sampler_refuses_rotations`
 

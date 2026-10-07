@@ -255,12 +255,23 @@ def sample(seq: pp.Sequence, axis: str, t) -> np.ndarray:
 
 def block_samples(seq: pp.Sequence, axis: str, dt: float) -> np.ndarray:
     """The samples of each block, joined in play order: `round(duration / dt)` samples of
-    a block, the values of the polyline at `block start + (j + 0.5) * dt`."""
+    a block, the values of the polyline at `block start + (j + 0.5) * dt`.
+
+    One change: a sample time that is after the last point of the block's own event on the axis
+    by `TIME_TOLERANCE` or less has the value of that point. The time of the last point is
+    `(block start + delay) + offset` and the sample time is `block start + (j + 0.5) * dt`, two
+    sums of floats that can differ by one ulp when they are the same time in exact arithmetic."""
     poly = axis_polyline(seq, axis)
     parts = []
-    for block_id, start in zip(poly.block_id, poly.block_start, strict=True):
-        count = round(seq.block_durations[block_id] / dt)
-        parts.append(values_at(poly, start + (np.arange(count) + 0.5) * dt))
+    for timing in iter_blocks(seq):
+        count = round(timing.duration_s / dt)
+        q = timing.start_s + (np.arange(count) + 0.5) * dt
+        values = values_at(poly, q)
+        g = getattr(timing.block, f"g{axis}", None)
+        if g is not None:
+            times, point_values = _event_points(g, timing.start_s)
+            values[(q > times[-1]) & (q <= times[-1] + TIME_TOLERANCE)] = point_values[-1]
+        parts.append(values)
     return np.concatenate(parts) if parts else np.zeros(0)
 
 

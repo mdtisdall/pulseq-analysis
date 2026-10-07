@@ -64,10 +64,12 @@ def _read_points(seq: pp.Sequence) -> EventPoints:
     counts: list[int] = []
     offset_chunks: list[np.ndarray] = []
     amp_chunks: list[np.ndarray] = []
-    for _, g in grad_events(seq, sequence_index(seq)):
+    for number, g in grad_events(seq, sequence_index(seq)):
         delay, offsets, amp = gradient_offsets(g)
         offsets = np.asarray(offsets, dtype=np.float64)
         amp = np.asarray(amp, dtype=np.float64)
+        # `sampling` relies on this: no code there handles an event with no point.
+        assert offsets.size >= 2, f"gradient event {number} has {offsets.size} points"
         delays.append(float(delay))
         counts.append(offsets.size)
         offset_chunks.append(offsets)
