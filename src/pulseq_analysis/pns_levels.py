@@ -27,7 +27,7 @@ and is the vendor-neutral pair `(struct, label)`: the package has no default. A 
 the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
 hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
 
-The gradient waveform is the model of MATLAB Pulseq (`sampling`, `docs/usage.md` "The
+The gradient waveform is the model of MATLAB Pulseq (`sampling`, `docs/implementation.md` "The
 gradient waveform"): a line across a gap of one raster time or less between two events, a
 ramp to 0 and from 0 (half a raster time each) across a longer gap, and a step at a block
 junction. pypulseq's `calculate_pns` draws a line across each gap (pypulseq-issues 12), so it

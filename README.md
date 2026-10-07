@@ -60,11 +60,15 @@ real scanner, pass `hardware=(safe_example_hw(), "a label")`
 (`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`).
 The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
 fraction of the stimulation limit.
-[`docs/usage.md`](docs/usage.md) gives the other values and modules.
+[`docs/usage.md`](docs/usage.md) shows the other tasks and values.
 
 ## Documents
 
-- [`docs/usage.md`](docs/usage.md): the modules and their interface.
+- [`docs/usage.md`](docs/usage.md): the guide. How to use the package for
+  its main tasks, and the interface of its modules.
+- [`docs/implementation.md`](docs/implementation.md): the exact definitions,
+  the rules for the rare cases of the gradient waveform, and the algorithms
+  and the cost of each call.
 - [`TESTS.md`](TESTS.md): each check that CI runs.
 - [`docs/plans/implementation.md`](docs/plans/implementation.md): the
   implementation plan.
