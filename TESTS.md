@@ -1610,7 +1610,7 @@ the test would fail.
 `test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
 waveform of one axis at sorted times, from
 the sequence index and the kept points of the unique gradient events
-(`_events.event_points`; `GradientSampler(index, event_points(seq))`). The waveform is the gradient
+(`_events.event_points`), made with `gradient_sampler(seq)`. The waveform is the gradient
 waveform of MATLAB Pulseq (`docs/usage.md`, section 2). The reference is the oracle waveform of
 `tests/oracles/waveform.py` (section 2.15) for every sequence with an end that is not 0 next to
 a long gap, or with a step at a block junction. For the other sequences it is also pypulseq's
@@ -2240,6 +2240,29 @@ samples 10 to 29 are 0 (absolute 1e-9 of 3e4), that sample 9 is 2.85e4 and that 
 
 **Assumptions:** A sample at the end of a ramp can be a rounding error from 0 (below 1e-9 of the
 peak), because the ramp end and the sample time are each a sum of floats.
+
+#### `test_gradient_sampler_equals_the_sampler_of_the_constructor`
+
+**Checks:** `gradient_sampler(seq)` gives a sampler with the same samples as
+`GradientSampler(sequence_index(seq), event_points(seq))`.
+
+**How:** Parametrized with the GRE, spin-echo and arbitrary-gradient sequences. The test
+makes both samplers, samples each of the three axes at the raster centres of the sequence,
+and compares the arrays bit for bit (`np.array_equal`).
+
+**Assumptions:** The sampler has no random or time-dependent state.
+
+#### `test_gradient_sampler_refuses_rotations`
+
+**Checks:** `gradient_sampler` raises `NotImplementedError` for a sequence with the rotation
+extension.
+
+**How:** The test gives `gradient_sampler` a GRE sequence with a rotation library
+(`with_rotation_library` of `tests/synthetic.py`). The error message must contain
+"rotation extension".
+
+**Assumptions:** pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
+library by hand, as `test_gradient_spectrum_refuses_rotations` does.
 
 ### 2.6 Gradient peaks (`test_grad_peaks.py`)
 
