@@ -9,7 +9,7 @@ import numpy as np
 import pypulseq as pp
 import pytest
 from asserts import assert_levels_equal
-from pns_hardware import BAD_STRUCTS, NOT_A_PAIR, hardware_for_peak
+from pns_hardware import hardware_for_peak
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import (
     EXAMPLE_HW,
@@ -821,15 +821,17 @@ def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, threshol
     """`pns_levels` raises `TypeError` for `thresholds_hz_per_t` that is not a tuple or has
     an element that is a `bool` or not a real number, and `ValueError` for an element that
     is not finite, not above 0 or too large for a float, or for two elements that are equal
-    as floats. It does so before the sequence is read: the functions that read the rotations
-    and the block table of the sequence are replaced by ones that fail, and the error is
-    still the one of the thresholds."""
+    as floats. It does so before the sequence is read and before the kept results are
+    touched: the functions that read the rotations and the block table of the sequence and
+    `kept_results` are replaced by ones that fail, and the error is still the one of the
+    thresholds."""
 
     def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
+        raise RuntimeError("the sequence or the kept results were read")
 
     monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.kept_results", fail)
     with pytest.raises(error, match="threshold"):
         pns_levels(spin_echo_sequence(), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
 
@@ -874,15 +876,17 @@ def test_pns_levels_refuses_a_bad_bin_s_before_any_work(monkeypatch, bin_s, erro
     """`pns_levels` raises `TypeError` for a `bin_s` that is a `bool` or not a real number
     (a string, `None`, a tuple, a complex number) and `ValueError` for one that is not
     finite or not above 0 (NaN, infinity, an `int` too large for a float, 0, a negative
-    value). It does so before the sequence is read: the functions that read the rotations
-    and the block table of the sequence are replaced by ones that fail, and the error is
-    still the one of `bin_s`."""
+    value). It does so before the sequence is read and before the kept results are
+    touched: the functions that read the rotations and the block table of the sequence and
+    `kept_results` are replaced by ones that fail, and the error is still the one of
+    `bin_s`."""
 
     def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
+        raise RuntimeError("the sequence or the kept results were read")
 
     monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
     monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
+    monkeypatch.setattr("pulseq_analysis.pns_levels.kept_results", fail)
     with pytest.raises(error, match="bin_s"):
         pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
 
@@ -991,61 +995,6 @@ def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair()
         levels = pns_levels(seq, hardware=(safe_example_hw(), "LABEL"))
         assert levels.hardware == "LABEL"
         assert_levels_equal(levels, default, ignore=("hardware",))
-
-
-def test_pns_levels_needs_hardware(monkeypatch):
-    """`pns_levels` without `hardware` raises `TypeError` ("hardware"). It does so before the
-    sequence is read: the functions that read the rotations and the block table of the
-    sequence are replaced by ones that fail, and the error is still the `TypeError`."""
-
-    def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
-
-    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(TypeError, match="hardware"):
-        pns_levels(spin_echo_sequence())  # type: ignore[call-arg]
-
-
-@pytest.mark.parametrize("hardware", NOT_A_PAIR)
-def test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_any_work(monkeypatch, hardware):
-    """`pns_levels` with a `hardware` that is not a tuple of two items with a `str` second
-    item (a struct alone, a list, a tuple of three items, a pair with a label that is not a
-    `str`, a path string, `None`) raises `TypeError` ("hardware"). It does so before the
-    sequence is read: the functions that read the rotations and the block table of the
-    sequence are replaced by ones that fail, and the error is still the `TypeError`."""
-
-    def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
-
-    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(TypeError, match="hardware"):
-        pns_levels(spin_echo_sequence(), hardware=hardware)
-
-
-@pytest.mark.parametrize(("struct", "error", "match"), BAD_STRUCTS)
-def test_pns_levels_refuses_a_bad_struct_before_any_work(monkeypatch, struct, error, match):
-    """`pns_levels` with a pair whose struct has no `x`, no `x.stim_thresh`, `x.a1 = 5.0`,
-    `x.stim_limit = 0.0`, `x.tau1 = nan` or `x.tau1 = "0.2"` raises the error of that
-    defect, with its message, before the sequence is read: the functions that read the
-    rotations and the block table of the sequence are replaced by ones that fail."""
-
-    def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
-
-    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(error, match=match):
-        pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))
-
-
-@pytest.mark.parametrize(("struct", "error", "match"), BAD_STRUCTS)
-def test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients(struct, error, match):
-    """The bad structs of `BAD_STRUCTS` raise the same errors for a sequence with no
-    gradient event, which gives a result for a good struct."""
-    with pytest.raises(error, match=match):
-        pns_levels(empty_sequence(), hardware=(struct, "BAD"))
 
 
 def test_the_levels_do_not_depend_on_the_gamma_of_the_system():

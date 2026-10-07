@@ -119,19 +119,8 @@ def test_no_gradients():
     assert s.rss.shape == (0,)
     assert list(s.axes) == ["x", "y", "z"]
     for a in s.axes.values():
-        assert a.shape == (0,)
-
-
-def test_no_gradients_gives_an_empty_read_only_array_for_each_axis():
-    s = grad_spectrum.gradient_spectrum(empty_sequence())
-    assert s.reason == grad_spectrum.NO_GRADIENTS
-    assert list(s.axes) == ["x", "y", "z"]
-    for a in s.axes.values():
         assert a.dtype == np.float64
         assert a.shape == (0,)
-        assert not a.flags.writeable
-        with pytest.raises(ValueError):
-            a[...] = 1.0
 
 
 def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
@@ -304,14 +293,12 @@ def test_gradient_spectrum_keeps_the_result():
 
 
 @pytest.mark.parametrize(
-    ("make_seq", "num_arrays"),
-    [(spin_echo_sequence, 5), (empty_sequence, 5)],
-    ids=["spin_echo", "no_gradients"],
+    "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
-def test_the_arrays_of_a_spectrum_are_read_only(make_seq, num_arrays):
+def test_the_arrays_of_a_spectrum_are_read_only(make_seq):
     s = grad_spectrum.gradient_spectrum(make_seq())
     arrays = [s.frequency_hz, s.rss, *s.axes.values()]
-    assert len(arrays) == num_arrays
+    assert len(arrays) == 5
     for a in arrays:
         assert not a.flags.writeable
         with pytest.raises(ValueError):

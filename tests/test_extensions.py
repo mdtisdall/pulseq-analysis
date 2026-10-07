@@ -20,6 +20,12 @@ _MEASUREMENTS = {
     "pns_levels": lambda seq: pns_levels.pns_levels(seq, hardware=EXAMPLE_HW),
     "gradient_spectrum": grad_spectrum.gradient_spectrum,
 }
+_RESULT_TYPES = {
+    "gradient_peaks": grad_peaks.GradientPeaks,
+    "block_gradient_values": grad_peaks.BlockGradientValues,
+    "pns_levels": pns_levels.PnsLevels,
+    "gradient_spectrum": grad_spectrum.GradientSpectrum,
+}
 
 
 def _in_memory_sequence() -> pp.Sequence:
@@ -45,35 +51,6 @@ def _with_rotations_extension_type() -> pp.Sequence:
     seq = gre_sequence(num_trs=2)
     seq.set_extension_string_ID("ROTATIONS", 1)
     return seq
-
-
-def _write_rotation_file(path) -> None:
-    """Write a `.seq` file with a rotation extension on its second block, in the format
-    that PR #372's writer uses: an `[EXTENSIONS]` section, an `extension ROTATIONS`
-    section with one quaternion, and the second block's extension list id set to that
-    extension list. The `[SIGNATURE]` section is removed, so its MD5 does not matter."""
-    seq = gre_sequence(num_trs=2)
-    seq.write(str(path))
-    text = path.read_text()
-
-    lines = text.split("\n")
-    i = lines.index("[BLOCKS]") + 1
-    while lines[i].startswith("#") or not lines[i].strip():
-        i += 1
-    row = lines[i + 1].split()
-    row[-1] = "1"  # point the second block at extension list 1
-    lines[i + 1] = " ".join(row)
-    text = "\n".join(lines)
-
-    extensions_section = (
-        "[EXTENSIONS]\n1 1 1 0\n\n"
-        "# id RotQuat0 RotQuatX RotQuatY RotQuatZ\n"
-        "extension ROTATIONS 1\n1 0.923880 0 0 0.382683\n\n"
-    )
-    marker = "# Sequence Shapes" if "# Sequence Shapes" in text else "[SIGNATURE]"
-    text = text.replace(marker, extensions_section + marker, 1)
-    text = text[: text.index("[SIGNATURE]")] if "[SIGNATURE]" in text else text
-    path.write_text(text)
 
 
 @pytest.mark.parametrize(
@@ -179,7 +156,8 @@ def test_each_measurement_raises_for_a_sequence_built_in_memory(name):
 
 @pytest.mark.parametrize("name", list(_MEASUREMENTS))
 def test_each_measurement_accepts_a_sequence_after_write(name, tmp_path):
-    """After `write` signs a sequence, each public measurement gives a result for it."""
+    """After `write` signs a sequence, each public measurement gives a result of its own
+    result type for it."""
     seq = _in_memory_sequence()
     seq.write(str(tmp_path / "a.seq"))
-    assert _MEASUREMENTS[name](seq) is not None
+    assert isinstance(_MEASUREMENTS[name](seq), _RESULT_TYPES[name])

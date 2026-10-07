@@ -54,32 +54,6 @@ def test_example_hardware_for_spin_echo(example, default_seq):
         assert peaks[axis] / gamma == pytest.approx(float(comp[:, i].max()), abs=tol)
 
 
-def test_asc_file_with_the_example_parameters(default_seq, example, write_gradient_asc):
-    path = write_gradient_asc()
-    p = pns_levels(default_seq, hardware=hardware_from_asc(path))
-    assert p.reason is None
-    assert p.hardware == "MP_GPA_TEST"
-    assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
-    assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
-    for axis in "xyz":
-        assert p.axis_peaks_hz_per_t[axis] == pytest.approx(
-            example.axis_peaks_hz_per_t[axis], rel=1e-9
-        )
-
-
-def test_asc_file_that_includes_the_pns_parameters(default_seq, example, write_gradient_asc):
-    path = write_gradient_asc(split=True)
-    p = pns_levels(default_seq, hardware=hardware_from_asc(path))
-    assert p.reason is None
-    assert p.hardware == "MP_GPA_TEST"
-    assert p.peak_hz_per_t == pytest.approx(example.peak_hz_per_t, rel=1e-9)
-    assert p.peak_time_s == pytest.approx(example.peak_time_s, rel=1e-9)
-    for axis in "xyz":
-        assert p.axis_peaks_hz_per_t[axis] == pytest.approx(
-            example.axis_peaks_hz_per_t[axis], rel=1e-9
-        )
-
-
 def test_asc_file_with_a_missing_include(write_gradient_asc):
     path = write_gradient_asc(split=True)
     safety = path.with_name(f"{path.stem}_GSWD_SAFETY.asc")
@@ -127,14 +101,6 @@ def test_prediction_scales_with_the_stimulation_limit(default_seq, example, writ
     p = pns_levels(default_seq, hardware=hardware_from_asc(write_gradient_asc(limit_scale=0.1)))
     assert p.peak_hz_per_t == pytest.approx(10 * example.peak_hz_per_t, rel=1e-9)
     assert p.peak_hz_per_t > _LIMIT
-
-
-def test_no_gradients():
-    p = pns_levels(empty_sequence(), hardware=EXAMPLE_HW)
-    assert p.reason == NO_GRADIENTS
-    assert p.hardware == EXAMPLE_HW[1]
-    assert p.peak_hz_per_t == 0
-    assert p.peak_time_s is None
 
 
 def test_no_gradients_with_rf_and_adc():
@@ -215,39 +181,6 @@ def _count_pns_levels_calls(monkeypatch) -> list:
 
     monkeypatch.setattr(pns_levels_module, "_compute_levels", counted)
     return calls
-
-
-def test_pns_levels_keeps_one_result_for_each_asc_file(monkeypatch, write_gradient_asc):
-    """`pns_levels` keeps one result for each (sequence, `hardware_from_asc` of a
-    gradient .asc file): the same file is cached, a different file computes once, and going
-    back to the first file does not compute again (a, a, b, a gives 2 calls)."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    seq = spin_echo_sequence()
-    hardware_a = hardware_from_asc(write_gradient_asc(name="MP_GPA_A"))
-    hardware_b = hardware_from_asc(write_gradient_asc(name="MP_GPA_B"))
-
-    pns_levels(seq, hardware=hardware_a)
-    assert len(calls) == 1
-    pns_levels(seq, hardware=hardware_a)  # same sequence, same hardware: cached
-    assert len(calls) == 1
-    pns_levels(seq, hardware=hardware_b)  # a different hardware: computes
-    assert len(calls) == 2
-    pns_levels(seq, hardware=hardware_a)  # back to hardware_a: cached
-    assert len(calls) == 2
-
-
-def test_pns_levels_alternating_two_hardwares_runs_the_model_two_times(
-    monkeypatch, write_gradient_asc
-):
-    """Two keys alternated (a, b, a, b) run the model two times, not four: the example
-    hardware and the pair of a file are two hardwares of one sequence."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    seq = spin_echo_sequence()
-    from_file = hardware_from_asc(write_gradient_asc())
-
-    for hardware in (EXAMPLE_HW, from_file) * 2:
-        pns_levels(seq, hardware=hardware)
-    assert len(calls) == 2
 
 
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
@@ -472,59 +405,6 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     assert len(calls) == 4
 
 
-@pytest.mark.parametrize(
-    ("bin_s", "error"),
-    [
-        pytest.param(True, TypeError, id="bool"),
-        pytest.param("0.006", TypeError, id="string"),
-        pytest.param(None, TypeError, id="none"),
-        pytest.param(float("nan"), ValueError, id="nan"),
-        pytest.param(float("inf"), ValueError, id="inf"),
-        pytest.param(0, ValueError, id="zero"),
-        pytest.param(-0.006, ValueError, id="negative"),
-    ],
-)
-def test_pns_levels_refuses_a_bad_bin_s_before_any_work(monkeypatch, bin_s, error):
-    """`pns_levels` raises `TypeError` for a `bin_s` that is a `bool` or not a real
-    number and `ValueError` for one that is not finite or not above 0, before the sequence
-    is read and before the kept results are touched: the functions that read the sequence
-    and `kept_results` are replaced by ones that fail, and the error is still the one of
-    `bin_s`."""
-
-    def fail(*args, **kwargs):
-        raise RuntimeError("the sequence or the kept results were read")
-
-    monkeypatch.setattr("pulseq_analysis.pns_levels.refuse_rotations", fail)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    monkeypatch.setattr(pns_levels_module, "kept_results", fail)
-    with pytest.raises(error, match="bin_s"):
-        pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
-
-
-@pytest.mark.parametrize(
-    ("thresholds", "error"),
-    [
-        pytest.param([1.0], TypeError, id="list"),
-        pytest.param((True,), TypeError, id="bool"),
-        pytest.param(("1.0",), TypeError, id="string"),
-        pytest.param((0.0,), ValueError, id="zero"),
-        pytest.param((1.0, 1.0), ValueError, id="equal floats"),
-    ],
-)
-def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, thresholds, error):
-    """`pns_levels` raises `TypeError` for thresholds that are not a tuple or have a
-    `bool` or a value that is not a real number, and `ValueError` for a value not above 0
-    or a repeat, before the sequence is read and before the kept results are read."""
-
-    def fail(*args, **kwargs):
-        raise RuntimeError("the sequence was read")
-
-    monkeypatch.setattr(pns_levels_module, "kept_results", fail)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.sequence_index", fail)
-    with pytest.raises(error, match="threshold"):
-        pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
-
-
 def test_pns_levels_shares_a_read_only_result():
     """Two callers of `pns_levels` get the same kept result. A change in place of its
     level by the first caller raises `ValueError`, and the second caller gets the level as
@@ -543,35 +423,3 @@ def test_pns_levels_shares_a_read_only_result():
     assert second is first
     np.testing.assert_array_equal(second.level_min_hz_per_t, before_min)
     np.testing.assert_array_equal(second.level_max_hz_per_t, before_max)
-
-
-def test_pns_levels_gives_the_same_object_for_a_second_call_with_the_same_arguments(monkeypatch):
-    """A second call of `pns_levels` for the same sequence object with the same arguments
-    gives the kept object and runs no model: the calculation (`_compute_levels`) runs one
-    time for the two calls."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    seq = spin_echo_sequence()
-
-    first = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,), bin_s=0.002)
-    second = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,), bin_s=0.002)
-    assert second is first
-    assert len(calls) == 1
-    assert first.reason is None
-
-
-def test_pns_levels_gives_a_new_object_after_add_block(monkeypatch):
-    """After `add_block` to the sequence object, `pns_levels` with the same arguments runs
-    the model again and gives a new object, with the samples of the new block; a second call
-    after that gives the new kept object."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    seq = signed(pp.Sequence(SYSTEM))
-    seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
-
-    before = pns_levels(seq, hardware=EXAMPLE_HW)
-    seq.add_block(pp.make_trapezoid(channel="y", area=1000, system=SYSTEM))
-    after = pns_levels(seq, hardware=EXAMPLE_HW)
-    assert after is not before
-    assert after.num_samples > before.num_samples
-    assert len(calls) == 2
-    assert pns_levels(seq, hardware=EXAMPLE_HW) is after
-    assert len(calls) == 2

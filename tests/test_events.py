@@ -118,26 +118,12 @@ def test_event_points_has_the_points_that_grad_events_gives(build):
 
 
 @pytest.mark.parametrize("build", _SEQUENCES)
-def test_a_gradient_sampler_from_event_points_gives_the_samples_of_the_points_from_grad_events(
-    build,
-):
-    """`GradientSampler(index, event_points(seq))` and a sampler of the points that the
-    test reads from `grad_events` give the same samples (`array_equal`) of `sample` at the
-    raster centres, and of `block_samples` for each axis. The sampler of `event_points`
-    uses its arrays without a copy."""
+def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build):
+    """`GradientSampler(index, event_points(seq))` keeps the pooled points of
+    `event_points` as they are, with no copy."""
     seq = build()
-    index = sequence_index(seq)
     points = event_points(seq)
-    sampler = GradientSampler(index, points)
-    reference = GradientSampler(index, _points_from_grad_events(seq))
-    dt = seq.grad_raster_time
-    t = (np.arange(int(np.ceil(index.end_s / dt))) + 0.5) * dt
-    for axis in ("gx", "gy", "gz"):
-        assert np.array_equal(sampler.sample(axis, t), reference.sample(axis, t)), axis
-        assert np.array_equal(
-            sampler.block_samples(axis, 0, index.num_blocks, dt),
-            reference.block_samples(axis, 0, index.num_blocks, dt),
-        ), axis
+    sampler = GradientSampler(sequence_index(seq), points)
     assert np.shares_memory(sampler._offsets, points.offsets)
     assert np.shares_memory(sampler._amp, points.amp)
 

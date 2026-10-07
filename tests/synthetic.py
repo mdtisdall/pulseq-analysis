@@ -72,8 +72,6 @@ def spin_echo_sequence(prephaser_position: str = "before") -> pp.Sequence:
     (the same), readout. Block pulses, so no slice-select gradients. With
     prephaser_position "after", the readout prephaser is after the second crusher, with
     the opposite sign."""
-    if prephaser_position not in ("before", "after"):
-        raise ValueError(f"prephaser_position must be 'before' or 'after': {prephaser_position!r}")
     gx, adc, balance = readout()
     seq = pp.Sequence(SYSTEM)
     sign = 1 if prephaser_position == "before" else -1
@@ -90,10 +88,11 @@ def spin_echo_sequence(prephaser_position: str = "before") -> pp.Sequence:
     return signed(seq)
 
 
-def gre_sequence(num_trs: int = 4, tr: float = 20e-3) -> pp.Sequence:
+def gre_sequence(num_trs: int = 4) -> pp.Sequence:
     """A minimal spoiled gradient-echo sequence: `num_trs` repetitions, each a hard
     excitation pulse, a phase-encode trapezoid on y, a readout trapezoid on x with an
-    ADC, and a spoiler trapezoid on z, padded to `tr` with a delay block."""
+    ADC, and a spoiler trapezoid on z, padded to a TR of 20 ms with a delay block."""
+    tr = 20e-3
     seq = pp.Sequence(SYSTEM)
     gx, adc, _ = readout()
     pe = pp.make_trapezoid(channel="y", area=1 / WIDTH, system=SYSTEM)
