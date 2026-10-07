@@ -91,3 +91,8 @@ fraction of the stimulation limit.
   `0.1.0rc6`.
 - [`docs/plans/third-review-fixes.md`](docs/plans/third-review-fixes.md):
   the plan of the fixes of that third review (`0.1.0rc6`).
+- [`docs/reviews/2026-10-07-code-review.md`](docs/reviews/2026-10-07-code-review.md):
+  a review of the code after the fixes of the third plan.
+- [`docs/plans/fourth-review-fixes.md`](docs/plans/fourth-review-fixes.md):
+  the plan of the fixes of that fourth review, and of the snapshot step
+  (`0.1.0rc6`).
