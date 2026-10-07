@@ -10,12 +10,16 @@ import pypulseq as pp
 import pytest
 from asserts import assert_levels_equal
 from gap_sequences import (
+    DELAYED_RAMP_CASES,
+    ULP_EDGE_CASES,
+    delayed_ramp_sequence,
     delayed_sequence,
     early_end_sequence,
     gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
     negated,
     non_zero_ends_sequence,
+    short_arbitrary_sequence,
     short_gap_from_0_sequence,
     short_gap_sequence,
     short_gap_to_0_sequence,
@@ -247,6 +251,15 @@ _GAP_SEQUENCES |= {
         "issue_12_early_end": early_end_sequence,
     }.items()
 }
+# The sequences of the edges of `block_samples`: the last point of an event at a sample time
+# (`DELAYED_RAMP_CASES` and `ULP_EDGE_CASES`) and a step inside one event (`short_arbitrary_sequence`).
+_GAP_SEQUENCES |= {
+    "delayed_ramp_" + "_".join(map(str, case)): (
+        lambda case=case: signed(delayed_ramp_sequence(*case))
+    )
+    for case in DELAYED_RAMP_CASES + ULP_EDGE_CASES
+}
+_GAP_SEQUENCES["short_arbitrary"] = lambda: signed(short_arbitrary_sequence())
 # The random sequences of `random_gaps` (random signs, zero, short and long gaps).
 _GAP_SEQUENCES |= {
     f"random_gaps_{seed}": (lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)))
@@ -283,7 +296,10 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     `gap_sequences`, each also with every amplitude negated, a gap of 1.5 raster times between
     two values that are not 0, a short gap from 0 to a value that is not 0 and from one to 0,
     and the 8 random sequences of `random_gaps` (seeds 0 to 7). The new ones and the random ones
-    are also run with a last block that is not on the raster."""
+    are also run with a last block that is not on the raster. The 14 ramps of
+    `DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` (a delay of half a raster time behind filler
+    blocks, review 1.3) and the arbitrary gradient of 3 samples of `short_arbitrary_sequence` (review 1.4) have the
+    last sample of an event at a sample time."""
     seq = _GAP_SEQUENCES[name]()
     dt = seq.grad_raster_time
     levels = pns_levels(seq, hardware=EXAMPLE_HW, bin_s=dt)

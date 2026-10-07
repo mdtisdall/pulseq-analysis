@@ -341,8 +341,11 @@ the step.
 `GradientSampler.block_samples(axis, first, stop, dt, *, skip=0, count=None)`
 gives the samples of the play indexes `first` to `stop - 1`, each block on its
 own at the times `(j + 0.5) * dt` from its start, with the values of its own
-event and 0 outside it. A sample in a gap has the value of the waveform there:
-the line across a short gap, or the ramp of a long gap. This holds in any
+event and 0 outside it. A sample at a time after the last point of the own
+event by `TIME_TOLERANCE` or less has the value of that point: the time of the
+point and the time of the sample are two float sums, and they can differ by one
+ulp when they are the same time. A sample in a gap has the value of the
+waveform there: the line across a short gap, or the ramp of a long gap. This holds in any
 block, also in a block with no event on the axis. The time of a sample in a gap
 is `start + (j + 0.5) * dt`, with `start` the sum of the durations of the
 blocks before the block, so it has the float drift of that sum. The own-event

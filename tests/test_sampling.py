@@ -4,12 +4,16 @@ import numpy as np
 import pypulseq as pp
 import pytest
 from gap_sequences import (
+    DELAYED_RAMP_CASES,
+    ULP_EDGE_CASES,
+    delayed_ramp_sequence,
     delayed_sequence,
     early_end_sequence,
     gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
     negated,
     non_zero_ends_sequence,
+    short_arbitrary_sequence,
     short_gap_from_0_sequence,
     short_gap_sequence,
     short_gap_to_0_sequence,
@@ -27,9 +31,7 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis._events import event_points
 from pulseq_analysis.sampling import (
-    GradientSampler,
     gradient_sampler,
     raster_block_lengths,
     sequence_samples,
@@ -1214,17 +1216,31 @@ def test_a_ramp_from_a_raster_edge_changes_no_sample_at_the_gradient_raster():
     assert got[30] == pytest.approx(1.9e4, rel=1e-9)
 
 
-@pytest.mark.parametrize("build", [gre_sequence, spin_echo_sequence, arbitrary_gradient_sequence])
-def test_gradient_sampler_equals_the_sampler_of_the_constructor(build):
-    """`gradient_sampler(seq)` gives the same samples as
-    `GradientSampler(sequence_index(seq), event_points(seq))`, each equal bit for bit, on
-    each axis at the raster centers of the sequence."""
-    seq = build()
-    made = gradient_sampler(seq)
-    built = GradientSampler(sequence_index(seq), event_points(seq))
-    t = _raster_centers(float(sequence_index(seq).start_s[-1]) + 1e-3)
-    for axis in _AXES:
-        assert np.array_equal(made.sample(axis, t), built.sample(axis, t)), axis
+_EDGE_SEQUENCES = {
+    "delayed_ramp_" + "_".join(map(str, case)): (
+        lambda case=case: signed(delayed_ramp_sequence(*case))
+    )
+    for case in DELAYED_RAMP_CASES + ULP_EDGE_CASES
+} | {"short_arbitrary": lambda: signed(short_arbitrary_sequence())}
+
+
+@pytest.mark.parametrize("name", _EDGE_SEQUENCES)
+def test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle(name):
+    """`block_samples` of the whole sequence equals `oracle.block_samples` at the gradient
+    raster. The `delayed_ramp_sequence` cases of `DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` have a
+    ramp after a delay of half a raster time (and whole raster times) behind filler blocks: the
+    sample at the last point has the value of that point, also where the sum `delay + offset`
+    is one ulp before the sample time (review 1.3). The oracle has the same tolerance after the
+    last point, which the `ULP_EDGE_CASES` need. `short_arbitrary_sequence` has a step inside
+    one event at a sample time: the sample has the value before the step (review 1.4, the rule
+    of `sample`)."""
+    seq = _EDGE_SEQUENCES[name]()
+    index = sequence_index(seq)
+    assert raster_block_lengths(index, _RASTER)[1]
+    sampler = gradient_sampler(seq)
+    for axis in "xyz":
+        got = sampler.block_samples(f"g{axis}", 0, index.num_blocks, _RASTER)
+        _assert_samples_match(got, oracle.block_samples(seq, axis, _RASTER))
 
 
 def test_gradient_sampler_refuses_rotations():
