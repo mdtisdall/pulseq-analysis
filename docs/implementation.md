@@ -426,9 +426,9 @@ the first measurement that needs a part pays for it.
   measurements share them. Time O(K) calls of pypulseq, plus O(P). This is a
   part whose cost grows with K: about 7 µs for each unique event (section 3.5).
   The first call of `gradient_peaks` also makes the values of each unique event
-  (`_event_values`), a Python loop over the K events that takes about 13 µs for
-  each of them. So that first call grows by about 19 µs for each unique event
-  in all.
+  (`_event_values`), with numpy over the pooled points of all the events: less
+  than 0.1 µs for each of them. So that first call grows by about 7 µs for each
+  unique event in all.
 - **The gaps of each axis.** The consecutive events of an axis, the length of
   each gap between them, and its kind (section 1.3). Vectorised. Time
   O(M log M) for the M blocks with an event on the axis. Only `GradientSampler`
@@ -444,14 +444,15 @@ makes the values of each block, and keeps them for the two functions and for
 all windows:
 
 1. The peak, the slew and the RMS integral of each unique event, from its
-   points. A Python loop over the K events, with small numpy operations: about
-   13 µs for each event.
+   points. Vectorised over the pooled points of the K events (a `reduceat` over
+   the points of each event): less than 0.1 µs for each event.
 2. The values of each block: the values of its event on each axis, by index
    into the values of step 1, with the ramps, the lines and the steps of the
    gaps. Vectorised. Time O(B).
 3. The exact vector peak. The polyline of each axis over the whole file, from
    the points of all the events that play, and the sorted union of the times of
-   the points of the three axes. Time O(P_play log P_play). For a sequence with
+   the points of the three axes (a stable sort that merges the sorted times of
+   each axis). Time O(P_play log P_play). For a sequence with
    few unique events, this step is the largest part of the first call.
 4. The result of the whole file: the first largest value of each array.
 
