@@ -2997,9 +2997,9 @@ sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
 of `pulseq_analysis.pns_levels` with a wrapper that counts its calls.
 `pns_levels` keeps one `PnsLevels` for each (sequence object, hardware, thresholds, `bin_s`),
-the hardware being a pair `(struct, label)` (its key is the label and the 27 values of
-the struct, so two pairs with the same label and values are one hardware, whatever their
-structs are or where they came from), so that a caller that needs
+the hardware being a pair `(struct, label)` (its key is the label and the 24 values of
+the struct without `stim_thresh`, so two pairs with the same label and values are one
+hardware, whatever their structs are or where they came from), so that a caller that needs
 the PNS of one sequence more than once runs the SAFE model once. `_kept.py` says when the
 kept results are made again (section 2.12). The thresholds of the key are the tuple of
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
@@ -3319,10 +3319,21 @@ that there was 1 call and that the second result `is` the first.
 the model; going back to an earlier pair does not run it again.
 
 **How:** The test counts the calls of `_compute_levels` as above and calls with the pairs a, a, b (the
-label "B"), c (`z.stim_thresh` plus 1), a, c, each with a new struct where the values are
+label "B"), c (`z.stim_limit` plus 1), a, c, each with a new struct where the values are
 the same. It checks the call count after each change: 1, 1, 2, 3, 3.
 
 **Assumptions:** None.
+
+#### `test_pns_levels_ignores_stim_thresh_in_the_hardware_key`
+
+**Checks:** Two `hardware` pairs with the same label that differ only in `stim_thresh`
+are one hardware.
+
+**How:** The test counts the calls of `_compute_levels` as above. It calls `pns_levels` with
+a pair and with a second pair where `z.stim_thresh` is 1 higher, both with the label "A". It
+checks that there was 1 call and that the second result `is` the first.
+
+**Assumptions:** The model does not use `stim_thresh`, and `PnsLevels.hw` does not keep it.
 
 #### `test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values`
 
