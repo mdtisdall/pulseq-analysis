@@ -1,12 +1,13 @@
 """Value equality for the frozen dataclasses of results that hold numpy arrays
-(`seq_index.SequenceIndex`, `grad_peaks.BlockGradientValues`, `pns_levels.PnsLevels`,
-`grad_spectrum.GradientSpectrum` and `series.Series`).
+(`seq_index.SequenceIndex`, `grad_peaks.GradientPeaks`, `grad_peaks.BlockGradientValues`,
+`pns_levels.PnsLevels`, `grad_spectrum.GradientSpectrum` and `series.Series`).
 
 The `__eq__` that `dataclasses` makes compares the fields as one tuple, and a numpy array
 with more than one element raises `ValueError` in that comparison. `fields_equal` compares
 each field with `values_equal` instead, and finds the fields with `dataclasses.fields`, so
-that a new or a renamed field needs no change here. A class that uses it sets
-`eq=False`, `__eq__ = fields_equal` and `__hash__ = None`, as `seq_index.SequenceIndex` does.
+that a new or a renamed field needs no change here. The decorator `value_dataclass` is the
+one place of the rule for the classes above: it makes the class a frozen dataclass with
+`eq=False`, sets `__eq__ = fields_equal` and sets `__hash__ = None`.
 
 The rules of `values_equal`:
 
@@ -24,7 +25,7 @@ The rules of `values_equal`:
 """
 
 import dataclasses
-from typing import Any, NoReturn
+from typing import Any, NoReturn, dataclass_transform
 
 import numpy as np
 
@@ -87,3 +88,15 @@ def _same_fields(a: Any, b: Any) -> bool:
     """Whether each field of the dataclass `a` equals the same field of `b`, a dataclass of
     the same class."""
     return all(values_equal(getattr(a, f.name), getattr(b, f.name)) for f in dataclasses.fields(a))
+
+
+@dataclass_transform(frozen_default=True, eq_default=False)
+def value_dataclass[T](cls: type[T]) -> type[T]:
+    """Class decorator for a result with value equality: a frozen dataclass with `eq=False`,
+    `__eq__ = fields_equal` and `__hash__ = None`. `__hash__` is set because a class with
+    `eq=False` would keep the identity hash of `object`, and a value that is equal to
+    another must not have a hash that depends on its identity."""
+    cls = dataclasses.dataclass(frozen=True, eq=False)(cls)
+    cls.__eq__ = fields_equal  # type: ignore[method-assign]
+    cls.__hash__ = None  # type: ignore[assignment]
+    return cls

@@ -8,7 +8,7 @@ import pickle
 import numpy as np
 import pytest
 
-from pulseq_analysis._equality import FrozenDict, fields_equal, values_equal
+from pulseq_analysis._equality import FrozenDict, fields_equal, value_dataclass, values_equal
 
 
 @dataclasses.dataclass(frozen=True)
@@ -24,6 +24,18 @@ class _Holder:
 
     __eq__ = fields_equal
     __hash__ = None  # type: ignore[assignment]
+
+
+@value_dataclass
+class _Value:
+    a: np.ndarray
+    d: dict
+
+
+@value_dataclass
+class _OtherValue:
+    a: np.ndarray
+    d: dict
 
 
 def _read_only(a: np.ndarray) -> np.ndarray:
@@ -97,6 +109,20 @@ def test_fields_equal_as_the_eq_of_a_dataclass():
     assert a != _Holder(np.array([1.0, 2.0]), {"k": (2.0,)})
     assert a != "a"
     assert fields_equal(a, "a") is NotImplemented
+    with pytest.raises(TypeError):
+        hash(a)
+
+
+def test_value_dataclass_makes_a_frozen_class_with_value_equality():
+    """A class with `@value_dataclass` is frozen, compares its fields by value, is not equal
+    to an object of another class with the same fields, and is not hashable."""
+    a = _Value(np.array([1.0, np.nan]), {"x": 1.0, "y": 2.0})
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        a.d = {}  # type: ignore[misc]
+    assert a == _Value(np.array([1.0, np.nan]), {"x": 1.0, "y": 2.0})
+    assert a != _Value(np.array([1.0, 2.0]), {"x": 1.0, "y": 2.0})
+    assert a != _Value(np.array([1.0, np.nan]), {"y": 2.0, "x": 1.0})
+    assert a != _OtherValue(np.array([1.0, np.nan]), {"x": 1.0, "y": 2.0})
     with pytest.raises(TypeError):
         hash(a)
 

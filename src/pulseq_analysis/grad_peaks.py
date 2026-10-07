@@ -91,7 +91,7 @@ from typing import NamedTuple
 import numpy as np
 import pypulseq as pp
 
-from ._equality import FrozenDict, fields_equal
+from ._equality import FrozenDict, value_dataclass
 from ._events import EventPoints, event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
@@ -128,7 +128,7 @@ class AxisResult:
     rms_hz_per_m: float
 
 
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class GradientPeaks:
     """The result of `gradient_peaks`.
 
@@ -160,11 +160,8 @@ class GradientPeaks:
     vector_peak_time_s: float
     vector_peak_block: int | None
 
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
-
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class BlockGradientValues:
     """The gradient values of each block of a sequence, from `block_gradient_values`.
 
@@ -215,9 +212,6 @@ class BlockGradientValues:
     junction_hz_per_m_per_s: dict[str, np.ndarray]
     vector_peak_hz_per_m: np.ndarray
     vector_peak_time_s: np.ndarray
-
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
 
 class _PolylineValues(NamedTuple):

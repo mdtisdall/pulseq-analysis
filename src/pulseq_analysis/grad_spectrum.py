@@ -50,13 +50,12 @@ three axes. This includes the RSS spectrum.
 """
 
 import weakref
-from dataclasses import dataclass
 
 import numpy as np
 import pypulseq as pp
 from scipy.signal import get_window
 
-from ._equality import FrozenDict, fields_equal
+from ._equality import FrozenDict, value_dataclass
 from ._events import event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
@@ -71,7 +70,7 @@ FREQUENCY_OVERSAMPLING = 3.0
 CHUNK_WINDOWS = 256  # windows in each chunk of samples
 
 
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class GradientSpectrum:
     """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, and `axes` is
     a read-only `_equality.FrozenDict` (a subclass of `dict`), so that the callers of
@@ -91,9 +90,6 @@ class GradientSpectrum:
     max_frequency_hz: float
     window_s: float
     frequency_oversampling: float
-
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
 
 def _read_only(spectrum: GradientSpectrum) -> GradientSpectrum:

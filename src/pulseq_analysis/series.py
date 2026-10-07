@@ -33,13 +33,13 @@ import gzip
 import math
 import zlib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from typing import Any
 
 import numpy as np
 
-from ._equality import FrozenDict, fields_equal
+from ._equality import FrozenDict, value_dataclass
 from ._validate import real
 
 # The strings that stand for a float that is not finite in the JSON form.
@@ -136,7 +136,7 @@ def _plain_meta(meta: Any) -> dict[str, str | int | float | bool | None]:
     return out
 
 
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class Series:
     """One named series of an analysis value.
 
@@ -334,9 +334,6 @@ class Series:
                 f"coord_end of an envelope series with {n} bins must not be above "
                 f"coord_start + n * coord_step = {high!r}, not {coord_end!r}"
             )
-
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
     def to_obj(self) -> dict[str, Any]:
         """A dict of JSON values, with the keys `name`, `kind`, `unit`, `coord_unit`,

@@ -53,7 +53,7 @@ import pypulseq as pp
 # pypulseq adds no public name. This is the only module that imports it.
 from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 
-from ._equality import FrozenDict, fields_equal
+from ._equality import FrozenDict, value_dataclass
 from ._events import event_points
 from ._kept import _Entry, kept_results
 from ._validate import real
@@ -113,7 +113,7 @@ class PnsInterval:
     num_samples: int  # the number of samples of the interval
 
 
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class PnsLevels:
     """The result of `pns_levels` for one sequence and one hardware.
 
@@ -166,9 +166,6 @@ class PnsLevels:
     # total >= that threshold, in time order; the tuple of a threshold is not empty if and
     # only if `peak_hz_per_t >=` that threshold, and then the largest
     # `PnsInterval.peak_hz_per_t` equals `peak_hz_per_t`
-
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
 
 def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:

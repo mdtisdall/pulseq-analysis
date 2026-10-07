@@ -21,13 +21,12 @@ first block that uses it. Only they call `get_block`, with the block cache off
 import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
 import pypulseq as pp
 
-from ._equality import fields_equal
+from ._equality import value_dataclass
 from ._kept import _Entry, kept_results
 from .extensions import refuse_unsigned
 from .seq_utils import GRAD_COLUMNS
@@ -36,7 +35,7 @@ from .seq_utils import GRAD_COLUMNS
 _RF, _GX, _GY, _GZ, _ADC = 1, 2, 3, 4, 5
 
 
-@dataclass(frozen=True, eq=False)
+@value_dataclass
 class SequenceIndex:
     """The blocks of one sequence in play order. N is `num_blocks`.
 
@@ -66,9 +65,6 @@ class SequenceIndex:
     grad_first: np.ndarray  # int64, K_grad: the same for gradient event k + 1
     grad_first_axis: np.ndarray  # uint8, K_grad: 0, 1 or 2 for gx, gy or gz in that block
     adc_first: np.ndarray  # int64, K_adc
-
-    __eq__ = fields_equal
-    __hash__ = None  # type: ignore[assignment]
 
 
 # The `reason` values of the results: the sequence has no gradient event, or no gradient
