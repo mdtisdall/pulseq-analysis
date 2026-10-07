@@ -288,7 +288,7 @@ def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
     calls = _count_pns_levels_calls(monkeypatch)
     seq = spin_echo_sequence()
     other_value = safe_example_hw()
-    other_value.z.stim_thresh += 1.0
+    other_value.z.stim_limit += 1.0
 
     pns_levels(seq, hardware=(safe_example_hw(), "A"))
     pns_levels(seq, hardware=(safe_example_hw(), "A"))
@@ -300,6 +300,20 @@ def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
     pns_levels(seq, hardware=(safe_example_hw(), "A"))
     pns_levels(seq, hardware=(other_value, "A"))
     assert len(calls) == 3
+
+
+def test_pns_levels_ignores_stim_thresh_in_the_hardware_key(monkeypatch):
+    """Two `hardware` pairs with the same label that differ only in `z.stim_thresh` are one
+    hardware: the second call runs no model and gives the kept result."""
+    calls = _count_pns_levels_calls(monkeypatch)
+    seq = spin_echo_sequence()
+    other_thresh = safe_example_hw()
+    other_thresh.z.stim_thresh += 1.0
+
+    first = pns_levels(seq, hardware=(safe_example_hw(), "A"))
+    second = pns_levels(seq, hardware=(other_thresh, "A"))
+    assert len(calls) == 1
+    assert second is first
 
 
 def test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values(

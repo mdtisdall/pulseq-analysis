@@ -74,10 +74,10 @@ CHUNK_SAMPLES = 30_000
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
 # The nine fields of each axis of a SAFE hardware struct, in the order of `safe_example_hw`
-# and `asc_to_hw`. `_hardware_key` keys the kept results on them too.
+# and `asc_to_hw`.
 SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
 # The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
-# `_safe_gwf_to_pns_chunk` does not use).
+# `_safe_gwf_to_pns_chunk` does not use). `_hardware_key` keys the kept results on them.
 _HW_FIELDS = tuple(f for f in SAFE_FIELDS if f != "stim_thresh")
 # The largest distance of `a1 + a2 + a3` from 1 for an axis (the rule of pypulseq's
 # `safe_hw_check`).
@@ -332,7 +332,8 @@ def pns_levels(
     `float` are one key, and another `bin_s` is another result, also when it gives the same
     `bin_samples`. The same thresholds in another order, or other thresholds, are another
     result (the order of the keys of `PnsLevels.above`). Two `hardware` pairs with the same
-    label and the same field values are one hardware (`_hardware_key`), so the pairs that
+    label and the same field values are one hardware (`_hardware_key`; `stim_thresh` is not
+    one of the values, as the model does not use it), so the pairs that
     `asc.hardware_from_asc` makes from one file, whatever the spelling of its path, give one
     result. The kept results are built again after `add_block`, after a new read of a file
     into the object, and after a change of `seq.grad_raster_time` (the rule of `_kept`). A
@@ -355,13 +356,13 @@ def pns_levels(
 
 
 def _hardware_key(hardware: _Hardware) -> tuple:
-    """The key of a `hardware` pair: its label and the 27 values of its struct as floats
-    (`SAFE_FIELDS` of `x`, `y` and `z`, in this order). Two pairs with the same label and
-    the same values have one key, whatever their structs are. `_check_hardware` has found
-    each field before this reads it."""
+    """The key of a `hardware` pair: its label and the 24 values of its struct as floats
+    (`_HW_FIELDS` of `x`, `y` and `z`, in this order; not `stim_thresh`, which the model
+    does not use). Two pairs with the same label and the same values have one key, whatever
+    their structs are. `_check_hardware` has found each field before this reads it."""
     struct, label = hardware
     values = tuple(
-        float(getattr(getattr(struct, axis), field)) for axis in "xyz" for field in SAFE_FIELDS
+        float(getattr(getattr(struct, axis), field)) for axis in "xyz" for field in _HW_FIELDS
     )
     return ("hardware", label, values)
 

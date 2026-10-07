@@ -489,7 +489,13 @@ def registry() -> dict[str, Analysis]:
     `spec.id`."""
     found: dict[str, tuple[Analysis, str]] = {}
     for ep in importlib.metadata.entry_points(group=GROUP):
-        analysis = _load(ep, GROUP)
+        try:
+            analysis = ep.load()
+        except Exception as e:
+            raise RegistryError(
+                f"cannot load the entry point {ep.name!r} of the group {GROUP!r} from the "
+                f"package {_package(ep)!r}: {type(e).__name__}: {e}"
+            ) from e
         try:
             analysis_id = analysis.spec.id
         except AttributeError as e:
@@ -502,7 +508,13 @@ def registry() -> dict[str, Analysis]:
                 f"the name of the analysis entry point {ep.name!r} of the package "
                 f"{_package(ep)!r} is not the `spec.id` of its object, {analysis_id!r}"
             )
-        _add(found, analysis_id, analysis, ep, f"the analysis ID {analysis_id!r}")
+        package = _package(ep)
+        if analysis_id in found:
+            raise RegistryError(
+                f"the packages {found[analysis_id][1]!r} and {package!r} both give "
+                f"the analysis ID {analysis_id!r}"
+            )
+        found[analysis_id] = (analysis, package)
     return {analysis_id: analysis for analysis_id, (analysis, _) in found.items()}
 
 
@@ -510,24 +522,3 @@ def _package(ep: Any) -> str:
     """The name of the distribution of the entry point `ep`, when it is known."""
     dist = getattr(ep, "dist", None)
     return dist.name if dist is not None else "an unknown package"
-
-
-def _load(ep: Any, group: str) -> Any:
-    """The object of the entry point `ep`. A failure is a `RegistryError` that names the
-    entry point and its package."""
-    try:
-        return ep.load()
-    except Exception as e:
-        raise RegistryError(
-            f"cannot load the entry point {ep.name!r} of the group {group!r} from the package "
-            f"{_package(ep)!r}: {type(e).__name__}: {e}"
-        ) from e
-
-
-def _add(found: dict[str, tuple[Any, str]], key: str, obj: Any, ep: Any, what: str) -> None:
-    """Add `obj` with the package of `ep` to `found`. A key that is in `found` is a
-    `RegistryError` that names both packages."""
-    package = _package(ep)
-    if key in found:
-        raise RegistryError(f"the packages {found[key][1]!r} and {package!r} both give {what}")
-    found[key] = (obj, package)
