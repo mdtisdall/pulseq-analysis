@@ -22,6 +22,12 @@ gamma, in the units of pypulseq.
 
 ## Install
 
+The documents (`docs/usage.md` and `docs/implementation.md`) describe `main`.
+The tag `v0.1.0rc5` of the install line below has an older interface: for
+example, it has no `gradient_peaks`, `hardware_from_asc` or `gradient_sampler`,
+and `pns_levels` has no `bin_s` argument. The next release replaces this note
+and the tag.
+
 With uv, from the git URL:
 
 ```

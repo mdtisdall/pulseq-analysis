@@ -59,8 +59,10 @@ event) and the RMS integral of the piece of the block, with their times, and the
 piece of a block is its event, the ramps of its event, the line into it and the step after the
 last point of the axis. A window of `gradient_peaks` is then an `argmax` over the columns of the
 blocks whose time range is whole in the window and a sum of their RMS integrals, plus the edge
-blocks: the blocks that a window edge cuts, and a block within `dt / 2` of an edge (a ramp is
-`dt / 2` outside the block of its event). It reads no block with `get_block` for a window, and
+blocks: the blocks whose time range a window edge crosses. The time range of a block holds its
+pieces: the line into it starts at the last point of the earlier event, up to `dt +
+TIME_TOLERANCE` before the event, and can cross blocks shorter than `dt`, and a ramp to 0 ends
+`dt / 2` after the event. It reads no block with `get_block` for a window, and
 its cost is the number of blocks of the window, not the number of unique events or the number
 of blocks of the file. An edge block is made from the exact polylines of the axes near it
 (`_exact_edge_blocks`, from the points of `_events.event_points`). The vector peak of each block
@@ -132,9 +134,11 @@ class AxisResult:
 class GradientPeaks:
     """The result of `gradient_peaks`.
 
-    `reason` is None when the range has at least one gradient event on some axis. Otherwise
-    it is `seq_index.NO_GRADIENTS` (`window` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW`
-    (`window` was given), and every numeric field is its zero value. The
+    `reason` is None when the range has a part of a gradient event, or a ramp, a line or a step
+    with a value that is not 0 (`docs/implementation.md` section 2.1). A window that has only
+    a ramp, a line or a step also gives None. Otherwise it is `seq_index.NO_GRADIENTS`
+    (`window` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW` (`window` was given), and every
+    numeric field is its zero value. The
     zero value is 0.0 for an amplitude, slew or RMS field, and 0.0 for a time field; every
     block field (`AxisResult.peak_block`, `AxisResult.slew_block`, `vector_peak_block`) is
     None. `range_s` still holds the range that was used.
@@ -334,7 +338,7 @@ def _axis_events(col: np.ndarray, points: EventPoints, start_s: np.ndarray) -> _
 @dataclass
 class _AxisColumns:
     """The values of each block on one axis (N entries, one for each block). The columns that
-    `block_gradient_values` gives are the first six. A block with no event on the axis has 0 in
+    `block_gradient_values` gives are the first five (`junction_time` is not one of them). A block with no event on the axis has 0 in
     the values, its start in the times, and an empty piece (`piece_start` is `inf` and
     `piece_end` is `-inf`)."""
 
@@ -496,10 +500,12 @@ _EMPTY_POLYLINE = _Polyline(
 def _build_polyline(
     ae: _AxisEvents, e0: int, e1: int, points: EventPoints, start_s: np.ndarray, dt: float
 ) -> _Polyline:
-    """The `_Polyline` of the events `e0` to `e1` (exclusive) of `ae`. The run is closed: the
-    event before `e0` and the event after `e1 - 1` are in it, when they exist, unless the run
-    starts at the first event or ends at the last event of the axis. The first point of the axis
-    that is not 0 has a step, and so has the last point of the axis."""
+    """The `_Polyline` of the events `e0` to `e1` (exclusive) of `ae`, with the ramp points of
+    the long gaps between them and the steps across their zero gaps. This function adds no
+    event: the caller gives the run, with the event before it and the event after it when it
+    needs them, so that each gap of the run is known. It adds the step from 0 at the first
+    point of the first event only when `e0 == 0`, and the step to 0 at the last point of the
+    last event only when `e1 == ae.pos.size`, each only when that value is not 0."""
     if e1 <= e0:
         return _EMPTY_POLYLINE
     pos, k = ae.pos[e0:e1], ae.k[e0:e1]
@@ -996,9 +1002,10 @@ def _range_result(
     of the peak is the first `argmax` of its column over the run, the credited block of the slew
     is the first of the `argmax` of the junction column and the slew column (the junction is
     first in a block), and the RMS integral is the sum of `blocks.rms_integral` over the run. The
-    other blocks of `[a, b)` are the edge blocks, at most a few for each edge (a ramp is `dt / 2`
-    outside the block of its event). They are made from the exact polylines of the events near
-    them (`_exact_edge_blocks`, from the points of `_events.event_points`). No block is read with
+    other blocks of `[a, b)` are the edge blocks: the blocks whose time range an edge crosses
+    (the line into a block starts up to `dt + TIME_TOLERANCE` before its event, and a ramp ends
+    `dt / 2` after it, so an edge has no fixed number of them). They are made from the exact
+    polylines of the events near them (`_exact_edge_blocks`, from the points of `_events.event_points`). No block is read with
     `get_block`.
 
     The run is computed before the edge blocks, so each candidate for a credit (an edge block)
@@ -1109,10 +1116,11 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
     section 9).
 
-    This checks `window` first (its form, its numbers and their order), before it reads the
-    sequence. Then it builds `seq_index.sequence_index(seq)`, returns the kept result for
-    `window=None` when there is one, and checks the window against the length of the
-    sequence. Only then does it take the per-event values (`_event_values` of the points of
+    This calls `extensions.refuse_rotations` first. Then it checks `window` (its form, its
+    numbers and their order), before it reads the sequence. Then it builds
+    `seq_index.sequence_index(seq)` (which refuses a sequence with no `[SIGNATURE]` hash, also
+    when the result is kept), returns the kept result for `window=None` when there is one,
+    and checks the window against the length of the sequence. Only then does it take the per-event values (`_event_values` of the points of
     `_events.event_points`) and the values of each block (`_BlockData`), both built one time for
     each sequence, and combine them with numpy over the blocks of the range: an `argmax` and a
     sum of the RMS integrals over the blocks that lie whole in the range, and the points of

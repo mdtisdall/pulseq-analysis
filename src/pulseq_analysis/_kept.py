@@ -15,7 +15,11 @@ The stamp of a sequence has these parts:
 - `seq.grad_raster_time`, which the measurements read.
 
 A different stamp empties the kept results of that object. A change that keeps the
-whole stamp (a block replaced in place, with the same ID) is not seen.
+whole stamp is not seen: a call of pypulseq that changes the sequence in place, `mod_grad_axis`
+and `flip_grad_axis` (they rewrite the entries of `grad_library`), `set_block` on a block ID
+that exists, `apply_soft_delay` (it writes the values of `block_durations`), and a direct write
+into `block_events`, `block_durations` or a library. A caller makes a new sequence object after
+such a change.
 
 The stamp holds a reference to the three objects, not to the sequence, so the
 `WeakKeyDictionary` still lets the sequence go. Each of these modules has its own

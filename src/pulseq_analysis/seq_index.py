@@ -93,8 +93,11 @@ def sequence_index(seq: pp.Sequence) -> SequenceIndex:
     sequence build it one time. It is built again after `add_block`, after a new read of
     a file into the object, and after a change of `seq.grad_raster_time` (the rule of
     `_kept`). A change that keeps the number of blocks and the last block id and does not
-    replace `seq.block_events`, `seq.block_durations` or `seq.grad_library` (a block
-    replaced in place) is not seen: build a new sequence object for it.
+    replace `seq.block_events`, `seq.block_durations` or `seq.grad_library` is not seen:
+    `mod_grad_axis` and `flip_grad_axis` (they rewrite the entries of `seq.grad_library`),
+    `set_block` on a block id that exists, `apply_soft_delay` (it writes the values of
+    `seq.block_durations`), and a direct write into `seq.block_events`, `seq.block_durations`
+    or a library. Build a new sequence object for it.
     """
     refuse_unsigned(seq)
     kept = kept_results(_CACHE, seq)

@@ -78,7 +78,9 @@ class GradientSampler:
     The points of the unique gradient events come from `_events.event_points`, which reads
     each event one time. The sampler does not copy them. The gaps between the events of an
     axis (the module docstring) are found one time for each sequence and axis, from the
-    index and the points, and kept (`_GAPS`). Apart from that one time, a call to `sample`
+    index and the points, and kept (`_GAPS`). Only the sampler uses them: `gradient_peaks`
+    finds its gaps itself. A new sampler also scans all the blocks one time for each axis,
+    in its first `sample` on that axis (`_event_blocks`). Apart from these, a call to `sample`
     costs O(samples + blocks between the first and the last sample), not O(all blocks).
 
     `gradient_sampler(seq)` makes a sampler of a sequence.

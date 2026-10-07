@@ -1,4 +1,4 @@
-"""Guards that the measurements of this package call first.
+"""Guards that the measurements of this package call.
 
 `refuse_rotations` refuses a Pulseq extension that the measurements do not support, and
 `refuse_unsigned` refuses a sequence that has no `[SIGNATURE]` hash.
@@ -16,7 +16,10 @@ def refuse_rotations(seq: pp.Sequence) -> None:
     `grad_peaks.block_gradient_values`, `pns_levels.pns_levels` and
     `grad_spectrum.gradient_spectrum`) use the logical gradient events as they are stored. With a
     rotation in a block, the gradients on the scanner are different, so these
-    measurements would be wrong without a warning. They call this function first.
+    measurements would be wrong without a warning. `gradient_peaks`, `block_gradient_values`
+    and `gradient_spectrum` call this function before they check their arguments, and so does
+    `sampling.gradient_sampler`. `pns_levels` checks its arguments first and calls it only
+    when it builds a result: a kept result skips it.
 
     The check reads no block, so its cost does not grow with the number of blocks. It
     finds a rotation in two ways:
@@ -46,10 +49,13 @@ def refuse_unsigned(seq: pp.Sequence) -> None:
 
     A `.seq` file must have a `[SIGNATURE]` section with a hash. pypulseq's `read` keeps it
     in `seq.signature_value`, and its `write` sets it, so the value is `''` for a sequence
-    that only `add_block` has built. `sequence_index` calls this function first, so each
-    measurement (`grad_peaks.gradient_peaks`, `grad_peaks.block_gradient_values`,
+    that only `add_block` has built. `seq_index.sequence_index` calls this function first, so
+    each measurement (`grad_peaks.gradient_peaks`, `grad_peaks.block_gradient_values`,
     `pns_levels.pns_levels` and `grad_spectrum.gradient_spectrum`) refuses an unsigned
-    sequence. A sequence built in memory gets its hash from `seq.write(path)`.
+    sequence through it, after the checks of its arguments. `pns_levels` and
+    `gradient_spectrum` call `sequence_index` only when they build a result, so a result that
+    they have kept for the sequence object skips this check. A sequence built in memory gets
+    its hash from `seq.write(path)`.
 
     The check is for the presence of a hash only: `seq.signature_value` must be a `str`
     that is not `''`. The package does not compute the hash again, and pypulseq's `read`
