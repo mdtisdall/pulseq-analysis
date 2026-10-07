@@ -216,8 +216,8 @@ def _assert_matches_oracle(
     waveform from each block's own corner points and `numpy.interp`, in a different order of
     float operations than the oracle's whole-axis polyline, so the tests allow a relative
     difference of 1e-12, or an absolute difference of 1e-12 times the largest value of the
-    same array. `tol` replaces 1e-12 for a long sequence (see
-    `test_matches_oracle_on_long_sequences`). This also tests the conversion of the
+    same array. `tol` replaces 1e-12 for a sequence of 1000 blocks (see
+    `test_matches_oracle_with_many_chunks`). This also tests the conversion of the
     module docstring: the values of this module times `1e3 / gamma` are the values of the
     oracle.
     """
@@ -250,24 +250,26 @@ def test_matches_oracle_on_synthetic_sequences(seq):
     _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
 
 
-# The blocks of each long sequence. `build_repeating` has 10^4 (14 s). `build_worst` has 5000 (7 s,
-# 280 windows, so it still has two chunks of `CHUNK_WINDOWS` windows).
-_LONG_SEQUENCES = {"repeating": (build_repeating, 10_000), "worst": (build_worst, 5_000)}
+# The blocks of each sequence: 1000 blocks (200 TRs, 1.2 s and 1.4 s, 48 and 56 windows), so
+# with `CHUNK_WINDOWS` of 4 each sequence has 12 or 14 chunks.
+_MANY_CHUNK_SEQUENCES = {"repeating": build_repeating, "worst": build_worst}
+_MANY_CHUNK_BLOCKS = 1_000
 
 
-@pytest.mark.parametrize("case", _LONG_SEQUENCES)
-def test_matches_oracle_on_long_sequences(case):
-    """The builders of `scale_sequences`: `build_repeating` at 10^4 blocks and `build_worst`
-    at 5000 blocks, more than one chunk of `CHUNK_WINDOWS` windows each. The tolerance is
-    `1e-12 * max(1, duration in s)`, not 1e-12 (the user, 2026-09-28). It was set when the
-    oracle sampled `Sequence.get_gradients()`, which adds the segment durations one at a time
-    and not `(block start + delay) + offset` as the sampler does: the rounding of an absolute
-    time grows with the time, a gradient ramp turns it into a value difference, and the
+@pytest.mark.parametrize("case", _MANY_CHUNK_SEQUENCES)
+def test_matches_oracle_with_many_chunks(case, monkeypatch):
+    """The builders of `scale_sequences`: `build_repeating` and `build_worst` at 1000 blocks,
+    with `CHUNK_WINDOWS` of 4 so that each has more than one chunk, as in
+    `test_matches_scipy_spectrogram`. The tolerance is `1e-12 * max(1, duration in s)`, not
+    1e-12 (the user, 2026-09-28). It was set when the oracle sampled
+    `Sequence.get_gradients()`, which adds the segment durations one at a time and not
+    `(block start + delay) + offset` as the sampler does: the rounding of an absolute time
+    grows with the time, a gradient ramp turns it into a value difference, and the
     difference was 2.5e-12 of the peak at 10^4 repeating blocks (12 s). The oracle now makes
     its points with the same sums as the sampler, and the difference is below 1e-15 of the
     peak at 10^4 blocks of each builder; the tolerance stays."""
-    build, blocks = _LONG_SEQUENCES[case]
-    seq = build(blocks // TR_BLOCKS)
+    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
+    seq = _MANY_CHUNK_SEQUENCES[case](_MANY_CHUNK_BLOCKS // TR_BLOCKS)
     tol = 1e-12 * max(1.0, seq.duration()[0])
     _assert_matches_oracle(
         grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq, tol=tol

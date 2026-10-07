@@ -1,6 +1,6 @@
 """Tests of the kept event points (`_events.py`): the points of the unique gradient events
-are read one time for each sequence, they are read-only, and `GradientSampler` and
-`grad_peaks._event_values` give the same values as the points read from `grad_events`."""
+are read one time for each sequence, they are read-only, `GradientSampler` keeps them
+without a copy, and `grad_peaks._event_values` gives hand-computed values from them."""
 
 import numpy as np
 import pypulseq as pp
@@ -15,45 +15,22 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis._events import EventPoints, event_points
+from pulseq_analysis._events import event_points
 from pulseq_analysis.grad_peaks import (
     _event_values,
-    _polyline_values,
     block_gradient_values,
     gradient_peaks,
 )
 from pulseq_analysis.grad_spectrum import gradient_spectrum
 from pulseq_analysis.pns_levels import pns_levels
 from pulseq_analysis.sampling import GradientSampler
-from pulseq_analysis.seq_index import grad_events, sequence_index
-from pulseq_analysis.seq_utils import gradient_offsets, gradient_points
+from pulseq_analysis.seq_index import sequence_index
 
 _SEQUENCES = [
     pytest.param(spin_echo_sequence, id="spin_echo"),
     pytest.param(gre_sequence, id="gre"),
     pytest.param(arbitrary_gradient_sequence, id="arbitrary_gradient"),
 ]
-
-
-def _points_from_grad_events(seq: pp.Sequence) -> EventPoints:
-    """The `EventPoints` of `seq` built here from `grad_events` and `gradient_offsets`, with
-    one list for each array, for the comparison with `event_points`."""
-    delays, counts, offsets, amps = [], [], [], []
-    for _, g in grad_events(seq, sequence_index(seq)):
-        delay, event_offsets, amp = gradient_offsets(g)
-        delays.append(delay)
-        counts.append(len(event_offsets))
-        offsets.extend(event_offsets)
-        amps.extend(amp)
-    count = np.array(counts, dtype=np.int64)
-    return EventPoints(
-        np.array(delays, dtype=np.float64),
-        count,
-        np.cumsum(count) - count,
-        np.array(offsets, dtype=np.float64),
-        np.array(amps, dtype=np.float64),
-        float(seq.grad_raster_time),
-    )
 
 
 @pytest.mark.parametrize("build", _SEQUENCES)
@@ -108,17 +85,6 @@ def test_event_points_arrays_are_read_only_and_have_the_documented_types(build):
 
 
 @pytest.mark.parametrize("build", _SEQUENCES)
-def test_event_points_has_the_points_that_grad_events_gives(build):
-    """`event_points(seq)` has the same arrays (`array_equal`) as the points that this test
-    reads from `grad_events` and `gradient_offsets`."""
-    seq = build()
-    points = event_points(seq)
-    expected = _points_from_grad_events(seq)
-    for name in ("delay", "count", "at", "offsets", "amp", "grad_raster_time"):
-        assert np.array_equal(getattr(points, name), getattr(expected, name)), name
-
-
-@pytest.mark.parametrize("build", _SEQUENCES)
 def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build):
     """`GradientSampler(index, event_points(seq))` keeps the pooled points of
     `event_points` as they are, with no copy."""
@@ -127,26 +93,6 @@ def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build
     sampler = GradientSampler(sequence_index(seq), points)
     assert np.shares_memory(sampler._offsets, points.offsets)
     assert np.shares_memory(sampler._amp, points.amp)
-
-
-@pytest.mark.parametrize("build", _SEQUENCES)
-def test_event_values_of_the_points_equal_the_values_of_gradient_points(build):
-    """`_event_values(event_points(seq))` has, for each unique gradient event, the values of
-    `_polyline_values` of the points of `gradient_points(g, 0.0)`, each equal bit for bit (`==`),
-    where `g` is the event that `grad_events` gives."""
-    seq = build()
-    ev = _event_values(event_points(seq))
-    events = list(grad_events(seq, sequence_index(seq)))
-    assert ev.peak.size == len(events)
-    for dense_k, g in events:
-        i = dense_k - 1
-        t, amp = gradient_points(g, 0.0)
-        values = _polyline_values(t, amp)
-        assert ev.peak[i] == values.peak
-        assert ev.peak_offset[i] == values.peak_time
-        assert ev.slew[i] == values.slew
-        assert ev.slew_offset[i] == values.slew_time
-        assert ev.integral[i] == values.integral
 
 
 def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_computed_values():

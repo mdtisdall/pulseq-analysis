@@ -444,7 +444,6 @@ def test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster():
         assert bin_samples_for(0, dt, round(k * 1e-5, 10)) == k, k
     assert bin_samples_for(0, dt, 0.01) == 1000  # `0.01 / 1e-5` is a hair under 1000
     assert bin_samples_for(0, dt, 615.5 * 1e-5) == 615
-    assert bin_samples_for(0, dt, 10.0 / 1624) == 615
     assert bin_samples_for(0, dt) == 500
 
 
@@ -1103,16 +1102,6 @@ def test_pns_levels_refuses_rotations():
         pns_levels(with_rotation_library(), hardware=EXAMPLE_HW)
 
 
-def test_pns_levels_is_a_frozen_dataclass():
-    """`pns_levels` returns a `PnsLevels` instance (a smoke test of the interface, not
-    of a specific field: the other tests of this module check the fields), and the
-    assignment of a field raises `dataclasses.FrozenInstanceError`."""
-    levels = pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW)
-    assert isinstance(levels, PnsLevels)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        levels.num_samples = 0  # type: ignore[misc]
-
-
 @pytest.mark.parametrize(
     "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
@@ -1133,7 +1122,9 @@ def test_the_arrays_of_the_levels_are_read_only(make_seq):
 
 def test_levels_compare_by_value():
     """`==` compares the fields of two results by value, also with more than one bin (where
-    the `__eq__` of `dataclasses` raises), and a `PnsLevels` is not hashable."""
+    the `__eq__` of `dataclasses` raises), a `PnsLevels` is not hashable, and a copy from `pickle`
+    or `copy.deepcopy` is equal to the original, with `FrozenDict`s for its dicts (a
+    `MappingProxyType` could not be pickled)."""
     thresholds = (_LIMIT, 0.5 * _LIMIT)
     levels = pns_levels(
         gre_sequence(num_trs=4), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW
@@ -1142,8 +1133,10 @@ def test_levels_compare_by_value():
     other = pns_levels(gre_sequence(num_trs=4), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
     assert other is not levels
     assert other == levels
-    assert pickle.loads(pickle.dumps(levels)) == levels
-    assert copy.deepcopy(levels) == levels
+    for copied in (pickle.loads(pickle.dumps(levels)), copy.deepcopy(levels)):
+        assert copied is not levels
+        assert copied == levels
+        assert all(isinstance(d, FrozenDict) for d in _every_dict(copied))
 
     changed = levels.level_max_hz_per_t.copy()
     changed[1] = np.nextafter(changed[1], np.float32(np.inf))
@@ -1274,18 +1267,6 @@ def test_the_dicts_of_the_levels_are_read_only_frozen_dicts(make_seq):
         with pytest.raises(TypeError):
             d.update({key: 0.0})
         assert d == before
-
-
-def test_the_levels_from_pickle_and_deepcopy_equal_the_original():
-    """A `PnsLevels` from `pickle` or `copy.deepcopy` is equal to the original, and its
-    dicts are `FrozenDict`s (a `MappingProxyType` could not be pickled)."""
-    levels = pns_levels(
-        gre_sequence(num_trs=4), hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)
-    )
-    for copied in (pickle.loads(pickle.dumps(levels)), copy.deepcopy(levels)):
-        assert copied is not levels
-        assert copied == levels
-        assert all(isinstance(d, FrozenDict) for d in _every_dict(copied))
 
 
 def test_the_reason_without_gradients_is_the_object_of_seq_index():

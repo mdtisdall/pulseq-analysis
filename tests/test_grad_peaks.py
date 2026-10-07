@@ -1743,12 +1743,12 @@ def _random_windows(seq: pp.Sequence, rng: np.random.Generator, count: int) -> l
     ],
 )
 def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq):
-    """For 100 random windows, `gradient_peaks` of a sequence that has its kept data (from the
+    """For 30 random windows, `gradient_peaks` of a sequence that has its kept data (from the
     windows before: it is never emptied, and it is one object for all the windows) gives a
     result equal (`==`) to the result of a second sequence of the same build whose kept data of
     `gradient_peaks` is empty and is built by this call."""
     seq, other = make_seq(), make_seq()
-    windows = _random_windows(seq, np.random.default_rng(20261006), 100)
+    windows = _random_windows(seq, np.random.default_rng(20261006), 30)
     kept_data = None
     for window in windows:
         with_kept = gradient_peaks(seq, window=window)

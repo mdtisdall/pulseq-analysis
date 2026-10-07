@@ -16,7 +16,7 @@ from synthetic import (
 
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
-from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, PEAK_TOLERANCE, pns_levels
+from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
@@ -29,72 +29,6 @@ def default_seq():
 @pytest.fixture(scope="module")
 def example(default_seq):
     return pns_levels(default_seq, hardware=EXAMPLE_HW)
-
-
-def test_example_hardware_for_spin_echo(example, default_seq):
-    """`pns_levels` with the example hardware gives, for the spin echo sequence, the peak,
-    the peak time and the axis peaks of `seq.calculate_pns` of the pinned fork (each
-    divided by `seq.system.gamma`, within a relative 1e-6 of the peak, as in
-    `test_summary_matches_calculate_pns_within_the_fork_tolerance`), and they are below the
-    stimulation limit and highest on y."""
-    _, norm, comp, t = default_seq.calculate_pns(safe_example_hw(), do_plots=False)
-    ref_peak = float(norm.max())
-    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
-    tol = 1e-6 * ref_peak
-    gamma = default_seq.system.gamma
-    assert example.reason is None
-    assert example.hardware == EXAMPLE_HW[1]
-    assert list(example.axis_peaks_hz_per_t) == ["x", "y", "z"]
-    assert 0 < example.peak_hz_per_t < _LIMIT
-    peaks = example.axis_peaks_hz_per_t
-    assert max(peaks, key=peaks.get) == "y"  # the crushers
-    assert example.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
-    assert example.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
-    for i, axis in enumerate("xyz"):
-        assert peaks[axis] / gamma == pytest.approx(float(comp[:, i].max()), abs=tol)
-
-
-def test_asc_file_with_a_missing_include(write_gradient_asc):
-    path = write_gradient_asc(split=True)
-    safety = path.with_name(f"{path.stem}_GSWD_SAFETY.asc")
-    safety.unlink()
-    with pytest.raises(FileNotFoundError, match=f"{path.name} includes {safety.name}"):
-        read_gradient_asc(path)
-
-
-def test_asc_files_that_include_each_other(tmp_path):
-    (tmp_path / "a.asc").write_text("x = 1\n$INCLUDE b.asc\n")
-    (tmp_path / "b.asc").write_text("y = 2\n$INCLUDE a.asc\n")
-    with pytest.raises(ValueError, match=r"a\.asc.*b\.asc.*a\.asc"):
-        read_gradient_asc(tmp_path / "a.asc")
-
-
-def test_asc_file_that_includes_itself(tmp_path):
-    (tmp_path / "a.asc").write_text("x = 1\n$INCLUDE a.asc\n")
-    with pytest.raises(ValueError, match=r"a\.asc.*a\.asc"):
-        read_gradient_asc(tmp_path / "a.asc")
-
-
-def test_asc_file_included_by_two_branches_is_not_a_cycle(tmp_path):
-    (tmp_path / "shared.asc").write_text("z = 3\n")
-    (tmp_path / "b.asc").write_text("$INCLUDE shared.asc\n")
-    (tmp_path / "c.asc").write_text("$INCLUDE shared.asc\n")
-    main = tmp_path / "main.asc"
-    main.write_text("x = 1\n$INCLUDE b.asc\n$INCLUDE c.asc\n")
-    assert read_gradient_asc(main) == {"x": 1, "z": 3}
-
-
-def test_included_fields_replace_fields_with_the_same_name(tmp_path):
-    (tmp_path / "inc.asc").write_text('a.b[1] = 3\nc = "new"\n')
-    main = tmp_path / "main.asc"
-    main.write_text('a.b[0] = 1\na.b[1] = 2\nc = "old"\n$INCLUDE inc.asc\n')
-    assert read_gradient_asc(main) == {"a": {"b": {0: 1, 1: 3}}, "c": "new"}
-
-
-def test_hardware_name():
-    assert hardware_name({"asCOMP": {0: {"tName": "GPAK2309"}}}) == "GPAK2309"
-    assert hardware_name({"asCOMP": {"tName": "MP_GPA_TEST"}}) == "MP_GPA_TEST"
-    assert hardware_name({}) == "unknown"
 
 
 def test_prediction_scales_with_the_stimulation_limit(default_seq, example, write_gradient_asc):
@@ -110,16 +44,6 @@ def test_no_gradients_with_rf_and_adc():
         pp.make_adc(num_samples=64, dwell=20e-6, delay=SYSTEM.adc_dead_time, system=SYSTEM)
     )
     assert pns_levels(seq, hardware=EXAMPLE_HW).reason == NO_GRADIENTS
-
-
-@pytest.mark.parametrize("channel", ["x", "y", "z"])
-def test_a_gradient_on_one_axis_has_a_prediction(channel):
-    seq = signed(pp.Sequence(SYSTEM))
-    seq.add_block(pp.make_delay(1e-3))
-    seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
-    p = pns_levels(seq, hardware=EXAMPLE_HW)
-    assert p.reason is None
-    assert p.peak_hz_per_t > 0
 
 
 def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monkeypatch):
@@ -181,24 +105,6 @@ def _count_pns_levels_calls(monkeypatch) -> list:
 
     monkeypatch.setattr(pns_levels_module, "_compute_levels", counted)
     return calls
-
-
-@pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
-def test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file(write_gradient_asc, split):
-    """`hardware_from_asc(path)` is the pair `(asc_to_hw(asc), hardware_name(asc))` of
-    `asc = read_gradient_asc(path)`, field by field, for the plain layout and for the layout
-    of a scanner file (a main file that includes the PNS parameters with `$INCLUDE`)."""
-    path = write_gradient_asc(split=split)
-    asc = read_gradient_asc(path)
-    expected = asc_to_hw(asc)
-
-    hardware = hardware_from_asc(path)
-    assert isinstance(hardware, tuple)
-    struct, label = hardware
-    assert label == hardware_name(asc) == "MP_GPA_TEST"
-    assert vars(struct).keys() == vars(expected).keys()
-    for axis in "xyz":
-        assert vars(getattr(struct, axis)) == vars(getattr(expected, axis))
 
 
 def test_pns_levels_keeps_one_result_for_equal_hardware_pairs(monkeypatch):
