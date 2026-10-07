@@ -374,6 +374,45 @@ def test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit():
     assert x.slew_block == block_ids[1]
 
 
+def test_segment_of_an_earlier_block_with_the_slew_of_a_junction_step_takes_the_credit():
+    """Block 1 has a segment from 0 to A in one raster, and block 2 starts at A after block 1
+    ends at 0: the junction step 0 to A divided by the raster has the slope of that segment, and
+    no other value is as large. The two slews are equal, and the earlier block takes the credit,
+    so the slew block is block 1 and the slew time is the start of its first segment, 0, not the
+    junction time, the start of block 2.
+
+    Block 1 has the amplitudes [0, A, A, 0] at the times [0, 1, 3, 5] rasters, and block 2 has
+    [A, A, 0] at [0, 2, 4] rasters, with A = 0.5 * max_slew * raster. The slopes are A / raster
+    (block 1, rise), 0 (flat), A / (2 raster) (block 1, fall), 0 (block 2, flat) and A / (2
+    raster) (block 2, fall). The junction steps are 0 (block 1) and A / raster (block 2)."""
+    raster = SYSTEM.grad_raster_time
+    a = 0.5 * SYSTEM.max_slew * raster
+    one = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([0.0, a, a, 0.0]),
+        times=np.array([0.0, 1, 3, 5]) * raster,
+        system=SYSTEM,
+    )
+    two = pp.make_extended_trapezoid(
+        channel="x",
+        amplitudes=np.array([a, a, 0.0]),
+        times=np.array([0.0, 2, 4]) * raster,
+        system=SYSTEM,
+    )
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(one)
+    seq.add_block(two)
+    block_ids = list(seq.block_events)
+    values = block_gradient_values(seq)
+    assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"][0]
+
+    x = gradient_peaks(seq).axes["x"]
+
+    assert x.max_slew_hz_per_m_per_s == pytest.approx(a / raster)
+    assert x.slew_block == block_ids[0]
+    assert x.slew_time_s == 0.0
+
+
 def test_vector_peak_of_g_compares_different_triples_across_blocks():
     """Two blocks with different triples of active gradients: the vector peak of `|G|`
     is the largest magnitude found across the two different triples, not just the
@@ -637,9 +676,9 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
 # derived from each sequence (the user, 2026-09-28): `1e-12 + 4 * eps * duration / shortest
 # segment` (`_rounding_tol`), relative to the value or to the limit of the same kind. The
 # oracle can also credit a peak or a slew of a repeated event to a later block, from the
-# same rounding, so these general comparisons check only whether a block is credited; the
-# dedicated block-attribution tests above use events that are not repeated and check the
-# block exactly.
+# same rounding, so these general comparisons accept a later block of the oracle that plays
+# the same event as the block of this package (`_assert_same_credit`); the dedicated
+# block-attribution tests above use events that are not repeated and check the block exactly.
 
 
 def _rounding_tol(seq: pp.Sequence) -> float:
@@ -667,9 +706,28 @@ def _assert_close(actual: float, expected: float, scale: float, tol: float, labe
     )
 
 
-def _assert_matches_oracle(ours: GradientPeaks, theirs, tol: float) -> None:
+def _assert_same_credit(
+    seq: pp.Sequence, axis: str, ours: int | None, theirs: int | None, label: str
+) -> None:
+    """The credited blocks `ours` and `theirs` are equal (both None, or one block ID). They can
+    differ in one case: the oracle credits a later block that plays the same gradient event on
+    `axis` (from the rounding of its absolute corner times, see the comment above), where this
+    package credits the first block in play order. The block IDs of `seq` rise in play order."""
+    if ours == theirs:
+        return
+    assert ours is not None and theirs is not None, f"{label}: {ours!r} != {theirs!r}"
+    column = 2 + "xyz".index(axis)  # the gradient column of a row of `seq.block_events`
+    assert seq.block_events[ours][column] == seq.block_events[theirs][column] != 0, label
+    assert ours < theirs, f"{label}: {ours!r} is after {theirs!r}"
+
+
+def _assert_matches_oracle(ours: GradientPeaks, theirs, tol: float, seq: pp.Sequence) -> None:
     """The values of this package, converted to mT/m and T/m/s with `GAMMA_1H`, match the
-    oracle's. The conversion is that of `docs/usage.md` section 8, so this also tests it."""
+    oracle's. The conversion is that of `docs/usage.md` section 8, so this also tests it. The
+    time of the peak of each axis and the time of the vector peak are equal to 1e-12 s, and the
+    block of the peak and the block of the slew of each axis are the oracle's
+    (`_assert_same_credit`). The oracle has no time of the slew and no block of the vector
+    peak. `seq` is the sequence of both results."""
     assert ours.reason == theirs.reason
     assert ours.range_s == pytest.approx(theirs.range_s, abs=1e-9)
     grad_scale = theirs.limits.max_grad_mt_per_m
@@ -689,8 +747,9 @@ def _assert_matches_oracle(ours: GradientPeaks, theirs, tol: float) -> None:
             f"{axis} slew",
         )
         _assert_close(a.rms_hz_per_m * to_mt_per_m, b.rms_mt_per_m, grad_scale, tol, f"{axis} rms")
-        assert (a.peak_block is None) == (b.peak_block is None), f"{axis} peak_block presence"
-        assert (a.slew_block is None) == (b.slew_block is None), f"{axis} slew_block presence"
+        assert a.peak_time_s == pytest.approx(b.peak_time_s, abs=1e-12), f"{axis} peak time"
+        _assert_same_credit(seq, axis, a.peak_block, b.peak_block, f"{axis} peak_block")
+        _assert_same_credit(seq, axis, a.slew_block, b.slew_block, f"{axis} slew_block")
     _assert_close(
         ours.vector_peak_hz_per_m * to_mt_per_m,
         theirs.vector_peak_mt_per_m,
@@ -698,6 +757,7 @@ def _assert_matches_oracle(ours: GradientPeaks, theirs, tol: float) -> None:
         tol,
         "vector peak",
     )
+    assert ours.vector_peak_time_s == pytest.approx(theirs.vector_peak_time_s, abs=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -715,12 +775,12 @@ def test_matches_oracle_on_synthetic_sequences(make_seq):
     assert_ours = gradient_peaks(seq)
     assert_theirs = oracle.gradient_peaks(seq)
     tol = _rounding_tol(seq)
-    _assert_matches_oracle(assert_ours, assert_theirs, tol)
+    _assert_matches_oracle(assert_ours, assert_theirs, tol, seq)
 
     if total > 0:
         window = (0.0, total / 2)
         _assert_matches_oracle(
-            gradient_peaks(seq, window=window), oracle.gradient_peaks(seq, window=window), tol
+            gradient_peaks(seq, window=window), oracle.gradient_peaks(seq, window=window), tol, seq
         )
 
 
@@ -807,14 +867,14 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
     ours_whole = gradient_peaks(seq)
     theirs_whole = oracle.gradient_peaks(seq)
     tol = _rounding_tol(seq)
-    _assert_matches_oracle(ours_whole, theirs_whole, tol)
+    _assert_matches_oracle(ours_whole, theirs_whole, tol, seq)
 
     start = rng.uniform(0.0, total * 0.6)
     end = rng.uniform(start + _RASTER, total)
     window = (start, end)
     ours_window = gradient_peaks(seq, window=window)
     theirs_window = oracle.gradient_peaks(seq, window=window)
-    _assert_matches_oracle(ours_window, theirs_window, tol)
+    _assert_matches_oracle(ours_window, theirs_window, tol, seq)
 
     # The whole-file RMS that gradient_peaks computes in the same call, for the card's
     # "RMS over whole file" column, matches the oracle's own whole-file RMS.
@@ -942,7 +1002,9 @@ def _first_block_starts_non_zero_sequence() -> pp.Sequence:
 def _assert_block_values_agree_with_gradient_peaks(seq: pp.Sequence) -> None:
     """The maximum of each value of `block_gradient_values` is the value of the whole file
     in `gradient_peaks`, and the first block with that value, with its time, is the block and
-    the time of `gradient_peaks`. The arithmetic is the same, so every comparison is exact."""
+    the time of `gradient_peaks`. The time of a junction step is the start of the block plus the
+    delay of its event on the axis, read here with `get_block`. The arithmetic is the same, so
+    every comparison is exact."""
     values = block_gradient_values(seq)
     whole = gradient_peaks(seq)
     assert values.block_id.size > 0
@@ -967,8 +1029,13 @@ def _assert_block_values_agree_with_gradient_peaks(seq: pp.Sequence) -> None:
         if top > 0.0:
             play = int(np.argmax(combined == top))
             assert int(values.block_id[play]) == result.slew_block
-            # The junction is at the block start, before every segment of the block.
-            time = values.start_s[play] if junction[play] == top else values.slew_time_s[axis][play]
+            # The junction is at the first point of the event of the block on the axis, the block
+            # start plus the delay of the event, before every segment of the block.
+            if junction[play] == top:
+                g = getattr(seq.get_block(int(values.block_id[play])), f"g{axis}", None)
+                time = values.start_s[play] + (0.0 if g is None else g.delay)
+            else:
+                time = values.slew_time_s[axis][play]
             assert time == result.slew_time_s
         else:
             assert result.slew_block is None
@@ -997,6 +1064,7 @@ _AGREEMENT_SEQUENCES = [
     _junction_and_segment_sequence,
     _gradient_ends_non_zero_before_delay_sequence,
     _first_block_starts_non_zero_sequence,
+    _delayed_junction_sequence,
     *(
         lambda seed=seed: _random_gradient_sequence(np.random.default_rng(seed))
         for seed in range(20)
@@ -1015,6 +1083,7 @@ _AGREEMENT_IDS = [
     "junction_and_segment",
     "ends_non_zero_before_delay",
     "first_block_starts_non_zero",
+    "delayed_junction",
     *(f"random_{seed}" for seed in range(20)),
 ]
 
@@ -1076,6 +1145,30 @@ def test_first_block_junction_step_uses_zero_before_the_block():
     assert values.junction_hz_per_m_per_s["z"][0] == 0.0
 
 
+def test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system(tmp_path):
+    """A sequence built with a 4 µs gradient raster, written to a file and read with
+    `pp.Sequence()` (10 µs in `seq.system`): the junction step of each block that
+    `block_gradient_values` gives is divided by 4 µs, the raster of the file, so it is
+    `RASTER_4US_JUNCTION` (60 T/m/s) in block 2 and 0 in block 1. The sequence object before the
+    write gives the same value."""
+    built = raster_4us_sequence()
+    path = tmp_path / "raster_4us.seq"
+    built.write(str(path))
+    read = pp.Sequence()
+    read.read(str(path))
+    assert read.system.grad_raster_time == pytest.approx(10e-6)
+    assert read.grad_raster_time == pytest.approx(RASTER_4US)
+
+    for seq in (read, built):
+        junction = block_gradient_values(seq).junction_hz_per_m_per_s
+
+        assert junction["y"][0] == 0.0
+        # The file stores the amplitudes with fewer digits: 2e-5 relative in the value.
+        assert junction["y"][1] == pytest.approx(RASTER_4US_JUNCTION * GAMMA_1H, rel=1e-4)
+        assert not junction["x"].any()
+        assert not junction["z"].any()
+
+
 def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
     """Block 1 ends at `x`, block 2 starts at `x - step` and ends at 0, and block 3 has no
     gradient: the step is in block 2 and is 0 in block 1 (0 before it) and in block 3 (it
@@ -1094,23 +1187,6 @@ def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
     after_delay = block_gradient_values(_gradient_ends_non_zero_before_delay_sequence())
     assert after_delay.junction_hz_per_m_per_s["x"][0] == 0.0
     assert after_delay.junction_hz_per_m_per_s["x"][1] == pytest.approx(last_value / _RASTER)
-
-
-def test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junction_time():
-    """A junction step and the first segment of the same block have the same slew, and it is
-    the largest of the file: `gradient_peaks` gives the start of the block, the time of the
-    junction, and `block_gradient_values` has the same slew for both in that block."""
-    seq = _junction_and_segment_sequence()
-    _block_1_id, block_2_id = seq.block_events
-
-    values = block_gradient_values(seq)
-
-    assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"][1]
-    assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"].max()
-    result = gradient_peaks(seq).axes["x"]
-    assert result.slew_block == block_2_id
-    assert result.slew_time_s == values.start_s[1]
-    assert result.max_slew_hz_per_m_per_s == values.junction_hz_per_m_per_s["x"][1]
 
 
 def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block():
@@ -1515,13 +1591,19 @@ def _random_windows(seq: pp.Sequence, rng: np.random.Generator, count: int) -> l
 )
 def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq):
     """For 100 random windows, `gradient_peaks` of a sequence that has its kept data (from the
-    windows before) gives a result equal (`==`) to the result when the kept data of the
-    sequence is empty and is built by this call."""
-    seq = make_seq()
-    for window in _random_windows(seq, np.random.default_rng(20261006), 100):
-        grad_peaks._CACHE.pop(seq, None)
-        fresh = gradient_peaks(seq, window=window)
-        assert gradient_peaks(seq, window=window) == fresh, window
+    windows before: it is never emptied, and it is one object for all the windows) gives a
+    result equal (`==`) to the result of a second sequence of the same build whose kept data of
+    `gradient_peaks` is empty and is built by this call."""
+    seq, other = make_seq(), make_seq()
+    windows = _random_windows(seq, np.random.default_rng(20261006), 100)
+    kept_data = None
+    for window in windows:
+        with_kept = gradient_peaks(seq, window=window)
+        if kept_data is None:
+            kept_data = grad_peaks._CACHE[seq].results["block_data"]
+        assert grad_peaks._CACHE[seq].results["block_data"] is kept_data
+        grad_peaks._CACHE.pop(other, None)
+        assert with_kept == gradient_peaks(other, window=window), window
 
 
 @pytest.mark.parametrize(

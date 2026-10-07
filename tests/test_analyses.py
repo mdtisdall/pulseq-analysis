@@ -271,41 +271,59 @@ _SPEC_ARGS = {
 
 
 @pytest.mark.parametrize(
-    ("params", "necessary", "defaults"),
+    ("params", "necessary", "defaults", "message"),
     [
-        (("a",), ("b",), (("a", 1),)),  # a necessary name that is not in params
-        (("a",), ("a",), (("a", 1),)),  # a name that has a default and is necessary
-        (("a", "b"), ("a",), ()),  # a name with neither
-        (("a",), (), (("b", 1),)),  # a default name that is not in params
-        (("a",), (), (("a", 1), ("a", 2))),  # a default name that is repeated
-        (("a", "b"), (), (("b", 1), ("a", 2))),  # defaults not in the order of params
-        (("a",), (), (("a", {"k": 1}),)),  # a default that is a dict
-        (("a",), (), (("a", [1, 2]),)),  # a default that is a list
-        (("a",), (), (("a", (1, [2])),)),  # a tuple with a list in it
-        (("a",), (), (("a", object()),)),  # a default that is none of the types
-    ],
-    ids=[
-        "necessary-not-in-params",
-        "default-and-necessary",
-        "neither",
-        "default-not-in-params",
-        "repeated-default",
-        "defaults-out-of-order",
-        "dict-default",
-        "list-default",
-        "tuple-with-list",
-        "object-default",
+        pytest.param(
+            ("a",),
+            ("b",),
+            (("a", 1),),
+            "necessary 'b' is not in params",
+            id="necessary-not-in-params",
+        ),
+        pytest.param(
+            ("a",),
+            ("a",),
+            (("a", 1),),
+            "has a default and is in necessary",
+            id="default-and-necessary",
+        ),
+        pytest.param(
+            ("a", "b"), ("a",), (), "has no default and is not in necessary", id="neither"
+        ),
+        pytest.param(("a",), (), (("b", 1),), "which is not in params", id="default-not-in-params"),
+        pytest.param(
+            ("a",), (), (("a", 1), ("a", 2)), "repeated in defaults", id="repeated-default"
+        ),
+        pytest.param(
+            ("a", "a"),
+            (),
+            (("a", 1), ("a", 1)),
+            "repeated in defaults",
+            id="repeated-name-in-params",
+        ),
+        pytest.param(
+            ("a", "b"),
+            (),
+            (("b", 1), ("a", 2)),
+            "not in the order of params",
+            id="defaults-out-of-order",
+        ),
+        pytest.param(("a",), (), (("a", {"k": 1}),), "which is not None", id="dict-default"),
+        pytest.param(("a",), (), (("a", [1, 2]),), "which is not None", id="list-default"),
+        pytest.param(("a",), (), (("a", (1, [2])),), "which is not None", id="tuple-with-list"),
+        pytest.param(("a",), (), (("a", object()),), "which is not None", id="object-default"),
     ],
 )
 def test_analysis_spec_raises_for_params_that_disagree_with_necessary_and_defaults(
-    params, necessary, defaults
+    params, necessary, defaults, message
 ):
-    """`AnalysisSpec` raises `ValueError` for a name of `necessary` that is not in `params`, a
-    name with a default that is also in `necessary`, a name of `params` with neither, a
-    default name that is not in `params` or is repeated, defaults that are not in the order of
-    `params`, and a default that is not None, a `bool`, an `int`, a `float`, a `str` or a
-    tuple of these."""
-    with pytest.raises(ValueError):
+    """`AnalysisSpec` raises `ValueError` with the message of its own check for a name of
+    `necessary` that is not in `params`, a name with a default that is also in `necessary`, a
+    name of `params` with neither, a default name that is not in `params` or is repeated (also
+    when `params` repeats the name, so that the order is right), defaults that are not in the
+    order of `params`, and a default that is not None, a `bool`, an `int`, a `float`, a `str`
+    or a tuple of these."""
+    with pytest.raises(ValueError, match=message):
         AnalysisSpec(**_SPEC_ARGS, params=params, necessary=necessary, defaults=defaults)
 
 

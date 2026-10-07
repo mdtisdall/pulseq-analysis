@@ -61,12 +61,31 @@ def _triangle_sequence() -> pp.Sequence:
 
 
 def _gap_sequence() -> pp.Sequence:
-    """A trapezoid on x, a delay block with no gradient on x, and a second trapezoid on
-    x: the gap between the two events."""
+    """A gap between two events on x, with a value that is not 0 at each end of it: an
+    extended trapezoid that ramps from 0 to half of `max_slew * grad_raster_time` (the
+    largest value that pypulseq's `add_block` accepts next to a block with no gradient is
+    `max_slew * grad_raster_time`), a delay block with no gradient on x, and an extended
+    trapezoid that starts at a quarter of `max_slew * grad_raster_time` and ramps to 0."""
+    raster = SYSTEM.grad_raster_time
+    unit = SYSTEM.max_slew * raster
     seq = signed(pp.Sequence(SYSTEM))
-    seq.add_block(pp.make_trapezoid(channel="x", area=500, system=SYSTEM))
+    seq.add_block(
+        pp.make_extended_trapezoid(
+            channel="x",
+            amplitudes=np.array([0.0, 0.5 * unit]),
+            times=np.array([0.0, 5 * raster]),
+            system=SYSTEM,
+        )
+    )
     seq.add_block(pp.make_delay(2e-3))
-    seq.add_block(pp.make_trapezoid(channel="x", area=-500, system=SYSTEM))
+    seq.add_block(
+        pp.make_extended_trapezoid(
+            channel="x",
+            amplitudes=np.array([0.25 * unit, 0.0]),
+            times=np.array([0.0, 5 * raster]),
+            system=SYSTEM,
+        )
+    )
     return seq
 
 
@@ -193,6 +212,7 @@ def test_subrange_inside_a_gap_matches_pypulseq():
     gap_end = index.start_s[1] + index.duration_s[1]
     margin = 50e-6
     t = np.linspace(gap_start + margin, gap_end - margin, 200)
+    assert np.all(seq.get_gradients()[0](t) != 0.0)  # the line between two values that are not 0
     _assert_matches_pypulseq(seq, t)
 
 
@@ -209,6 +229,41 @@ def test_range_across_a_step_and_a_gap_equals_the_same_slice_of_the_whole_grid()
     for i in range(t.size):
         for j in range(i + 1, t.size + 1):
             assert np.array_equal(sampler.sample("gx", t[i:j]), whole[i:j]), (i, j)
+
+
+def test_times_in_a_gap_that_ends_at_a_step_give_the_line_to_the_next_event():
+    """Times in a gap whose next event starts at a value that is not 0 (a step at the block
+    junction) give the line from the last point of the event before the gap to the first
+    point of the next event, as `seq.get_gradients()` does, not 0. The gap is the end of
+    block 0 (a trapezoid that ends at 300 us, in a block held for 1 ms by a delay) and the
+    next event starts with block 1, at half of `max_slew * grad_raster_time`."""
+    raster = SYSTEM.grad_raster_time
+    step = 0.5 * SYSTEM.max_slew * raster
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(
+        pp.make_trapezoid(
+            channel="x", amplitude=0.1 * SYSTEM.max_grad, duration=300e-6, system=SYSTEM
+        ),
+        pp.make_delay(1e-3),
+    )
+    seq.add_block(
+        pp.make_extended_trapezoid(
+            channel="x",
+            amplitudes=np.array([step, 0.0]),
+            times=np.array([0.0, 5 * raster]),
+            system=SYSTEM,
+        )
+    )
+    index = sequence_index(seq)
+    assert index.num_blocks == 2
+    assert index.start_s[1] == pytest.approx(1e-3)
+    t = np.array([600e-6, 800e-6])
+    expected = step * (t - 300e-6) / (1e-3 - 300e-6)  # the line from (300 us, 0) to (1 ms, step)
+    sampler = GradientSampler(index, event_points(seq))
+    got = sampler.sample("gx", t)
+    assert np.all(got != 0.0)
+    np.testing.assert_allclose(got, expected, rtol=1e-9)
+    _assert_matches_pypulseq(seq, t)
 
 
 def test_single_sample_matches_pypulseq():
@@ -738,3 +793,26 @@ def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, exp
     assert not raster_block_lengths(index, dt)[1]
     assert sequence_samples(index, dt) == expected
     assert sequence_samples(index, dt) == math.ceil((index.end_s - 1e-10) / dt)
+
+
+@pytest.mark.parametrize(
+    ("ratio", "on_raster"),
+    [
+        pytest.param(1 + 5e-7, True, id="above-inside"),
+        pytest.param(1 - 5e-7, True, id="below-inside"),
+        pytest.param(1 + 2e-6, False, id="above-outside"),
+        pytest.param(1 - 2e-6, False, id="below-outside"),
+    ],
+)
+def test_raster_block_lengths_tolerance_is_a_millionth_of_a_sample(ratio, on_raster):
+    """A block of `ratio` samples, with `ratio` within 5e-7 of a whole number, is on the
+    raster, and one of 2e-6 away is not. The number of samples is the whole number in each
+    case."""
+    dt = SYSTEM.grad_raster_time
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(pp.make_delay(ratio * dt))
+    index = sequence_index(seq)
+    assert index.duration_s[0] / dt == pytest.approx(ratio, rel=0, abs=1e-12)
+    n, got = raster_block_lengths(index, dt)
+    assert got is on_raster
+    np.testing.assert_array_equal(n, np.array([1]))

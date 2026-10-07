@@ -570,6 +570,40 @@ def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
         assert a.end_s + dt < b.start_s  # at least one sample below the limit between them
 
 
+def test_a_threshold_equal_to_the_peak_gives_an_interval():
+    """A threshold that is exactly `peak_hz_per_t` gives one interval or more, and the
+    peak of the largest one is the threshold: a total at the threshold is in an interval
+    (`total >= threshold`)."""
+    seq = gre_sequence()
+    peak = pns_levels(seq, hardware=EXAMPLE_HW).peak_hz_per_t
+    levels = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=(peak,))
+    assert list(levels.above) == [peak]
+    assert len(levels.above[peak]) >= 1
+    assert max(i.peak_hz_per_t for i in levels.above[peak]) == peak
+
+
+def test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_number():
+    """An off-raster sequence (a trapezoid on x and two delays of 1.5 gradient-raster steps,
+    which are 3 steps together) whose `end_s / dt` is above a whole number by float
+    rounding only has that whole number of samples: `end_s / dt` is more than the whole
+    number, and `(end_s - 1e-10) / dt` is not."""
+    dt = SYSTEM.grad_raster_time
+    seq = signed(pp.Sequence(SYSTEM))
+    trapezoid = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
+    seq.add_block(trapezoid)
+    seq.add_block(pp.make_delay(1.5 * dt))
+    seq.add_block(pp.make_delay(1.5 * dt))
+    end_s = sequence_index(seq).end_s
+    whole = round(pp.calc_duration(trapezoid) / dt) + 3
+    assert round(end_s / dt) == whole
+    assert end_s / dt > whole
+    assert (end_s - 1e-10) / dt <= whole  # a `num_samples` with no `- 1e-10` is `whole + 1`
+
+    levels = pns_levels(seq, hardware=EXAMPLE_HW)
+    assert levels.on_raster is False
+    assert levels.num_samples == whole
+
+
 def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     """With chunks of 1 bin, with a chunk size that has an interval across the end of a
     chunk, and with the normal `CHUNK_SAMPLES`, `pns_levels` gives the same result, every
@@ -803,16 +837,18 @@ def test_pns_levels_refuses_bad_thresholds_before_any_work(monkeypatch, threshol
 def test_pns_levels_takes_numpy_and_fraction_thresholds():
     """A threshold that is a NumPy real scalar or a `Fraction` (any `numbers.Real`, not a
     `bool`) is valid. The key of `above` is `float(t)`, and the result is that of the
-    thresholds as floats."""
+    thresholds as floats. The calculation with the floats is a new one (`_compute`): a second
+    `pns_levels` call with the same keys would give the kept object, and the test would
+    compare that object with itself."""
     seq = spin_echo_sequence()
     thresholds = (np.float32(0.3 * _LIMIT), np.int64(12_345_678), Fraction(1, 3) * _LIMIT)
     keys = tuple(float(t) for t in thresholds)
     levels = pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
     assert list(levels.above) == list(keys)
     assert all(type(key) is float for key in levels.above)
-    assert_levels_equal(
-        levels, pns_levels(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=keys), ignore=()
-    )
+    from_floats = _compute(seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=keys)
+    assert from_floats is not levels
+    assert_levels_equal(levels, from_floats, ignore=())
 
 
 @pytest.mark.parametrize(

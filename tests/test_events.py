@@ -7,9 +7,11 @@ import pypulseq as pp
 import pytest
 from synthetic import (
     EXAMPLE_HW,
+    SYSTEM,
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    signed,
     spin_echo_sequence,
 )
 
@@ -164,3 +166,57 @@ def test_event_values_of_the_points_equal_the_values_of_gradient_points(build):
         assert ev.first[i] == amp[0]
         assert ev.first_offset[i] == t[0]
         assert ev.last[i] == amp[-1]
+
+
+def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_computed_values():
+    """`_event_values` of an x trapezoid with a delay and a y arbitrary gradient gives, for each
+    event, the peak, the time of the peak, the slew, the time of the slew and the integral of
+    amplitude^2, each equal to a value computed by hand from the numbers given to the `make_*`
+    functions.
+
+    Trapezoid: amplitude A, delay d, rise R, flat F and fall L, with L longer than R. Its points
+    are at d, d + R, d + R + F and d + R + F + L, with the values 0, A, A, 0. The rise is the
+    steepest segment, with the slope A / R from d. Its integral is A^2 (R / 3 + F + L / 3).
+
+    Arbitrary gradient: raster r, unit u, the waveform [1, 2, -3, -1, 2] u and the first and last
+    values 0. Its points are at 0, 0.5 r, 1.5 r, 2.5 r, 3.5 r, 4.5 r and 5 r, with the values 0,
+    1 u, 2 u, -3 u, -1 u, 2 u and 0. The largest |value| is 3 u at 2.5 r. The slopes are 2 u / r,
+    1 u / r, 5 u / r, 2 u / r, 3 u / r and 4 u / r, and the largest is 5 u / r, from 1.5 r. The
+    integral is the sum of dt (a^2 + a b + b^2) / 3 over the six segments, which is
+    (1/6 + 7/3 + 7/3 + 13/3 + 1 + 2/3) r u^2 = 65/6 r u^2. (The waveform has 5 samples because
+    pypulseq reads back an arbitrary gradient of 4 samples or fewer with a shape that ends at the
+    last sample, not half a raster time after it.)
+    """
+    amplitude, delay, rise, flat, fall = 1e5, 100e-6, 200e-6, 400e-6, 300e-6
+    raster, unit = SYSTEM.grad_raster_time, 1e4
+    trapezoid = pp.make_trapezoid(
+        channel="x",
+        amplitude=amplitude,
+        delay=delay,
+        rise_time=rise,
+        flat_time=flat,
+        fall_time=fall,
+        system=SYSTEM,
+    )
+    arbitrary = pp.make_arbitrary_grad(
+        channel="y",
+        waveform=np.array([1.0, 2.0, -3.0, -1.0, 2.0]) * unit,
+        first=0.0,
+        last=0.0,
+        system=SYSTEM,
+    )
+    seq = signed(pp.Sequence(SYSTEM))
+    seq.add_block(trapezoid)
+    seq.add_block(arbitrary)
+
+    ev = _event_values(event_points(seq))
+
+    assert ev.peak.tolist() == pytest.approx([amplitude, 3 * unit], rel=1e-12)
+    assert ev.peak_offset.tolist() == pytest.approx([delay + rise, 2.5 * raster], abs=1e-12)
+    assert ev.slew.tolist() == pytest.approx([amplitude / rise, 5 * unit / raster], rel=1e-12)
+    assert ev.slew_offset.tolist() == pytest.approx([delay, 1.5 * raster], abs=1e-12)
+    expected_integral = [
+        amplitude**2 * (rise / 3 + flat + fall / 3),
+        65 / 6 * raster * unit**2,
+    ]
+    assert ev.integral.tolist() == pytest.approx(expected_integral, rel=1e-12)

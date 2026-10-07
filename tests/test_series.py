@@ -7,6 +7,7 @@
 import base64
 import gzip
 import json
+import re
 import zlib
 from dataclasses import replace
 from fractions import Fraction
@@ -346,6 +347,40 @@ def test_envelope_accepts_a_coord_end_in_range(n, coord_start, coord_step, coord
     assert _round_trip(s) == s
 
 
+@pytest.mark.parametrize(
+    ("n", "coord_start", "coord_step"),
+    [
+        pytest.param(3, 0.0, 1.0, id="unit-step"),
+        pytest.param(3, -2.0, 0.25, id="negative-start"),
+        pytest.param(1, 0.0, 1.0, id="one-bin"),
+    ],
+)
+def test_envelope_coord_end_limits_are_exact_at_the_tolerance(n, coord_start, coord_step):
+    """For an ENVELOPE series of `n` bins, a `coord_end` that is `1e-9 * coord_step` above
+    the lower limit `coord_start + (n - 1) * coord_step` raises `ValueError`, and a `coord_end`
+    that is the tolerance above the upper limit `coord_start + n * coord_step` is valid. The
+    floats are the sums that the check makes, so `coord_end` is equal to the limit that it
+    is compared with. The next float above each of the two is on the other side of the check:
+    valid above the lower limit and `ValueError` above the upper limit."""
+    tolerance = 1e-9 * coord_step
+    low = coord_start + (n - 1) * coord_step
+    high = coord_start + n * coord_step
+    with pytest.raises(ValueError, match="must be above"):
+        _bins(n, coord_start=coord_start, coord_step=coord_step, coord_end=low + tolerance)
+    nudged = np.nextafter(low + tolerance, np.inf)
+    assert nudged > low + tolerance
+    _bins(n, coord_start=coord_start, coord_step=coord_step, coord_end=float(nudged))
+    s = _bins(n, coord_start=coord_start, coord_step=coord_step, coord_end=high + tolerance)
+    assert s.coord_end == high + tolerance
+    with pytest.raises(ValueError, match="must not be above"):
+        _bins(
+            n,
+            coord_start=coord_start,
+            coord_step=coord_step,
+            coord_end=float(np.nextafter(high + tolerance, np.inf)),
+        )
+
+
 def test_envelope_with_no_bin_refuses_a_coord_end_below_coord_start():
     """An ENVELOPE series with no bin raises `ValueError` for `coord_end < coord_start`, also
     for a `coord_end` that is below by less than the tolerance of the other cases (there is no
@@ -487,69 +522,157 @@ def test_the_series_of_gradient_spectrum_is_valid(builder):
 
 
 @pytest.mark.parametrize(
-    ("kind", "arrays", "error"),
+    ("kind", "arrays", "error", "message"),
     [
-        pytest.param(SeriesKind.SAMPLES, {}, ValueError, id="samples-no-value"),
-        pytest.param(SeriesKind.SAMPLES, {"x": np.zeros(3)}, ValueError, id="samples-only-x"),
-        pytest.param(SeriesKind.ENVELOPE, {"min": np.zeros(3)}, ValueError, id="envelope-no-max"),
+        pytest.param(
+            SeriesKind.SAMPLES, {}, ValueError, "needs the array 'value'", id="samples-no-value"
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"x": np.zeros(3)},
+            ValueError,
+            "needs the array 'value'",
+            id="samples-only-x",
+        ),
+        pytest.param(
+            SeriesKind.ENVELOPE,
+            {"min": np.zeros(3)},
+            ValueError,
+            "needs the array 'max'",
+            id="envelope-no-max",
+        ),
         pytest.param(
             SeriesKind.ENVELOPE,
             {"min": np.zeros(3), "max": np.zeros(3), "extra": np.zeros(3)},
             ValueError,
+            "has only the arrays 'min' and 'max', not 'extra'",
             id="envelope-extra-array",
         ),
-        pytest.param(SeriesKind.POINTS, {"value": np.zeros(3)}, ValueError, id="points-no-coord"),
-        pytest.param(SeriesKind.POINTS, {"coord": np.zeros(3)}, ValueError, id="points-no-value"),
-        pytest.param(SeriesKind.RUNS, {"start": np.zeros(3)}, ValueError, id="runs-no-end"),
-        pytest.param(SeriesKind.RUNS, {"end": np.zeros(3)}, ValueError, id="runs-no-start"),
-        pytest.param(SeriesKind.SAMPLES, [np.zeros(3)], TypeError, id="arrays-not-a-mapping"),
-        pytest.param(SeriesKind.SAMPLES, {1: np.zeros(3)}, TypeError, id="key-not-a-string"),
-        pytest.param(SeriesKind.SAMPLES, {"value": [1.0, 2.0]}, TypeError, id="list-not-an-array"),
         pytest.param(
-            SeriesKind.SAMPLES, {"value": np.zeros((2, 3))}, ValueError, id="two-dimensional"
-        ),
-        pytest.param(SeriesKind.SAMPLES, {"value": np.float32(1.0)}, TypeError, id="numpy-scalar"),
-        pytest.param(
-            SeriesKind.SAMPLES, {"value": np.array(1.0)}, ValueError, id="zero-dimensional"
+            SeriesKind.POINTS,
+            {"value": np.zeros(3)},
+            ValueError,
+            "needs the array 'coord'",
+            id="points-no-coord",
         ),
         pytest.param(
-            SeriesKind.SAMPLES, {"value": np.array(["a", "b"])}, ValueError, id="string-dtype"
+            SeriesKind.POINTS,
+            {"coord": np.zeros(3)},
+            ValueError,
+            "needs the array 'value'",
+            id="points-no-value",
         ),
         pytest.param(
-            SeriesKind.SAMPLES, {"value": np.array([1, 2], dtype=object)}, ValueError, id="object"
+            SeriesKind.RUNS,
+            {"start": np.zeros(3)},
+            ValueError,
+            "needs the array 'end'",
+            id="runs-no-end",
+        ),
+        pytest.param(
+            SeriesKind.RUNS,
+            {"end": np.zeros(3)},
+            ValueError,
+            "needs the array 'start'",
+            id="runs-no-start",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            [np.zeros(3)],
+            TypeError,
+            "arrays of a series must be a mapping",
+            id="arrays-not-a-mapping",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {1: np.zeros(3)},
+            TypeError,
+            "key of the arrays of a series must be a string",
+            id="key-not-a-string",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": [1.0, 2.0]},
+            TypeError,
+            "must be a numpy array, not list",
+            id="list-not-an-array",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": np.zeros((2, 3))},
+            ValueError,
+            "must be one-dimensional, not 2-dimensional",
+            id="two-dimensional",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": np.float32(1.0)},
+            TypeError,
+            "must be a numpy array, not float32",
+            id="numpy-scalar",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": np.array(1.0)},
+            ValueError,
+            "must be one-dimensional, not 0-dimensional",
+            id="zero-dimensional",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": np.array(["a", "b"])},
+            ValueError,
+            "must have a numeric or bool dtype",
+            id="string-dtype",
+        ),
+        pytest.param(
+            SeriesKind.SAMPLES,
+            {"value": np.array([1, 2], dtype=object)},
+            ValueError,
+            "must have a numeric or bool dtype",
+            id="object",
         ),
         pytest.param(
             SeriesKind.SAMPLES,
             {"value": np.array([1, 2], dtype="datetime64[s]")},
             ValueError,
+            "must have a numeric or bool dtype",
             id="datetime-dtype",
         ),
         pytest.param(
             SeriesKind.SAMPLES,
             {"value": np.zeros(3), "other": np.zeros(4)},
             ValueError,
+            "must have one length",
             id="samples-lengths-differ",
         ),
         pytest.param(
             SeriesKind.ENVELOPE,
             {"min": np.zeros(3), "max": np.zeros(4)},
             ValueError,
+            "must have one length",
             id="envelope-lengths-differ",
         ),
         pytest.param(
             SeriesKind.RUNS,
             {"start": np.zeros(3), "end": np.zeros(2)},
             ValueError,
+            "must have one length",
             id="runs-lengths-differ",
         ),
     ],
 )
-def test_series_refuses_bad_arrays(kind, arrays, error):
+def test_series_refuses_bad_arrays(kind, arrays, error, message):
     """Each missing necessary array, extra array of an ENVELOPE, array that is not a
     one-dimensional numpy array of a numeric or bool dtype, and pair of arrays of two lengths
-    raises `TypeError` or `ValueError`."""
-    with pytest.raises(error):
-        Series(name="s", kind=kind, unit="1", coord_unit="s", arrays=arrays, **_used_fields(kind))
+    raises `TypeError` or `ValueError` with the message of its own check. An ENVELOPE case
+    has a `coord_end` that is valid for its arrays, so the check of `coord_end` does not
+    refuse it."""
+    fields = _used_fields(kind)
+    if kind is SeriesKind.ENVELOPE:
+        fields["coord_end"] = float(next(iter(arrays.values())).size)
+    with pytest.raises(error, match=message):
+        Series(name="s", kind=kind, unit="1", coord_unit="s", arrays=arrays, **fields)
 
 
 @pytest.mark.parametrize(
@@ -571,6 +694,17 @@ def test_series_refuses_bad_meta(meta, error):
     "inf", "-inf" or "nan", raises `TypeError` or `ValueError`."""
     with pytest.raises(error):
         _samples(meta=meta)
+
+
+def test_series_meta_makes_a_numpy_float64_a_plain_float():
+    """A `np.float64` in `meta` becomes a `float` (a `np.float64` is a subclass of `float`),
+    so the series equals the series with the same value as a `float`, and its JSON round trip
+    gives the same series."""
+    s = _samples(meta={"a": np.float64(1.5)})
+    assert type(s.meta["a"]) is float
+    assert s == _samples(meta={"a": 1.5})
+    assert _round_trip(s) == s
+    assert type(_round_trip(s).meta["a"]) is float
 
 
 def test_series_copies_arrays_and_meta():
@@ -664,28 +798,32 @@ def test_series_equal_treats_nan_as_equal():
         pytest.param(lambda: _samples(coord_start=1.0), id="coord-start"),
         pytest.param(lambda: _samples(coord_step=2e-5), id="coord-step"),
         pytest.param(lambda: _samples(meta={"a": 1}), id="meta"),
-        pytest.param(
-            lambda: Series(
-                name="g",
-                kind=SeriesKind.POINTS,
-                unit="mT/m",
-                coord_unit="s",
-                arrays={
-                    "coord": np.zeros(4, dtype=np.float32),
-                    "value": np.arange(4, dtype=np.float32),
-                },
-            ),
-            id="kind",
-        ),
     ],
 )
 def test_series_not_equal_for_a_different_field_or_array(other):
     """A series is not equal to one that differs in a dtype, a length, a value, a name, a
-    unit, `coord_unit`, `coord_start`, `coord_step`, `meta` or the kind, to NaN against a
-    number, or to a value that is not a series."""
+    unit, `coord_unit`, `coord_start`, `coord_step` or `meta`, to NaN against a number, or to a
+    value that is not a series."""
     s = _samples()
     assert s != other()
     assert s != "g"
+
+
+def test_series_not_equal_for_a_different_kind():
+    """A POINTS series and a RUNS series with the same name, units, arrays and `meta` are not
+    equal, so the kind alone makes two series differ."""
+    arrays = {
+        "coord": np.array([0.0, 1.0, 2.0]),
+        "value": np.array([5.0, 6.0, 7.0]),
+        "start": np.array([0.0, 1.0, 2.0]),
+        "end": np.array([1.0, 2.0, 3.0]),
+    }
+    fields = {"name": "k", "unit": "1", "coord_unit": "s", "meta": {"a": 1}}
+    points = Series(kind=SeriesKind.POINTS, arrays=arrays, **fields)
+    runs = Series(kind=SeriesKind.RUNS, arrays=arrays, **fields)
+    assert points != runs
+    assert runs != points
+    assert points == Series(kind=SeriesKind.POINTS, arrays=dict(arrays), **fields)
 
 
 def test_envelope_series_not_equal_for_a_different_end():
@@ -890,46 +1028,104 @@ def _rc2_obj() -> dict:
 
 
 @pytest.mark.parametrize(
-    "obj",
+    ("obj", "message"),
     [
-        pytest.param([1, 2], id="not-an-object"),
-        pytest.param(_with("extra", 1), id="unknown-key"),
-        pytest.param(_without("unit"), id="missing-key"),
-        pytest.param(_without("arrays"), id="missing-arrays"),
-        pytest.param(_with("kind", "lines"), id="unknown-kind"),
-        pytest.param(_with("kind", ["samples"]), id="kind-not-a-string"),
-        pytest.param(_with("name", ""), id="empty-name"),
-        pytest.param(_with("name", 3), id="name-not-a-string"),
-        pytest.param(_with("unit", 3), id="unit-not-a-string"),
-        pytest.param(_with("coord_unit", None), id="coord-unit-null"),
-        pytest.param(_with("coord_unit", 3), id="coord-unit-a-number"),
-        pytest.param(_without("coord_unit"), id="missing-coord-unit"),
-        pytest.param(_rc2_obj(), id="rc2-object"),
-        pytest.param(_with("coord_step", 0.0), id="coord-step-zero"),
-        pytest.param(_with("coord_step", "fast"), id="coord-step-a-string"),
-        pytest.param(_with("coord_step", None), id="coord-step-null"),
-        pytest.param(_with("coord_end", None), id="coord-end-null"),
-        pytest.param(_with("coord_start", None), id="coord-start-null"),
-        pytest.param(_with("coord_start", True), id="coord-start-a-bool"),
-        pytest.param(_with("coord_start", "inf"), id="coord-start-inf"),
-        pytest.param(_with("coord_start", "-inf"), id="coord-start-minus-inf"),
-        pytest.param(_with("coord_start", "nan"), id="coord-start-nan"),
-        pytest.param(_with("coord_end", "inf"), id="coord-end-inf"),
-        pytest.param(_with("coord_end", "nan"), id="coord-end-nan"),
-        pytest.param(_with("coord_end", 0.012), id="coord-end-too-small"),
-        pytest.param(_with("coord_end", 0.02), id="coord-end-too-large"),
-        pytest.param(_with("meta", [1]), id="meta-not-an-object"),
-        pytest.param(_with("meta", {"a": [1]}), id="meta-value-a-list"),
-        pytest.param(_with("arrays", []), id="arrays-not-an-object"),
-        pytest.param(_with("arrays", {"min": 3, "max": 4}), id="array-not-an-object"),
-        pytest.param(_with("arrays", {}), id="no-arrays"),
+        pytest.param([1, 2], "must be a JSON object", id="not-an-object"),
+        pytest.param(_with("extra", 1), "unknown key 'extra'", id="unknown-key"),
+        pytest.param(_without("unit"), "missing key 'unit'", id="missing-key"),
+        pytest.param(_without("arrays"), "missing key 'arrays'", id="missing-arrays"),
+        pytest.param(_with("kind", "lines"), "unknown kind 'lines'", id="unknown-kind"),
+        pytest.param(_with("kind", ["samples"]), "unknown kind", id="kind-not-a-string"),
+        pytest.param(_with("name", ""), "name of a series must not be empty", id="empty-name"),
+        pytest.param(_with("name", 3), "name of a series must be a string", id="name-not-a-string"),
+        pytest.param(_with("unit", 3), "unit of a series must be a string", id="unit-not-a-string"),
+        pytest.param(
+            _with("coord_unit", None),
+            "coord_unit of a series must be a string",
+            id="coord-unit-null",
+        ),
+        pytest.param(
+            _with("coord_unit", 3),
+            "coord_unit of a series must be a string",
+            id="coord-unit-a-number",
+        ),
+        pytest.param(_without("coord_unit"), "missing key 'coord_unit'", id="missing-coord-unit"),
+        pytest.param(_rc2_obj(), "unknown key 't0_s'", id="rc2-object"),
+        pytest.param(
+            _with("coord_step", 0.0),
+            "coord_step of a series must be finite and above 0",
+            id="coord-step-zero",
+        ),
+        pytest.param(
+            _with("coord_step", "fast"),
+            '"coord_step" must be a number or null',
+            id="coord-step-a-string",
+        ),
+        pytest.param(_with("coord_step", None), "needs coord_step", id="coord-step-null"),
+        pytest.param(_with("coord_end", None), "needs coord_end", id="coord-end-null"),
+        pytest.param(
+            _with("coord_start", None),
+            "coord_start of a series must be a real number",
+            id="coord-start-null",
+        ),
+        pytest.param(
+            _with("coord_start", True),
+            '"coord_start" must be a number or null, not True',
+            id="coord-start-a-bool",
+        ),
+        pytest.param(
+            _with("coord_start", "inf"),
+            "coord_start of a envelope series must be finite",
+            id="coord-start-inf",
+        ),
+        pytest.param(
+            _with("coord_start", "-inf"),
+            "coord_start of a envelope series must be finite",
+            id="coord-start-minus-inf",
+        ),
+        pytest.param(
+            _with("coord_start", "nan"),
+            "coord_start of a envelope series must be finite",
+            id="coord-start-nan",
+        ),
+        pytest.param(
+            _with("coord_end", "inf"),
+            "coord_end of an envelope series must be finite",
+            id="coord-end-inf",
+        ),
+        pytest.param(
+            _with("coord_end", "nan"),
+            "coord_end of an envelope series must be finite",
+            id="coord-end-nan",
+        ),
+        pytest.param(
+            _with("coord_end", 0.012), "with 3 bins must be above", id="coord-end-too-small"
+        ),
+        pytest.param(
+            _with("coord_end", 0.02), "with 3 bins must not be above", id="coord-end-too-large"
+        ),
+        pytest.param(
+            _with("meta", [1]), '"meta" of a series must be a JSON object', id="meta-not-an-object"
+        ),
+        pytest.param(_with("meta", {"a": [1]}), "meta value", id="meta-value-a-list"),
+        pytest.param(
+            _with("arrays", []),
+            '"arrays" of a series must be a JSON object',
+            id="arrays-not-an-object",
+        ),
+        pytest.param(
+            _with("arrays", {"min": 3, "max": 4}),
+            "an encoded array must be a JSON object",
+            id="array-not-an-object",
+        ),
+        pytest.param(_with("arrays", {}), "needs the array 'min'", id="no-arrays"),
     ],
 )
-def test_from_obj_refuses(obj):
+def test_from_obj_refuses(obj, message):
     """`from_obj` raises `ValueError`, and no other error, for an object that is not a dict,
     an unknown key, a missing key, an object of rc2, an unknown kind, a bad value of any
     field (also a coordinate that is not finite or not in order), and a bad array."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=re.escape(message)):
         Series.from_obj(obj)
 
 
@@ -1054,35 +1250,92 @@ def test_decode_array_does_not_decompress_more_than_length_needs(monkeypatch):
     assert sum(produced) <= 2
 
 
+def _with_a_stray_character(text: str) -> str:
+    """`text` with "!" in the middle. The padding at the end is the padding of `text`, and
+    `base64.b64decode(..., validate=False)` skips the "!" and gives the bytes of `text`."""
+    middle = len(text) // 2
+    return text[:middle] + "!" + text[middle:]
+
+
 @pytest.mark.parametrize(
-    "d",
+    ("d", "message"),
     [
-        pytest.param("text", id="not-a-dict"),
-        pytest.param({"dtype": "float32", "length": 4}, id="missing-key"),
-        pytest.param(_encoded(extra=1), id="unknown-key"),
-        pytest.param(_encoded(length=5), id="length-too-large"),
-        pytest.param(_encoded(length=3), id="length-too-small"),
-        pytest.param(_encoded(length=-4), id="length-negative"),
-        pytest.param(_encoded(length=4.0), id="length-a-float"),
-        pytest.param(_encoded(length=True), id="length-a-bool"),
-        pytest.param(_encoded(dtype="object"), id="dtype-object"),
-        pytest.param(_encoded(dtype="datetime64[s]"), id="dtype-datetime"),
-        pytest.param(_encoded(dtype="str32"), id="dtype-string"),
-        pytest.param(_encoded(dtype="no-such-dtype"), id="dtype-unknown"),
-        pytest.param(_encoded(dtype="f4"), id="dtype-not-the-name"),
-        pytest.param(_encoded(dtype=32), id="dtype-not-a-string"),
-        pytest.param(_encoded(data=3), id="data-not-a-string"),
-        pytest.param(_encoded(data="not base64!"), id="data-not-base64"),
-        pytest.param(_encoded(data="AAAA"), id="data-not-gzip"),
-        pytest.param(_encoded(data=_encoded()["data"][:-8]), id="data-cut-short"),
-        pytest.param(_encoded(data=_gzip_text(b"\x00" * 15)), id="bytes-not-a-whole-number"),
-        pytest.param(_encoded(data=_gzip_text(b"\x00" * 20)), id="data-longer-than-length"),
-        pytest.param(_encoded(data=_gzip_text(b"\x00" * 12)), id="data-shorter-than-length"),
+        pytest.param("text", "must be a JSON object", id="not-a-dict"),
+        pytest.param({"dtype": "float32", "length": 4}, "missing key 'data'", id="missing-key"),
+        pytest.param(_encoded(extra=1), "unknown key 'extra'", id="unknown-key"),
+        pytest.param(
+            _encoded(length=5), '"length" of an encoded array is 5', id="length-too-large"
+        ),
+        pytest.param(
+            _encoded(length=3), '"length" of an encoded array is 3', id="length-too-small"
+        ),
+        pytest.param(
+            _encoded(length=-4), "must be an integer of 0 or more, not -4", id="length-negative"
+        ),
+        pytest.param(
+            _encoded(length=4.0), "must be an integer of 0 or more, not 4.0", id="length-a-float"
+        ),
+        pytest.param(
+            _encoded(length=True), "must be an integer of 0 or more, not True", id="length-a-bool"
+        ),
+        pytest.param(
+            _encoded(dtype="object"),
+            "must be a numeric or bool dtype, not 'object'",
+            id="dtype-object",
+        ),
+        pytest.param(
+            _encoded(dtype="datetime64[s]"),
+            "must be a numeric or bool dtype, not 'datetime64",
+            id="dtype-datetime",
+        ),
+        pytest.param(_encoded(dtype="str32"), "unknown dtype 'str32'", id="dtype-string"),
+        pytest.param(
+            _encoded(dtype="no-such-dtype"), "unknown dtype 'no-such-dtype'", id="dtype-unknown"
+        ),
+        pytest.param(
+            _encoded(dtype="f4"),
+            "must be a numeric or bool dtype, not 'f4'",
+            id="dtype-not-the-name",
+        ),
+        pytest.param(_encoded(dtype=32), "unknown dtype 32", id="dtype-not-a-string"),
+        pytest.param(
+            _encoded(data=3), '"data" of an encoded array must be a string', id="data-not-a-string"
+        ),
+        pytest.param(
+            _encoded(data=_with_a_stray_character(_encoded()["data"])),
+            "does not decode: Only base64 data is allowed",
+            id="data-not-base64",
+        ),
+        pytest.param(
+            _encoded(data="AAAA"),
+            "does not decode: Error -3 while decompressing data",
+            id="data-not-gzip",
+        ),
+        pytest.param(
+            _encoded(data=_encoded()["data"][:-8]),
+            "does not decode: the stream is not complete",
+            id="data-cut-short",
+        ),
+        pytest.param(
+            _encoded(data=_gzip_text(b"\x00" * 15)),
+            "its data has 15 bytes",
+            id="bytes-not-a-whole-number",
+        ),
+        pytest.param(
+            _encoded(data=_gzip_text(b"\x00" * 20)),
+            "its data has more than 16 bytes",
+            id="data-longer-than-length",
+        ),
+        pytest.param(
+            _encoded(data=_gzip_text(b"\x00" * 12)),
+            "its data has 12 bytes",
+            id="data-shorter-than-length",
+        ),
     ],
 )
-def test_decode_array_refuses(d):
+def test_decode_array_refuses(d, message):
     """`decode_array` raises `ValueError` for a value that is not a dict, an unknown key, a
     missing key, a `length` that is not the decoded byte count divided by the item size, a
     dtype that is not a numeric or bool dtype name, and data that does not decode."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=re.escape(message)):
         decode_array(d)
