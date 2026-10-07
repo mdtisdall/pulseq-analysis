@@ -8,7 +8,13 @@ import pickle
 import numpy as np
 import pytest
 
-from pulseq_analysis._equality import FrozenDict, fields_equal, value_dataclass, values_equal
+from pulseq_analysis._equality import (
+    FrozenDict,
+    _freeze,
+    fields_equal,
+    value_dataclass,
+    values_equal,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -226,3 +232,30 @@ def test_values_equal_does_not_separate_a_frozen_dict_from_a_dict(other, equal):
     assert values_equal(other, frozen) is equal
     assert values_equal(frozen, FrozenDict(other)) is equal
     assert values_equal(frozen, [1.0]) is False
+
+
+@pytest.mark.parametrize(
+    "dtype", ["bool", "int8", "uint32", "int64", "float16", "float32", "float64", "complex64"]
+)
+def test_freeze_gives_a_read_only_copy_that_cannot_be_made_writable(dtype):
+    """`_freeze` gives, for each array, a new array with the same dtype, shape and values
+    (also an empty array), that is read-only and whose flag `writeable` cannot be set to True
+    (`ValueError`), and that does not share memory with the original, which stays writable."""
+    original = np.arange(5).astype(dtype)
+    empty = original[:0]
+    frozen, frozen_empty = _freeze(original, empty)
+    for before, after in ((original, frozen), (empty, frozen_empty)):
+        assert after.dtype == before.dtype
+        assert after.shape == before.shape
+        assert np.array_equal(after, before)
+        assert not after.flags.writeable
+        with pytest.raises(ValueError, match="cannot set WRITEABLE"):
+            after.flags.writeable = True
+        if after.size:
+            with pytest.raises(ValueError, match="read-only"):
+                after[0] = 0
+        assert not np.shares_memory(after, before)
+    assert original.flags.writeable
+    original[0] = 1
+    assert frozen[0] == 0
+    assert _freeze() == ()
