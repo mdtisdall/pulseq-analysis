@@ -751,7 +751,11 @@ the result has two or more frequencies. A value that breaks a rule raises
 
 **`asc.read_gradient_asc`.** A `$INCLUDE` cycle (a file that includes itself,
 or two files that include each other) raises `ValueError` that names the
-files. A file that two branches include is not a cycle.
+files. A file that two branches include is not a cycle. A line that starts
+with `$INCLUDE` in any case but is not `$INCLUDE`, a name (quoted when it has
+spaces) and optionally a `#` or `//` comment raises `ValueError` that names the
+file, the line number and the line. An included field wins over a field that
+the including file sets after its `$INCLUDE` line.
 
 **`analyses.AnalysisSpec`.** `AnalysisSpec(...)` raises `ValueError` for a
 `necessary` name that is not in `params`, a name that has both a default and a

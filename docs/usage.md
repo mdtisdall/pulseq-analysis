@@ -535,8 +535,12 @@ amplitudes. `TIME_TOLERANCE` is 1e-9 s.
 
 **`asc`.** Besides `hardware_from_asc`, `asc.read_gradient_asc(path)` gives
 the fields of a `.asc` file, with the fields of each file that an `$INCLUDE`
-line names, and `asc.hardware_name(asc)` gives the name of the component in
-those fields.
+line names (an included field wins over a field that the file sets after the
+`$INCLUDE` line), and `asc.hardware_name(asc)` gives the name of the component
+in those fields. A `$INCLUDE` line is `$INCLUDE` in any case, a name (in double
+quotes when it has spaces) and optionally a comment that starts with `#` or
+`//`. Any other line that starts with `$INCLUDE` raises `ValueError` that
+names the file and the line.
 
 **`extensions`.** `refuse_rotations(seq)` raises `NotImplementedError` when
 `seq` uses the Pulseq rotation extension, and `refuse_unsigned(seq)` raises

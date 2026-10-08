@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 
@@ -39,6 +41,52 @@ def test_included_fields_replace_fields_with_the_same_name(tmp_path):
     main = tmp_path / "main.asc"
     main.write_text('a.b[0] = 1\na.b[1] = 2\nc = "old"\n$INCLUDE inc.asc\n')
     assert read_gradient_asc(main) == {"a": {"b": {0: 1, 1: 3}}, "c": "new"}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "$INCLUDE inc.asc",
+        "$include inc.asc",
+        "$Include inc.asc",
+        '$INCLUDE "inc.asc"',
+        "  $INCLUDE inc.asc  # the SAFE parameters",
+        "$INCLUDE inc.asc // the SAFE parameters",
+        '$INCLUDE "inc.asc" # the SAFE parameters',
+    ],
+    ids=["upper", "lower", "mixed", "quoted", "hash-comment", "slash-comment", "quoted-comment"],
+)
+def test_include_line_forms_that_read_the_included_file(tmp_path, line):
+    (tmp_path / "inc.asc").write_text("y = 2\n")
+    main = tmp_path / "main.asc"
+    main.write_text(f"x = 1\n{line}\n")
+    assert read_gradient_asc(main) == {"x": 1, "y": 2}
+
+
+def test_include_line_with_a_quoted_name_with_spaces(tmp_path):
+    (tmp_path / "my safety.asc").write_text("y = 2\n")
+    main = tmp_path / "main.asc"
+    main.write_text('x = 1\n$INCLUDE "my safety.asc" # the SAFE parameters\n')
+    assert read_gradient_asc(main) == {"x": 1, "y": 2}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "$INCLUDE",
+        "$include   ",
+        "$INCLUDE inc.asc junk",
+        '$INCLUDE "inc.asc" junk',
+        '$INCLUDE "inc.asc',
+    ],
+    ids=["no-name", "no-name-lower", "junk", "quoted-junk", "open-quote"],
+)
+def test_include_line_that_does_not_parse_raises(tmp_path, line):
+    (tmp_path / "inc.asc").write_text("y = 2\n")
+    main = tmp_path / "main.asc"
+    main.write_text(f"x = 1\n{line}\n")
+    with pytest.raises(ValueError, match=rf"main\.asc.*line 2.*{re.escape(repr(line))}"):
+        read_gradient_asc(main)
 
 
 def test_hardware_name():
