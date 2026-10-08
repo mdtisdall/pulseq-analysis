@@ -33,9 +33,7 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
-    loaded,
     raster_4us_sequence,
-    signed,
     spin_echo_sequence,
     waveform_sequence,
 )
@@ -55,7 +53,7 @@ from pulseq_analysis.seq_index import (
     sequence_index,
 )
 from pulseq_analysis.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
-from pulseq_analysis.snapshot import Snapshot, _kept_results
+from pulseq_analysis.snapshot import Snapshot, _kept_results, load
 
 
 def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
@@ -66,11 +64,11 @@ def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():
     gx = pp.make_trapezoid(
         channel="x", amplitude=amplitude, rise_time=200e-6, flat_time=1e-3, system=SYSTEM
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
     (block_id,) = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     peak_hz_per_m = amplitude
@@ -111,7 +109,7 @@ def test_the_values_do_not_depend_on_the_gamma_of_the_system():
     equal values. The values are in the units of pypulseq, with no gamma."""
     other = copy.copy(SYSTEM)
     other.gamma = 0.9 * SYSTEM.gamma
-    first, second = loaded(waveform_sequence(SYSTEM)), loaded(waveform_sequence(other))
+    first, second = load(waveform_sequence(SYSTEM)), load(waveform_sequence(other))
     window = (0.0, sequence_index(first).end_s / 2)
 
     assert other.gamma != SYSTEM.gamma
@@ -127,8 +125,8 @@ def test_the_values_of_a_negated_waveform_are_equal():
     """The same sequence with each amplitude times -1 gives exactly equal values of
     `gradient_peaks` (with and without a window) and `block_gradient_values`: a value is
     a magnitude, so it does not depend on the sign of a gradient, or of a gamma."""
-    positive = loaded(waveform_sequence(SYSTEM))
-    negative = loaded(waveform_sequence(SYSTEM, sign=-1.0))
+    positive = load(waveform_sequence(SYSTEM))
+    negative = load(waveform_sequence(SYSTEM, sign=-1.0))
     window = (0.0, sequence_index(positive).end_s / 2)
 
     assert gradient_peaks(positive).reason is None
@@ -148,11 +146,11 @@ def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
     gx = pp.make_trapezoid(
         channel="x", amplitude=amplitude, rise_time=rise_time, flat_time=1e-3, system=SYSTEM
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
     window = (0.0, gx.delay + rise_time / 2)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap, window=window)
 
     # The window keeps the ramp from (0, 0) to (rise_time / 2, amplitude / 2), a
@@ -176,10 +174,10 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
     # A waveform that is not symmetric, so its largest magnitude is not at the center.
     waveform = 0.3 * SYSTEM.max_grad * np.sin(np.pi * t / (1.5 * n * dt))
     gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     block = seq.get_block(1)
@@ -190,10 +188,10 @@ def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
 def test_no_gradients_sets_reason():
     """A sequence with no gradient at all: `reason` is set, and every numeric
     field is its zero value (0.0, or None for a block field)."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(2e-3))
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     assert result.reason == NO_GRADIENTS
@@ -219,11 +217,11 @@ def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
     # An asymmetric waveform, so the largest slope is not obviously at one place.
     waveform = 0.3 * SYSTEM.max_grad * np.sin(2 * np.pi * t / (1.3 * n * dt))
     gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
     block = seq.get_block(1)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     times = np.concatenate(([0.0], block.gx.tt, [block.gx.shape_dur]))
@@ -259,14 +257,14 @@ def test_largest_over_several_blocks_and_axes_credits_the_first_block_with_that_
         flat_time=100e-6,
         system=SYSTEM,
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx_small)
     seq.add_block(gy)
     seq.add_block(gx_big)
     seq.add_block(gx_big)  # the same event again: the credit must stay on the first block
     block_ids = list(seq.block_events)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     assert result.axes["x"].peak_hz_per_m == pytest.approx(0.8 * SYSTEM.max_grad)
@@ -288,12 +286,12 @@ def test_window_that_cuts_a_ramp_gives_the_slew_of_the_part_inside_the_window():
     times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
     amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
     gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
     window = (100e-6, 300e-6)  # inside the first two segments; the steepest segment
     # (900 to 1100 us, 750 * mg) is outside the window.
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap, window=window)
 
     expected_slew_hz_per_m_per_s = 500 * mg  # the slope of the 0-200 us segment
@@ -309,10 +307,10 @@ def test_slew_time_is_the_start_of_the_steepest_segment():
     times = [0.0, 200e-6, 400e-6, 900e-6, 1100e-6]
     amplitudes = [0.0, 0.1 * mg, 0.15 * mg, 0.15 * mg, 0.0]
     gx = pp.make_extended_trapezoid(channel="x", times=times, amplitudes=amplitudes, system=SYSTEM)
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(750 * mg)
@@ -338,12 +336,12 @@ def test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit():
         times=np.array([0.0, 1, 2, 6, 8]) * raster,
         system=SYSTEM,
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(one)
     seq.add_block(two)
     block_ids = list(seq.block_events)
 
-    snap = loaded(seq)
+    snap = load(seq)
     x = gradient_peaks(snap).axes["x"]
 
     assert x.max_slew_hz_per_m_per_s == pytest.approx(a / raster)
@@ -376,11 +374,11 @@ def test_segment_of_an_earlier_block_with_the_slew_of_a_junction_step_takes_the_
         times=np.array([0.0, 2, 4]) * raster,
         system=SYSTEM,
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(one)
     seq.add_block(two)
     block_ids = list(seq.block_events)
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
     assert values.junction_hz_per_m_per_s["x"][1] == values.slew_hz_per_m_per_s["x"][0]
 
@@ -407,11 +405,11 @@ def test_vector_peak_of_g_compares_different_triples_across_blocks():
     gy_b = pp.make_trapezoid(
         channel="y", amplitude=amp_b, rise_time=200e-6, flat_time=200e-6, system=SYSTEM
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(gx_a)
     seq.add_block(gx_b, gy_b)
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     expected_vector_peak_hz_per_m = math.sqrt(2) * amp_b
@@ -445,7 +443,7 @@ def test_junction_step_between_extended_trapezoids_is_reported_as_the_slew():
     seq = _junction_sequence()
     _block_a_id, block_b_id = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     expected_slew_hz_per_m_per_s = step / _RASTER
@@ -468,7 +466,7 @@ def test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system(tm
     _block_a_id, block_b_id = built.block_events
 
     for seq in (read, built):
-        snap = loaded(seq)
+        snap = load(seq)
         result = gradient_peaks(snap)
 
         # The file stores the amplitudes with fewer digits: 2e-5 relative in the value.
@@ -489,7 +487,7 @@ def test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_it
     seq = _gradient_ends_non_zero_before_delay_sequence()
     block_a_id, _block_b_id = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     expected_slew_hz_per_m_per_s = last_value / _RASTER
@@ -505,7 +503,7 @@ def _end_step_sequence(flat_time: float, early: float = 0.0) -> pp.Sequence:
     trapezoid is `early` before the end of its block, which is the end of the sequence.
     pypulseq accepts an `early` of 0, of up to 1e-9 s (the time is on the raster within that
     tolerance), or of a multiple of the gradient raster."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_trapezoid(
             channel="x", amplitude=1e5, rise_time=100e-6, flat_time=flat_time, system=SYSTEM
@@ -531,7 +529,7 @@ def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_rou
     block_a_id, _block_b_id = read.block_events
 
     for seq in (built, read):
-        snap = loaded(seq)
+        snap = load(seq)
         result = gradient_peaks(snap).axes["x"]
         assert result.max_slew_hz_per_m_per_s == pytest.approx(1e9, rel=1e-6)
         assert result.slew_block == block_a_id
@@ -552,7 +550,7 @@ def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_befo
     `early` of 0.9 * `TIME_TOLERANCE` is before the end of that window, and is not counted) and the
     values of each block agree with the oracle."""
     seq = _end_step_sequence(100e-6, early)
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     block_a_id, block_b_id = seq.block_events
     counted = early > TIME_TOLERANCE
@@ -588,7 +586,7 @@ def test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_bl
     seq = _first_block_starts_non_zero_sequence()
     (block_id,) = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     expected_slew_hz_per_m_per_s = start_value / _RASTER
@@ -607,7 +605,7 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_
     seq = _gradient_ends_non_zero_before_delay_sequence()
     block_a_id, _block_b_id = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     inside_result = gradient_peaks(snap, window=(0.5e-3, 1.0e-3))
     assert inside_result.reason == NO_GRADIENTS_IN_WINDOW
     assert inside_result.axes["x"].max_slew_hz_per_m_per_s == 0.0
@@ -633,7 +631,7 @@ def test_a_first_value_that_is_not_zero_after_a_delay_has_a_ramp_from_zero_in_it
     event. The junction of that block is 0."""
     seq = _delayed_junction_sequence()
     _block_a_id, block_b_id = seq.block_events
-    snap = loaded(seq)
+    snap = load(seq)
     block_start = float(sequence_index(snap).start_s[1])
     assert block_start > 0.0
 
@@ -654,7 +652,7 @@ def test_window_that_cuts_the_ramp_from_zero_of_a_delayed_event_has_the_part_ins
     not have the ramp: its slew is the slope of the ramps of the first block."""
     seq = _delayed_junction_sequence()
     block_a_id, block_b_id = seq.block_events
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     ramp_start = float(index.start_s[1]) + _DELAY - _RASTER / 2
     segment_slope = 0.3 * SYSTEM.max_grad / 100e-6  # the ramps of block 1
@@ -690,13 +688,13 @@ def test_window_that_cuts_a_block_credits_it_on_a_tie_with_a_later_block():
     play order, and the peak time is the window start, the first time block 1 reaches the
     peak."""
     g = _tie_trapezoid("x")
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(g)
     seq.add_block(g)
     seq.add_block(pp.make_delay(1e-3))
     block_1_id = next(iter(seq.block_events))
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap, window=(0.4e-3, 2.0e-3))
 
     axis = result.axes["x"]
@@ -711,11 +709,11 @@ def test_vector_peak_time_on_a_tie_is_the_first_time_in_play_order():
     both blocks, from two different triples of events, and the vector peak time is the first
     time that block 1 reaches it (the end of its rise, 0.2 ms), not a time in block 2, and the
     vector peak block is block 1."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(_tie_trapezoid("x"))
     seq.add_block(_tie_trapezoid("y"))
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     assert result.vector_peak_time_s == pytest.approx(200e-6)
@@ -726,10 +724,10 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
     """A y event scaled to amplitude 0 (as a phase encode loop makes for the centre line of
     k-space), with an x trapezoid in the same block: the y axis has a peak and a slew of 0, and
     no block is credited for either."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(_tie_trapezoid("x"), pp.scale_grad(_tie_trapezoid("y"), 0.0))
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     axis = result.axes["y"]
@@ -937,7 +935,7 @@ def test_matches_oracle_on_synthetic_sequences(make_seq):
     sequence among them. `border_sequence` and `raster_4us_sequence` have a gradient that is not 0
     at a block junction."""
     seq = make_seq()
-    snap = loaded(seq)
+    snap = load(seq)
     windows = _oracle_windows(snap, np.random.default_rng(20261007), 12)
     windows.append((0.0, sequence_index(snap).end_s / 2))
     _assert_matches_oracle_on_windows(snap, windows)
@@ -962,8 +960,8 @@ def test_matches_oracle_on_the_sequences_of_the_oracle_tests(build):
     pypulseq-issues 12 (a delay before a first value that is not 0, and an end that is not 0
     before the end of its block), a zero gap with a step, a short gap, a long gap, a first and a
     last value that are not 0, and one block with two axes."""
-    seq = signed(build())
-    snap = loaded(seq)
+    seq = build()
+    snap = load(seq)
     windows = _oracle_windows(snap, np.random.default_rng(20261007), 40)
     _assert_matches_oracle_on_windows(snap, windows)
 
@@ -1020,7 +1018,7 @@ def _random_gradient_sequence(rng: np.random.Generator) -> pp.Sequence:
     trapezoid, an extended trapezoid or an arbitrary gradient (`make_*` functions, so
     pypulseq's own checks apply) that starts and ends at 0, so every block junction
     step is 0 and no gap has a ramp."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     n_blocks = int(rng.integers(2, 7))
     for _ in range(n_blocks):
         n_axes = int(rng.integers(0, 4))
@@ -1046,7 +1044,7 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
     above)."""
     rng = np.random.default_rng(seed)
     seq = _random_gradient_sequence(rng)
-    snap = loaded(seq)
+    snap = load(seq)
     windows = _oracle_windows(snap, rng, 6)
     _assert_matches_oracle_on_windows(snap, windows)
 
@@ -1061,7 +1059,7 @@ def test_matches_oracle_on_random_sequences_with_ends_that_are_not_zero_next_to_
     ramp points, the points and the edges of the blocks."""
     rng = np.random.default_rng(seed)
     seq = random_gap_sequence(rng)
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_matches_oracle_on_windows(snap, _oracle_windows(snap, rng, 8))
 
 
@@ -1073,7 +1071,7 @@ def _junction_sequence() -> pp.Sequence:
     segment's own slope: block 1 ends at `x`, block 2 starts at `x - step`."""
     step = 0.9 * _MAX_STEP
     x = 0.3 * SYSTEM.max_grad
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, x, x], system=SYSTEM
@@ -1095,7 +1093,7 @@ def _junction_and_segment_sequence() -> pp.Sequence:
     same step in one gradient raster: the junction step and that segment have the same slew."""
     step = 0.9 * _MAX_STEP
     x = 0.3 * SYSTEM.max_grad
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x", times=[0.0, 100e-6, 200e-6], amplitudes=[0.0, x, x], system=SYSTEM
@@ -1114,7 +1112,7 @@ def _junction_and_segment_sequence() -> pp.Sequence:
 
 def _gradient_ends_non_zero_before_delay_sequence() -> pp.Sequence:
     last_value = 0.9 * _MAX_STEP
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x",
@@ -1136,7 +1134,7 @@ def _delayed_junction_sequence() -> pp.Sequence:
     the end of the delay. The step is 90% of the largest step, larger than every slope here
     (block 1 has ramps of 100 us)."""
     step = 0.9 * _MAX_STEP
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_trapezoid(
             channel="x",
@@ -1156,7 +1154,7 @@ def _delayed_junction_sequence() -> pp.Sequence:
 
 def _first_block_starts_non_zero_sequence() -> pp.Sequence:
     start_value = 0.9 * _MAX_STEP
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_extended_trapezoid(
             channel="x",
@@ -1249,13 +1247,13 @@ _AGREEMENT_SEQUENCES = [
     _gradient_ends_non_zero_before_delay_sequence,
     _first_block_starts_non_zero_sequence,
     _delayed_junction_sequence,
-    lambda: signed(delayed_sequence()),
-    lambda: signed(early_end_sequence()),
-    lambda: signed(zero_gap_sequence()),
-    lambda: signed(short_gap_sequence()),
-    lambda: signed(long_gap_sequence()),
-    lambda: signed(non_zero_ends_sequence()),
-    lambda: signed(vector_sequence()),
+    lambda: delayed_sequence(),
+    lambda: early_end_sequence(),
+    lambda: zero_gap_sequence(),
+    lambda: short_gap_sequence(),
+    lambda: long_gap_sequence(),
+    lambda: non_zero_ends_sequence(),
+    lambda: vector_sequence(),
     *(
         lambda seed=seed: _random_gradient_sequence(np.random.default_rng(seed))
         for seed in range(4)
@@ -1292,7 +1290,7 @@ _AGREEMENT_IDS = [
 def test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file(make_seq):
     """The maxima of `block_gradient_values` over the blocks are the whole-file values of
     `gradient_peaks`, with the same block and time."""
-    _assert_block_values_agree_with_gradient_peaks(loaded(make_seq()))
+    _assert_block_values_agree_with_gradient_peaks(load(make_seq()))
 
 
 def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time():
@@ -1304,12 +1302,12 @@ def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time
     gy = pp.make_trapezoid(
         channel="y", amplitude=0.25 * mg, rise_time=100e-6, flat_time=200e-6, system=SYSTEM
     )
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(_tie_trapezoid("x"), gy)  # x: 0.5 * mg, rise 0.2 ms
     seq.add_block(_tie_trapezoid("z"))
     seq.add_block(pp.make_delay(1e-3))
 
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
 
     start_s = sequence_index(snap).start_s
@@ -1339,7 +1337,7 @@ def test_first_block_junction_step_uses_zero_before_the_block():
     is that value divided by the gradient raster, and the other axes have 0."""
     start_value = 0.9 * _MAX_STEP
 
-    values = block_gradient_values(loaded(_first_block_starts_non_zero_sequence()))
+    values = block_gradient_values(load(_first_block_starts_non_zero_sequence()))
 
     assert values.junction_hz_per_m_per_s["x"][0] == pytest.approx(start_value / _RASTER)
     assert values.junction_hz_per_m_per_s["y"][0] == 0.0
@@ -1364,15 +1362,13 @@ def test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time()
         ),
         0.0,
     )
-    seq = signed(
-        sequence(
-            [extended([0, 100e-6], [0, U])],
-            [pp.make_delay(200e-6)],
-            [zero],
-        )
+    seq = sequence(
+        [extended([0, 100e-6], [0, U])],
+        [pp.make_delay(200e-6)],
+        [zero],
     )
 
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
 
     np.testing.assert_allclose(values.start_s, [0.0, 100e-6, 300e-6], rtol=0, atol=1e-12)
@@ -1398,7 +1394,7 @@ def test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_sy
     assert read.grad_raster_time == pytest.approx(RASTER_4US)
 
     for seq in (read, built):
-        snap = loaded(seq)
+        snap = load(seq)
         junction = block_gradient_values(snap).junction_hz_per_m_per_s
 
         assert junction["y"][0] == 0.0
@@ -1418,14 +1414,14 @@ def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
     seq = _junction_sequence()
     seq.add_block(pp.make_delay(1e-3))
 
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
 
     np.testing.assert_array_equal(values.junction_hz_per_m_per_s["x"][[0, 2]], [0.0, 0.0])
     assert values.junction_hz_per_m_per_s["x"][1] == pytest.approx(step / _RASTER)
 
     last_value = 0.9 * _MAX_STEP
-    after_delay = block_gradient_values(loaded(_gradient_ends_non_zero_before_delay_sequence()))
+    after_delay = block_gradient_values(load(_gradient_ends_non_zero_before_delay_sequence()))
     np.testing.assert_array_equal(after_delay.junction_hz_per_m_per_s["x"], [0.0, 0.0])
     assert after_delay.slew_hz_per_m_per_s["x"][0] == pytest.approx(last_value / _RASTER)
     assert after_delay.slew_time_s["x"][0] == pytest.approx(200e-6, abs=1e-12)
@@ -1434,7 +1430,7 @@ def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
 
 def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block():
     seq = gre_sequence(num_trs=3)
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
 
     values = block_gradient_values(snap)
@@ -1460,12 +1456,12 @@ def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block()
 
 
 def test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable():
-    first = block_gradient_values(loaded(gre_sequence()))
-    second = block_gradient_values(loaded(gre_sequence()))
+    first = block_gradient_values(load(gre_sequence()))
+    second = block_gradient_values(load(gre_sequence()))
     assert first is not second
     assert first == second
-    assert first != block_gradient_values(loaded(gre_sequence(num_trs=5)))
-    assert first != block_gradient_values(loaded(spin_echo_sequence()))
+    assert first != block_gradient_values(load(gre_sequence(num_trs=5)))
+    assert first != block_gradient_values(load(spin_echo_sequence()))
     with pytest.raises(TypeError):
         hash(first)
 
@@ -1473,13 +1469,11 @@ def test_block_gradient_values_of_two_equal_sequences_are_equal_and_not_hashable
 def test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable():
     seq = spin_echo_sequence()
     window = (0.0, 1e-3)
-    snap = loaded(seq)
+    snap = load(seq)
     first, second = gradient_peaks(snap, window=window), gradient_peaks(snap, window=window)
     assert first is not second
     assert first == second
-    assert gradient_peaks(loaded(spin_echo_sequence())) == gradient_peaks(
-        loaded(spin_echo_sequence())
-    )
+    assert gradient_peaks(load(spin_echo_sequence())) == gradient_peaks(load(spin_echo_sequence()))
     other = dataclasses.replace(first, vector_peak_hz_per_m=first.vector_peak_hz_per_m + 1.0)
     assert other != first
     assert first != gradient_peaks(snap, window=(0.0, 2e-3))
@@ -1488,7 +1482,7 @@ def test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable():
 
 
 def test_axis_result_stays_hashable():
-    result = gradient_peaks(loaded(spin_echo_sequence())).axes["x"]
+    result = gradient_peaks(load(spin_echo_sequence())).axes["x"]
     assert hash(result) == hash(dataclasses.replace(result))
 
 
@@ -1503,7 +1497,7 @@ _BLOCK_VALUE_DICTS = (
 
 def test_the_arrays_of_block_gradient_values_are_read_only_and_not_views_of_the_index():
     seq = gre_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
     index = sequence_index(snap)
     arrays = [values.block_id, values.start_s, values.vector_peak_hz_per_m]
@@ -1527,7 +1521,7 @@ def test_the_arrays_of_block_gradient_values_are_read_only_and_not_views_of_the_
 
 
 def test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_change():
-    values = block_gradient_values(loaded(gre_sequence()))
+    values = block_gradient_values(load(gre_sequence()))
     for name in _BLOCK_VALUE_DICTS:
         field = getattr(values, name)
         assert isinstance(field, FrozenDict)
@@ -1543,7 +1537,7 @@ def test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_chang
 
 @pytest.mark.parametrize("window", [None, (0.0, 1e-3)], ids=["whole", "window"])
 def test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change(window):
-    result = gradient_peaks(loaded(spin_echo_sequence()), window=window)
+    result = gradient_peaks(load(spin_echo_sequence()), window=window)
     assert isinstance(result.axes, FrozenDict)
     assert list(result.axes) == ["x", "y", "z"]
     with pytest.raises(TypeError):
@@ -1553,7 +1547,7 @@ def test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change(wind
 
 
 def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients():
-    result = gradient_peaks(loaded(pp.Sequence(SYSTEM)))
+    result = gradient_peaks(load(pp.Sequence(SYSTEM)))
     assert result.reason == NO_GRADIENTS
     assert isinstance(result.axes, FrozenDict)
 
@@ -1561,7 +1555,7 @@ def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients():
 def test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window():
     """The spin echo has gradients, but none in a window of its first RF block."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     assert index.gx[0] == 0 and index.gy[0] == 0 and index.gz[0] == 0
     result = gradient_peaks(snap, window=(0.0, index.duration_s[0] / 2))
@@ -1591,7 +1585,7 @@ def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of,
     """A `window` with a start equal to its end or after its end raises `ValueError`, before
     `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="must have a start before its end"):
@@ -1612,7 +1606,7 @@ def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_o
     ("finite"), before the rules of the order and of the range, and before `gradient_peaks`
     reads the sequence index or the events."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="finite"):
@@ -1634,7 +1628,7 @@ def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of
     """A `window` with a start or an end that is a `bool`, a string or `None` raises
     `TypeError`, before `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(TypeError, match="window (start|end)"):
@@ -1656,7 +1650,7 @@ def test_gradient_peaks_refuses_a_window_that_is_not_a_pair(window_of, monkeypat
     """A `window` that is not a tuple or a list of two items raises `TypeError`, before
     `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(TypeError, match="must be a pair"):
@@ -1667,7 +1661,7 @@ def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
     """A `window` that is a list, or has an `int` or numpy scalars, gives the result of the
     same window as a tuple of floats."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     total = sequence_index(snap).end_s
     expected = gradient_peaks(snap, window=(0.0, total / 2))
     assert gradient_peaks(snap, window=[0.0, total / 2]) == expected
@@ -1687,7 +1681,7 @@ def test_gradient_peaks_refuses_a_window_outside_the_sequence(window_of, monkeyp
     `TIME_TOLERANCE` after the end of the sequence raises `ValueError`, before
     `gradient_peaks` reads the events (it needs the sequence index for the length)."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "_event_values")
     with pytest.raises(ValueError, match="is not within the sequence"):
@@ -1698,7 +1692,7 @@ def test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence():
     """A `window` that starts `TIME_TOLERANCE / 2` before 0 and ends `TIME_TOLERANCE / 2`
     after the end of the sequence is accepted, and `range_s` is clipped to the sequence."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     total = sequence_index(snap).end_s
     result = gradient_peaks(snap, window=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
     assert result.range_s == (0.0, total)
@@ -1710,7 +1704,7 @@ def test_a_window_outside_the_sequence_within_the_tolerance_gives_an_empty_range
     `TIME_TOLERANCE` is accepted, and its range is clipped to a range of length 0 at that end,
     never with its start after its end. It has no gradient event and the zero values."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     total = sequence_index(snap).end_s
     window = (total + 5e-10, total + 9e-10) if at_end else (-9e-10, -5e-10)
     edge = total if at_end else 0.0
@@ -1738,7 +1732,7 @@ def _zero_duration_blocks_sequence() -> pp.Sequence:
     seq.add_block(label)
     seq.add_block(pp.make_trapezoid(channel="x", area=700, system=SYSTEM))
     seq.add_block(label)
-    return signed(seq)
+    return seq
 
 
 def _random_windows(snap: Snapshot, rng: np.random.Generator, count: int) -> list:
@@ -1782,7 +1776,7 @@ def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq)
     result equal (`==`) to the result of a second snapshot of the same build whose kept data of
     `gradient_peaks` is empty and is built by this call (a new snapshot for each window)."""
     seq = make_seq()
-    snap = loaded(seq)
+    snap = load(seq)
     windows = _random_windows(snap, np.random.default_rng(20261006), 30)
     kept = _kept_results(snap)
     kept_data = None
@@ -1791,7 +1785,7 @@ def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq)
         if kept_data is None:
             kept_data = kept["block_data"]
         assert kept["block_data"] is kept_data
-        assert with_kept == gradient_peaks(loaded(seq), window=window), window
+        assert with_kept == gradient_peaks(load(seq), window=window), window
 
 
 _EDGE_WINDOWS = pytest.mark.parametrize(
@@ -1823,7 +1817,7 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
     of a block again, for a window with its edges in
     blocks and for one with its edges on block edges."""
     seq = build_repeating(1000)
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     gradient_peaks(snap, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
     window = _window_over_tr_edges(index, first_play, last_play, cut)
@@ -1849,7 +1843,7 @@ def test_a_window_of_gradient_peaks_calls_no_get_block(monkeypatch, first_play, 
     `_events.event_points`). The window with the edges in blocks cuts two blocks and the other
     cuts none."""
     seq = build_repeating(1000)
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     gradient_peaks(snap, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
     start, end = _window_over_tr_edges(index, first_play, last_play, cut)
@@ -1925,10 +1919,10 @@ def test_the_values_of_each_sequence_of_pypulseq_issue_12_are_those_of_matlab_pu
     in both blocks. Block 2 has it from the first time that has a value of A on the side of block
     2: at 200 us for the first sequence (block 2 starts at 200 us, where the ramp to 0 starts) and
     at 300 us for the second (block 1 lasts to 300 us, and the value after 300 us is in block 2)."""
-    seq = signed(build())
+    seq = build()
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
 
     axis = result.axes["x"]
@@ -1967,10 +1961,10 @@ def test_a_zero_gap_with_two_different_values_gives_a_step_credited_to_the_later
     integral of the square is 3 U^2 times 100 us, over 300 us. The junction of block 2 is U / DT,
     and the slew of each block is that of its segments: U / 100 us, in the rise of block 1, and
     in the fall of block 2."""
-    seq = signed(zero_gap_sequence())
+    seq = zero_gap_sequence()
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_axis(
         gradient_peaks(snap).axes["x"],
         peak=2 * U,
@@ -1995,10 +1989,10 @@ def test_a_window_has_the_step_at_its_start_and_not_the_step_at_its_end():
     the slew is that of the rise, U / 100 us from 100 us in block 1, and the RMS is U times
     sqrt(7/3). From 200 to 300 us, which starts at the step: the step is in it, and the last point
     of block 1 is not: the peak is U in block 2, and the RMS is U / sqrt(3)."""
-    seq = signed(zero_gap_sequence())
+    seq = zero_gap_sequence()
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_axis(
         gradient_peaks(snap, window=(150e-6, 250e-6)).axes["x"],
         peak=2 * U,
@@ -2039,15 +2033,13 @@ def test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step(
     step is not in the window, and the segment of the window is flat) and the RMS is U. A window
     from 100 to 250 us has the step: the vector peak is 3 U at 200 us, in block 2, and the slew is
     the step, 2 U / DT, in block 2."""
-    seq = signed(
-        sequence(
-            [extended([0, 100e-6, 200e-6], [0, U, U])],
-            [extended([0, 100e-6], [3 * U, 0])],
-        )
+    seq = sequence(
+        [extended([0, 100e-6, 200e-6], [0, U, U])],
+        [extended([0, 100e-6], [3 * U, 0])],
     )
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     at_the_step = gradient_peaks(snap, window=(100e-6, 200e-6))
 
     assert at_the_step.vector_peak_hz_per_m == pytest.approx(U, rel=1e-9)
@@ -2088,10 +2080,10 @@ def test_a_short_gap_gives_a_line_credited_to_the_later_block():
     peak is 2.5 U, the value of the line at 105 us, credited to block 2 (the block of the line)
     at 105 us, and the slew is that of the line, from 105 us in block 2. The vector peak has the
     same value and time, in block 1: the block that has 105 us."""
-    seq = signed(short_gap_sequence())
+    seq = short_gap_sequence()
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_axis(
         gradient_peaks(snap).axes["x"],
         peak=3 * U,
@@ -2143,10 +2135,10 @@ def test_a_long_gap_gives_the_ramps_of_its_ends_credited_to_the_blocks_of_their_
     block. A window from 102.5 to 150 us has half of the ramp to 0: the peak is 1.5 U and the slew
     is 6e9, each at 102.5 us in block 1, but the vector peak is in block 2, the block that has
     102.5 us."""
-    seq = signed(long_gap_sequence())
+    seq = long_gap_sequence()
     block_1, block_2, _block_3 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_axis(
         gradient_peaks(snap).axes["x"],
         peak=3 * U,
@@ -2203,10 +2195,10 @@ def test_a_first_value_and_a_last_value_that_are_not_zero_are_steps_at_the_ends_
     2, and the RMS is 2 U / sqrt(3). A window from 50 to 200 us cuts the first segment at 1.5 U:
     its slope, 3 U / 100 us, is more than that of the second segment, and its time is the window
     start."""
-    seq = signed(non_zero_ends_sequence())
+    seq = non_zero_ends_sequence()
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     _assert_axis(
         gradient_peaks(snap).axes["x"],
         peak=3 * U,
@@ -2250,10 +2242,10 @@ def test_the_vector_peak_of_one_block_with_two_axes_is_at_a_point_of_one_axis():
     is a triangle of 4 U with the top at 150 us. The vector peak is 5 U at 150 us, the time of a
     point of y only (it is hypot(3 U, 2.667 U) at 100 us and hypot(3 U, 1.6 U) at 300 us). From
     160 to 400 us, the largest vector is at the start of the window, where y is 4 U x 240 / 250."""
-    seq = signed(vector_sequence())
+    seq = vector_sequence()
     (block,) = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     result = gradient_peaks(snap)
     assert result.vector_peak_hz_per_m == pytest.approx(5 * U, rel=1e-9)
     assert result.vector_peak_time_s == pytest.approx(150e-6, rel=0, abs=1e-12)
@@ -2276,7 +2268,7 @@ def test_a_window_edge_next_to_a_block_edge_credits_the_vector_peak_by_time():
     step at its start, 15.76 mT/m, in block 2, for the peak of the axis and for the vector peak."""
     seq = raster_4us_sequence()
     block_1, block_2 = seq.block_events
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     end_s, edge = float(index.end_s), float(index.start_s[1])
     top, step_to = 16e-3 * GAMMA_1H, 15.76e-3 * GAMMA_1H
@@ -2308,18 +2300,16 @@ def test_a_vector_peak_tie_goes_to_the_earlier_time_when_the_later_block_has_it(
     block 3 has the earlier time (300 us) and block 2 has the later one (300 us + 1 fs), and the
     credit goes to block 3 by the earlier time, in the whole file and in a window that has both
     blocks whole. The oracle gives the same block."""
-    seq = signed(
-        sequence(
-            [pp.make_delay(100e-6)],
-            [extended([0, 100e-6, 200e-6 + 1e-15], [0, A, A])],
-            [extended([0, 50e-6, 100e-6], [A / 2, A / 2, 0], channel="y")],
-            [pp.make_delay(100e-6)],
-        )
+    seq = sequence(
+        [pp.make_delay(100e-6)],
+        [extended([0, 100e-6, 200e-6 + 1e-15], [0, A, A])],
+        [extended([0, 50e-6, 100e-6], [A / 2, A / 2, 0], channel="y")],
+        [pp.make_delay(100e-6)],
     )
     _, _, block_3, _ = seq.block_events
     expected = math.hypot(A, A / 2)
 
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
     np.testing.assert_allclose(
         values.vector_peak_hz_per_m, [0.0, expected, expected, 0.0], rtol=1e-9
@@ -2344,10 +2334,10 @@ def test_a_window_credits_the_segment_before_a_step_of_the_same_slew():
     trapezoid = pp.make_trapezoid(
         channel="x", amplitude=U, rise_time=10e-6, flat_time=0.0, fall_time=10e-6, system=SYSTEM
     )
-    seq = signed(sequence([trapezoid], [extended([0, 100e-6], [U, 0])]))
+    seq = sequence([trapezoid], [extended([0, 100e-6], [U, 0])])
     block_1, block_2 = seq.block_events
 
-    snap = loaded(seq)
+    snap = load(seq)
     x = gradient_peaks(snap, window=(12e-6, 60e-6)).axes["x"]
 
     assert x.peak_hz_per_m == pytest.approx(U, rel=1e-9)
@@ -2386,7 +2376,6 @@ def test_the_gap_rule_uses_the_gradient_raster_of_the_file_not_of_seq_system(tmp
             channel="x", times=[0.0, 400e-6], amplitudes=[w, 0.0], system=system
         )
     )
-    signed(built)
     path = tmp_path / "gap_4us.seq"
     built.write(str(path))
     read = pp.Sequence()
@@ -2395,7 +2384,7 @@ def test_the_gap_rule_uses_the_gradient_raster_of_the_file_not_of_seq_system(tmp
     assert read.grad_raster_time == pytest.approx(RASTER_4US)
 
     for seq in (read, built):
-        snap = loaded(seq)
+        snap = load(seq)
         values = block_gradient_values(snap)
         # The file stores the amplitudes with fewer digits: 2e-5 relative in the value.
         np.testing.assert_array_equal(values.junction_hz_per_m_per_s["x"], [0.0, 0.0])
@@ -2457,13 +2446,13 @@ _BLOCK_VALUE_SEQUENCES = [
     gre_sequence,
     border_sequence,
     raster_4us_sequence,
-    lambda: signed(delayed_sequence()),
-    lambda: signed(early_end_sequence()),
-    lambda: signed(zero_gap_sequence()),
-    lambda: signed(short_gap_sequence()),
-    lambda: signed(long_gap_sequence()),
-    lambda: signed(non_zero_ends_sequence()),
-    lambda: signed(vector_sequence()),
+    lambda: delayed_sequence(),
+    lambda: early_end_sequence(),
+    lambda: zero_gap_sequence(),
+    lambda: short_gap_sequence(),
+    lambda: long_gap_sequence(),
+    lambda: non_zero_ends_sequence(),
+    lambda: vector_sequence(),
     *(lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)) for seed in range(14)),
 ]
 _BLOCK_VALUE_IDS = [
@@ -2493,7 +2482,7 @@ def test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has
     sequence). The time of the slew of a block is the time of one of its items with the largest
     slope (two items can have one slope up to the rounding of the times)."""
     seq = make_seq()
-    snap = loaded(seq)
+    snap = load(seq)
     values = block_gradient_values(snap)
 
     for axis in _AXES:

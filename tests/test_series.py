@@ -25,7 +25,6 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
-    loaded,
     raster_4us_sequence,
     spin_echo_sequence,
 )
@@ -33,6 +32,7 @@ from synthetic import (
 from pulseq_analysis._equality import FrozenDict, values_equal
 from pulseq_analysis.analyses import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
 from pulseq_analysis.series import Series, SeriesKind, decode_array, encode_array
+from pulseq_analysis.snapshot import load
 
 _NON_FINITE_MIN = np.array([-np.inf, 0.0, np.nan, 1.5, -np.inf], dtype=np.float32)
 _NON_FINITE_MAX = np.array([np.inf, np.inf, np.nan, 1.5, 0.0], dtype=np.float32)
@@ -496,7 +496,7 @@ def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
     `coord_step`, `bin_samples * dt_s`, with the tolerance), and it equals the series that
     `from_obj` reads from the strict JSON text of its `to_obj`. A sequence with no gradient
     gives no series."""
-    snap = loaded(builder())
+    snap = load(builder())
     kwargs = {} if bin_s is None else {"bin_s": bin_s}
     levels = PNS_SAFE_LEVELS.compute(
         snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds, **kwargs
@@ -519,7 +519,7 @@ def test_the_series_of_gradient_spectrum_is_valid(builder):
     """The series of `gradient.spectrum` for each synthetic sequence and for
     `build_repeating(10)` is a valid `Series` that equals the series that `from_obj` reads from
     its `to_obj`. A sequence with no gradient gives no series."""
-    snap = loaded(builder())
+    snap = load(builder())
 
     series = GRADIENT_SPECTRUM.to_series(GRADIENT_SPECTRUM.compute(snap))
 

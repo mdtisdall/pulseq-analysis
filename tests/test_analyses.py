@@ -18,7 +18,6 @@ from synthetic import (
     GAMMA_1H,
     empty_sequence,
     gre_sequence,
-    loaded,
     spin_echo_sequence,
 )
 
@@ -46,6 +45,7 @@ from pulseq_analysis.grad_spectrum import (
 from pulseq_analysis.pns_levels import BIN_S, pns_levels
 from pulseq_analysis.seq_index import sequence_index
 from pulseq_analysis.series import SeriesKind
+from pulseq_analysis.snapshot import load
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
 _INDEX_RASTERS = ("BlockDurationRaster",)
@@ -331,7 +331,7 @@ def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis
         assert default == value
         assert type(default) is type(value)
     with pytest.raises(TypeError):
-        analysis.compute(loaded(empty_sequence()), unknown=1)
+        analysis.compute(load(empty_sequence()), unknown=1)
 
 
 _SPEC_ARGS = {
@@ -525,7 +525,7 @@ def test_the_spec_of_each_analysis_of_the_package_passes_the_checks(analysis):
 def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(fractions):
     """`GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`, and it
     is not the result of the whole sequence: the window reaches the function."""
-    snap = loaded(gre_sequence(num_trs=4))
+    snap = load(gre_sequence(num_trs=4))
     end_s = sequence_index(snap).end_s
     window = (fractions[0] * end_s, fractions[1] * end_s)
 
@@ -538,7 +538,7 @@ def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(
 def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
     """`GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object (`is`) that
     `gradient_peaks(snap)` keeps, and a result with a window is not that object and not kept."""
-    snap = loaded(gre_sequence(num_trs=4))
+    snap = load(gre_sequence(num_trs=4))
     end_s = sequence_index(snap).end_s
     window = (0.0, end_s / 2)
 
@@ -561,7 +561,7 @@ def test_compute_of_gradient_spectrum_passes_its_arguments_on():
     frequency_oversampling=2.0)` is the object that `gradient_spectrum` keeps for those two
     arguments, and its `window_s` and `frequency_oversampling` are 0.1 and 2.0. So each of the
     three arguments reaches the function."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
 
     default = GRADIENT_SPECTRUM.compute(snap)
     spectrum = GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)
@@ -580,7 +580,7 @@ def test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result():
     """`SEQ_INDEX.compute(snap)` and `GRADIENT_BLOCKS.compute(snap)` are the objects (`is`)
     that `sequence_index(snap)` and `block_gradient_values(snap)` keep for the sequence
     object."""
-    snap = loaded(gre_sequence(num_trs=4))
+    snap = load(gre_sequence(num_trs=4))
 
     assert SEQ_INDEX.compute(snap) is sequence_index(snap)
     assert GRADIENT_BLOCKS.compute(snap) is block_gradient_values(snap)
@@ -613,7 +613,7 @@ def test_compute_of_pns_safe_levels_passes_bin_s_on():
     `bin_samples` is that of the `bin_s`, and `to_series` gives `pns_total` with the
     `coord_step` of that bin. A `bin_s` that `pns_levels` refuses raises the same
     error before the sequence is read."""
-    snap = loaded(gre_sequence(num_trs=4))
+    snap = load(gre_sequence(num_trs=4))
 
     default = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW)
     levels = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW, bin_s=1e-3)
@@ -640,7 +640,7 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times and the `meta`
     of design 4.4) and `pns_above_0` (a RUNS series of `above[_LIMIT]`, in the array order of
     design 4.4), each with the unit "Hz/T"."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     levels = PNS_SAFE_LEVELS.compute(
         snap, hardware=hardware_for_peak(snap, 1.5), thresholds_hz_per_t=(_LIMIT,)
     )
@@ -701,7 +701,7 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     `pns_above_0` and `pns_above_1`, in this order, and the runs of each are `above` of its
     threshold (which are not empty and not equal). With the thresholds swapped the names are
     the same: the two RUNS series swap their runs and their `meta`."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     hardware = hardware_for_peak(snap, 1.5)
     high, low = _LIMIT, 0.5 * _LIMIT
 
@@ -733,7 +733,7 @@ def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     the RSS and the axes of the same spectrum, in this order. `coord_start` is 0 and
     `coord_start + k * coord_step` is `frequency_hz` bit for bit. The `meta` has the
     three values of the call."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     spectrum = GRADIENT_SPECTRUM.compute(snap)
 
     (series,) = GRADIENT_SPECTRUM.to_series(spectrum)
@@ -769,7 +769,7 @@ def test_the_other_three_analyses_give_no_series():
     """`to_series` of `seq.index`, `gradient.peaks` and `gradient.blocks` gives `()`, for
     a sequence with gradients and for one without."""
     for seq in (gre_sequence(num_trs=2), empty_sequence()):
-        snap = loaded(seq)
+        snap = load(seq)
         for analysis in (SEQ_INDEX, GRADIENT_PEAKS, GRADIENT_BLOCKS):
             assert analysis.to_series(analysis.compute(snap)) == ()
 

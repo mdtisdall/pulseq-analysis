@@ -337,8 +337,8 @@ not 0 next to a gap are compared with the SAFE model of the fork on the samples 
 waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`).
 
 A second call of `pns_levels` with the same snapshot and the same arguments gives the
-kept object. Each test makes its snapshot with `synthetic.loaded`, which signs the sequence and
-loads it (`snapshot.load`), and the oracles get the `pp.Sequence`. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
+kept object. Each test makes its snapshot with `snapshot.load`, and the oracles get the
+`pp.Sequence`. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
 the change), or that compares two calculations of one sequence, calls `_compute_levels` through
 the helper `_compute` of the test file. It checks the hardware, the thresholds and `bin_s` as
 `pns_levels` does and gives `_compute_levels` the checked values, so each call runs the model
@@ -1182,9 +1182,7 @@ reference numbering, `_reference_index`, is a plain loop over the blocks with on
 for each event kind: the loop that `diagram_data.diagram_tables` had before it used the
 index. Its `*_first` arrays hold play indexes, as `SequenceIndex` does (the old loop
 kept block ids). The tests load `build_repeating` and `build_worst` from
-`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes. Each builder of `tests/synthetic.py` and
-`tests/scale_sequences.py` gives a signed sequence, and a test makes its snapshot with
-`synthetic.loaded`, which signs a sequence that a test builds by hand and loads it.
+`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes.
 
 #### `test_dense_columns_and_first_arrays_match_the_reference_numbering`
 
@@ -1367,7 +1365,7 @@ with `match="load"`.
 **Checks:** `sequence_index(snap)` returns the same object on a second call for the same
 snapshot, and a snapshot made again from the same sequence gives its own, equal index.
 
-**How:** The test builds `gre_sequence()` and makes a snapshot with `loaded`. Two calls of
+**How:** The test builds `gre_sequence()` and makes a snapshot with `load`. Two calls of
 `sequence_index` must give the same object (`is`). The index of a second snapshot of the
 same sequence must be another object (`is not`) and equal (`==`) to the first.
 
@@ -2661,7 +2659,7 @@ sequences of pypulseq-issues 12 (a first value after a delay, and an end before 
 block), a zero gap with a step, a short gap, a long gap, a first value and a last value that
 are not 0, and one block with two axes.
 
-**How:** The test loads each sequence (`loaded`, which signs it). The windows come from `_oracle_windows`
+**How:** The test loads each sequence (`load`). The windows come from `_oracle_windows`
 (seed 20261007). Their ends are on the starts and the ends of the blocks, on the points of the
 polylines of the oracle, half a raster time before and after those points, on multiples of
 2.5 µs, at random, and within 1.5 ns of the start or the end of a block. A window shorter than
@@ -3291,7 +3289,7 @@ the hardware being a pair `(struct, label)` (its key is the label and the 24 val
 the struct without `stim_thresh`, so two pairs with the same label and values are one
 hardware, whatever their structs are or where they came from), so that a caller that needs
 the PNS of one sequence more than once runs the SAFE model once. A snapshot never changes, so a kept result is
-never old (section 2.12). Each test makes its snapshot with `synthetic.loaded`. The thresholds of the key are the tuple of
+never old (section 2.12). Each test makes its snapshot with `snapshot.load`. The thresholds of the key are the tuple of
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
@@ -5354,7 +5352,7 @@ gradient events of a snapshot one time and keeps them on it, and the two
 users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The values of
 `_event_values` are tested with hand-computed values. The tests
 use the synthetic spin echo, gradient echo and arbitrary gradient sequences (and, for the
-types of the arrays, the empty sequence). Each test makes its snapshot with `synthetic.loaded`.
+types of the arrays, the empty sequence). Each test makes its snapshot with `snapshot.load`.
 The tests of the kept results are here too: a measurement gives one object for one snapshot, a
 windowed `gradient_peaks` uses the kept values of the events, and a kept result does not keep its
 snapshot alive. A snapshot never changes, so a kept result is never old (section 2.12).

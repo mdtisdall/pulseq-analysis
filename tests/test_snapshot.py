@@ -30,7 +30,6 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
-    signed,
     spin_echo_sequence,
     with_rotation_library,
 )
@@ -51,7 +50,7 @@ _GX_COLUMN, _GY_COLUMN = 2, 3
 
 
 def _every_event_sequence() -> pp.Sequence:
-    """A signed sequence with each kind of event that `add_block` takes: a sinc pulse with its
+    """A sequence with each kind of event that `add_block` takes: a sinc pulse with its
     slice gradients (shapes), a trapezoid with an ADC and two labels, an arbitrary gradient, an
     extended trapezoid, a digital output, a trigger, a soft delay and a delay, and definitions
     of a string, a number and a list."""
@@ -90,17 +89,17 @@ def _every_event_sequence() -> pp.Sequence:
     seq.set_definition("Name", "every")
     seq.set_definition("FOV", [0.2, 0.2, 0.005])
     seq.set_definition("Number", 3)
-    return signed(seq)
+    return seq
 
 
 def _soft_delay_sequence() -> pp.Sequence:
-    """A signed sequence with a trapezoid on x, a soft delay `TE` of 2 ms and a trapezoid on y:
+    """A sequence with a trapezoid on x, a soft delay `TE` of 2 ms and a trapezoid on y:
     `apply_soft_delay(TE=...)` changes the duration of the block between them."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel="x", area=2 / WIDTH, system=SYSTEM))
     seq.add_block(pp.make_soft_delay("TE", default_duration=2e-3))
     seq.add_block(pp.make_trapezoid(channel="y", area=3 / WIDTH, system=SYSTEM))
-    return signed(seq)
+    return seq
 
 
 def _unsigned_sequence() -> pp.Sequence:
@@ -122,7 +121,7 @@ def _written(seq: pp.Sequence, path) -> str:
     return str(path)
 
 
-# The builders of the signed sequences that the guards run on, with an ID for each.
+# The builders of the sequences that the guards run on, with an ID for each.
 _BUILDERS = [
     pytest.param(_every_event_sequence, id="every_event"),
     pytest.param(spin_echo_sequence, id="spin_echo"),

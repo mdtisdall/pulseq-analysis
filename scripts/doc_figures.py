@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import itertools
 
 from scale_sequences import build_repeating
-from synthetic import SYSTEM, signed
+from synthetic import SYSTEM
 
 from pulseq_analysis.sampling import gradient_sampler
 from pulseq_analysis.snapshot import load
@@ -66,7 +66,7 @@ def sequence(*blocks):
     seq = pp.Sequence(SYSTEM)
     for events in blocks:
         seq.add_block(*events)
-    return signed(seq)
+    return seq
 
 
 def ours(snap, axis, t):

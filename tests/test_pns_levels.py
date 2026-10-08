@@ -37,8 +37,6 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
-    loaded,
-    signed,
     spin_echo_sequence,
     waveform_sequence,
 )
@@ -65,6 +63,7 @@ from pulseq_analysis.pns_levels import (
     pns_levels,
 )
 from pulseq_analysis.seq_index import sequence_index
+from pulseq_analysis.snapshot import load
 
 _HW_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "g_scale")
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
@@ -96,7 +95,7 @@ def _off_raster_sequence() -> pp.Sequence:
     delay block whose duration (1.5 gradient-raster steps) pypulseq's `add_block`
     accepts but which is not a whole number of raster steps."""
     dt = SYSTEM.grad_raster_time
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
     return seq
@@ -125,7 +124,7 @@ def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     (`GradientSampler.block_samples`), with no such drift. Both then run the same
     `_safe_gwf_to_pns_chunk`, so the whole difference is that drift.
     """
-    snap = loaded(build())
+    snap = load(build())
     seq = snap.sequence
     hw = safe_example_hw()
     _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)
@@ -165,7 +164,7 @@ def test_stored_bins_match_calculate_pns_totals(build):
     compared, so that a bin straddling the end of that array (part of it decaying past
     where `calc_pns` stopped, part of it inside) is not mistaken for a mismatch.
     """
-    snap = loaded(build())
+    snap = load(build())
     seq = snap.sequence
     hw = safe_example_hw()
     _, norm, _, _ = seq.calculate_pns(hw, do_plots=False)
@@ -203,7 +202,7 @@ def _two_axis_short_gap_sequence() -> pp.Sequence:
             channel, times=[0.0, 100e-6], amplitudes=np.array(amplitudes) * unit, system=SYSTEM
         )
 
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(event("x", [3, 4]), event("y", [0, 2]), pp.make_delay(110e-6))
     seq.add_block(event("x", [2, 5]), event("y", [1, 0]), pp.make_delay(110e-6))
     return seq
@@ -212,7 +211,7 @@ def _two_axis_short_gap_sequence() -> pp.Sequence:
 def _long_gap_then_an_off_raster_block_sequence() -> pp.Sequence:
     """`long_gap_sequence` and a last block of 1.5 raster times, which is not on the raster,
     so that `pns_levels` samples the whole sequence with `GradientSampler.sample`."""
-    seq = signed(long_gap_sequence())
+    seq = long_gap_sequence()
     seq.add_block(pp.make_delay(1.5 * SYSTEM.grad_raster_time))
     return seq
 
@@ -231,19 +230,19 @@ def _off_raster(build):
 
 _GAP_SEQUENCES = {
     "short_gap_two_axes": _two_axis_short_gap_sequence,
-    "long_gap": lambda: signed(long_gap_sequence()),
-    "issue_12_delayed": lambda: signed(delayed_sequence()),
-    "issue_12_early_end": lambda: signed(early_end_sequence()),
-    "non_zero_ends": lambda: signed(non_zero_ends_sequence()),
+    "long_gap": lambda: long_gap_sequence(),
+    "issue_12_delayed": lambda: delayed_sequence(),
+    "issue_12_early_end": lambda: early_end_sequence(),
+    "non_zero_ends": lambda: non_zero_ends_sequence(),
     "long_gap_off_raster": _long_gap_then_an_off_raster_block_sequence,
-    "gap_of_1_5_raster_times": lambda: signed(gap_of_1_5_raster_times_sequence()),
-    "short_gap_from_0": lambda: signed(short_gap_from_0_sequence()),
-    "short_gap_to_0": lambda: signed(short_gap_to_0_sequence()),
+    "gap_of_1_5_raster_times": lambda: gap_of_1_5_raster_times_sequence(),
+    "short_gap_from_0": lambda: short_gap_from_0_sequence(),
+    "short_gap_to_0": lambda: short_gap_to_0_sequence(),
 }
 # The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on
 # the sign).
 _GAP_SEQUENCES |= {
-    f"negated_{name}": (lambda build=build: signed(negated(build())))
+    f"negated_{name}": (lambda build=build: negated(build()))
     for name, build in {
         "zero_gap": zero_gap_sequence,
         "short_gap": short_gap_sequence,
@@ -256,12 +255,10 @@ _GAP_SEQUENCES |= {
 # The sequences of the edges of `block_samples`: the last point of an event at a sample time
 # (`DELAYED_RAMP_CASES` and `ULP_EDGE_CASES`) and a step inside one event (`short_arbitrary_sequence`).
 _GAP_SEQUENCES |= {
-    "delayed_ramp_" + "_".join(map(str, case)): (
-        lambda case=case: signed(delayed_ramp_sequence(*case))
-    )
+    "delayed_ramp_" + "_".join(map(str, case)): (lambda case=case: delayed_ramp_sequence(*case))
     for case in DELAYED_RAMP_CASES + ULP_EDGE_CASES
 }
-_GAP_SEQUENCES["short_arbitrary"] = lambda: signed(short_arbitrary_sequence())
+_GAP_SEQUENCES["short_arbitrary"] = lambda: short_arbitrary_sequence()
 # The random sequences of `random_gaps` (random signs, zero, short and long gaps).
 _GAP_SEQUENCES |= {
     f"random_gaps_{seed}": (lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)))
@@ -303,7 +300,7 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     blocks, review 1.3) and the arbitrary gradient of 3 samples of `short_arbitrary_sequence` (review 1.4) have the
     last sample of an event at a sample time."""
     seq = _GAP_SEQUENCES[name]()
-    snap = loaded(seq)
+    snap = load(seq)
     dt = seq.grad_raster_time
     levels = pns_levels(snap, hardware=EXAMPLE_HW, bin_s=dt)
     if levels.on_raster:
@@ -427,7 +424,7 @@ def test_bin_samples_for_matches_the_formula():
     assert bin_samples_for(100 * MAX_BINS + 1, dt, 1e-3) == 101
     assert bin_samples_for(2 * MAX_BINS, dt, 1e-6) == 2
 
-    levels = pns_levels(loaded(gre_sequence(num_trs=6)), hardware=EXAMPLE_HW)
+    levels = pns_levels(load(gre_sequence(num_trs=6)), hardware=EXAMPLE_HW)
     assert levels.bin_samples == bin_samples_for(levels.num_samples, levels.dt_s)
     assert len(levels.level_min_hz_per_t) == -(
         -levels.num_samples // levels.bin_samples
@@ -457,7 +454,7 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
     that bin, with the minimum and the maximum of the bin as its ends. Every other field
     (the summary and the intervals) equals that of the default `bin_s`. The levels of a
     `bin_s` shorter than `dt` have one sample in each bin, and so one bin for each sample."""
-    snap = loaded(gre_sequence(num_trs=6))
+    snap = load(gre_sequence(num_trs=6))
     hardware = hardware_for_peak(snap, 1.5)
     default = _compute(snap, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
     totals = []
@@ -500,7 +497,7 @@ def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
     `bin_samples == ceil(num_samples / MAX_BINS)` and no more than `MAX_BINS` bins, the
     level still holds every total (its range of the whole file is that of the finest
     level), and a `bin_s` that gives fewer bins keeps its own bin."""
-    snap = loaded(gre_sequence(num_trs=6))
+    snap = load(gre_sequence(num_trs=6))
     fine = _compute(snap, hardware=EXAMPLE_HW, bin_s=1e-9)  # one sample in each bin
     assert fine.bin_samples == 1
     num_samples = fine.num_samples
@@ -528,7 +525,7 @@ def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     `pulseq_analysis.pns_levels`, and `pns_levels` rounds the chunk up to a whole number
     of bins: 1 gives a chunk of 1 bin, `bin_samples + 1` gives 2, and
     `7 * bin_samples - 1` gives 7."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     reference = _compute(snap, hardware=EXAMPLE_HW)
     bin_samples = reference.bin_samples
     assert reference.num_samples > bin_samples * 7  # so the smallest case has > 1 chunk
@@ -555,14 +552,14 @@ def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatc
     and one chunk bigger than the file: every field, and the intervals of a threshold below
     the peak. Each chunk reads only its part of the block."""
     dt = SYSTEM.grad_raster_time
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_trapezoid(channel="x", area=1000.0, delay=2000 * dt, system=SYSTEM),
         pp.make_trapezoid(channel="z", area=500.0, system=SYSTEM),
         pp.make_delay(10_000 * dt),
     )
     seq.add_block(pp.make_trapezoid(channel="y", area=1000.0, system=SYSTEM))
-    snap = loaded(seq)
+    snap = load(seq)
     thresholds = (0.05 * _LIMIT,)
 
     monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
@@ -582,20 +579,18 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
     exactly the result of the trapezoid and then ten delay blocks of 0.1 s: the samples of
     the delay are 0 in both, so the totals, the stored level and the summary are equal."""
     trapezoid = pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM)
-    long_block = signed(pp.Sequence(SYSTEM))
+    long_block = pp.Sequence(SYSTEM)
     long_block.add_block(trapezoid)
     long_block.add_block(pp.make_delay(1.0))
-    short_blocks = signed(pp.Sequence(SYSTEM))
+    short_blocks = pp.Sequence(SYSTEM)
     short_blocks.add_block(trapezoid)
     for _ in range(10):
         short_blocks.add_block(pp.make_delay(0.1))
 
-    levels = pns_levels(
-        loaded(long_block), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
-    )
+    levels = pns_levels(load(long_block), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW)
     assert levels.num_samples > 3 * _CHUNK_SAMPLES
     expected = pns_levels(
-        loaded(short_blocks), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
+        load(short_blocks), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
     )
     assert len(expected.above[0.1 * _LIMIT]) >= 1
     assert_levels_equal(levels, expected, ignore=())
@@ -604,7 +599,7 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
     bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware."""
-    levels = pns_levels(loaded(empty_sequence()), hardware=EXAMPLE_HW)
+    levels = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW)
     assert levels.reason == NO_GRADIENTS
     assert levels.hardware == EXAMPLE_HW[1]
     assert levels.level_min_hz_per_t.shape == (0,)
@@ -620,7 +615,7 @@ def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
     """A sequence with no gradient event and two thresholds gives `above` with the two keys,
     in the order of `thresholds_hz_per_t`, each with `()`."""
     levels = pns_levels(
-        loaded(empty_sequence()), thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT), hardware=EXAMPLE_HW
+        load(empty_sequence()), thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT), hardware=EXAMPLE_HW
     )
     assert levels.reason == NO_GRADIENTS
     assert list(levels.above) == [_LIMIT, 0.5 * _LIMIT]
@@ -636,7 +631,7 @@ def test_off_raster_block_falls_back_to_sampling():
     drift-based tolerance is needed here. The
     values of `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md`
     section 9)."""
-    snap = loaded(_off_raster_sequence())
+    snap = load(_off_raster_sequence())
     seq = snap.sequence
     hw = safe_example_hw()
     _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)
@@ -666,7 +661,7 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
     chunk again, or a `num_samples` that rounds down, gives another result."""
     seq = gre_sequence(num_trs=3)
     seq.add_block(pp.make_delay(1.5 * seq.grad_raster_time))  # off the raster
-    snap = loaded(seq)
+    snap = load(seq)
     hardware = hardware_for_peak(snap, 1.5)
     thresholds = (_LIMIT,)
 
@@ -692,12 +687,12 @@ def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pn
     `seq.system.gamma` as there. The peak is in the second chunk, so a chunk that read the
     samples of the first chunk again gives another peak time."""
     dt = SYSTEM.grad_raster_time
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel="x", area=200, system=SYSTEM))
     seq.add_block(pp.make_delay(0.35))
     seq.add_block(pp.make_trapezoid(channel="y", area=1000, system=SYSTEM))
     seq.add_block(pp.make_delay(1.5 * dt))
-    snap = loaded(seq)
+    snap = load(seq)
     _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
     ref_peak = float(norm.max())
     ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
@@ -733,7 +728,7 @@ def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
     """`above[_LIMIT]` is empty if and only if `peak_hz_per_t < _LIMIT`; the largest interval
     peak is `peak_hz_per_t`; the intervals are in time order, do not touch, and have the times
     and the count that their fields give."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     below = pns_levels(snap, thresholds_hz_per_t=(_LIMIT,), hardware=EXAMPLE_HW)
     assert below.peak_hz_per_t < _LIMIT
     assert below.above[_LIMIT] == ()
@@ -756,7 +751,7 @@ def test_a_threshold_equal_to_the_peak_gives_an_interval():
     """A threshold that is exactly `peak_hz_per_t` gives one interval or more, and the
     peak of the largest one is the threshold: a total at the threshold is in an interval
     (`total >= threshold`)."""
-    snap = loaded(gre_sequence())
+    snap = load(gre_sequence())
     peak = pns_levels(snap, hardware=EXAMPLE_HW).peak_hz_per_t
     levels = pns_levels(snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=(peak,))
     assert list(levels.above) == [peak]
@@ -770,12 +765,12 @@ def test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_
     rounding only has that whole number of samples: `end_s / dt` is more than the whole
     number, and `(end_s - 1e-10) / dt` is not."""
     dt = SYSTEM.grad_raster_time
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     trapezoid = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
     seq.add_block(trapezoid)
     seq.add_block(pp.make_delay(1.5 * dt))
     seq.add_block(pp.make_delay(1.5 * dt))
-    snap = loaded(seq)
+    snap = load(seq)
     end_s = sequence_index(snap).end_s
     whole = round(pp.calc_duration(trapezoid) / dt) + 3
     assert round(end_s / dt) == whole
@@ -791,7 +786,7 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     """With chunks of 1 bin, with a chunk size that has an interval across the end of a
     chunk, and with the normal `_CHUNK_SAMPLES`, `pns_levels` gives the same result, every
     field exactly, including the intervals."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     hardware = hardware_for_peak(snap, 3.0)
     thresholds = (_LIMIT,)
     reference = _compute(
@@ -821,7 +816,7 @@ def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkey
     1 bin (the open run goes over more than one chunk end, with a chunk that is all above the
     threshold), and `above` of the chunks of 1 bin equals `above` of one chunk: the same
     intervals, each with the same start, end, peak, peak time and number of samples."""
-    snap = loaded(gre_sequence(num_trs=3))
+    snap = load(gre_sequence(num_trs=3))
     thresholds = (1e-5 * _LIMIT,)
 
     monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
@@ -850,7 +845,7 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
     """The start, the end, the peak, the peak time and the number of samples of each
     interval equal the runs of `total >= _LIMIT` that plain NumPy and `itertools.groupby` find
     in the totals of the whole sequence, with the model run on it in one chunk."""
-    snap = loaded(build())
+    snap = load(build())
     hardware = hardware_for_peak(snap, 1.5)
     totals = []
 
@@ -894,13 +889,13 @@ def test_two_separate_intervals_are_in_time_order():
     gap = 50e-3
     trapezoid = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
     duration = trapezoid.rise_time + trapezoid.flat_time + trapezoid.fall_time
-    one = signed(pp.Sequence(SYSTEM))
+    one = pp.Sequence(SYSTEM)
     one.add_block(trapezoid)
-    two = signed(pp.Sequence(SYSTEM))
+    two = pp.Sequence(SYSTEM)
     two.add_block(trapezoid)
     two.add_block(pp.make_delay(gap))
     two.add_block(trapezoid)
-    one, two = loaded(one), loaded(two)
+    one, two = load(one), load(two)
     hardware = hardware_for_peak(one, 1.02)  # only the larger hump of a trapezoid is above
     # the limit
     thresholds = (_LIMIT,)
@@ -932,7 +927,7 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     keys are in the order of `thresholds_hz_per_t` (and an `int` is the key of the same
     `float`). It holds with chunks of 1 bin and with a chunk size that has an interval of
     each threshold across a chunk end."""
-    snap = loaded(gre_sequence(num_trs=20))
+    snap = load(gre_sequence(num_trs=20))
     hardware = hardware_for_peak(snap, 3.0)
     high_t, low_t = _LIMIT, 0.5 * _LIMIT
     thresholds = (high_t, low_t)
@@ -1020,7 +1015,7 @@ def test_pns_levels_takes_numpy_and_fraction_thresholds():
     thresholds as floats. The calculation with the floats is a new one (`_compute`): a second
     `pns_levels` call with the same keys would give the kept object, and the test would
     compare that object with itself."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     thresholds = (np.float32(0.3 * _LIMIT), np.int64(12_345_678), Fraction(1, 3) * _LIMIT)
     keys = tuple(float(t) for t in thresholds)
     levels = pns_levels(snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
@@ -1075,7 +1070,7 @@ def test_pns_levels_takes_an_int_or_a_numpy_bin_s():
     """A `bin_s` that is an `int` or a NumPy float (any real number, not a `bool`) is
     accepted and gives the levels of the equal `float` (the calculation of `bin_s=1.0`, with
     no keep)."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     expected = _compute(snap, hardware=EXAMPLE_HW, bin_s=1.0)
     assert len(expected.level_min_hz_per_t) == 1  # a bin of 1 s holds the whole sequence
     assert_levels_equal(pns_levels(snap, hardware=EXAMPLE_HW, bin_s=1), expected, ignore=())
@@ -1091,7 +1086,7 @@ def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc, split):
     equal the call with the example hardware (`EXAMPLE_HW`) exactly: this .asc file
     encodes the example hardware's own numbers. This is so for the plain layout and for the
     layout of a scanner file (a main file that includes the PNS parameters)."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     path = write_gradient_asc(split=split)
     levels = pns_levels(snap, hardware=hardware_from_asc(path))
     assert levels.hardware == "MP_GPA_TEST"
@@ -1110,7 +1105,7 @@ def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc, split):
 def test_the_arrays_of_the_levels_are_read_only(make_seq):
     """`level_min_hz_per_t` and `level_max_hz_per_t` are read-only, also for a sequence
     without gradients. A conversion to a new array works."""
-    levels = pns_levels(loaded(make_seq()), hardware=EXAMPLE_HW)
+    levels = pns_levels(load(make_seq()), hardware=EXAMPLE_HW)
     for a in (levels.level_min_hz_per_t, levels.level_max_hz_per_t):
         assert not a.flags.writeable
         with pytest.raises(ValueError):
@@ -1129,11 +1124,11 @@ def test_levels_compare_by_value():
     `MappingProxyType` could not be pickled)."""
     thresholds = (_LIMIT, 0.5 * _LIMIT)
     levels = pns_levels(
-        loaded(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW
+        load(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW
     )
     assert levels.level_min_hz_per_t.size > 1
     other = pns_levels(
-        loaded(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW
+        load(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW
     )
     assert other is not levels
     assert other == levels
@@ -1146,7 +1141,7 @@ def test_levels_compare_by_value():
     changed[1] = np.nextafter(changed[1], np.float32(np.inf))
     assert dataclasses.replace(levels, level_max_hz_per_t=changed) != levels
     reordered = pns_levels(
-        loaded(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds[::-1], hardware=EXAMPLE_HW
+        load(gre_sequence(num_trs=4)), thresholds_hz_per_t=thresholds[::-1], hardware=EXAMPLE_HW
     )
     assert reordered.above == levels.above  # a dict ignores the order of its keys
     assert reordered != levels  # the order of `above` counts
@@ -1160,7 +1155,7 @@ def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair()
     (another struct object, another label), exactly, except the hardware name, which is the
     label, for a sequence on the raster and for one off it."""
     for build in (spin_echo_sequence, _off_raster_sequence):
-        snap = loaded(build())
+        snap = load(build())
         default = pns_levels(snap, hardware=EXAMPLE_HW)
         levels = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
         assert levels.hardware == "LABEL"
@@ -1173,7 +1168,7 @@ def test_the_levels_do_not_depend_on_the_gamma_of_the_system():
     runs on the Hz/m samples and reads no gamma."""
     other = copy.copy(SYSTEM)
     other.gamma = 0.9 * SYSTEM.gamma
-    first, second = loaded(waveform_sequence(SYSTEM)), loaded(waveform_sequence(other))
+    first, second = load(waveform_sequence(SYSTEM)), load(waveform_sequence(other))
     hardware = hardware_for_peak(first, 1.5)
 
     a = pns_levels(first, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
@@ -1193,7 +1188,7 @@ def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calc
     gamma of 1H does not equal it: the division uses the gamma of the caller."""
     other = copy.copy(SYSTEM)
     other.gamma = 0.9 * SYSTEM.gamma
-    snap = loaded(waveform_sequence(other))
+    snap = load(waveform_sequence(other))
     seq = snap.sequence
     _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
     ref_peak = float(norm.max())
@@ -1215,8 +1210,8 @@ def test_the_levels_of_a_negated_waveform_are_equal():
     """The same sequence with each amplitude times -1 gives exactly equal levels, every field
     and every interval, with two thresholds that both have intervals: the model of `-g` is
     equal to the model of `g`, bit for bit."""
-    positive = loaded(waveform_sequence(SYSTEM))
-    negative = loaded(waveform_sequence(SYSTEM, sign=-1.0))
+    positive = load(waveform_sequence(SYSTEM))
+    negative = load(waveform_sequence(SYSTEM, sign=-1.0))
     hardware = hardware_for_peak(positive, 1.5)
     thresholds = (_LIMIT, 0.5 * _LIMIT)
 
@@ -1232,7 +1227,7 @@ def test_the_default_has_no_thresholds():
     """`pns_levels(snap, hardware=...)` without thresholds has `above == {}`, also for a
     sequence with a peak above the limit, and `thresholds_hz_per_t=()` gives the same result,
     every field."""
-    snap = loaded(gre_sequence(num_trs=4))
+    snap = load(gre_sequence(num_trs=4))
     hardware = hardware_for_peak(snap, 1.5)
 
     for kwargs in ({"hardware": EXAMPLE_HW}, {"hardware": hardware}):
@@ -1257,7 +1252,7 @@ def test_the_dicts_of_the_levels_are_read_only_frozen_dicts(make_seq):
     `FrozenDict`s (and so `dict`s), also for a sequence without gradients: a change of an
     item, a new key, a deletion and `update` raise `TypeError`, and the dict stays as it
     was."""
-    levels = pns_levels(loaded(make_seq()), hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,))
+    levels = pns_levels(load(make_seq()), hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,))
     dicts = _every_dict(levels)
     assert len(dicts) == 6  # hw, three inner dicts, the axis peaks, above
     for d in dicts:
@@ -1281,7 +1276,7 @@ def test_the_reason_without_gradients_is_the_object_of_seq_index():
     (one object), and the `reason` of a result is it."""
     assert NO_GRADIENTS is seq_index.NO_GRADIENTS
     assert grad_spectrum.NO_GRADIENTS is seq_index.NO_GRADIENTS
-    levels = pns_levels(loaded(empty_sequence()), hardware=EXAMPLE_HW)
+    levels = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW)
     assert levels.reason is seq_index.NO_GRADIENTS
 
 
@@ -1292,7 +1287,7 @@ def test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_ru
     for the peak time."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3, system=SYSTEM))
-    snap = loaded(seq)
+    snap = load(seq)
     calls = []
 
     def record(gwf, dt, hw_ns, state):
