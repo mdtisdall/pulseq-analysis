@@ -115,3 +115,6 @@ fraction of the stimulation limit.
   the plan of the rule "explicit inputs", the rejection of a file before
   Pulseq 1.4, the documented source of each input of pypulseq, and the drift
   tests.
+- [`docs/plans/own-parser-study.md`](docs/plans/own-parser-study.md):
+  the study of an own strict parser of Pulseq files in place of pypulseq's
+  `read`, and of the language of the package. Decided: option B, in Python.
