@@ -107,7 +107,7 @@ from ._events import (
 )
 from ._validate import real
 from .seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
-from .seq_utils import AXES, GRAD_COLUMNS, TIME_TOLERANCE
+from .seq_utils import _AXES, _GRAD_COLUMNS, TIME_TOLERANCE
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 
@@ -159,7 +159,7 @@ class GradientPeaks:
     slew field. The RMS of the vector magnitude is the square root of the sum of the squares of
     the three axis RMS values, because the mean of |G|² is the sum of the three axis means of G².
 
-    `axes` is a `_equality.FrozenDict` (a read-only dict): all callers of a result share it,
+    `axes` is a `series.FrozenDict` (a read-only dict): all callers of a result share it,
     so a change of the dict would change it for all of them.
 
     `==` compares the values of the fields (`_equality.fields_equal`), the dicts with their keys
@@ -211,7 +211,7 @@ class BlockGradientValues:
     `vector_peak_time_s` among the blocks with the largest value.
 
     Each array is read-only (`_equality._freeze`: `writeable` is False and cannot be set to
-    True) and is its own array, not a view of the index that `sequence_index` keeps. Each of the five dicts is a `_equality.FrozenDict`
+    True) and is its own array, not a view of the index that `sequence_index` keeps. Each of the five dicts is a `series.FrozenDict`
     (a read-only dict). A caller that needs a writable array makes a copy. Two results are
     equal when each field is equal (`_equality.values_equal`), for example the results of
     two reads of one file. A result is not hashable.
@@ -685,9 +685,9 @@ def _kept_block_data(snap: Snapshot, index: SequenceIndex, points: EventPoints) 
         end_s = start_s + index.duration_s
         events_by_axis = {
             axis: axis_events(index, points, column)
-            for axis, column in zip(AXES, GRAD_COLUMNS, strict=True)
+            for axis, column in zip(_AXES, _GRAD_COLUMNS, strict=True)
         }
-        columns = {axis: _axis_columns(index, ev, events_by_axis[axis], dt) for axis in AXES}
+        columns = {axis: _axis_columns(index, ev, events_by_axis[axis], dt) for axis in _AXES}
         vector_peak, vector_peak_time = _exact_vector_peaks(index, points, events_by_axis, end_s)
 
         # The range of time of a block: its pieces, and the range in which a candidate of the
@@ -697,20 +697,20 @@ def _kept_block_data(snap: Snapshot, index: SequenceIndex, points: EventPoints) 
         margin = 2 * TIME_TOLERANCE
         reach_start = start_s - margin
         reach_end = end_s + margin
-        for axis in AXES:
+        for axis in _AXES:
             reach_start = np.minimum(reach_start, columns[axis].piece_start)
             reach_end = np.maximum(reach_end, columns[axis].piece_end)
         start_envelope = np.ascontiguousarray(np.minimum.accumulate(reach_start[::-1])[::-1])
         end_envelope = np.maximum.accumulate(reach_end)
 
         def column(name: str) -> dict[str, np.ndarray]:
-            return {axis: getattr(columns[axis], name) for axis in AXES}
+            return {axis: getattr(columns[axis], name) for axis in _AXES}
 
         peak, peak_time = column("peak"), column("peak_time")
         slew, slew_time = column("slew"), column("slew_time")
         junction, junction_time = column("junction"), column("junction_time")
         rms_integral = column("rms_integral")
-        whole_integral = {axis: float(np.sum(rms_integral[axis])) for axis in AXES}
+        whole_integral = {axis: float(np.sum(rms_integral[axis])) for axis in _AXES}
         # All callers share these arrays: read-only copies.
         end_s, vector_peak, vector_peak_time, reach_start, reach_end, start_envelope, end_envelope = (
             _freeze(
@@ -906,7 +906,7 @@ def _exact_edge_blocks(
     t_lo = float(blocks.reach_start[first_play:stop_play].min()) - reach
     t_hi = float(blocks.reach_end[first_play:stop_play].max()) + reach
     polys = []
-    for axis in AXES:
+    for axis in _AXES:
         ae = blocks.axis_events[axis]
         e0 = int(np.searchsorted(ae.lt, t_lo, side="left"))
         e1 = int(np.searchsorted(ae.ft, t_hi, side="right"))
@@ -964,11 +964,11 @@ def _range_result(
     time wins. A range with `hi <= lo` has no event."""
     n = index.num_blocks
     axis_cols = {"x": index.gx, "y": index.gy, "z": index.gz}
-    state = {axis: _AxisState() for axis in AXES}
+    state = {axis: _AxisState() for axis in _AXES}
     vector = _Best(by_time=True)
 
     if n == 0 or not lo < hi:
-        axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in AXES}
+        axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in _AXES}
         return axes, 0.0, 0.0, None, False
 
     whole_file = lo == 0.0 and hi == index.end_s
@@ -983,7 +983,7 @@ def _range_result(
             i0 = i1 = a
 
     if i1 > i0:
-        for axis in AXES:
+        for axis in _AXES:
             if not np.any(axis_cols[axis][i0:i1]):
                 continue
             st = state[axis]
@@ -1016,7 +1016,7 @@ def _range_result(
 
     axes: dict[str, AxisResult] = {}
     has_event_any = False
-    for axis in AXES:
+    for axis in _AXES:
         st = state[axis]
         has_event_any = has_event_any or st.has_event
         rms = math.sqrt(st.rms_sum / (hi - lo)) if st.has_event else 0.0

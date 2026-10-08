@@ -60,8 +60,8 @@ says why.
 | `pulseq_analysis.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
-| `pulseq_analysis.analyses` | The analyses of the package by ID, and their registry. | [7](#7-run-the-analyses-and-write-json) |
-| `pulseq_analysis.series` | `Series`, the part of a value that goes into JSON. | [7](#7-run-the-analyses-and-write-json) |
+| `pulseq_analysis.analyses` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
+| `pulseq_analysis.series` | `Series`, the part of a value that goes into JSON, its `SeriesKind`, and `FrozenDict`. | [7](#7-run-the-analyses-and-write-json) |
 | `pulseq_analysis.seq_index` | The block table, and the unique events. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
@@ -124,7 +124,8 @@ says why.
   same object. The sequence of a snapshot does not change, so a kept result is
   never old. A copy of a snapshot from `pickle` or `copy.deepcopy` has no kept
   results and makes them again. All callers share a kept result, so its arrays
-  and dicts are read-only. Make a copy to change one: `np.array(a)`, `dict(d)`
+  and dicts are read-only (`series.FrozenDict`, a subclass of `dict`: a change raises
+  `TypeError`). Make a copy to change one: `np.array(a)`, `dict(d)`
   ([implementation, sections 4 and 5](implementation.md#4-kept-results)).
 - **No result.** A result without a value has the `reason`
   `seq_index.NO_GRADIENTS` ("no gradients"), or
@@ -411,7 +412,8 @@ levels = analysis.compute(
 text = json.dumps([s.to_obj() for s in analysis.to_series(levels)], allow_nan=False)
 ```
 
-An analysis has:
+An analysis is an object that has the following, as the protocol
+`analyses.Analysis` says:
 
 - `spec`, an `AnalysisSpec`: `id`, `version`, `title`, `description` (the
   contract of the value), `params` (the keyword arguments of `compute`),
@@ -443,6 +445,11 @@ or more, `cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params`
 is a tuple of unique `str`, and a float default is finite. It raises
 `ValueError` for a bad value and `TypeError` for a wrong type.
 
+The objects of this package are `analyses.SEQ_INDEX`, `analyses.GRADIENT_PEAKS`,
+`analyses.GRADIENT_BLOCKS`, `analyses.PNS_SAFE_LEVELS` and
+`analyses.GRADIENT_SPECTRUM`, in the order of the table (the targets of its entry
+points).
+
 `seq.index` has the rasters `("BlockDurationRaster",)`. The other four have
 `("GradientRasterTime", "BlockDurationRaster")`.
 
@@ -462,6 +469,8 @@ In `pns_total`, `coord_start` is 0, `coord_step` is `bin_samples * dt_s` and
 `unit` (of the values), `coord_unit` (of the coordinate, for example `"s"` or
 `"Hz"`), `arrays` (a dict of one-dimensional arrays of one length),
 `coord_start`, `coord_step`, `coord_end` and `meta` (a dict of JSON scalars).
+`arrays` and `meta` are `series.FrozenDict`s, and `kind` is a member of the enum
+`series.SeriesKind`: `SAMPLES`, `ENVELOPE`, `POINTS` or `RUNS`.
 The kind gives the shape of the data:
 
 | Kind | Meaning | Necessary arrays | Fields |

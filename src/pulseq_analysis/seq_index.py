@@ -24,7 +24,7 @@ import numpy as np
 import pypulseq as pp
 
 from ._equality import _freeze, value_dataclass
-from .seq_utils import GRAD_COLUMNS
+from .seq_utils import _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 # The columns of a row of `seq.block_events`.
@@ -246,7 +246,7 @@ def grad_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
     kept = _kept_results(snap)
     if "grad_events" not in kept:
         index = sequence_index(snap)
-        attrs = [GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
+        attrs = [_GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
         kept["grad_events"] = _first_events(snap, index.grad_first, attrs)
     return kept["grad_events"]
 

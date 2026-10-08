@@ -45,6 +45,10 @@ import numpy as np
 from ._equality import FrozenDict, _freeze, value_dataclass
 from ._validate import real
 
+# `FrozenDict` is defined in `_equality` and is public here (`series.FrozenDict`): the type of
+# the dicts of a result, and of `Series.arrays` and `Series.meta`.
+__all__ = ["FrozenDict", "Series", "SeriesKind", "decode_array", "encode_array"]
+
 # The strings that stand for a float that is not finite in the JSON form.
 _NON_FINITE = ("inf", "-inf", "nan")
 

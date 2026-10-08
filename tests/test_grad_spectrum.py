@@ -139,9 +139,9 @@ def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     # 30 TRs of 20 ms: 600 ms, 25 windows of 50 ms with a 25 ms hop, so chunks of 4
     # windows make 7 chunks, and the last chunk is shorter than the others.
     snap = loaded(gre_sequence(num_trs=30))
-    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 1_000_000)
+    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 1_000_000)
     whole = _compute_default(snap)
-    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
+    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
     chunked = _compute_default(snap)
     assert chunked is not whole
     # Each window has the same samples and the same FFT of one row in each chunk size,
@@ -165,8 +165,8 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     chunks, the strided windows, the kept-bin count or the scale of this module. Only the
     samples come from `GradientSampler`, with the time rule of the module (sample i at
     `(i + 0.5) * dt`, `pad` zeros at the start and `pad + (-nt) % hop` at the end).
-    `CHUNK_WINDOWS` is 4, so the comparison also covers the joins of the chunks and a shorter last chunk."""
-    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
+    `_CHUNK_WINDOWS` is 4, so the comparison also covers the joins of the chunks and a shorter last chunk."""
+    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
     snap = loaded(seq)
     got = _compute_default(snap)
 
@@ -253,7 +253,7 @@ def test_matches_oracle_on_synthetic_sequences(seq):
 
 
 # The blocks of each sequence: 1000 blocks (200 TRs, 1.2 s and 1.4 s, 48 and 56 windows), so
-# with `CHUNK_WINDOWS` of 4 each sequence has 12 or 14 chunks.
+# with `_CHUNK_WINDOWS` of 4 each sequence has 12 or 14 chunks.
 _MANY_CHUNK_SEQUENCES = {"repeating": build_repeating, "worst": build_worst}
 _MANY_CHUNK_BLOCKS = 1_000
 
@@ -261,7 +261,7 @@ _MANY_CHUNK_BLOCKS = 1_000
 @pytest.mark.parametrize("case", _MANY_CHUNK_SEQUENCES)
 def test_matches_oracle_with_many_chunks(case, monkeypatch):
     """The builders of `scale_sequences`: `build_repeating` and `build_worst` at 1000 blocks,
-    with `CHUNK_WINDOWS` of 4 so that each has more than one chunk, as in
+    with `_CHUNK_WINDOWS` of 4 so that each has more than one chunk, as in
     `test_matches_scipy_spectrogram`. The tolerance is `1e-12 * max(1, duration in s)`, not
     1e-12 (the user, 2026-09-28). It was set when the oracle sampled
     `Sequence.get_gradients()`, which adds the segment durations one at a time and not
@@ -270,7 +270,7 @@ def test_matches_oracle_with_many_chunks(case, monkeypatch):
     difference was 2.5e-12 of the peak at 10^4 repeating blocks (12 s). The oracle now makes
     its points with the same sums as the sampler, and the difference is below 1e-15 of the
     peak at 10^4 blocks of each builder; the tolerance stays."""
-    monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
+    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
     seq = _MANY_CHUNK_SEQUENCES[case](_MANY_CHUNK_BLOCKS // TR_BLOCKS)
     tol = 1e-12 * max(1.0, seq.duration()[0])
     _assert_matches_oracle(

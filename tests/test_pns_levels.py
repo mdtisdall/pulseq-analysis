@@ -48,8 +48,8 @@ from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis._validate import real
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.pns_levels import (
+    _CHUNK_SAMPLES,
     BIN_S,
-    CHUNK_SAMPLES,
     MAX_BINS,
     NO_GRADIENTS,
     PEAK_TOLERANCE,
@@ -80,7 +80,7 @@ def _hw_dict(hw_ns) -> dict:
 def _compute(snap, *, hardware, thresholds_hz_per_t=(), bin_s=BIN_S) -> PnsLevels:
     """`_compute_levels`, the calculation of `pns_levels` with no keep, with the arguments
     checked as `pns_levels` checks them. Each call runs the model and gives a new result, so
-    a test that changes `CHUNK_SAMPLES` or compares two calculations of one sequence uses it:
+    a test that changes `_CHUNK_SAMPLES` or compares two calculations of one sequence uses it:
     a second call of `pns_levels` with the same arguments gives the kept object."""
     _check_hardware(hardware)
     return _compute_levels(
@@ -467,7 +467,7 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
         totals.append(result[0])
         return result
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
     monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
     levels = _compute(snap, hardware=hardware, thresholds_hz_per_t=(_LIMIT,), bin_s=1e-3)
     monkeypatch.undo()
@@ -524,7 +524,7 @@ def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
 def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     """The stored level and the summary do not depend on the chunk size: the fork's
     chunk function is exact for any chunk size, so a difference would be an error of
-    this library's own binning, not of the fork. The test sets `CHUNK_SAMPLES` of
+    this library's own binning, not of the fork. The test sets `_CHUNK_SAMPLES` of
     `pulseq_analysis.pns_levels`, and `pns_levels` rounds the chunk up to a whole number
     of bins: 1 gives a chunk of 1 bin, `bin_samples + 1` gives 2, and
     `7 * bin_samples - 1` gives 7."""
@@ -537,7 +537,7 @@ def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     sizes.append(bin_samples * (reference.num_samples // bin_samples + 10))  # > the whole file
 
     for chunk_samples in sizes:
-        monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+        monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", chunk_samples)
         got = _compute(snap, hardware=EXAMPLE_HW)
         assert got is not reference  # a new calculation, not the first result again
         assert np.array_equal(got.level_min_hz_per_t, reference.level_min_hz_per_t)
@@ -565,13 +565,13 @@ def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatc
     snap = loaded(seq)
     thresholds = (0.05 * _LIMIT,)
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
     reference = _compute(snap, thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
     assert reference.bin_samples * 4 < 10_000  # the block is cut by more than 4 chunk ends
     assert len(reference.above[thresholds[0]]) >= 1
 
     for chunk_samples in (1, reference.bin_samples + 1):
-        monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+        monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", chunk_samples)
         got = _compute(snap, thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
         assert got is not reference  # a new calculation, not the first result again
         assert_levels_equal(got, reference, ignore=())
@@ -593,7 +593,7 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
     levels = pns_levels(
         loaded(long_block), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
     )
-    assert levels.num_samples > 3 * CHUNK_SAMPLES
+    assert levels.num_samples > 3 * _CHUNK_SAMPLES
     expected = pns_levels(
         loaded(short_blocks), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
     )
@@ -670,9 +670,9 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
     hardware = hardware_for_peak(snap, 1.5)
     thresholds = (_LIMIT,)
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
     reference = _compute(snap, hardware=hardware, thresholds_hz_per_t=thresholds)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 1)  # a chunk of 1 bin
     got = _compute(snap, hardware=hardware, thresholds_hz_per_t=thresholds)
 
     assert got is not reference  # a new calculation, not the first result again
@@ -685,7 +685,7 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
 
 
 def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns():
-    """An off-raster sequence of more than one chunk at the real `CHUNK_SAMPLES` (a small
+    """An off-raster sequence of more than one chunk at the real `_CHUNK_SAMPLES` (a small
     trapezoid on x, a delay of 0.35 s, a larger trapezoid on y, a delay of 1.5 gradient-raster
     steps) has its peak, its peak time and its axis peaks equal to `seq.calculate_pns` within
     the relative 1e-9 of `test_off_raster_block_falls_back_to_sampling`, each divided by
@@ -705,7 +705,7 @@ def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pn
 
     levels = pns_levels(snap, hardware=EXAMPLE_HW)
     gamma = seq.system.gamma
-    chunk = levels.bin_samples * math.ceil(CHUNK_SAMPLES / levels.bin_samples)
+    chunk = levels.bin_samples * math.ceil(_CHUNK_SAMPLES / levels.bin_samples)
     assert levels.on_raster is False
     assert levels.num_samples > chunk
     assert levels.peak_time_s > chunk * dt  # the peak is in the second chunk
@@ -789,7 +789,7 @@ def test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_
 
 def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     """With chunks of 1 bin, with a chunk size that has an interval across the end of a
-    chunk, and with the normal `CHUNK_SAMPLES`, `pns_levels` gives the same result, every
+    chunk, and with the normal `_CHUNK_SAMPLES`, `pns_levels` gives the same result, every
     field exactly, including the intervals."""
     snap = loaded(gre_sequence(num_trs=20))
     hardware = hardware_for_peak(snap, 3.0)
@@ -806,11 +806,11 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     assert not any(last // whole > first // whole for first, last in ranges)
 
     for chunk_samples in (1, across, whole):
-        monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+        monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", chunk_samples)
         got = _compute(snap, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S)
         assert got is not reference  # a new calculation, not the first result again
         assert_levels_equal(got, reference, ignore=())
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", across)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", across)
     got = _compute(snap, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S)
     assert got is not reference
     assert got.above[_LIMIT] == reference.above[_LIMIT]
@@ -824,9 +824,9 @@ def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkey
     snap = loaded(gre_sequence(num_trs=3))
     thresholds = (1e-5 * _LIMIT,)
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
     reference = _compute(snap, thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 1)  # a chunk of 1 bin
     got = _compute(snap, thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
 
     assert got is not reference  # a new calculation, not the first result again
@@ -859,7 +859,7 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
         totals.append(result[0])
         return result
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 10**9)
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 10**9)
     monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
     levels = _compute(snap, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
     assert levels.on_raster is on_raster
@@ -945,12 +945,12 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     assert sum(i.num_samples for i in low) > sum(i.num_samples for i in high)
     assert low != high
 
-    sizes = [None, 1]  # None: the CHUNK_SAMPLES of the module
+    sizes = [None, 1]  # None: the _CHUNK_SAMPLES of the module
     sizes += [_chunk_across_an_interval(single[t].above[t], single[t]) for t in thresholds]
     boths = []
     for chunk_samples in sizes:
         if chunk_samples is not None:
-            monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", chunk_samples)
+            monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", chunk_samples)
         both = _compute(
             snap, hardware=hardware, thresholds_hz_per_t=thresholds, bin_s=_ACROSS_BIN_S
         )
@@ -1299,7 +1299,7 @@ def test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_ru
         calls.append(gwf.shape[0])
         return _chunk_total(gwf, dt, hw_ns, state)
 
-    monkeypatch.setattr("pulseq_analysis.pns_levels.CHUNK_SAMPLES", 1)  # a chunk of 1 bin
+    monkeypatch.setattr("pulseq_analysis.pns_levels._CHUNK_SAMPLES", 1)  # a chunk of 1 bin
     monkeypatch.setattr("pulseq_analysis.pns_levels._chunk_total", record)
     levels = _compute(snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,))
     monkeypatch.undo()

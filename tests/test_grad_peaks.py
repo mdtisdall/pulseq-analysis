@@ -54,7 +54,7 @@ from pulseq_analysis.seq_index import (
     grad_events,
     sequence_index,
 )
-from pulseq_analysis.seq_utils import AXES, TIME_TOLERANCE, gradient_offsets
+from pulseq_analysis.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
 from pulseq_analysis.snapshot import Snapshot, _kept_results
 
 
@@ -864,7 +864,7 @@ def _assert_matches_oracle(
     peak is the oracle's, and the time and the block of the slew are the oracle's or another item
     with the same slope (`_assert_slew_item`). `seq` is the sequence of both results."""
     grad_scale, slew_scale = seq.system.max_grad, seq.system.max_slew
-    for axis in AXES:
+    for axis in _AXES:
         a, b = ours.axes[axis], theirs[axis]
         _assert_close(a.peak_hz_per_m, b["peak"], grad_scale, tol, f"{axis} peak")
         _assert_close(a.max_slew_hz_per_m_per_s, b["max_slew"], slew_scale, tol, f"{axis} slew")
@@ -887,7 +887,7 @@ def _oracle_windows(snap: Snapshot, rng: np.random.Generator, count: int) -> lis
     index = sequence_index(snap)
     total = index.end_s
     times = [index.start_s, index.start_s + index.duration_s]
-    for axis in AXES:
+    for axis in _AXES:
         t = oracle.axis_polyline(snap.sequence, axis).t
         times += [t, t - snap.sequence.grad_raster_time / 2, t + snap.sequence.grad_raster_time / 2]
     edges = np.concatenate([index.start_s, index.start_s + index.duration_s])
@@ -2496,7 +2496,7 @@ def test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has
     snap = loaded(seq)
     values = block_gradient_values(snap)
 
-    for axis in AXES:
+    for axis in _AXES:
         expected = _block_values_of_the_polyline(seq, axis)
         np.testing.assert_allclose(values.peak_hz_per_m[axis], expected["peak"], rtol=1e-12)
         positive = expected["peak"] > 0.0
