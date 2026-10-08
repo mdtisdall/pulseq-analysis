@@ -103,3 +103,6 @@ fraction of the stimulation limit.
 - [`docs/plans/fourth-review-fixes.md`](docs/plans/fourth-review-fixes.md):
   the plan of the fixes of that fourth review, and of the snapshot step
   (`0.1.0rc6`).
+- [`docs/plans/load-accepts-unsigned.md`](docs/plans/load-accepts-unsigned.md):
+  the plan by which `load` accepts a sequence with no `[SIGNATURE]` hash, and
+  `refuse_unsigned` is removed (for `0.1.0rc7`).
