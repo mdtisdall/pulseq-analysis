@@ -628,7 +628,7 @@ proposal of this review) or "not changed" (with the reason).
 | `docs/usage.md` says that the measurements use `BlockDurationRaster` | Done. The rule for `AnalysisSpec.rasters` (item 6.1) is in the documents: each raster of the file whose value changes the value of the analysis. | 2.2, #60 |
 | `grad_peaks.py:45` is 157 characters long | Done for that line, which is wrapped. Not changed: no check of the line length (the default rules of ruff have none), and some other lines of `src/` are longer than 100 characters. | 1.4, #54 |
 | `TESTS.md` has text that is not true (ten statements) | Done. #54 corrected each of the ten. | 1.4, #54 |
-| The docstring of `test_compute_of_gradient_spectrum_passes_its_arguments_on` says that `to_series` gives the arguments | Not changed. The plan listed the correction (task 1.1), but the docstring on `main` is the same, and the test does not call `to_series`. | — |
+| The docstring of `test_compute_of_gradient_spectrum_passes_its_arguments_on` says that `to_series` gives the arguments | Done after 0.1.0rc6. The plan listed the correction (task 1.1), but #51 did not make it. The docstring now says what the test checks: the object that `compute` gives for each argument, and the value of each argument in the result. It does not name `to_series`, which the test does not call. | #87 |
 
 ### 8.4 Section 4: duplication and simplification
 
@@ -714,8 +714,8 @@ value now use one decorator, `_equality.value_dataclass`.
 
 Two items of this review stay as they are, by decision U4 of the third plan:
 the tests that call no code of the package (section 5.3), and the tests of
-pypulseq's `write` and `read`. `TESTS.md` says what each one checks. One
-correction of the plan is not made: the docstring of
+pypulseq's `write` and `read`. `TESTS.md` says what each one checks. The
+check of the length of a line (section 3, the bullet about `grad_peaks.py:45`)
+is not added. The correction of the docstring of
 `test_compute_of_gradient_spectrum_passes_its_arguments_on` (section 3, last
-bullet). The check of the length of a line (section 3, the bullet about
-`grad_peaks.py:45`) is not added.
+bullet) was not made at 0.1.0rc6, and #87 made it.

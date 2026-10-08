@@ -555,9 +555,12 @@ def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
 
 def test_compute_of_gradient_spectrum_passes_its_arguments_on():
     """`GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)` is the object (`is`) that
-    `gradient_spectrum(snap, max_frequency_hz=1000.0)` keeps, and it is not the object of the
-    defaults and has other frequencies. Each of the three arguments reaches the function: the
-    `to_series` meta gives them."""
+    `gradient_spectrum(snap, max_frequency_hz=1000.0)` keeps. It is not the object of the
+    defaults (which is `gradient_spectrum(snap)`), its `frequency_hz` differs from that of the
+    defaults, and its `max_frequency_hz` is 1000.0. `compute(snap, window_s=0.1,
+    frequency_oversampling=2.0)` is the object that `gradient_spectrum` keeps for those two
+    arguments, and its `window_s` and `frequency_oversampling` are 0.1 and 2.0. So each of the
+    three arguments reaches the function."""
     snap = loaded(spin_echo_sequence())
 
     default = GRADIENT_SPECTRUM.compute(snap)
