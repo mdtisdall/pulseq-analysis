@@ -12,17 +12,28 @@ from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from pypulseq.utils.siemens.readasc import readasc
 
 # A line that includes another .asc file, for example the _GSWD_SAFETY.asc file with the
-# SAFE PNS parameters.
-INCLUDE_LINE = re.compile(r'^\s*\$INCLUDE\s+"?([^"\s]+)"?\s*$')
+# SAFE PNS parameters: `$INCLUDE` in any case, then the name (in double quotes when it has
+# spaces), then optionally a comment that starts with `#` or `//` (the comment marks that
+# pypulseq's `readasc` accepts after a value). Group "quoted" or group "bare" is the name.
+_INCLUDE_LINE = re.compile(
+    r'^\s*\$INCLUDE\s+(?:"(?P<quoted>[^"]+)"|(?P<bare>(?:(?!//)[^"\s#])+))\s*(?:#|//|$)',
+    re.IGNORECASE,
+)
+# A line that starts with `$INCLUDE` (in any case), whether or not `_INCLUDE_LINE` matches.
+_INCLUDE_START = re.compile(r"^\s*\$INCLUDE", re.IGNORECASE)
 
 
 def read_gradient_asc(path: str | Path) -> dict:
     """The fields of the .asc file `path`, as pypulseq's `readasc` gives them, and the fields
     of each file that a `$INCLUDE` line names. `readasc` ignores `$INCLUDE`. An included
     file is in the same directory as the file that includes it, and its fields replace
-    fields with the same name. When a `$INCLUDE` line names a file that is already on the
-    chain of includes that leads to it (or the file itself), `ValueError` names the cycle.
-    A file that two branches include is not a cycle."""
+    fields with the same name: an included field wins over a field that the including file
+    sets after its `$INCLUDE` line. A `$INCLUDE` line is `$INCLUDE` in any case, a name (in
+    double quotes when it has spaces) and optionally a comment that starts with `#` or `//`.
+    Any other line that starts with `$INCLUDE` raises `ValueError` that names the file and
+    the line. When a `$INCLUDE` line names a file that is already on the chain of includes
+    that leads to it (or the file itself), `ValueError` names the cycle. A file that two
+    branches include is not a cycle."""
     return _read_with_includes(Path(path), ())
 
 
@@ -30,13 +41,16 @@ def _read_with_includes(path: Path, chain_before: tuple[Path, ...]) -> dict:
     """`read_gradient_asc` of `path`, which the files of `chain_before` include in turn."""
     chain = (*chain_before, path.resolve())
     asc, _ = readasc(str(path))
-    for line in path.read_text().splitlines():
-        match = INCLUDE_LINE.match(line)
-        if match:
-            included = path.parent / match[1]
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if _INCLUDE_START.match(line):
+            match = _INCLUDE_LINE.match(line)
+            if not match:
+                raise ValueError(f"{path.name}, line {number}: cannot read the include {line!r}")
+            name = match["quoted"] or match["bare"]
+            included = path.parent / name
             if not included.is_file():
                 raise FileNotFoundError(
-                    f"{path.name} includes {match[1]}, which is not in {path.parent}"
+                    f"{path.name} includes {name}, which is not in {path.parent}"
                 )
             if included.resolve() in chain:
                 names = [p.name for p in chain[chain.index(included.resolve()) :]]

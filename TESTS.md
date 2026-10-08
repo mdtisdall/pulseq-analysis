@@ -5866,6 +5866,42 @@ must be the field of `main.asc` and the field of `shared.asc`.
 
 **Assumptions:** None.
 
+#### `test_include_line_forms_that_read_the_included_file`
+
+**Checks:** A `$INCLUDE` line reads the included file when `$INCLUDE` is in
+upper, lower or mixed case, when the name is in double quotes, and when a `#` or
+`//` comment follows the name.
+
+**How:** For each form (parametrized), the test writes `inc.asc` with `y = 2`
+and `main.asc` with `x = 1` and the `$INCLUDE` line, and reads `main.asc`. The
+fields must be `x` and `y`.
+
+**Assumptions:** The comment marks are those that pypulseq's `readasc` accepts
+after a value.
+
+#### `test_include_line_with_a_quoted_name_with_spaces`
+
+**Checks:** A quoted name with spaces and a comment after it names the
+included file.
+
+**How:** The test writes `my safety.asc` with `y = 2` and a main file with
+`$INCLUDE "my safety.asc" # ...`, and reads the main file. The fields must be
+`x` and `y`.
+
+**Assumptions:** None.
+
+#### `test_include_line_that_does_not_parse_raises`
+
+**Checks:** A line that starts with `$INCLUDE` (any case) but has no name, has
+junk after the name, or has an open quote raises `ValueError` that names the
+file, the line number and the line.
+
+**How:** For each line (parametrized), the test writes `main.asc` with the line
+as its second line and reads it. The message must have `main.asc`, `line 2` and
+the `repr` of the line in this order.
+
+**Assumptions:** None.
+
 #### `test_included_fields_replace_fields_with_the_same_name`
 
 **Checks:** The fields of an included file are merged into the fields of the
