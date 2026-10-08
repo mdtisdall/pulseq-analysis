@@ -530,3 +530,147 @@ timing check are labelled as guards on the pin. After item 2,
 6. Section 4: the shared gap rule (item 1) after the fixes of section 1, so
    that the fixes are made one time.
 7. The other items.
+
+## 8. Status at 0.1.0rc6
+
+Written on 2026-10-07, for the release `0.1.0rc6`. The numbers of the items
+are those of sections 1 to 6 of this review. A bullet of section 5.1 is named
+by its words, and a row of the table of section 5 by its mutation. The tasks
+are those of `docs/plans/fourth-review-fixes.md` (the fourth plan). The names
+in sections 1 to 7 are those of `83af015`. This section uses the names of
+`0.1.0rc6` where a name has changed. A name of a test is the name on `main` at
+the release.
+
+The pull requests of the fourth plan:
+
+| Task | PR | Branch |
+|---|---|---|
+| 1.1 | #71 | `test/fourth-review-test-gaps` |
+| 1.2 | #69 | `fix/series-robustness` |
+| 1.3 | #70 | `docs/fourth-review-doc-errors` |
+| 1.4 | #72 | `fix/end-step-tolerance` |
+| 1.5 | #73 | `fix/block-samples-edges` |
+| 1.6 | #74 | `test/fourth-review-test-prune` |
+| 1.7 | #75 | `perf/grad-peaks-first-call` |
+| 1.8 | #76 | `perf/block-samples` |
+| 1.9 | #77 | `perf/sequence-index` |
+| 1.10 | #78 | `perf/spectrum-fft` |
+| 1.11 | #79 | `refactor/one-gap-rule` |
+| 2.1 | #80 | `feature/snapshot` |
+| 2.2 | #81 | `feature/analysis-spec-checks` |
+| 2.3 | #82 | `feature/series-format` |
+| 2.4 | #83 | `feature/registry-strict` |
+| 2.5 | #85 | `feature/interface-names` |
+| 2.6 | #84 | `fix/asc-include-lines` |
+| 2.7 | this release | `docs/release-0.1.0rc6` |
+
+The pull request of the plan is #68 (the review is #67).
+
+The status is "done", "done in another way" (the result differs from the
+proposal of this review) or "not changed" (with the reason).
+
+### 8.1 Section 1: correctness
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 1.1 | A kept result does not see `mod_grad_axis`, `flip_grad_axis` or `set_block` | Done in another way, by the user's decision U1. The proposal was a fingerprint of the data of the gradient library in the stamp. Instead, `snapshot.load(path or sequence)` makes a sequence that only the package holds (`load(path)` makes no copy, and `load(seq)` makes `copy.deepcopy(seq)`). Each measurement takes the snapshot, and its kept results are in a dict of the snapshot. `_kept.py` and its stamp are removed. Tests (`tests/test_snapshot.py`): `test_a_snapshot_of_a_sequence_shares_no_mutable_object_with_it` (a walk of both object graphs), `test_a_snapshot_writes_the_bytes_of_its_source` and `test_a_change_of_the_source_changes_no_result_of_the_snapshot` (`mod_grad_axis`, `set_block`, `apply_soft_delay` and a direct write change no result). The documents name the changes that pypulseq makes in place, and say that a caller must not change `snapshot.sequence`. | 2.1, #80 |
+| 1.2 | The step after the last point at the end of the sequence depends on one ulp | Done. A step at `t` is in a range `[lo, hi]` when `lo <= t < hi`, and `t < end_s - TIME_TOLERANCE` when `hi` is the end of the sequence. The step after the last point of an axis is in no range when that point is within `TIME_TOLERANCE` of the end. The package, the oracle and `docs/implementation.md` have the rule. Tests: `test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_round_trip` (20 end times, in memory and after `write` and `read`) and `test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`. | 1.4, #72 |
+| 1.3 | `block_samples` gives 0 at the last point of an event after a one-ulp rounding | Done. A sample within `TIME_TOLERANCE` after the last point of an event has the value of that point. Over a scan of 6960 sequences with a delayed ramp, the package and the oracle disagreed in 889 cases before and in 0 after. Test: `test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle` (the 8 cases of this review and 6 cases from the scan, in `block_samples` and in `pns_levels`). | 1.5, #73 |
+| 1.4 | At a step inside one event, `block_samples` takes the later value | Done, as the proposal. `_event_samples` uses `_polyline_values`, the value before a step, which is the rule of `sample`. About 25 lines fewer. The 3-sample arbitrary gradient of this review equals the oracle (the same test as item 1.3). | 1.5, #73 |
+| 1.5 | `rf_events`, `grad_events` and `adc_events` keep the block cache off across `yield` | Done in another way. The three functions give a tuple that is made one time and kept, so no generator is left open. `load` sets `use_block_cache` to False on the private sequence, so the cache of the caller's sequence is never touched, and `block_cache_off` is removed. Tests: `test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple` (and the same for `rf_events` and `adc_events`) and the object-graph test of item 1.1. | 2.1, #80 |
+| 1.6 | `Series.from_obj` and `decode_array` can raise `OverflowError` | Done. A `"length"` of `10**30`, a `length * itemsize` above `sys.maxsize` and a coordinate of `10**400` raise `ValueError`. Tests: `test_decode_array_refuses_a_length_that_overflows` and `test_from_obj_refuses_a_number_that_overflows`. | 1.2, #69 |
+| 1.7 | A kept result skips the signature check; the refusals come in different orders | Done in another way. `snapshot.load` calls `refuse_unsigned` and then `refuse_rotations`, one time for each snapshot, so no measurement calls them and no kept result can skip them. In each public function the checks of the other arguments come first, and then the type of the first argument (`TypeError` that names `load`). Tests: `test_a_measurement_of_a_snapshot_calls_neither_check_again` and `test_load_checks_the_signature_before_the_rotation`. | 2.1, #80 |
+| 1.8 | The read-only rule has two holes | Done, as the proposal. `_equality._freeze` makes an array read-only on an immutable `bytes` base, so `flags.writeable = True` raises (`test_freeze_gives_a_read_only_copy_that_cannot_be_made_writable`). `Series.__reduce__` builds a copy through the constructor, so a copy from `pickle` or `copy.deepcopy` is checked and read-only (`test_series_rebuilds_a_copy_with_the_constructor`). #80 uses `_freeze` in the other modules. | 1.2, #69 (the other modules: #80) |
+
+### 8.2 Section 2: efficiency
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 2.1 | `_event_values` is about 2/3 of the cost of each unique event | Done. A vectorised form with `np.repeat` and `reduceat`. `_event_values` for K = 20 002 unique events: about 255 ms before and 1.6 ms after. The first `gradient_peaks` call on `build_worst(20000)`: 506 ms before and 242 ms after (the index and the event reads are in this time). The RMS integral differs by 2.5e-16 relative at most (the order of the sum), and each other value is the same bit for bit. | 1.7, #75 |
+| 2.2 | `_vector_candidates` can be about 1.8 times faster | Done. The sorted point times are merged with a stable sort, and the values after a time come from the values before it when a polyline has no step. `np.interp` is not used, because it changes the last bits and the ties of the oracle. `build_repeating(20000)`: 130 ms before and 108 ms after (first call). | 1.7, #75 |
+| 2.3 | `gradient_spectrum` is 75 % FFT | Done, with one part not done. `scipy.fft.rfft` in one thread is 21 % faster (`build_repeating(20000)`: 1.01 s to 0.87 s) and differs by at most 4.9e-16 of the largest value of an array. Not done: `workers=-1`, which is faster but changes the last bits, so one chunk would not equal many chunks. Decision U8: one thread, so the chunks stay equal bit for bit (`test_chunks_give_the_same_spectrum_as_one_chunk` stays exact). | 1.10, #78 |
+| 2.4 | `sequence_index` reads the block dict five times | Done. One `np.asarray(list(values))` for the rows of `block_events`, and `np.fromiter` for the durations. A file whose rows differ in length uses the loop by key. `_build_index` for 100,000 blocks: 59 ms before and 21 ms after. | 1.9, #77 |
+| 2.5 | The loop over the unique pairs of `block_samples` | Done. One indexed copy from a pool gathers the samples, with no mask for each pair and no `np.tile`. `pns_levels` on `build_repeating(20000)`: 1004 ms before and 909 ms after. | 1.8, #76 |
+| 2.6 | The cache key of `block_samples` can be `(event, dt)` | Done, without the optional part. The cache key is `(event, dt)`, and a block of n samples takes the first n (`test_one_event_in_blocks_of_two_lengths_gives_the_samples_of_each_length`). The cache still holds an entry for each unique event. | 1.8, #76 |
+| 2.7 | `has_gradients(index)` scans 3N values | Done. `has_gradients` is `index.grad_first.size > 0`. | 1.9, #77 |
+
+### 8.3 Section 3: mis-documentation
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 3.1 | `README.md` installs a release that does not have the documented API; no changelog entry; the units reference of the rc5 entry | The README and the changelog are done by the release. `README.md` pins `v0.1.0rc6`, `pyproject.toml` has the version `0.1.0rc6`, and `CHANGELOG.md` has the entry `0.1.0rc6` for the work of the four plans. Until then, #70 put a note in `README.md` that the documents describe `main`. Not changed: the reference of the entry of `0.1.0rc5` to section 8 of `docs/usage.md`. A released entry of the changelog does not change (section 8 of `docs/plans/review-fixes.md`). | #70, and task 2.7, this release |
+| 3.2 | Section 3 of `docs/implementation.md` has errors | Done. #70 corrected the spectrum samples (each chunk one time, about 54 MB), the sharing of the gaps (only `GradientSampler`), the cost per unique event, the cost and the memory of `pns_levels`, the first call of `sample`, and the edge blocks of a window. The times were measured again with the machine and the commit given. | 1.3, #70 |
+| 3.3 | A `FrozenDict` equals a `dict` with the same items in any order | Done. `docs/implementation.md` section 5 says that it has the `==` of `dict`, and that only the `==` of a result checks the order of the keys of its dicts. | 1.3, #70 |
+| 3.4 | "No result" is too broad | Done. The documents give the fields that a result with no value keeps (for example `dt_s` and `bin_samples` of a `PnsLevels`, `range_s` of a `GradientPeaks`, and the arguments of a `GradientSpectrum`). | 1.3, #70 |
+| 3.5 | Docstrings that do not agree with the code (`GradientPeaks.reason`, `_AxisColumns`, `_build_polyline`, `extensions.py` and `docs/usage.md` on the order of the refusals) | Done. The text of `GradientPeaks.reason` says that a window with only a ramp, a line or a step also gives `None`. The order of the refusals is now one place, `snapshot.load` (item 1.7). | 1.3, #70 (and #80) |
+| 3.6 | The descriptions of the analyses | Done. The RMS of `gradient.peaks` has neither a block nor a time, and `gradient.spectrum` says that across a gap of one raster time or less the waveform is the line of pypulseq. #70 added the `ValueError` of an unsigned sequence to each description. Since #80, `compute` takes a snapshot, and the module docstring of `analyses` says that a runner loads each file one time with `snapshot.load`, which makes the two refusals. | 1.3, #70 (and #80) |
+| 3.7 | The kept-result caveat must name `mod_grad_axis`, `flip_grad_axis` and `set_block` | Done, and then moot. #70 named them (and `apply_soft_delay`), each after a reproduction. #80 removed the caveat: the snapshot does not see a change of the source (item 1.1). | 1.3, #70 (removed by #80) |
+| 3.8 | The citations in the module docstrings that this item names | Not changed. They go in the cleanup of all such citations before 0.1.0 (section 9 of the plan, "Later"). | — |
+
+### 8.4 Section 4: duplication and simplification
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 4.1 | The gap rule and the polyline are made in three places | Done. `_events.py` has `axis_events`, `gap_kinds`, `ramps` and `polyline`, and `grad_peaks` and `GradientSampler` use them. `grad_peaks._polyline_values` is removed (#75), so `_polyline_values` is one name, in `sampling`. The values are identical to those of `main` before the change (the baseline script of the plan). | 1.11, #79 (and #75) |
+| 4.2 | `_event_samples` is a second interpolation routine | Done. See item 1.4. | 1.5, #73 |
+| 4.3 | Dead code for an event with no points | Done. The branches are removed, and `_events._read_points` asserts two points or more. | 1.5, #73 |
+| 4.4 | `_sum_of_squares` copies the compensated `sum` of CPython | Done. The vector peak is `gx * gx + gy * gy + gz * gz` in the package and in the oracle. | 1.4, #72 |
+| 4.5 | `_EventData` is kept, but nothing reads it after `_BlockData` is made | Done. `_kept_block_data` makes `_EventData` and does not keep it. | 1.7, #75 |
+| 4.6 | Six `WeakKeyDictionary`s each keep their own copy of the stamp | Moot. `_kept.py` and the weak-key caches are removed (item 1.1). | 2.1, #80 |
+
+### 8.5 Section 5: tests
+
+Task 1.1 (#71) added the tests below for the mutations of the table of this
+section (the mutation of `decode_array` is covered in #69). When #71 merged,
+each mutation that it covers failed a test, except the order key of
+`_evaluate_axis`, which is equivalent. After task 1.11 moved the gap rule to
+`_events.py`, the mutations of the table were applied to the code at its new
+place, and each mutation except that one fails a test.
+
+| Mutation | Status | Task / PR |
+|---|---|---|
+| `_find_gaps`: a long gap is more than `2 * dt` | Done. A gap of 1.5 raster times, between two values that are not 0, is in the oracle comparisons of the sampler, of `pns_levels` and of the spectrum. | 1.1, #71 |
+| `_find_gaps`: a short gap gets its line only when the earlier value is not 0 | Done. The sequences with a short gap from 0 to a value, and from a value to 0, are in the same comparisons (`test_a_short_gap_is_a_line_that_the_later_block_has`, `test_the_samples_in_a_short_gap_are_the_line_by_hand`). | 1.1, #71 |
+| `_find_gaps`: ramps only for values above 0 (two mutations) | Done. A negated copy of each gap sequence is in the same comparisons (`test_the_values_of_a_negated_waveform_are_equal` and `test_the_levels_of_a_negated_waveform_are_equal`). | 1.1, #71 |
+| `_hardware_key` without `g_scale` | Done. `test_pns_levels_keys_the_hardware_on_each_field_of_each_axis` changes each of the 8 fields of each axis. | 1.1, #71 |
+| `_vector_candidates` without `after[times == hi] = 0.0` | Done. `test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step`, with hand values. | 1.1, #71 |
+| `_axis_columns` without the slew time of a zero event | Done. `test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time`. | 1.1, #71 |
+| `_range_result`: the vector tie gives the first tied block | Done. `test_a_vector_peak_tie_goes_to_the_earlier_time_when_the_later_block_has_it` is a hand-made tie in which a later block has the earlier time. | 1.1, #71 |
+| `decode_array` without the `unused_data` check | Done. `test_decode_array_refuses_bytes_after_the_gzip_stream`. | 1.2, #69 |
+| `_A_SUM_TOLERANCE` 0.001 to 0.01 | Done. `test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005`. | 1.1, #71 |
+| dtype limits `<` for `<=` | Done. `test_the_dtype_of_the_dense_columns_changes_at_255_and_at_65_535_unique_events`. | 1.1, #71 |
+| `_evaluate_axis`: the order of a step and a segment (G14: `poly.step_point - 0.5` to `+ 0.5`) | Not killed. It is an equivalent mutation, so no test can fail on it: a step at a point is always followed by the segment that starts at the same point, at the same time and credited to the same block. A junction step is credited to the later block, whose first segment follows it, and a step inside an event and the step before the first point of an axis are in the block of that event. So the order of the two in a tie changes no value, no time and no block. 2400 random windows give byte-identical results with and without the mutation. `test_a_window_credits_the_segment_before_a_step_of_the_same_slew` tests the other order (a segment before a step). | 1.1, #71 |
+
+| # | Finding of section 5 | Status | Task / PR |
+|---|---|---|---|
+| 5.1 | The gap model of `GradientSampler` is tested only on positive values and on two gap lengths | Done. The oracle comparisons of `sample`, `block_samples`, `pns_levels` (on the raster and off it) and `gradient_spectrum` have the 8 seeds of `random_gap_sequence` (now `tests/random_gaps.py`), a negated copy of each gap sequence, a gap of 1.5 raster times and the short gaps from and to 0. 134 new cases. | 1.1, #71 |
+| 5.2 | `test_the_defaults_are_those_of_pypulseq` compares an object with itself | Done. It compares a calculated spectrum (`_compute_spectrum`) with the default call, and `TESTS.md` says that it also guards the defaults of pypulseq. | 1.1, #71 |
+| 5.3 | The key of the PNS hardware is tested for `stim_limit` only | Done. See the row of `_hardware_key` above. | 1.1, #71 |
+| 5.4 | A window that ends at a step up, and the slew time of a zero event, are not tested | Done. See the rows above (hand values for each). | 1.1, #71 |
+| 5.5 | The oracles share code with the package | Done. `oracles/waveform.values_at` is a loop over the segments, with no code of `sampling._polyline_values` (identical to the old function on 900 random polylines). A hand-made vector tie is added (row above). | 1.1, #71 |
+| 5.6 | Tests that repeat others | Done. `test_gradient_sampler_equals_the_sampler_of_the_constructor` was deleted in #73. #74 deleted `test_example_hardware_for_spin_echo`, `test_grad_dense_numbering_follows_gx_then_gy_then_gz_within_a_block`, `test_a_gradient_on_one_axis_has_a_prediction`, `_points_from_grad_events` and its tests, `test_gradient_points_trapezoid` and `test_gradient_points_arbitrary`, `test_pns_levels_is_a_frozen_dataclass`, `test_the_levels_from_pickle_and_deepcopy_equal_the_original` (its check of `FrozenDict` moved into `test_levels_compare_by_value`) and one repeated `bin_samples_for` assertion. Not changed: `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`. #74 kept it (moved to `tests/test_asc.py`), because it is the only test of the split `$INCLUDE` layout. | 1.5, #73. 1.6, #74 |
+| 5.7 | `TESTS.md`: the order of the contents, the tests of `asc.py`, and the citations that this item names | Done for the first two: the contents follow the order of the sections, and the tests of `asc.py` are in `tests/test_asc.py` with their own section. Not changed: the citations, which go in the cleanup before 0.1.0 (section 9 of the plan). | 1.6, #74 |
+| 5.8 | Two slow tests | Done. `test_matches_oracle_on_long_sequences` is now `test_matches_oracle_with_many_chunks` (1000 blocks with `CHUNK_WINDOWS = 4`), and the kept-data window test uses 30 windows. The suite went from 1243 tests in 6.4 s to 1228 tests in 5.0 s in #74. | 1.6, #74 |
+
+### 8.6 Section 6: the API and the goals of the project
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 6.1 | Names that the interface needs are not in the two documents | Done. `docs/usage.md` names `series.SeriesKind`, the protocol `analyses.Analysis`, `series.FrozenDict` and the five analysis objects. `FrozenDict` is exported at `pulseq_analysis.series.FrozenDict`. The public names that no document gives got a `_`: `grad_spectrum._CHUNK_WINDOWS`, `pns_levels._CHUNK_SAMPLES`, `seq_utils._AXES`, `seq_utils._GRAD_COLUMNS` and `asc._INCLUDE_LINE` (the last in #84). Test: `test_each_public_name_of_a_module_is_in_the_documents_or_an_exception` (and the tests of `tests/test_interface.py` for each name that the documents give with a module). | 2.5, #85 |
+| 6.2 | `AnalysisSpec` does not check the fields that a runner uses | Done. `id` is a `str` that is not empty, `version` is an `int` of 1 or more, `cost` is `"fast"` or `"slow"`, each raster is a name of `analyses.RASTERS`, `params` is a tuple of unique `str`, and a float default is finite. A wrong type raises `TypeError` and a wrong value `ValueError`. `docs/usage.md` defines the two costs ("fast" grows with the blocks and the unique events, "slow" with the duration). Tests: `test_analysis_spec_raises_for_a_field_that_a_runner_uses` (20 cases) and `test_the_spec_of_each_analysis_of_the_package_passes_the_checks`. | 2.2, #81 |
+| 6.3 | The JSON form of a `Series` has no format version | Done. `to_obj` gives `"format": 1`. `from_obj` refuses an object with no `"format"`, with another format, or with a key that format 1 does not have (decision U9). | 2.3, #82 |
+| 6.4 | `registry()` is all or nothing | Done. `registry(strict=True)` is the default and raises `RegistryError` as before. `registry(strict=False)` leaves out an entry point that does not load, has no `spec.id`, has a name that is not its `spec.id`, or repeats an ID, with a `RegistryWarning` that names it. The entry points of this package load first, so they stay. Test: `test_the_registry_that_is_not_strict_leaves_out_an_entry_point_and_warns`. | 2.4, #83 |
+| 6.5 | `Series` treats its inputs unevenly | Done. `meta` stores a numpy bool, integer or float scalar as a Python scalar (`np.float32`, `np.int64` and `np.bool_` are accepted). Each string field and key is a plain `str`, so `from_obj(to_obj(s)) == s`. `ENVELOPE` needs a real dtype for `min` and `max`, one dtype for both, and `min <= max` where neither is NaN, and `POINTS` needs a real dtype for `coord`. | 1.2, #69 |
+| 6.6 | `asc` ignores some `$INCLUDE` lines with no message | Done in part. `asc` matches `$INCLUDE` in any case, a name in double quotes with spaces, and a comment after the name (`#` or `//`). Any other line that starts with `$INCLUDE` raises `ValueError` that names the file, the line number and the line. Tests: `test_include_line_forms_that_read_the_included_file`, `test_include_line_with_a_quoted_name_with_spaces` and `test_include_line_that_does_not_parse_raises`. Not changed: an included field still wins over a field that the file sets after the `$INCLUDE` line. The docstring says it, and the order of the file is a later choice (section 9 of the plan). | 2.6, #84 |
+| 6.7 | Robustness against a file from another source | Done. `decode_array` and `from_obj` take `max_bytes` and refuse more decompressed bytes before they decode (`test_decode_array_refuses_more_than_max_bytes`). `_dense` uses `np.unique` when the largest ID is more than 16 times the number of entries (`test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb`). | 2.3, #82 (`_dense`: 1.9, #77) |
+
+### 8.7 What stays
+
+Three items of this review are not changed, each for the reason in its table:
+
+- Item 2.3, the FFT with `workers=-1` (decision U8).
+- Items 3.8 and 5.7, the citations that they name (the cleanup before 0.1.0).
+- Item 6.6, the order of the fields of an `.asc` file (a later choice).
+
+The mutation of the order key of `_evaluate_axis` is equivalent and has no
+test.

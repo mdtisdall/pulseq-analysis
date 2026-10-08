@@ -560,3 +560,162 @@ parameters, and gives values with no limit and no finding.
    the unnecessary tests and dead test code of sections 5.3 and 5.4.
 7. The choices of section 6, items 1, 2, 4 and 5. They change what callers
    get, so pulseq-checks and pulseq-reports must agree first.
+
+## 8. Status at 0.1.0rc6
+
+Written on 2026-10-07, for the release `0.1.0rc6`. The numbers of the items
+are those of sections 1 to 6 of this review. A bullet of section 3, 4 or 5 is
+named by its words, and a bullet of section 5 by the test or the mutation that
+it names. The tasks are those of `docs/plans/third-review-fixes.md` (the third
+plan). The names in sections 1 to 7 are those of `efe4f46`. This section uses
+the names of `0.1.0rc6` where a name has changed. A name of a test is the name
+on `main` at the release.
+
+The fourth plan (`docs/plans/fourth-review-fixes.md`) changed some of this
+code again. Where a later change makes the first fix different, the table says
+so.
+
+The pull requests of the third plan:
+
+| Task | PR | Branch |
+|---|---|---|
+| 1.1 | #51 | `test/third-review-test-fixes` |
+| 1.2 | #52 | `fix/spectrum-ends` |
+| 1.3 | #53 | `fix/third-review-small-fixes` |
+| 1.4 | #54 | `docs/third-review-doc-errors` |
+| 1.6 | #56 | `refactor/block-columns` |
+| 1.7 | #55 | `refactor/third-review-small-duplicates` |
+| 1.5 | #57 | `test/third-review-test-prune` |
+| 2.1 | #58 | `feature/gradient-gap-model` |
+| 2.2 | #60 | `feature/analysis-rasters` |
+| 2.3 | #61 | `feature/public-sampler` |
+| 2.4 | #62 | `feature/pns-runs-at-edges` |
+| 2.5 | #63 | `feature/drop-whole-rms` |
+| 2.7 | #64 | `refactor/value-dataclass` |
+| 2.6 | task 2.7 of the fourth plan, this release | `docs/release-0.1.0rc6` |
+
+The pull request of the plan is #50. #59 added task 2.7 to it.
+
+The status is "done", "done in another way" (the result differs from the
+proposal of this review) or "not changed" (with the reason).
+
+### 8.1 Section 1: correctness
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 1.1 | A junction into a delayed event loses its steps | Done. One model of the waveform between two events, the model of MATLAB Pulseq (decision U1): a step across a zero gap, a line across a gap of one raster time or less, and a ramp to 0 and a ramp from 0 of half a raster time across a longer gap. `gradient_peaks`, `block_gradient_values`, `GradientSampler.sample` and `GradientSampler.block_samples` all use it, and `tests/oracles/waveform.py` has its own code for it. The delay of an event after a block that ends at a value that is not 0 now has the ramp to 0 and the ramp from 0, each credited to its block. Tests: `test_a_long_gap_gives_the_ramps_of_its_ends_credited_to_the_blocks_of_their_events` and `test_a_first_value_that_is_not_zero_after_a_delay_has_a_ramp_from_zero_in_its_block`. The section "The gradient waveform" of `docs/implementation.md` gives the rule. | 2.1, #58 |
+| 1.2 | The spectrum attenuates the gradients at the end of a sequence | Done in another way. The end padding is the fewest zeros, at least half a window, that make the padded waveform one window plus a whole number of hops. The proposal of this review (the last sample at the centre of a window) cannot hold for each length, because the start padding fixes the grid of windows. Now each sample, the last one too, is within half a hop of the centre of some window, as a sample in the middle of the sequence is, for a window of an even and of an odd number of samples. Test: `test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle` (N = 5000, 6000, 7000 and 7499 samples, an even and an odd window). | 1.2, #52 |
+| 1.3 | The spectrum counts the samples with its own rule | Done. `sampling.sequence_samples(index, dt)` is the one rule for the number of samples (the sum of the block lengths on the raster, and `ceil((end_s - 1e-10) / dt)` off it). `pns_levels` and `gradient_spectrum` both call it, and the oracle of the spectrum follows it with its own code. Tests: `test_sequence_samples_on_the_raster_is_the_sum_of_the_block_lengths` and `test_sequence_samples_off_the_raster_is_the_ceil_of_the_end`. | 1.2, #52 |
+| 1.4 | A `Series` can be changed after its checks | Done. `Series.arrays` and `Series.meta` are `FrozenDict`s, so a change raises `TypeError`. Since #69, a copy from `pickle` or `copy.deepcopy` is made through the constructor and is checked too. | 1.3, #53 (the copy: #69) |
+| 1.5 | An `$INCLUDE` cycle recurses until `RecursionError`; `decode_array` decompresses all the data before it compares the length | Done. `read_gradient_asc` raises `ValueError` that names the cycle (`test_asc_files_that_include_each_other`, `test_asc_file_that_includes_itself`; a file that two branches include is not a cycle). `decode_array` decompresses at most `length * itemsize + 1` bytes (`test_decode_array_does_not_decompress_more_than_length_needs`). The fourth review (6.7) asked for an optional `max_bytes` for a producer that gives a false `length`, and #82 added it. | 1.3, #53 (`max_bytes`: #82) |
+
+### 8.2 Section 2: efficiency
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 2.1 | A window of `gradient_peaks` costs O(K) and two `get_block` calls | Done. The values of each block are calculated one time for each sequence and kept in `_BlockData`, with a prefix sum of the RMS integral. A window is an `argmax` over the blocks that lie whole in it. A block that a window edge cuts is made from the kept event points, with no `get_block`. A window of one block on 20,000 unique events: 0.045 ms (0.194 ms before). Test: `test_a_window_of_gradient_peaks_calls_no_get_block`. The values do not change, except the RMS of a window, in the last digit. | 1.6, #56 |
+| 2.2 | Each window calculates the vector peak of each triple again | Done. The vector peak of each block, with its time, is part of `_BlockData`. | 1.6, #56 |
+
+### 8.3 Section 3: mis-documentation
+
+| Finding | Status | Task / PR |
+|---|---|---|
+| The module docstring of `seq_index` says that only three functions call `get_block` | Done. The docstring says which functions call it. | 1.4, #54 |
+| The docstring of `gradient_peaks` says that `_events.event_points` calls no `get_block` | Done. It says that `get_block` is called one time for each unique gradient event. | 1.4, #54 |
+| `docs/usage.md` and the docstring of `gradient_peaks` say that the cost of a window is the number of blocks in the window | Not wrong after the fix of the cost (review 2.1): a window costs the blocks that it touches, with no term in the number of unique events. Section 3 of `docs/implementation.md` gives the costs. | 1.6, #56 |
+| The module docstring of `grad_spectrum` says that the ends are not attenuated | Done. It gives the end padding of item 1.2. | 1.2, #52 |
+| The module docstring of `sampling` names `pypulseq.eps` | Done. It names `seq_utils.TIME_TOLERANCE`. | 1.4, #54 |
+| `docs/usage.md` says that the measurements use `BlockDurationRaster` | Done. The rule for `AnalysisSpec.rasters` (item 6.1) is in the documents: each raster of the file whose value changes the value of the analysis. | 2.2, #60 |
+| `grad_peaks.py:45` is 157 characters long | Done for that line, which is wrapped. Not changed: no check of the line length (the default rules of ruff have none), and some other lines of `src/` are longer than 100 characters. | 1.4, #54 |
+| `TESTS.md` has text that is not true (ten statements) | Done. #54 corrected each of the ten. | 1.4, #54 |
+| The docstring of `test_compute_of_gradient_spectrum_passes_its_arguments_on` says that `to_series` gives the arguments | Not changed. The plan listed the correction (task 1.1), but the docstring on `main` is the same, and the test does not call `to_series`. | — |
+
+### 8.4 Section 4: duplication and simplification
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 4.1 | Two calculations of the same values for each block | Done, as the proposal. The columns of each block are calculated one time for each sequence and kept, and `block_gradient_values` and `gradient_peaks` both read them. `_axis_slice_stats`, the vector peak loop and `_block_vector_peaks` are removed. | 1.6, #56 |
+| 4.2 | `_hardware_key` uses `stim_thresh`, which the model does not use | Done. The key uses the 8 fields of each axis that the model uses. Two structs that differ only in `stim_thresh` share one kept result (`test_pns_levels_ignores_stim_thresh_in_the_hardware_key`). `_check_hardware` still requires `stim_thresh`, as pypulseq does. | 1.7, #55 |
+| 4.3 | `_load(ep, group)` and `_add(...)` are general helpers with one caller | Done. `registry()` loaded and added in its own loop (#55). Task 2.4 of the fourth plan (#83) added a private `_load(ep)` with one caller, for the rule of `registry(strict=False)`. It has no `group` argument. | 1.7, #55 |
+
+### 8.5 Section 5: tests
+
+#### 8.5.1 Tests that do not test what they claim
+
+The tests of this group were corrected in task 1.1 (#51), so that each fails on
+the change of `src/` that it guards, except where the table says more. Section
+6.2 of the plan names the mutation that each test must fail on.
+
+| Test or mutation of the review | Status | Task / PR |
+|---|---|---|
+| `test_series_refuses_bad_arrays` | Done. Each ENVELOPE case has a `coord_end` that is valid for its arrays, and a `match=` of its own message. | 1.1, #51 |
+| The order of first use in the index | Done. `test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries` has events that are added to the libraries in another order. | 1.1, #51 |
+| A threshold equal to the peak | Done. `test_a_threshold_equal_to_the_peak_gives_an_interval`. | 1.1, #51 |
+| `test_pns_levels_takes_numpy_and_fraction_thresholds` | Done. The float call is not the kept object. | 1.1, #51 |
+| `test_example_hardware_for_spin_echo` | Done in another way. #51 compared it with `seq.calculate_pns` of the fork. Task 1.6 of the fourth plan (#74) then deleted it, because `test_summary_matches_calculate_pns_within_the_fork_tolerance[spin_echo]` covers it. | 1.1, #51 (deleted by #74) |
+| `test_gradients_at_the_end_are_not_attenuated` | Done. It went away. `test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle` replaces it (item 1.2). | 1.2, #52 |
+| `_assert_matches_oracle` of `test_grad_peaks.py` | Done. It compares `peak_time_s`, `slew_time_s`, `vector_peak_time_s` to 1e-12 s, and the credited blocks. | 1.1, #51 |
+| `test_a_window_gives_the_same_result_with_and_without_the_kept_data` | Done. The snapshot keeps its data across the 30 windows, and a new snapshot gives the result with no kept data. | 1.1, #51 |
+| The agreement of `block_gradient_values` and `gradient_peaks`, and the delayed junction | Done. The junction time is the time of the event, and the sequences of the delayed event are in the agreement test. The waveform model of #58 then gave a new set of sequences with hand-computed values. | 1.1, #51 (and 2.1, #58) |
+| The raster of `block_gradient_values` | Done. `test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system`. | 1.1, #51 |
+| The raster tolerance, `ON_RASTER_TOLERANCE = 0.4` | Done. `test_raster_block_lengths_tolerance_is_a_millionth_of_a_sample`. | 1.1, #51 |
+| `test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples` | Done. `test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_number` has a sequence whose `end_s / dt` is within 1e-10 of a whole number. | 1.1, #51 |
+| `test_subrange_inside_a_gap_matches_pypulseq` | Done. The gap has ends that are not 0. The waveform model of #58 then gave `test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_oracle`. | 1.1, #51 (and #58) |
+| `test_junction_step_and_segment_of_one_block_with_the_same_slew_give_the_junction_time` | Done. The test is removed as a duplicate of `test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit`. | 1.1, #51 |
+| `test_series_not_equal_for_a_different_field_or_array[kind]` | Done. `test_series_not_equal_for_a_different_kind` has POINTS and RUNS with the same arrays. | 1.1, #51 |
+| Cases that pass for another reason (`decode_array` base64, `bool` in `from_obj` and in `decode_array`, `test_analysis_spec_raises_...`) | Done. Each has its own case and a `match=`. | 1.1, #51 |
+| `test_series_refuses_bad_meta` and the `TESTS.md` text "a numpy number" | Done. `test_series_meta_makes_a_numpy_float64_a_plain_float`. Since #69, `meta` makes every numpy bool, integer and float scalar a Python scalar (`test_series_meta_makes_a_numpy_scalar_a_python_scalar`). | 1.1, #51 (and #69) |
+
+#### 8.5.2 Gaps that the mutation script found
+
+| Line | Mutation | Status | Task / PR |
+|---|---|---|---|
+| `grad_peaks.py:684` | `junction_max > seg_max` to `>=` | Done. A segment of an earlier block with the slew of a junction step credits the earlier block: `test_segment_of_an_earlier_block_with_the_slew_of_a_junction_step_takes_the_credit`. | 1.1, #51 |
+| `sampling.py:107` | `side="right"` to `"left"` for `hi_pos` | Done. #51 added a test of `GradientSampler.sample` with times in a gap that ends at a step. #58 replaced the model of the gaps, and with it that test and this line of code. The oracle comparisons of `sample` (#58, and #71 with more gap sequences) now test gaps that end at a step. | 1.1, #51 (and #58, #71) |
+| `series.py:134` | `value = float(value)` to `pass` | Done. `test_series_meta_makes_a_numpy_float64_a_plain_float`. | 1.1, #51 |
+| `series.py:325` and `series.py:331` | `>` to `>=`, and `<=` to `<`, in the limits of an ENVELOPE `coord_end` | Done. `test_envelope_coord_end_limits_are_exact_at_the_tolerance`. | 1.1, #51 |
+| `pns_levels.py:211` | `abs(sum - 1)` to `sum - 1` | Done. `test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients`. | 1.1, #51 |
+| `pns_levels.py:579` | `>=` to `>` | Done. `test_a_threshold_equal_to_the_peak_gives_an_interval`. | 1.1, #51 |
+
+#### 8.5.3 Tests of code outside this repository, and oracles that copy `src/`
+
+| Finding | Status | Task / PR |
+|---|---|---|
+| Tests that call no code of the package (`test_time_tolerance`, the gamma of the tests, `test_synthetic_sequences_pass_the_timing_check`, four `FrozenDict` tests) | Not changed. Decision U4: they stay. `TESTS.md` says what each one checks: a constant, the test helpers, or the behaviour that `FrozenDict` gets from `dict`. | 1.5, #57 |
+| Tests of pypulseq's `write` and `read` (four tests of `test_extensions.py`) | Not changed. Decision U4: they stay. `TESTS.md` says that they check the pin (`TODO.md`), not the package. The fourth, `test_each_measurement_accepts_a_sequence_after_write`, was removed later (#80), when the refusal of an unsigned sequence moved from each measurement to `snapshot.load`. | 1.5, #57 (the fourth: #80) |
+| Tests whose expected value comes from the code under test (`test_events.py`, `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`) | Done for `test_events.py`: the event values have hand-computed expected values (#51), and the copy `_points_from_grad_events` and its tests were deleted (#74). Not changed for `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`: #74 kept it (moved to `tests/test_asc.py`) because it is the only test of the split `$INCLUDE` layout. | 1.1, #51. Also 1.6 of the fourth plan, #74 |
+| Oracles that copy `src/` (`tests/oracles/grad_peaks.py`, `tests/oracles/grad_spectrum.py`) | Done for `grad_peaks`: decision D8 of the third plan. `tests/oracles/waveform.py` has its own code, and the copies `_clip_polyline` and `_vector_peak_in_block` are gone. The oracle of the spectrum follows the new rules of items 1.2 and 1.3 with its own code (#52). The fourth review (5.5) found that `values_at` of the new oracle shared one branch with the package, and #71 rewrote it. | 2.1, #58. The spectrum: 1.2, #52 |
+| The conversion with gamma in `_assert_matches_oracle` | Done. The values have no gamma (since `0.1.0rc5`), and the helper and `TESTS.md` no longer say that the test checks a conversion to tesla. | 1.1, #51 and 2.1, #58 |
+
+#### 8.5.4 Unnecessary tests and dead test code
+
+| Finding | Status | Task / PR |
+|---|---|---|
+| `test_pns_levels.py` and `test_pns_levels_kept.py` overlap | Done. One test of each name is left, the stronger (the one that patches `kept_results` at that time), and the tests that other tests cover are deleted. | 1.5, #57 |
+| Duplicates in `test_grad_peaks.py`, `test_seq_index.py`, `test_analyses.py`, `test_sampling.py` and `test_grad_spectrum.py` | Done. Each deleted test was checked against the test that covers it. The fourth review (5.6) found five more of this kind, which task 1.6 of the fourth plan (#74) deleted. | 1.5, #57 (and #74) |
+| A slow test: `test_series_round_trip_of_two_million_float32_values` | Done. The round trip uses 2000 values. | 1.5, #57 |
+| Dead test code (`gpa` of `write_gradient_asc`, `_write_rotation_file`, the check of duplicate names in `check_tests_md.py`, the `except` branch of `test_package.py`, the unused branches of the synthetic sequences, the resonances of the spectrum oracle, `num_arrays`) | Done. | 1.5, #57 |
+
+### 8.6 Section 6: the API and the goals of the project
+
+| # | Finding | Status | Task / PR |
+|---|---|---|---|
+| 6.1 | `AnalysisSpec.rasters` does not agree with the code | Done. The rule is: each raster of the file whose value changes the value of the analysis. `seq.index` gives `("BlockDurationRaster",)`, and the four other analyses keep `("GradientRasterTime", "BlockDurationRaster")`. Since #81, each raster name must be one of `analyses.RASTERS`. | 2.2, #60 (the check: #81) |
+| 6.2 | The public `GradientSampler` needs a private name | Done. `sampling.gradient_sampler(...)` is the public way to make a sampler, and `docs/usage.md` gives only it. Since #80 it takes a snapshot: `gradient_sampler(snap)`. | 2.3, #61 (and #80) |
+| 6.3 | One sequence has three waveforms | Done. See item 1.1. One documented model for each measurement. | 2.1, #58 |
+| 6.4 | `GradientPeaks.whole_rms_hz_per_m` is not necessary now | Done. The field is removed. A caller uses `gradient_peaks(snap).axes[axis].rms_hz_per_m`, which is kept. | 2.5, #63 |
+| 6.5 | The runs of `pns.safe.levels` use the times of the samples | Done. `PnsInterval.start_s` is `first * dt` and `end_s` is `(last + 1) * dt`, the edges of the samples of the run, as the bins of `pns_total`. A run of one sample has `end_s - start_s == dt` (`test_an_interval_of_one_sample_spans_one_sample_interval_from_its_first_sample_edge`). `peak_time_s` is still the time of a sample. | 2.4, #62 |
+| 6.6 | `Series` is the one value of the package that is not read-only | Done. See item 1.4. | 1.3, #53 |
+
+Task 2.7 (#64) is not a finding of this review. The classes that compare by
+value now use one decorator, `_equality.value_dataclass`.
+
+### 8.7 What stays
+
+Two items of this review stay as they are, by decision U4 of the third plan:
+the tests that call no code of the package (section 5.3), and the tests of
+pypulseq's `write` and `read`. `TESTS.md` says what each one checks. One
+correction of the plan is not made: the docstring of
+`test_compute_of_gradient_spectrum_passes_its_arguments_on` (section 3, last
+bullet). The check of the length of a line (section 3, the bullet about
+`grad_peaks.py:45`) is not added.
