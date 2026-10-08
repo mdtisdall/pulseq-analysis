@@ -1,6 +1,10 @@
 # Implementation plan: explicit inputs, a complete file, their documented sources, and the drift test
 
-Status: approved by the user on 2026-10-08 (first version, #91). Amended on
+Status: superseded on 2026-10-08 by the decision of
+`docs/plans/own-parser-study.md` (option B: the package parses files itself).
+Tasks 1 and 2 are not to be done as written; the plan of option B keeps the
+rule, the two layers and the contract of an analysis of this plan. Approved
+by the user on 2026-10-08 (first version, #91). Amended on
 2026-10-08: the two layers of a sequence, the rejection of a file before
 Pulseq 1.4, the target-free snapshot, the contract of an analysis, and the
 drift tests over the registry. Section 3.1 lists the decisions of the user.
