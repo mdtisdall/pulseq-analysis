@@ -4191,8 +4191,8 @@ values of `meta` are floats again.
 
 #### `test_to_obj_keys_and_types`
 
-**Checks:** `to_obj` has the keys `name`, `kind`, `unit`, `coord_unit`, `coord_start`,
-`coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the string value,
+**Checks:** `to_obj` has the keys `format` (the int 1), `name`, `kind`, `unit`,
+`coord_unit`, `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the string value,
 and `coord_unit` is the string of the series. A `meta` int stays an int, a bool stays a
 bool and a float stays a float, also after `json.dumps` and `json.loads`. `arrays` has the
 arrays in their order, each as `dtype`, `length` and `data`. A `coord_step` that the kind
@@ -4207,7 +4207,9 @@ RUNS series.
 #### `test_from_obj_refuses`
 
 **Checks:** `from_obj` raises `ValueError` (and no other error) for an object that is not
-a dict, an unknown key, a missing key (also `coord_unit`, ID `missing-coord-unit`), an
+a dict, an unknown key, a missing key (also `format`, ID `no-format`, and `coord_unit`, ID
+`missing-coord-unit`), a `format` other than the int 1 (2, a bool and a string; IDs `format-2`,
+`format-a-bool` and `format-a-string`), an
 object of rc2 (ID `rc2-object`), an unknown kind or a kind that is not a string, an empty
 name, a name or unit that is not a string, a `coord_unit` that is null or a number (IDs
 `coord-unit-null` and `coord-unit-a-number`), a `coord_step` that is zero, a string or
@@ -4323,6 +4325,31 @@ of the output sizes must be at most 2 bytes (`length * itemsize + 1`).
 
 **Assumptions:** `decode_array` reads the stream with `zlib.decompressobj`. A
 change to another decompressor fails this test.
+
+#### `test_decode_array_refuses_more_than_max_bytes`
+
+**Checks:** `decode_array(d, max_bytes=n)` raises `ValueError` for an array of more than `n`
+bytes, and gives the array for `n` equal to its size or with no `max_bytes`. The check is
+before the decompression: a `length` of `10**9` with data that is not base64 raises the
+`max_bytes` error. A `length` that is too small for a large stream still raises the
+error of the decompression bound.
+
+**How:** The test encodes four float32 values (16 bytes) and decodes with `max_bytes` 16, 15
+and 0. It decodes a dict with `length` 10**9 and `max_bytes` 100, and a gzip of 10 MB of
+zeros with `length` 1 and `max_bytes` 100, and checks the messages.
+
+**Assumptions:** None.
+
+#### `test_from_obj_refuses_arrays_of_more_than_max_bytes`
+
+**Checks:** `Series.from_obj(obj, max_bytes=n)` counts the bytes of all arrays of the
+series together: it reads an envelope of two float32 arrays of three values (24 bytes) for
+`n` 24 and with no `max_bytes`, and raises `ValueError` for 23.
+
+**How:** The test takes `to_obj` of the ENVELOPE series and calls `from_obj` with each
+`max_bytes`.
+
+**Assumptions:** None.
 
 #### `test_decode_array_refuses_a_length_that_overflows`
 

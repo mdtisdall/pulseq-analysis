@@ -1184,12 +1184,14 @@ def test_series_round_trip_of_values_that_are_not_finite():
 
 
 def test_to_obj_keys_and_types():
-    """`to_obj` has the keys `name`, `kind`, `unit`, `coord_unit`, `coord_start`,
-    `coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the string value,
+    """`to_obj` has the keys `format` (the int 1), `name`, `kind`, `unit`, `coord_unit`,
+    `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays` in this order. `kind` is the
+    string value,
     `coord_unit` is a string, an int and a bool of `meta` stay an int and a bool, a float
     stays a float, and `arrays` has the order of the series."""
     obj = _envelope().to_obj()
     assert list(obj) == [
+        "format",
         "name",
         "kind",
         "unit",
@@ -1200,6 +1202,8 @@ def test_to_obj_keys_and_types():
         "meta",
         "arrays",
     ]
+    assert obj["format"] == 1
+    assert type(obj["format"]) is int
     assert obj["kind"] == "envelope"
     assert obj["coord_unit"] == "s"
     assert obj["coord_step"] == 0.006
@@ -1247,6 +1251,10 @@ def _rc2_obj() -> dict:
         pytest.param([1, 2], "must be a JSON object", id="not-an-object"),
         pytest.param(_with("extra", 1), "unknown key 'extra'", id="unknown-key"),
         pytest.param(_without("unit"), "missing key 'unit'", id="missing-key"),
+        pytest.param(_without("format"), "missing key 'format'", id="no-format"),
+        pytest.param(_with("format", 2), 'unknown "format" 2', id="format-2"),
+        pytest.param(_with("format", True), 'unknown "format" True', id="format-a-bool"),
+        pytest.param(_with("format", "1"), "unknown \"format\" '1'", id="format-a-string"),
         pytest.param(_without("arrays"), "missing key 'arrays'", id="missing-arrays"),
         pytest.param(_with("kind", "lines"), "unknown kind 'lines'", id="unknown-kind"),
         pytest.param(_with("kind", ["samples"]), "unknown kind", id="kind-not-a-string"),
@@ -1337,7 +1345,7 @@ def _rc2_obj() -> dict:
 )
 def test_from_obj_refuses(obj, message):
     """`from_obj` raises `ValueError`, and no other error, for an object that is not a dict,
-    an unknown key, a missing key, an object of rc2, an unknown kind, a bad value of any
+    an unknown key, a missing key (also `format`), another `format`, an object of rc2, an unknown kind, a bad value of any
     field (also a coordinate that is not finite or not in order), and a bad array."""
     with pytest.raises(ValueError, match=re.escape(message)):
         Series.from_obj(obj)
@@ -1513,6 +1521,39 @@ def test_from_obj_refuses_a_number_that_overflows():
     arrays = {**obj["arrays"], "min": {**obj["arrays"]["min"], "length": 10**30}}
     with pytest.raises(ValueError, match="too large"):
         Series.from_obj({**obj, "arrays": arrays})
+
+
+def test_decode_array_refuses_more_than_max_bytes():
+    """`decode_array` with `max_bytes` refuses an array of more bytes (`ValueError`, and
+    before it decompresses: a `length` that is a lie about a large stream does not
+    help), and gives the array for `max_bytes` equal to its size."""
+    d = encode_array(np.arange(4, dtype=np.float32))
+    assert np.array_equal(decode_array(d, max_bytes=16), np.arange(4.0))
+    assert np.array_equal(decode_array(d), np.arange(4.0))
+    with pytest.raises(ValueError, match="more than max_bytes, 15"):
+        decode_array(d, max_bytes=15)
+    with pytest.raises(ValueError, match="more than max_bytes, 0"):
+        decode_array(d, max_bytes=0)
+    big = {"dtype": "uint8", "length": 10**9, "data": "not even base64!"}
+    with pytest.raises(ValueError, match="more than max_bytes, 100"):
+        decode_array(big, max_bytes=100)
+    # A `length` below the true size is refused by the bound of the decompression.
+    lie = _encoded(dtype="uint8", length=1, data=_gzip_text(b"\x00" * 10_000_000))
+    with pytest.raises(ValueError, match="more than 1 bytes"):
+        decode_array(lie, max_bytes=100)
+
+
+def test_from_obj_refuses_arrays_of_more_than_max_bytes():
+    """`Series.from_obj` with `max_bytes` counts the bytes of all arrays together: the two
+    arrays of the envelope have 3 float32 values each, 24 bytes. It reads the series for 24
+    and refuses 23, and with no `max_bytes` it reads it."""
+    s = _envelope()
+    obj = s.to_obj()
+    assert sum(a.nbytes for a in s.arrays.values()) == 24
+    assert Series.from_obj(obj, max_bytes=24) == s
+    assert Series.from_obj(obj) == s
+    with pytest.raises(ValueError, match="more than max_bytes"):
+        Series.from_obj(obj, max_bytes=23)
 
 
 def _with_a_stray_character(text: str) -> str:

@@ -867,8 +867,12 @@ for `arrays` and `meta`, and a read-only copy of each array, in native byte
 order, that `flags.writeable = True` cannot make writable (its base is an
 immutable `bytes` object). A copy from `pickle` or `copy.deepcopy` is made by
 the constructor, so it is checked and read-only too. A change to the caller's
-dicts or arrays does not change it. `to_obj` and `from_obj` keep the order of
-the keys of `meta`. In `to_obj`, a float of `meta` that is not finite is the
+dicts or arrays does not change it. `to_obj` gives the key `"format": 1`
+first, then `name`, `kind`, `unit`, `coord_unit`, `coord_start`, `coord_step`,
+`coord_end`, `meta` and `arrays`. `from_obj` raises `ValueError` for an object
+with no `"format"`, with a format other than the int 1, or with a key that
+format 1 does not have (so a reader can tell the forms apart). `to_obj` and
+`from_obj` keep the order of the keys of `meta`. In `to_obj`, a float of `meta` that is not finite is the
 string `"inf"`, `"-inf"` or `"nan"`. `from_obj` raises `ValueError` for a bad
 object, also for a coordinate field that is not finite or not in order, and
 for a number that is too large for a float (a caller catches `ValueError`
@@ -881,5 +885,11 @@ text of `encode_tables` of pulseq-reports, so a report puts it into its page
 with no new encoding. One array always gives the same text. A float that is
 not finite is in the bytes. `decode_array(d)` is the inverse, and raises
 `ValueError` when `"length"` does not agree with the data, or when
-`length * itemsize` is more than `sys.maxsize`. It stores a bool byte other
+`length * itemsize` is more than `sys.maxsize`. With `max_bytes` (a keyword
+argument of `decode_array` and of `from_obj`, default `None`), it raises
+`ValueError` when `length * itemsize` is more than `max_bytes`, before it
+decompresses. The decompression itself stops at `length * itemsize + 1` bytes
+(`zlib.decompressobj` with `max_length`), so a `"length"` that is too small for
+the data does not use more memory. `from_obj` takes `max_bytes` for all arrays
+of the series together. It stores a bool byte other
 than 0 as `True`, so one array always gives the same text.
