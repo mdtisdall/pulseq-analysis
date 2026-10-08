@@ -19,7 +19,7 @@ Contents:
 4. [Kept results](#4-kept-results)
 5. [The result objects](#5-the-result-objects)
 6. [Argument checks](#6-argument-checks)
-7. [The signature check](#7-the-signature-check)
+7. [The checks of `load`](#7-the-checks-of-load)
 8. [`Series`: checks and the array encoding](#8-series-checks-and-the-array-encoding)
 
 ## 1. The gradient waveform
@@ -543,7 +543,7 @@ less one hop (half a window) for each 256 windows, is sampled twice.
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
 `decode_array` takes time O(n) for n values. `asc.read_gradient_asc` takes time
 O(the size of the file and of its included files). `extensions.refuse_rotations`
-and `refuse_unsigned` take time O(1); `load` calls them one time. `analyses.registry()` reads the entry
+takes time O(1); `load` calls it one time. `analyses.registry()` reads the entry
 points of the installed packages. An analysis `compute` is its function.
 
 ### 3.4 Summary
@@ -780,29 +780,27 @@ analyses with one ID, an entry point that cannot load, an object with no
 The message names the packages (and, for the last case, the entry point and
 the `spec.id`).
 
-## 7. The signature check
+## 7. The checks of `load`
 
-A sequence must have a `[SIGNATURE]` hash: `seq.signature_value` must be a
-`str` that is not `''`, or `load` raises `ValueError`
-(`extensions.refuse_unsigned`). A sequence that `add_block` built in memory has
-none, and `seq.write(path)` signs it. `load` also refuses the rotation extension
-(`extensions.refuse_rotations`, `NotImplementedError`). It calls `refuse_unsigned`
-first, so an unsigned sequence with a rotation raises `ValueError`. A measurement
-calls neither check: a snapshot has passed both.
+`load` refuses the Pulseq rotation extension
+(`extensions.refuse_rotations`, `NotImplementedError`), for each sequence and
+each file. A measurement does not call the check: a snapshot has passed it.
 
-The package checks only that the hash is there. The hash is not an identity of
-the sequence: the package does not compute it again, does not compare it, and
-does not use it to tell two sequences or two states of one sequence apart.
-pypulseq's `read` does not check it against the file. pypulseq keeps
-`signature_value` on the object when the object changes, so two cases pass the
-check with a stale hash:
+`load` does not read the `[SIGNATURE]` hash. No result uses it: the kept
+results are on the snapshot object, and no result, `Series` or `meta` holds
+the hash. So a sequence that `add_block` built in memory, which has no hash,
+and a file with no `[SIGNATURE]` section load. `load` does not change
+`signature_value`: `snap.sequence.signature_value` is that of the source (`''`
+for a sequence built in memory).
 
-- a sequence changed with `add_block` after `read` of a signed file;
-- a `read` of an unsigned file into an object that read a signed file.
-
-`load(path)` reads into a new `Sequence`, so it does not have the second case.
-`load(seq)` of a changed sequence passes with the old hash. Write the sequence
-and `load` the file when the hash must be right.
+A caller who requires a hash checks that `seq.signature_value` is a `str` that
+is not `''`, on the source before `load` or on `snap.sequence`. pypulseq's
+`write` signs a sequence, but it also changes the definition `TotalDuration`,
+so call it on the source and `load` the file, never on `snap.sequence`. The
+presence of a hash does not prove that it is the hash of the sequence:
+pypulseq keeps `signature_value` on the object when the object changes
+(`add_block` after `read`), and its `read` does not check the hash against the
+file.
 
 ## 8. `Series`: checks and the array encoding
 

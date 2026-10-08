@@ -34,7 +34,7 @@ from pulseq_analysis.snapshot import load
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
-# A file that seq.write made: it has a [SIGNATURE] hash.
+# A .seq file. It needs no [SIGNATURE] hash.
 # `load(seq)` takes a pypulseq Sequence instead.
 snap = load("sequence.seq")
 
@@ -90,19 +90,16 @@ says why.
   measurement. A sequence that changes needs a new `load`. Another type of
   `source` raises `TypeError`, and a file that pypulseq cannot read raises the
   error of pypulseq.
-- **A signed file, no rotation extension.** `load` checks the sequence, so the
-  measurements do not check it again. A sequence must have a `[SIGNATURE]`
-  hash, or `load` raises `ValueError`. `seq.write(path)` signs a file. A
-  sequence that `add_block` built in memory has none: write it and read it with
-  `load(path)`. `load` checks only that a hash is there, not that it is the hash
-  of the sequence, so `load(seq)` of a sequence that a caller changed after it
-  read a signed file passes with the old hash: write the sequence and `load` the
-  file when the hash must be right. A sequence with the Pulseq rotation
+- **No rotation extension.** `load` checks the sequence, so the
+  measurements do not check it again. A sequence with the Pulseq rotation
   extension raises `NotImplementedError` (`extensions.refuse_rotations`),
-  because the gradients of the file are not the gradients on the scanner. `load`
-  checks the hash first, so an unsigned sequence with a rotation raises
-  `ValueError`
-  ([implementation, section 7](implementation.md#7-the-signature-check)).
+  because the gradients of the file are not the gradients on the scanner.
+  `load` does not read the `[SIGNATURE]` hash, because no result uses it: a
+  sequence built in memory and a file with no `[SIGNATURE]` section load. A
+  caller who requires a hash checks `seq.signature_value` of the source before
+  `load`, or of `snap.sequence`. Do not call `write` on `snap.sequence` to sign
+  it: `write` changes the sequence
+  ([implementation, section 7](implementation.md#7-the-checks-of-load)).
 - **`snap.sequence`.** It is the private `pp.Sequence` of the snapshot, for a
   caller that needs a value of the file (for example
   `snap.sequence.definitions`). A caller and an analysis must not change it, and
@@ -638,10 +635,8 @@ and the line, a file that includes itself (or a cycle of files) raises
 `FileNotFoundError`.
 
 **`extensions`.** `refuse_rotations(seq)` raises `NotImplementedError` when
-`seq` uses the Pulseq rotation extension, and `refuse_unsigned(seq)` raises
-`ValueError` for a sequence with no `[SIGNATURE]` hash. `load` calls
-`refuse_unsigned` and then `refuse_rotations`, one time for each snapshot. A
-measurement does not call them: a snapshot has passed both.
+`seq` uses the Pulseq rotation extension. `load` calls it one time for each
+snapshot. A measurement does not call it: a snapshot has passed it.
 
 ## 9. Units and gamma
 

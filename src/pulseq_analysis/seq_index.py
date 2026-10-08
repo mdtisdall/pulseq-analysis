@@ -9,8 +9,8 @@ for each unique event, not one time for each block, and then give it to each blo
 plays the event.
 
 All the functions take a `snapshot.Snapshot` (`snapshot.load`) and keep their result on it.
-The sequence of a snapshot does not change, and `load` has refused an unsigned sequence and a
-sequence with a rotation, so these functions check neither.
+The sequence of a snapshot does not change, and `load` has refused a sequence with a rotation,
+so these functions do not check it.
 
 `rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
 first block that uses it, as a tuple that is made on the first call and kept. Only they call

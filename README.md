@@ -31,6 +31,11 @@ key `"format"` of a `Series`, and removes `block_cache_off`.
 
 ## Install
 
+The documents (`docs/usage.md` and `docs/implementation.md`) describe `main`.
+The tag `v0.1.0rc6` of the install line below has an older interface: its
+`load` refuses a sequence with no `[SIGNATURE]` hash, and it has
+`extensions.refuse_unsigned`. The next release replaces this note and the tag.
+
 With uv, from the git URL:
 
 ```

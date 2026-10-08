@@ -6,8 +6,8 @@
    the same sequence with no copy and of the file that it was read from.
 3. A change of the source with each kind of call of pypulseq changes no result of the
    snapshot, and a new `load` of the source gives the new results.
-4. `load` refuses an unsigned sequence and a sequence with a rotation, and no measurement of
-   a snapshot calls either check again.
+4. `load` refuses a sequence with a rotation and accepts a sequence and a file with no
+   `[SIGNATURE]` hash, and no measurement of a snapshot calls the check again.
 
 The results that the tests compare are the index, the events, the event points, the samples
 of the sampler, and the four measurements of the gradients with their default arguments.
@@ -388,12 +388,24 @@ def test_a_change_of_the_source_changes_no_result_of_the_snapshot(build, change,
 # ---- Guard 4: the checks ----
 
 
-def _unsigned_file(path) -> str:
-    """A file of the spin echo with its `[SIGNATURE]` section removed."""
-    _written(spin_echo_sequence(), path)
-    text = path.read_text()
-    path.write_text(text[: text.index("[SIGNATURE]")])
-    return str(path)
+def _signed_and_unsigned_files(directory) -> tuple[str, str]:
+    """Two files of the spin echo: the file that `write` made, and a copy with its
+    `[SIGNATURE]` section removed."""
+    signed_path = directory / "signed.seq"
+    _written(spin_echo_sequence(), signed_path)
+    text = signed_path.read_text()
+    unsigned_path = directory / "unsigned.seq"
+    unsigned_path.write_text(text[: text.index("[SIGNATURE]")])
+    assert "[SIGNATURE]" not in unsigned_path.read_text()
+    return str(signed_path), str(unsigned_path)
+
+
+def _with_hash(seq: pp.Sequence) -> pp.Sequence:
+    """`seq` with the three signature attributes that `write` sets, given by hand."""
+    seq.signature_type = "md5"
+    seq.signature_file = "text"
+    seq.signature_value = "0123456789abcdef0123456789abcdef"
+    return seq
 
 
 def _with_rotations_extension_type() -> pp.Sequence:
@@ -410,13 +422,19 @@ def _unsigned_and_rotated() -> pp.Sequence:
     return seq
 
 
-def test_load_refuses_an_unsigned_sequence_and_an_unsigned_file(tmp_path):
-    """`load` raises `ValueError` for a sequence that `add_block` built (no hash), and for a
-    file with no `[SIGNATURE]` section, and the error names the signature."""
-    with pytest.raises(ValueError, match="SIGNATURE"):
-        load(_unsigned_sequence())
-    with pytest.raises(ValueError, match="SIGNATURE"):
-        load(_unsigned_file(tmp_path / "unsigned.seq"))
+def test_load_accepts_an_unsigned_sequence_and_an_unsigned_file(tmp_path):
+    """`load` gives a snapshot of a sequence that `add_block` built (no hash) and of a file with
+    no `[SIGNATURE]` section. It adds no hash, and the hash changes no result: the results equal
+    those of the same sequence with a hash, and of the same file with its section. The file is
+    compared with a file, because `write` rounds the values."""
+    snap = load(_unsigned_sequence())
+    assert snap.sequence.signature_value == ""
+    assert _differences(_results(snap), _results(load(_with_hash(_unsigned_sequence())))) == []
+
+    signed_path, unsigned_path = _signed_and_unsigned_files(tmp_path)
+    unsigned_snap = load(unsigned_path)
+    assert unsigned_snap.sequence.signature_value == ""
+    assert _differences(_results(unsigned_snap), _results(load(signed_path))) == []
 
 
 @pytest.mark.parametrize(
@@ -429,48 +447,40 @@ def test_load_refuses_a_sequence_with_a_rotation(build):
         load(build())
 
 
-def test_load_checks_the_signature_before_the_rotation():
-    """A sequence that is unsigned and has a rotation gives the `ValueError` of the
-    signature, not the `NotImplementedError`: the order of the checks is the signature first."""
-    with pytest.raises(ValueError, match="SIGNATURE"):
+def test_load_refuses_an_unsigned_sequence_with_a_rotation():
+    """A sequence that is unsigned and has a rotation gives the `NotImplementedError` of the
+    rotation: the rotation check does not depend on a hash."""
+    with pytest.raises(NotImplementedError, match="rotation extension"):
         load(_unsigned_and_rotated())
 
 
 @pytest.mark.parametrize("build", _BUILDERS)
-def test_a_measurement_of_a_snapshot_calls_neither_check_again(build, monkeypatch):
-    """`load` calls `refuse_unsigned` one time and `refuse_rotations` one time. After that,
-    the index, the events, the event points, the sampler and the four measurements of the
-    gradients of the snapshot call neither of them: both are replaced, in `extensions` and in
-    each module that can have imported them, by functions that fail."""
-    calls = {"refuse_unsigned": 0, "refuse_rotations": 0}
+def test_load_calls_refuse_rotations_once_and_no_measurement_calls_it(build, monkeypatch):
+    """`load` calls `refuse_rotations` one time. After that, the index, the events, the event
+    points, the sampler and the four measurements of the gradients of the snapshot do not call
+    it: it is replaced, in `extensions` and in each module that can have imported it, by a
+    function that fails."""
+    calls = 0
+    original = extensions.refuse_rotations
 
-    def counting(name):
-        original = getattr(extensions, name)
+    def count(seq):
+        nonlocal calls
+        calls += 1
+        original(seq)
 
-        def count(seq):
-            calls[name] += 1
-            original(seq)
-
-        return count
-
-    for name in calls:
-        monkeypatch.setattr(snapshot_module, name, counting(name))
+    monkeypatch.setattr(snapshot_module, "refuse_rotations", count)
     snap = load(build())
-    assert calls == {"refuse_unsigned": 1, "refuse_rotations": 1}
+    assert calls == 1
 
-    def fail(name):
-        def refuse(seq):
-            raise AssertionError(f"{name} was called by a measurement")
-
-        return refuse
+    def fail(seq):
+        raise AssertionError("refuse_rotations was called by a measurement")
 
     names = ("seq_index", "_events", "sampling", "grad_peaks", "pns_levels", "grad_spectrum")
     modules = [importlib.import_module(f"pulseq_analysis.{name}") for name in names]
     for module in (extensions, snapshot_module, *modules):
-        for name in calls:
-            monkeypatch.setattr(module, name, fail(name), raising=False)
+        monkeypatch.setattr(module, "refuse_rotations", fail, raising=False)
     _results(snap)
-    assert calls == {"refuse_unsigned": 1, "refuse_rotations": 1}
+    assert calls == 1
 
 
 # ---- The type of the argument, the copies and the properties of a snapshot ----

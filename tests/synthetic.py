@@ -39,10 +39,10 @@ WIDTH = 5e-3  # m, for crusher and phase-encode areas in cycles across the width
 def signed(seq: pp.Sequence) -> pp.Sequence:
     """Give `seq` a `[SIGNATURE]` hash, as `write` does, and return `seq`.
 
-    The package refuses a sequence with no hash (`extensions.refuse_unsigned`), and checks
-    only that a hash is there, not that it is the hash of the sequence. So a fixed value is
-    enough. The tests do not call `write` to sign each sequence: pypulseq's `write` fails
-    for an oversampled arbitrary gradient (pypulseq-issues 04)."""
+    `snapshot.load` does not need a hash, so no test needs one: task 2 of
+    `docs/plans/load-accepts-unsigned.md` removes this function. The tests do not call `write`
+    to sign each sequence: pypulseq's `write` fails for an oversampled arbitrary gradient
+    (pypulseq-issues 04)."""
     seq.signature_type = "md5"
     seq.signature_file = "text"
     seq.signature_value = SIGNATURE_VALUE

@@ -3,6 +3,39 @@
 Each version of `pulseq-analysis` has an entry here. The version numbers
 follow [PEP 440](https://peps.python.org/pep-0440/).
 
+## Unreleased
+
+`load` accepts a sequence with no `[SIGNATURE]` hash, and
+`extensions.refuse_unsigned` is removed. No result of the package uses the
+hash, and the refusal blocked a sequence built in memory and never written,
+and a file with no `[SIGNATURE]` section. The values of the measurements do
+not change.
+
+This changes the order of `0.1.0rc6` ("A caller moves in this order"):
+
+- Step 2: do not call `write` on a sequence before `load(seq)`. `load`
+  accepts an unsigned sequence and raises no `ValueError` for a missing hash.
+- Step 1: the pin stays at `3c3bd85`, because pulseq-analysis, pulseq-checks
+  and pulseq-reports pin one commit. The code of this package no longer reads
+  the hash, so the read of the hash as text no longer matters to it.
+
+### Changed
+
+- `snapshot.load` does not check the hash. A sequence or a file with no hash
+  gives a `Snapshot`, and `snap.sequence.signature_value` is the value of the
+  source (`''` for a sequence built in memory). `load` still refuses the
+  rotation extension (`NotImplementedError`), also for an unsigned sequence,
+  which gave `ValueError` before.
+- The spec of each analysis is not changed: each `spec.version` stays 1.
+
+### Removed
+
+- `extensions.refuse_unsigned`. A caller who requires a hash checks
+  `isinstance(seq.signature_value, str) and seq.signature_value != ""` on the
+  source before `load`, or on `snap.sequence`. To sign a sequence, call
+  `write` on the source and `load` the file: `write` changes the sequence, so
+  do not call it on `snap.sequence`.
+
 ## 0.1.0rc6 (2026-10-07)
 
 The sixth release candidate: the fixes of four code reviews of the package
