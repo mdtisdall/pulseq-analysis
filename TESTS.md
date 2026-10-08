@@ -33,7 +33,8 @@ Contents:
    the sequence extensions; the sequence index; the raster sampler; the gradient
    peaks; the kept PNS levels; the series; the analyses and their registry; the
    gradient spectrum; value equality; the kept results; the number arguments;
-   the kept event points; the oracle of the gradient waveform; the `.asc` files
+   the kept event points; the oracle of the gradient waveform; the `.asc` files; the
+   snapshot
 
 ---
 
@@ -299,7 +300,7 @@ passes, showing the report if it does not.
 ### 2.2 PNS levels (`test_pns_levels.py`)
 
 `test_pns_levels.py` tests `pns_levels.py`: `pns_levels`, which keeps its result for the
-sequence object (section 2.7 tests the keep) and, for a result that is not kept, calls
+snapshot (section 2.7 tests the keep) and, for a result that is not kept, calls
 `_compute_levels`, which samples the gradients block by
 block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypulseq
 fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
@@ -335,8 +336,9 @@ gradient, the border sequence and the off-raster trapezoid. The sequences with a
 not 0 next to a gap are compared with the SAFE model of the fork on the samples of the oracle
 waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`).
 
-A second call of `pns_levels` with the same sequence object and the same arguments gives the
-kept object. A test that changes `CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
+A second call of `pns_levels` with the same snapshot and the same arguments gives the
+kept object. Each test makes its snapshot with `synthetic.loaded`, which signs the sequence and
+loads it (`snapshot.load`), and the oracles get the `pp.Sequence`. A test that changes `CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
 the change), or that compares two calculations of one sequence, calls `_compute_levels` through
 the helper `_compute` of the test file. It checks the hardware, the thresholds and `bin_s` as
 `pns_levels` does and gives `_compute_levels` the checked values, so each call runs the model
@@ -372,7 +374,7 @@ test also tests it.
 amplitude with no step, so `add_block` accepts the junction). The reference peak,
 peak time (the first sample at or above `peak * (1 - PEAK_TOLERANCE)`, as
 `PnsLevels.peak_time_s`) and axis peaks come from
-`seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(seq)`'s fields
+`seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(snap)`'s fields
 are compared with `pytest.approx`: the
 peak and axis peaks (`peak_hz_per_t` and `axis_peaks_hz_per_t`, each divided by
 `seq.system.gamma`) with `abs = 1e-6 * ref_peak`, the peak time (not divided) with
@@ -391,7 +393,7 @@ tolerance, for the same four sequences, after each value of `pns_levels` is divi
 
 **How:** Same parametrization and reference call as
 `test_summary_matches_calculate_pns_within_the_fork_tolerance`. For each bin `i` of
-`pns_levels(seq)`, `s0 = i * bin_samples`, `s1 = min(s0 + bin_samples,
+`pns_levels(snap)`, `s0 = i * bin_samples`, `s1 = min(s0 + bin_samples,
 levels.num_samples)` (the last bin can be shorter); the loop stops before a bin
 whose `s1` is past the end of `calc_pns`'s own array (shorter than `pns_levels`'s
 when a trailing block has no gradient event, for example `gre_sequence`'s TR
@@ -554,7 +556,7 @@ equals that of the default `bin_s`. A `bin_s` of `1e-9` gives one sample in each
 the minimum of the first 100 bins of that level is the minimum of the first bin of the level
 of `1e-3`.
 
-**How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(seq, 1.5)` and
+**How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(snap, 1.5)` and
 `thresholds_hz_per_t=(_LIMIT,)`. The calls are `_compute` calls (`_compute_levels`), and
 the result of `bin_s=1e-3` must not be the object of the default one. The default call is first. For `bin_s=1e-3` the test sets
 `CHUNK_SAMPLES` to `10**9` (one chunk) and replaces `_chunk_total` with a function that
@@ -669,7 +671,7 @@ so pypulseq's line across a gap is 0 there, as in the model of MATLAB Pulseq.
 
 **How:** A trapezoid on x followed by `pp.make_delay(1.5 * dt)` (pypulseq's
 `add_block` accepts this duration, though it is not a whole number of raster
-steps). Compares `pns_levels(seq)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
+steps). Compares `pns_levels(snap)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
 (each divided by `seq.system.gamma`) and `peak_time_s` with the values from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
 `test_summary_matches_calculate_pns_within_the_fork_tolerance` but with
@@ -683,7 +685,7 @@ covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
 **Checks:** An off-raster sequence of more than three chunks gives the result of one
 chunk (`==`, each field and each interval), and its `num_samples` is
-`ceil((end_s - 1e-10) / dt)`, with `end_s` the end of `sequence_index(seq)`. A chunk
+`ceil((end_s - 1e-10) / dt)`, with `end_s` the end of `sequence_index(snap)`. A chunk
 that reads the samples of the first chunk again, or a `num_samples` that rounds down,
 gives another result.
 
@@ -722,7 +724,7 @@ has a peak of at least `_LIMIT` and a peak time between its start and its end, i
 samples from its start to its end, and the intervals are in time order with at least
 one sample below the limit between two of them.
 
-**How:** `pns_levels(seq, thresholds_hz_per_t=(_LIMIT,))` for
+**How:** `pns_levels(snap, thresholds_hz_per_t=(_LIMIT,))` for
 `gre_sequence(num_trs=20)` with the example hardware has a peak below `_LIMIT` and no
 interval. Then the stimulation limit of each axis is scaled with the peak of the example
 hardware, so that the peak is 1.5 times `_LIMIT` (`hardware_for_peak` of `tests/pns_hardware.py`; the total is the
@@ -754,7 +756,7 @@ one more.
 **How:** A trapezoid on x (area 1000) and two `pp.make_delay(1.5 * dt)` blocks (3 steps
 together). `whole` is the duration of the trapezoid in steps plus 3. The test checks
 `round(end_s / dt) == whole`, `end_s / dt > whole` and `(end_s - 1e-10) / dt <= whole`,
-with `end_s` of `sequence_index(seq)`. Then it calls `pns_levels` with `EXAMPLE_HW` and
+with `end_s` of `sequence_index(snap)`. Then it calls `pns_levels` with `EXAMPLE_HW` and
 checks `on_raster is False` and `num_samples == whole`.
 
 **Assumptions:** `end_s / dt` is 106.00000000000001 for this sequence. The test fails at
@@ -868,28 +870,6 @@ to 19 bins of 615 samples (`_chunk_across_an_interval` fails if there is none). 
 default bin of 500 samples none does, as in
 `test_the_intervals_do_not_depend_on_chunk_samples`.
 
-#### `test_pns_levels_refuses_bad_thresholds_before_any_work`
-
-**Checks:** `pns_levels` raises `TypeError` for `thresholds_hz_per_t` that is not a tuple
-(a list, a float, `None`) or has an element that is a `bool` or not a real number (a
-string, `None`, a complex number). It raises `ValueError` for an element that is not
-finite (NaN, the two infinities, an `int` too large for a float) or not above 0 (0 and a
-negative number), or for two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)`,
-a pair that is not next to each other, a NumPy `float32` and the equal `float`). The
-sequence is not read and the kept results are not read.
-
-**How:** Each case is a parameter (the value and the error). The test replaces
-`refuse_rotations`, `sequence_index` and `kept_results` of `pulseq_analysis.pns_levels`
-with functions that raise `RuntimeError`, and calls
-`pns_levels(spin_echo_sequence(), thresholds_hz_per_t=value, hardware=EXAMPLE_HW)` inside
-`pytest.raises(error, match="threshold")`. A `RuntimeError` would show that the work
-started before the check, so the error is still the one of the thresholds. The empty
-tuple is not a case: it is valid (the default).
-
-**Assumptions:** `pns_levels` calls `refuse_rotations`, `sequence_index` and
-`kept_results` as module globals, so the replacements are used. The check of the
-thresholds comes before the read of the sequence and before the kept results.
-
 #### `test_pns_levels_takes_numpy_and_fraction_thresholds`
 
 **Checks:** A threshold that is a NumPy real scalar (`float32`, `int64`) or a `Fraction`
@@ -905,25 +885,6 @@ that object with itself. The test checks that the new result is not the kept obj
 calls `assert_levels_equal` (`ignore=()`).
 
 **Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_bad_bin_s_before_any_work`
-
-**Checks:** `pns_levels` raises `TypeError` (the message names `bin_s`) for a `bin_s` that
-is a `bool` (`True`, `False`) or not a real number (a string, `None`, a tuple, a complex
-number), and `ValueError` for one that is not finite (NaN, the two infinities, an `int` too
-large for a float) or not above 0 (0 as an `int` and as a `float`, a negative `int` and a
-negative `float`). The sequence is not read and the kept results are not read.
-
-**How:** Each case is a parameter (the value and the error). The test replaces
-`refuse_rotations`, `sequence_index` and `kept_results` of `pulseq_analysis.pns_levels`
-with functions that raise `RuntimeError`, and calls
-`pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=value)` inside
-`pytest.raises(error, match="bin_s")`. A `RuntimeError` would show that the work started
-before the check, so the error is still the one of `bin_s`.
-
-**Assumptions:** `pns_levels` calls `refuse_rotations`, `sequence_index` and
-`kept_results` as module globals, so the replacements are used. The check of `bin_s`
-comes before the read of the sequence and before the kept results.
 
 #### `test_pns_levels_takes_an_int_or_a_numpy_bin_s`
 
@@ -953,19 +914,8 @@ layout, a main file that includes the PNS parameters) and the `flGSWDTau*`, `flG
 `flGSWDStimulationLimit*`/`Threshold*` and `flGScaleFactor*` fields for each axis.
 `pns_levels(spin_echo_sequence(), hardware=hardware_from_asc(path))`'s `hardware` and `hw`
 are checked, then its `level_min_hz_per_t`, `level_max_hz_per_t`, `peak_hz_per_t` and
-`peak_time_s` are compared with a `pns_levels(seq, hardware=EXAMPLE_HW)` call
+`peak_time_s` are compared with a `pns_levels(snap, hardware=EXAMPLE_HW)` call
 (`numpy.array_equal` for the arrays, `==` for the scalars).
-
-**Assumptions:** None.
-
-#### `test_pns_levels_refuses_rotations`
-
-**Checks:** `pns_levels` raises `NotImplementedError` for a sequence with a
-rotation library, as `gradient_peaks` does.
-
-**How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
-`with_rotation_library` helper of `tests/synthetic.py`), inside
-`pytest.raises(NotImplementedError, match="rotation extension")`.
 
 **Assumptions:** None.
 
@@ -1045,8 +995,8 @@ not be equal:
 
 #### `test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair`
 
-**Checks:** `pns_levels(seq, hardware=(safe_example_hw(), label))` gives the levels of
-`pns_levels(seq, hardware=EXAMPLE_HW)` (another struct object and another label), except `hardware`, which is the label, and each
+**Checks:** `pns_levels(snap, hardware=(safe_example_hw(), label))` gives the levels of
+`pns_levels(snap, hardware=EXAMPLE_HW)` (another struct object and another label), except `hardware`, which is the label, and each
 other field is exactly equal.
 
 **How:** For `spin_echo_sequence()` (on the raster) and for a sequence with a block off
@@ -1104,7 +1054,7 @@ The test checks that each threshold has intervals, then compares the two results
 
 #### `test_the_default_has_no_thresholds`
 
-**Checks:** `pns_levels(seq, hardware=...)` with no threshold argument has `above == {}`,
+**Checks:** `pns_levels(snap, hardware=...)` with no threshold argument has `above == {}`,
 and a new calculation with `thresholds_hz_per_t=()` gives the same result in every field.
 This is also so with hardware for a peak above the limit.
 
@@ -1116,15 +1066,60 @@ the two results with `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
+#### `test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot`
+
+**Checks:** `pns_levels` with good other arguments raises `TypeError` with a message that
+names `load` for a `pp.Sequence` and for a path.
+
+**How:** Parametrized over `spin_echo_sequence()` and the path string `"sequence.seq"`. The call
+with pypulseq's example hardware must raise `TypeError` with `match="load"`.
+
+**Assumptions:** The path is not read: the type check comes before any read.
+
+#### `test_pns_levels_refuses_bad_thresholds_before_the_snapshot_type`
+
+**Checks:** `pns_levels` raises `TypeError` for `thresholds_hz_per_t` that is not a tuple
+(a list, a float, `None`) or has an element that is a `bool` or not a real number (a
+string, `None`, a complex number). It raises `ValueError` for an element that is not
+finite (NaN, the two infinities, an `int` too large for a float) or not above 0 (0 and a
+negative number), or for two elements that are equal as floats (`(1.0, 1.0)`, `(1, 1.0)`,
+a pair that is not next to each other, a NumPy `float32` and the equal `float`). It does so before the type of the
+first argument is checked.
+
+**How:** Each case is a parameter (the value and the error). The test calls
+`pns_levels(spin_echo_sequence(), thresholds_hz_per_t=value, hardware=EXAMPLE_HW)` inside
+`pytest.raises(error, match="threshold")`. The first argument is a `pp.Sequence`, which is not
+a snapshot and would raise the `TypeError` that names `load`, so the error is still the one
+of the thresholds. The empty
+tuple is not a case: it is valid (the default).
+
+**Assumptions:** The check of the thresholds comes before the check of the type of the
+first argument.
+
+#### `test_pns_levels_refuses_a_bad_bin_s_before_the_snapshot_type`
+
+**Checks:** `pns_levels` raises `TypeError` (the message names `bin_s`) for a `bin_s` that
+is a `bool` (`True`, `False`) or not a real number (a string, `None`, a tuple, a complex
+number), and `ValueError` for one that is not finite (NaN, the two infinities, an `int` too
+large for a float) or not above 0 (0 as an `int` and as a `float`, a negative `int` and a
+negative `float`). It does so before the type of the first argument is checked.
+
+**How:** Each case is a parameter (the value and the error). The test calls
+`pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=value)` inside
+`pytest.raises(error, match="bin_s")`. The first argument is a `pp.Sequence`, which is not a
+snapshot and would raise the `TypeError` that names `load`, so the error is still the one of
+`bin_s`.
+
+**Assumptions:** The check of `bin_s` comes before the check of the type of the first
+argument.
+
 ### 2.3 Sequence extensions (`test_extensions.py`)
 
 `test_extensions.py` tests the two guards of `extensions.py`. `refuse_rotations` is the guard
-that `grad_peaks.gradient_peaks`, `grad_peaks.block_gradient_values`,
-`pns_levels._compute_levels` (of `pns_levels.pns_levels`) and
-`grad_spectrum.gradient_spectrum`
-call before they read any gradient. `refuse_unsigned` refuses a sequence with no
-`[SIGNATURE]` hash: `sequence_index` calls it, so each measurement refuses an unsigned
-sequence. Its tests build a sequence in memory with `add_block` (it has no hash), and sign
+that refuses a sequence with a rotation, and `refuse_unsigned` refuses a sequence with no
+`[SIGNATURE]` hash. `snapshot.load` calls both, so the measurements, which take a snapshot, do not
+(the refusals through `load` are tested in `test_snapshot.py`, section 2.17). Its tests call the
+guards on a sequence. They build a sequence in memory with `add_block` (it has no hash), and sign
 the sequences of `tests/synthetic.py` with `synthetic.signed`. Task 6.1 of
 `docs/plans/diagram-event-table.md` found that pypulseq 1.5.0.post1 cannot
 make a rotation and that its `Sequence.read` raises `ValueError` for a
@@ -1261,43 +1256,20 @@ calls `read` for the file, and calls `refuse_unsigned` inside `pytest.raises`.
   passes with the old hash, which `refuse_unsigned` documents as a limit.
 - The test checks the read of the pinned pypulseq fork (`TODO.md`), not the package.
 
-#### `test_each_measurement_raises_for_a_sequence_built_in_memory`
-
-**Checks:** Each public measurement raises `ValueError`, with "no [SIGNATURE] hash" in the
-message, for a sequence that has no hash: `gradient_peaks`, `block_gradient_values`,
-`pns_levels` and `gradient_spectrum`.
-
-**How:** The test is parametrized over the four functions (`pns_levels` with `EXAMPLE_HW`).
-For each, it builds a sequence in memory and calls the function inside `pytest.raises`.
-
-**Assumptions:** None. Each measurement reaches the check through `sequence_index`.
-
-#### `test_each_measurement_accepts_a_sequence_after_write`
-
-**Checks:** After `write` signs a sequence, each of the four measurements gives a result
-of its own result type.
-
-**How:** Parametrized over the same four functions. For each, the test builds a sequence
-in memory, calls `seq.write` for a file in `tmp_path`, calls the function on the same
-object, and checks that the result is an instance of `GradientPeaks`,
-`BlockGradientValues`, `PnsLevels` or `GradientSpectrum`.
-
-**Assumptions:** The test does not check the values of a result: the other test files do.
-The test checks the write of the pinned pypulseq fork (`TODO.md`), not the package.
-
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
-`sequence_index`, its block times, its dtypes and its cache; `block_cache_off`; and
-`rf_events`, `grad_events` and `adc_events`, which read each unique event one time with
-the block cache off. The
+`sequence_index`, its block times, its dtypes and its keep for a snapshot; and
+`rf_events`, `grad_events` and `adc_events`, which read each unique event one time and keep
+the tuple on the snapshot. The
 reference numbering, `_reference_index`, is a plain loop over the blocks with one dict
 for each event kind: the loop that `diagram_data.diagram_tables` had before it used the
 index. Its `*_first` arrays hold play indexes, as `SequenceIndex` does (the old loop
 kept block ids). The tests load `build_repeating` and `build_worst` from
-`tests/scale_sequences.py`. `sequence_index` refuses a sequence with no `[SIGNATURE]` hash,
-so each builder of `tests/synthetic.py` and `tests/scale_sequences.py` gives a signed
-sequence, and a test that builds a sequence by hand calls `synthetic.signed` on it.
+`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes and
+refuses a sequence with no `[SIGNATURE]` hash for. Each builder of `tests/synthetic.py` and
+`tests/scale_sequences.py` gives a signed sequence, and a test makes its snapshot with
+`synthetic.loaded`, which signs a sequence that a test builds by hand and loads it.
 
 #### `test_dense_columns_and_first_arrays_match_the_reference_numbering`
 
@@ -1308,7 +1280,7 @@ for `build_repeating`/`build_worst` at 50 TRs (250 blocks).
 
 **How:** The test is parametrized over the four synthetic builders and two lambdas
 wrapping `build_repeating(50)`/`build_worst(50)`. For each, it builds the sequence,
-computes `sequence_index(seq)` and `_reference_index(seq)`, and compares every one of
+computes `sequence_index(snap)` and `_reference_index(seq)`, and compares every one of
 those nine arrays with `numpy.array_equal` (the dense columns cast to `int64` first,
 since `sequence_index` narrows their dtype while the reference always uses `int64`).
 
@@ -1375,7 +1347,7 @@ because pypulseq only gives the IDs 1, 2, ...; `sequence_index` reads only `seq.
 `index.end_s` is that sum's final value, and `index.duration_s` is
 `seq.block_durations` in play order.
 
-**How:** The test builds `build_repeating(50)`, computes `sequence_index(seq)`, and
+**How:** The test builds `build_repeating(50)`, computes `sequence_index(snap)`, and
 independently walks `seq.block_events.keys()` with a running total `t` (starting at
 0.0, recording `t` before adding each block's own duration from
 `seq.block_durations`). It compares `index.start_s` to that running list with
@@ -1416,7 +1388,7 @@ and `gz` have dtype `uint16`.
 
 #### `test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable`
 
-**Checks:** Each of the twelve array fields of `sequence_index(seq)` has `writeable`
+**Checks:** Each of the twelve array fields of `sequence_index(snap)` has `writeable`
 False, a write into it raises `ValueError`, and `np.array(a)` of it is writable, for a
 gradient echo sequence and for an empty one.
 
@@ -1447,7 +1419,7 @@ False for an index with none.
 
 **How:** Parametrized over six sequences: the synthetic spin echo; one `make_trapezoid` block
 on x, on y and on z; one delay block; and a sequence with no blocks. The test checks
-`has_gradients(sequence_index(seq)) is expected`: True for the first four, False for the last
+`has_gradients(sequence_index(snap)) is expected`: True for the first four, False for the last
 two.
 
 **Assumptions:** None.
@@ -1459,140 +1431,88 @@ two.
 `gy`, `gz`, `adc`, `rf_first`, `grad_first`, `grad_first_axis`, `adc_first`) empty.
 
 **How:** The test builds `pp.Sequence(SYSTEM)` with no `add_block` call, computes
-`sequence_index(seq)`, and checks `num_blocks`, `end_s`, and the size of each of the
+`sequence_index(snap)`, and checks `num_blocks`, `end_s`, and the size of each of the
 twelve arrays.
 
 **Assumptions:** None.
 
-#### `test_sequence_index_is_kept_for_one_sequence_object_and_rebuilt_after_add_block`
+#### `test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot`
 
-**Checks:** `sequence_index(seq)` returns the same object on a second call for the
-same sequence, and a new, longer index after `add_block`.
+**Checks:** The function raises `TypeError` with a message that names `load` when its first
+argument is a `pp.Sequence` or a path, and not a `Snapshot`.
 
-**How:** The test builds `gre_sequence()`, calls `sequence_index(seq)` twice and
-checks the two results are the same object (`is`), then calls
-`seq.add_block(pp.make_delay(1e-3))` and checks that a third call returns a different
-object whose `num_blocks` is one more than the first.
+**How:** Parametrized over `sequence_index`, `rf_events`, `grad_events` and `adc_events`, and over
+a `gre_sequence()` and the path string `"sequence.seq"`. The call must raise `TypeError`
+with `match="load"`.
 
-**Assumptions:** None.
+**Assumptions:** The path `"sequence.seq"` is not read: the type check comes before any read.
 
-#### `test_block_cache_off_restores_use_block_cache_true`
+#### `test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another`
 
-**Checks:** `block_cache_off` sets `use_block_cache` to `False` inside the block, and
-restores it to `True` afterward when that was the value beforehand.
+**Checks:** `sequence_index(snap)` returns the same object on a second call for the same
+snapshot, and a snapshot made again from the same sequence gives its own, equal index.
 
-**How:** The test sets `seq.use_block_cache = True`, checks it is `False` inside
-`block_cache_off`, and checks it is `True` again afterward.
+**How:** The test builds `gre_sequence()` and makes a snapshot with `loaded`. Two calls of
+`sequence_index` must give the same object (`is`). The index of a second snapshot of the
+same sequence must be another object (`is not`) and equal (`==`) to the first.
 
-**Assumptions:** None.
+**Assumptions:** `SequenceIndex` compares by value (tested by
+`test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable`).
 
-#### `test_block_cache_off_restores_use_block_cache_false`
+#### `test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple`
 
-**Checks:** `block_cache_off` sets `use_block_cache` to `False` inside the block, and
-restores it to `False` afterward when that was already the value beforehand.
+**Checks:** `rf_events` calls `get_block` exactly once for each unique RF event of the
+snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
+indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
+no block. Each event equals the event of the same block read separately.
 
-**How:** The test sets `seq.use_block_cache = False`, checks it is still `False`
-inside `block_cache_off`, and checks it is `False` again afterward.
-
-**Assumptions:** None.
-
-#### `test_block_cache_off_restores_the_old_value_after_an_exception`
-
-**Checks:** `block_cache_off` restores the old `use_block_cache` value even when an
-exception is raised inside the block.
-
-**How:** The test sets `seq.use_block_cache = True`, raises a `ValueError` inside
-`block_cache_off` (after checking it reads `False` there), catches it with
-`pytest.raises`, and checks `use_block_cache` is `True` again afterward.
-
-**Assumptions:** None.
-
-#### `test_block_cache_off_does_not_remove_blocks_already_in_the_cache`
-
-**Checks:** `block_cache_off` does not remove a block that was already in
-`seq.block_cache` before it ran.
-
-**How:** The test builds `gre_sequence()`, calls `seq.get_block` on the first block id
-to populate the cache, checks it is in `seq.block_cache`, runs an empty
-`block_cache_off` block, and checks the block is still in `seq.block_cache` afterward.
+**How:** The snapshot is of `spin_echo_sequence()`, which has two distinct RF events (excitation and refocusing). The test replaces `get_block` of the snapshot's sequence (the instance)
+with a counting wrapper that records `use_block_cache` at each call. It calls `rf_events(snap)`
+and checks that the result is a `tuple`, that the call count is the number of unique
+first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
+flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
+indexes and that `delay`, `type` and `signal` of each event equal those of the event of
+`original(block_id).rf`, read again through the saved `get_block`. It clears the call
+list and calls `rf_events(snap)` again: the result must be the same object (`is`) and the list
+must stay empty.
 
 **Assumptions:** None.
 
-#### `test_rf_events_reads_each_unique_event_once_with_the_cache_off`
+#### `test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple`
 
-**Checks:** `rf_events` calls `seq.get_block` exactly once for each unique RF event,
-with the block cache off during every call and restored afterward; it yields dense
-indexes 1 to K in order; and each yielded event equals the same block's `rf` event
-read separately.
+**Checks:** `grad_events` calls `get_block` exactly once for each unique gradient event of the
+snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
+indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
+no block. Each event equals the event of the same block read separately.
 
-**How:** The test builds `spin_echo_sequence()` (two distinct RF events), wraps
-`seq.get_block` with a counting wrapper (monkeypatched onto the instance) that also
-records `seq.use_block_cache` at each call, sets `seq.use_block_cache = True`, and
-calls `rf_events(seq, index)`, collecting its results. It checks the call count
-against the number of unique first-use blocks (`numpy.unique(index.rf_first).size`),
-that every recorded cache flag is `False`, and that `use_block_cache` is `True` again
-afterward. It checks the yielded dense indexes are 1 to K in order, and, for each
-result, that its `delay`, `type` and `signal` equal the `rf` attribute of
-`seq.get_block(block_id)` read again through the saved, unwrapped `get_block`.
+**How:** The snapshot is of a sequence with a z trapezoid in block 0, and an x trapezoid and a y trapezoid in block 1, so `grad_first` is `[0, 1, 1]`: gx and gy are first used in one block, which is read one time, not two. The test replaces `get_block` of the snapshot's sequence (the instance)
+with a counting wrapper that records `use_block_cache` at each call. It calls `grad_events(snap)`
+and checks that the result is a `tuple`, that the call count is the number of unique
+first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
+flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
+indexes and that `delay`, `type` and `amplitude` of each event equal those of the event of
+`original(block_id).<axis>`, read again through the saved `get_block`. It clears the call
+list and calls `grad_events(snap)` again: the result must be the same object (`is`) and the list
+must stay empty.
 
-**Assumptions:** None.
+**Assumptions:** The axis of each event is `grad_first_axis`, so the attribute is `gz`, `gx` and `gy` of the block.
 
-#### `test_grad_events_reads_each_unique_first_use_block_once_with_the_cache_off`
+#### `test_adc_events_reads_each_unique_event_once_and_keeps_the_tuple`
 
-**Checks:** `grad_events` calls `seq.get_block` exactly once for each distinct
-first-use block, not once for each unique gradient event, when two axes of one block
-are both first uses; the block cache is off during every call and restored afterward;
-the yielded dense indexes are 1 to K in order; and each yielded event equals the
-corresponding axis attribute of that block, read separately.
+**Checks:** `adc_events` calls `get_block` exactly once for each unique ADC event of the
+snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
+indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
+no block. Each event equals the event of the same block read separately.
 
-**How:** The test builds a 3-block sequence where block 1 introduces both a gx and a
-gy event (so it is the first-use block of two dense indexes at once), wraps
-`seq.get_block` as in the RF test, and calls `grad_events(seq, index)`. It checks the
-call count is 2 (the two distinct first-use blocks, not the three dense events), that
-every recorded cache flag is `False`, and that `use_block_cache` is restored to
-`True`. It checks the yielded dense indexes are 1, 2, 3 in order, and, for each, that
-its `delay`, `type` and `amplitude` equal the `gx`/`gy`/`gz` attribute (picked by
-`grad_first_axis`) of that block, read separately with the saved, unwrapped
-`get_block`.
-
-**Assumptions:** None.
-
-#### `test_adc_events_reads_each_unique_event_once_with_the_cache_off`
-
-**Checks:** `adc_events` calls `seq.get_block` exactly once for the sequence's one
-unique ADC event (reused every TR), with the block cache off during the call and
-restored afterward, and the yielded event equals that block's `adc` attribute read
-separately.
-
-**How:** The test builds `gre_sequence(num_trs=5)`, whose ADC event is the same
-object reused every TR, and repeats the wrapper technique of the RF and gradient
-tests. It checks the call count is 1, that the recorded cache flag is `False`, that
-`use_block_cache` is restored to `True`, and that the yielded event's `delay`,
-`num_samples` and `dwell` equal the `adc` attribute of that block read separately.
-
-**Assumptions:** None.
-
-#### `test_sequence_index_raises_for_an_unsigned_sequence`
-
-**Checks:** `sequence_index` raises `ValueError`, with "no [SIGNATURE] hash" in the message,
-for a sequence that only `add_block` built, and gives its index when the same sequence has
-a hash.
-
-**How:** The test builds a sequence with one delay block, calls `sequence_index` inside
-`pytest.raises`, calls `synthetic.signed` on the sequence, and checks that
-`sequence_index(seq).num_blocks` is 1.
-
-**Assumptions:** None.
-
-#### `test_sequence_index_checks_the_signature_before_the_kept_results`
-
-**Checks:** The check of the hash comes before `kept_results`: `sequence_index` raises the
-`ValueError` of the signature when `kept_results` would fail.
-
-**How:** The test replaces `seq_index.kept_results` with a function that raises
-`RuntimeError`, builds an unsigned sequence, and calls `sequence_index` inside
-`pytest.raises(ValueError)`. A call of `kept_results` first would raise `RuntimeError`, and
-the test would fail.
+**How:** The snapshot is of `gre_sequence(num_trs=5)`, where one ADC event is reused every TR. The test replaces `get_block` of the snapshot's sequence (the instance)
+with a counting wrapper that records `use_block_cache` at each call. It calls `adc_events(snap)`
+and checks that the result is a `tuple`, that the call count is the number of unique
+first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
+flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
+indexes and that `delay`, `num_samples` and `dwell` of each event equal those of the event of
+`original(block_id).adc`, read again through the saved `get_block`. It clears the call
+list and calls `adc_events(snap)` again: the result must be the same object (`is`) and the list
+must stay empty.
 
 **Assumptions:** None.
 
@@ -1601,7 +1521,7 @@ the test would fail.
 `test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
 waveform of one axis at sorted times, from
 the sequence index and the kept points of the unique gradient events
-(`_events.event_points`), made with `gradient_sampler(seq)`. The waveform is the gradient
+(`_events.event_points`), made with `gradient_sampler(snap)`. The waveform is the gradient
 waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the oracle waveform of
 `tests/oracles/waveform.py` (section 2.15) for every sequence with an end that is not 0 next to
 a long gap, or with a step at a block junction. For the other sequences it is also pypulseq's
@@ -1896,15 +1816,15 @@ that is not 0 after a delay, because the value is below `max_slew * grad_raster_
 #### `test_the_gaps_are_found_one_time_for_each_sequence_and_axis`
 
 **Checks:** `_find_gaps` gives the two ramps of a long gap with their times and values. Two
-samplers of one sequence share the kept result. Its arrays are read-only. An axis with no event
-has no pieces. A block added to the sequence makes the result be found again.
+samplers of one snapshot share the kept result. Its arrays are read-only. An axis with no event
+has no pieces. A second snapshot of the same sequence finds its own result.
 
 **How:** `long_gap_sequence` has a gradient that ends at 3 U at 100 µs, a block with no gradient,
 and a gradient that starts at 2 U at 300 µs. The test checks the pieces: 100 to 105 µs from 3 U
 to 0, and 295 to 300 µs from 0 to 2 U. It checks the ramp points of `_events.ramps`: the ramp to
 0 ends at 105 µs and the ramp from 0 starts at 295 µs. It checks that a second sampler gives the
-same object (`is`), that `writeable` is False for each array, and that gy has no pieces. After
-`add_block`, a new sampler gives another object with equal pieces.
+same object (`is`), that `writeable` is False for each array, and that gy has no pieces. A sampler
+of a second snapshot of the same sequence gives another object with equal pieces.
 
 **Assumptions:** The test reads the private `GradientSampler._gaps` and
 `GradientSampler._axis_events`.
@@ -2289,17 +2209,15 @@ are in the parameters of the PNS test
 oracle gives the value of the last point to a sample time within `TIME_TOLERANCE` after it, so
 that the two agree on the value at the last point.
 
-#### `test_gradient_sampler_refuses_rotations`
+#### `test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot`
 
-**Checks:** `gradient_sampler` raises `NotImplementedError` for a sequence with the rotation
-extension.
+**Checks:** `gradient_sampler` and the constructor `GradientSampler` raise `TypeError` with
+a message that names `load` for a `pp.Sequence` and for a path.
 
-**How:** The test gives `gradient_sampler` a GRE sequence with a rotation library
-(`with_rotation_library` of `tests/synthetic.py`). The error message must contain
-"rotation extension".
+**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. Both calls
+must raise `TypeError` with `match="load"`.
 
-**Assumptions:** pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
-library by hand, as `test_gradient_spectrum_refuses_rotations` does.
+**Assumptions:** The path is not read: the type check comes before any read.
 
 ### 2.6 Gradient peaks (`test_grad_peaks.py`)
 
@@ -2828,7 +2746,7 @@ sequences of pypulseq-issues 12 (a first value after a delay, and an end before 
 block), a zero gap with a step, a short gap, a long gap, a first value and a last value that
 are not 0, and one block with two axes.
 
-**How:** The test signs each sequence (`signed`). The windows come from `_oracle_windows`
+**How:** The test loads each sequence (`loaded`, which signs it). The windows come from `_oracle_windows`
 (seed 20261007). Their ends are on the starts and the ends of the blocks, on the points of the
 polylines of the oracle, half a raster time before and after those points, on multiples of
 2.5 µs, at random, and within 1.5 ns of the start or the end of a block. A window shorter than
@@ -2889,17 +2807,6 @@ added. The windows and the comparison are those of
 
 **Assumptions:** The seeds are fixed, so the sequences are the same in each run. The sequences
 have gaps of each kind, but the test does not count them.
-
-#### `test_gradient_peaks_refuses_rotations`
-
-**Checks:** `gradient_peaks` raises `NotImplementedError` for a sequence with a
-rotation library.
-
-**How:** `gre_sequence(num_trs=2)` with a non-empty `rotation_library` (the
-`with_rotation_library` helper of `tests/synthetic.py`), inside
-`pytest.raises(NotImplementedError, match="rotation extension")`.
-
-**Assumptions:** None.
 
 #### `test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`
 
@@ -2984,7 +2891,7 @@ of both blocks is 0, the slew of block 1 is the ending value divided by the rast
 #### `test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block`
 
 **Checks:** Each array has one entry for each block, `block_id` and `start_s` equal the arrays of
-`sequence_index(seq)` (play order), the five dicts have the keys x, y and z, and the arrays are of
+`sequence_index(snap)` (play order), the five dicts have the keys x, y and z, and the arrays are of
 type float64 (`block_id` aside).
 
 **How:** The test calls `block_gradient_values` on `gre_sequence(num_trs=3)`, compares `block_id`
@@ -2993,25 +2900,13 @@ float arrays and that `start_s` increases.
 
 **Assumptions:** None.
 
-#### `test_block_gradient_values_refuses_rotations`
-
-**Checks:** `block_gradient_values` raises `NotImplementedError` for a sequence with a rotation
-library.
-
-**How:** The same as `test_gradient_peaks_refuses_rotations`: the `with_rotation_library`
-sequence of `tests/synthetic.py`, inside `pytest.raises(NotImplementedError, match="rotation
-extension")`.
-
-**Assumptions:** None.
-
-
 #### `test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable`
 
 **Checks:** Two `GradientPeaks` of two separate computations of the same values are equal by
 value, a result with another value in a field is unequal, and a result is not hashable.
 
-**How:** The test calls `gradient_peaks(seq, window=(0.0, 1e-3))` two times on the spin echo (a
-window is not kept): two objects, `==` true. Two calls without a window on two separately built
+**How:** The test calls `gradient_peaks(snap, window=(0.0, 1e-3))` two times on the spin echo (a
+window is not kept): two objects, `==` true. Two calls without a window on two snapshots of separately built
 spin echo sequences are `==`. A `dataclasses.replace` with another `vector_peak_hz_per_m` and the
 result for the window `(0.0, 2e-3)` are `!=`. `hash(first)` is in `pytest.raises(TypeError)`.
 
@@ -3075,8 +2970,8 @@ item and `clear` on `axes` raise `TypeError`.
 **Checks:** The `reason` of a sequence with no gradient is `seq_index.NO_GRADIENTS`, and its `axes`
 is a `FrozenDict`.
 
-**How:** The test builds a signed `pp.Sequence(SYSTEM)` with no blocks and checks
-`gradient_peaks(seq).reason == NO_GRADIENTS`. A sequence with one delay block is in
+**How:** The test loads a `pp.Sequence(SYSTEM)` with no blocks and checks
+`gradient_peaks(snap).reason == NO_GRADIENTS`. A sequence with one delay block is in
 `test_no_gradients_sets_reason`.
 
 **Assumptions:** None.
@@ -3190,10 +3085,10 @@ the `reason`, the vector peak and its block, and each `AxisResult` against all z
 
 #### `test_a_window_gives_the_same_result_with_and_without_the_kept_data`
 
-**Checks:** For a window, `gradient_peaks` of a sequence that has its kept data (the per-event
+**Checks:** For a window, `gradient_peaks` of a snapshot that has its kept data (the per-event
 values and the values over the blocks: the end of each block, the junction and its time, the
 ramps, the extent in time of each block, and the RMS of the whole file) gives a result equal
-(`==`) to the result of the same call on a sequence whose kept data is empty. The kept values
+(`==`) to the result of the same call on a snapshot whose kept data is empty. The kept values
 over the blocks and the search of the block range (`np.searchsorted`) do not change a result,
 also for a window edge on a block edge, and for a block of zero duration at a window edge or
 inside the window.
@@ -3202,19 +3097,19 @@ inside the window.
 duration before, between and after them, the junction sequence, the delayed junction sequence,
 one random gradient sequence and one random sequence of `random_gap_sequence`), 30 windows
 with the seed 20261006: the ends of every other window are each the start or the end of a block
-(or 0 or the end of the sequence), and the ends of the others are random. The test builds two
-sequences of the same build, `seq` and `other`. It never empties the kept data of `seq`, so
-each window uses the kept data that the windows before it built. For each window, it removes the
-entry of `other` from `grad_peaks._CACHE`, so that the call for `other` builds its own kept data,
-and checks that the result for `seq` equals the result for `other`. It also checks that the kept
-values over the blocks of `seq` are one object for all the windows, so the kept data is really
-reused.
+(or 0 or the end of the sequence), and the ends of the others are random. The test makes a
+snapshot `snap` of one build. It never empties the kept data of `snap`, so each window uses the
+kept data that the windows before it built. For each window, it makes a new snapshot of the same
+sequence, so that the call on it builds its own kept data, and checks that the result for `snap`
+equals the result for the new snapshot. It also checks that the kept values over the blocks
+(`_kept_results(snap)["block_data"]`) are one object for all the windows, so the kept data is
+really reused.
 
 **Assumptions:** The test does not compare with a second implementation of the window: the
 values themselves are checked by the hand-computed tests and by the comparisons with the oracle
-above. A window with an end that is not within the sequence is not used. The test removes the
-entry of the sequence from the private `grad_peaks._CACHE`. The two sequences have equal events
-and blocks, because each build is deterministic. A result that uses the kept data of another
+above. A window with an end that is not within the sequence is not used. The test reads the
+private kept dict of the snapshot (`snapshot._kept_results`). The two snapshots are of one
+sequence, so they have equal events and blocks. A result that uses the kept data of another
 window, for example a range that the first window kept, is not equal to the result of a call with
 empty kept data.
 
@@ -3443,6 +3338,30 @@ slope.
 times, so the test accepts the time of each item that has the largest slope. The test does not
 compare the time of a slew of 0.
 
+#### `test_a_measurement_raises_type_error_that_names_load_for_a_non_snapshot`
+
+**Checks:** `gradient_peaks` and `block_gradient_values` raise `TypeError` with a message
+that names `load` for a `pp.Sequence` and for a path.
+
+**How:** Parametrized over the two functions and over `gre_sequence()` and the path string
+`"sequence.seq"`. Each call must raise `TypeError` with `match="load"`.
+
+**Assumptions:** The path is not read: the type check comes before any read.
+
+#### `test_gradient_peaks_refuses_a_bad_window_before_the_snapshot_type`
+
+**Checks:** A bad `window` raises its own error before the type of the first argument is
+checked: a window with its start equal to its end and a window with a non-finite end raise
+`ValueError`, and a window that is not a pair raises `TypeError`.
+
+**How:** Parametrized over `(0.5, 0.5)`, `(0.0, inf)` and `[0.0]`. The call
+`gradient_peaks(gre_sequence(), window=window)` has a `pp.Sequence` as its first argument,
+which is not a snapshot and would raise the `TypeError` that names `load`. The error must be
+the one of the window (`match` "start before its end", "window end" and "window").
+
+**Assumptions:** The checks of the window that need the sequence (a window outside it) come
+after the type check, and are tested with a snapshot above.
+
 ### 2.7 The kept PNS levels (`test_pns_levels_kept.py`)
 
 `test_pns_levels_kept.py` tests the keep of `pns_levels.pns_levels`, the one public function
@@ -3452,12 +3371,12 @@ sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 (`pns_levels._compute_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs on a
 result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
 of `pulseq_analysis.pns_levels` with a wrapper that counts its calls.
-`pns_levels` keeps one `PnsLevels` for each (sequence object, hardware, thresholds, `bin_s`),
+`pns_levels` keeps one `PnsLevels` for each (snapshot, hardware, thresholds, `bin_s`),
 the hardware being a pair `(struct, label)` (its key is the label and the 24 values of
 the struct without `stim_thresh`, so two pairs with the same label and values are one
 hardware, whatever their structs are or where they came from), so that a caller that needs
-the PNS of one sequence more than once runs the SAFE model once. `_kept.py` says when the
-kept results are made again (section 2.12). The thresholds of the key are the tuple of
+the PNS of one sequence more than once runs the SAFE model once. A snapshot never changes, so a kept result is
+never old (section 2.12). Each test makes its snapshot with `synthetic.loaded`. The thresholds of the key are the tuple of
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
@@ -3529,48 +3448,13 @@ wrapper that counts the calls, and calls `pns_levels`. There must be no calls.
   agreement with `sample` and the oracle directly; this test only checks that the
   fast path is actually taken from `pns_levels`.
 
-#### `test_prediction_keeps_no_blocks_and_gives_back_the_cache_setting`
-
-**Checks:** `pns_levels` does not fill pypulseq's block cache, and the
-cache setting of the sequence is the same after the call.
-
-**How:** For `use_block_cache` True and False, the test sets it on a
-synthetic spin echo sequence, empties `seq.block_cache`, and calls
-`pns_levels`. After it, `use_block_cache` must have the same value and
-`seq.block_cache` must be empty.
-
-**Assumptions:**
-
-- `calculate_pns` reads every block with `get_block`, which keeps each block
-  in `seq.block_cache` when `use_block_cache` is True. An empty cache after
-  the call shows that the cache was off while it ran.
-
-#### `test_prediction_propagates_an_error_and_keeps_the_cache_setting`
-
-**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`, and
-the sequence's block-cache setting and contents are unaffected.
-
-**How:** The test sets `use_block_cache` to True on a synthetic spin echo sequence and
-replaces `pns_levels._safe_gwf_to_pns_chunk` (the pinned fork's chunk function) with a
-function that raises `RuntimeError`. The call must raise the error,
-`use_block_cache` must be True and `seq.block_cache` must be empty afterward.
-
-**Assumptions:**
-
-- The block cache is touched only inside `seq_index.block_cache_off`'s own
-  `try`/`finally`, which has already restored `use_block_cache` by the time the chunk
-  function runs (`GradientSampler` is built, with the block cache off, before the
-  chunk loop starts). So this test checks that the error propagates and that nothing
-  else in `pns_levels` touches the cache setting outside that
-  narrower guarantee, not that the guarantee itself is new.
-
 #### `test_pns_levels_keeps_one_result_for_equal_hardware_pairs`
 
 **Checks:** Two `hardware` pairs with the same label and the same field values, with two
 different struct objects, are one hardware: the second call runs no model and gives the
 kept result.
 
-**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq,
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(snap,
 hardware=(safe_example_hw(), "LABEL"))` two times, each with a new struct. It checks
 that there was 1 call and that the second result `is` the first.
 
@@ -3631,45 +3515,12 @@ call count 1. It then calls two times the pair `(struct of the file, "OTHER")` a
 #### `test_pns_levels_needs_hardware`
 
 **Checks:** `pns_levels` without `hardware` raises `TypeError` (the message names
-`hardware`), before the model reads the sequence.
+`hardware`), also for a first argument that is not a snapshot: the arguments are checked first.
 
-**How:** The test replaces `refuse_rotations` and `sequence_index` of `pns_levels` with
-functions that raise `RuntimeError`, and calls `pns_levels(spin_echo_sequence())` in
+**How:** The test calls `pns_levels(spin_echo_sequence())` in
 `pytest.raises(TypeError, match="hardware")`.
 
 **Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_any_work`
-
-**Checks:** `pns_levels` with a `hardware` that is not a tuple of two items with a
-`str` second item raises `TypeError` (the message names `hardware`), before the sequence is
-read and before the kept results are touched.
-
-**How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py`. The test replaces
-`refuse_rotations` and `sequence_index` of `pns_levels`, and `kept_results` of `pns_levels`, with
-functions that raise `RuntimeError`, and calls
-`pns_levels(spin_echo_sequence(), hardware=hardware)` in
-`pytest.raises(TypeError, match="hardware")`.
-
-**Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_bad_struct_before_any_work`
-
-**Checks:** `pns_levels` with a pair whose struct is bad raises the error of the
-defect, with a message that names it, before the sequence is read and before the kept
-results are touched: `ValueError` for a struct with no `x`, with no `x.stim_thresh`, with
-`x.a1 = 5.0` and with `x.stim_limit = 0.0`, and for `x.tau1 = nan`; `TypeError` for
-`x.tau1 = "0.2"`. Without the check, the missing field gave `AttributeError` from
-`_hardware_key`.
-
-**How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
-one defect. The test replaces `refuse_rotations` and `sequence_index` of `pns_levels`, and
-`kept_results` of `pns_levels`, with functions that raise `RuntimeError`, and calls
-`pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))` in
-`pytest.raises(error, match=match)`.
-
-**Assumptions:** The rule of the check is that of `pns_levels._check_hardware`, as in the
-tests of section 2.2.
 
 #### `test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients`
 
@@ -3714,7 +3565,7 @@ the same ones in another order, run the model and do not give the result of the 
 (no threshold, the key `()`); the same thresholds again give the kept result (the same
 object); an `int` threshold is the key of the equal `float`.
 
-**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq)`, then
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(snap)`, then
 `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, again the same, the default again, `()`,
 `(round(_LIMIT), 0.5 * _LIMIT)` (an `int` that equals `_LIMIT` as a float, which the test
 checks), and the two thresholds in the other order. It checks that the call count is 1
@@ -3735,7 +3586,7 @@ same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s` and th
 result are those of its `bin_s` (`bin_samples` 500 for the default and 600 for `0.006` at
 the 10 us raster).
 
-**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(seq)` with
+**How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(snap)` with
 `EXAMPLE_HW` (the default, then `bin_s=BIN_S`), `bin_s=0.006` two times, the default again,
 `bin_s=1` and `bin_s=1.0`, and `bin_s=0.006` with `thresholds_hz_per_t=(_LIMIT,)`. The call
 counts are 1, 1, 2, 2, 3, 3 and 4. It checks the identities (`is`) of the repeats and
@@ -3756,6 +3607,79 @@ so that the statement does not also assign the field of the frozen dataclass) an
 object, with arrays equal to the copies.
 
 **Assumptions:** None.
+
+#### `test_pns_levels_refuses_a_bad_struct_before_the_snapshot_type`
+
+**Checks:** `pns_levels` with a pair whose struct is bad raises the error of the
+defect, with a message that names it, before the type of the first argument is
+checked: `ValueError` for a struct with no `x`, with no `x.stim_thresh`, with
+`x.a1 = 5.0` and with `x.stim_limit = 0.0`, and for `x.tau1 = nan`; `TypeError` for
+`x.tau1 = "0.2"`. Without the check, the missing field gave `AttributeError` from
+`_hardware_key`.
+
+**How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
+one defect. The test calls
+`pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))` in
+`pytest.raises(error, match=match)`. The first argument is a `pp.Sequence`, which is not a
+snapshot and would raise the `TypeError` that names `load`.
+
+**Assumptions:** The rule of the check is that of `pns_levels._check_hardware`, as in the
+tests of section 2.2.
+
+#### `test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_the_snapshot_type`
+
+**Checks:** `pns_levels` with a `hardware` that is not a tuple of two items with a
+`str` second item raises `TypeError` (the message names `hardware`), before the type of the
+first argument is checked.
+
+**How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py`. The test calls
+`pns_levels(spin_echo_sequence(), hardware=hardware)` in
+`pytest.raises(TypeError, match="hardware")`. The first argument is a `pp.Sequence`, which is
+not a snapshot and would raise the `TypeError` that names `load`.
+
+**Assumptions:** None.
+
+#### `test_prediction_keeps_no_blocks`
+
+**Checks:** `pns_levels` does not fill pypulseq's block cache: the cache of the private
+sequence of a snapshot is off and empty after the call.
+
+**How:** The test makes a snapshot of a synthetic spin echo sequence and calls `pns_levels`.
+Afterward `snap.sequence.use_block_cache` must be False and `snap.sequence.block_cache` must
+be empty.
+
+**Assumptions:**
+
+- `calculate_pns` reads every block with `get_block`, which keeps each block in
+  `block_cache` when `use_block_cache` is True. `load` turns the cache off, so an empty cache
+  after the call shows that the cache stayed off. That `load` turns it off is tested in
+  `test_snapshot.py`.
+
+#### `test_prediction_propagates_an_error_and_keeps_the_cache_off`
+
+**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`, and the block
+cache of the snapshot's sequence stays off and empty.
+
+**How:** The test makes a snapshot of a synthetic spin echo sequence and replaces
+`pns_levels._safe_gwf_to_pns_chunk` (the pinned fork's chunk function) with a function that
+raises `RuntimeError`. The call must raise the error, `use_block_cache` must be False and
+`block_cache` must be empty afterward.
+
+**Assumptions:** None.
+
+#### `test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result`
+
+**Checks:** `pns_levels` with `hardware_from_asc` of the relative path and with that of the
+absolute path of one `.asc` file gives one object, in both orders of the two calls.
+
+**How:** The test writes a gradient `.asc` file (the `write_gradient_asc` fixture), changes the
+working directory to its folder, and makes the hardware from the relative name and from the
+absolute path. For each order of the two, it makes a new snapshot of a synthetic spin echo
+sequence, calls `pns_levels` with the first and with the second, and checks that the results are
+the same object (`is`).
+
+**Assumptions:** The label of the pair is the component name in the file, with no path in it
+(the docstring of `hardware_from_asc`), so the two spellings give equal pairs.
 
 ### 2.8 Series (`test_series.py`)
 
@@ -4594,12 +4518,12 @@ checks for `ValueError` with `match=` of the message.
 
 #### `test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window`
 
-**Checks:** `GRADIENT_PEAKS.compute(seq, window=w)` equals `gradient_peaks(seq, window=w)`,
+**Checks:** `GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`,
 and is not equal to the result of the whole sequence, for the windows `(0, T/2)`,
 `(T/4, T/2)` and `(T/2, T)` of a sequence of length `T`.
 
 **How:** Parametrized over the three windows of `gre_sequence(num_trs=4)`, in fractions of
-`sequence_index(seq).end_s`. The test compares the results with `==` (the equality of
+`sequence_index(snap).end_s`. The test compares the results with `==` (the equality of
 `GradientPeaks`).
 
 **Assumptions:** The three windows have values (the RMS, at least) that differ from those of
@@ -4607,9 +4531,9 @@ the whole sequence, so that a `compute` that does not pass the window on fails t
 
 #### `test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result`
 
-**Checks:** `GRADIENT_PEAKS.compute(seq)` and `compute(seq, window=None)` are the object
-(`is`) that `gradient_peaks(seq)` gives. A result with a window is not that object, equals
-`gradient_peaks(seq, window=window)`, and is not kept: a second call gives another object.
+**Checks:** `GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object
+(`is`) that `gradient_peaks(snap)` gives. A result with a window is not that object, equals
+`gradient_peaks(snap, window=window)`, and is not kept: a second call gives another object.
 The kept result of the whole sequence is still the same object after the calls with a window.
 
 **How:** `gre_sequence(num_trs=4)` and the window `(0, T/2)`.
@@ -4618,9 +4542,9 @@ The kept result of the whole sequence is still the same object after the calls w
 
 #### `test_compute_of_gradient_spectrum_passes_its_arguments_on`
 
-**Checks:** `GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)` is the object (`is`)
-that `gradient_spectrum(seq, max_frequency_hz=1000.0)` gives, and it is not the object of the
-defaults (which is `gradient_spectrum(seq)`). Its `frequency_hz` differs from that of the
+**Checks:** `GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)` is the object (`is`)
+that `gradient_spectrum(snap, max_frequency_hz=1000.0)` gives, and it is not the object of the
+defaults (which is `gradient_spectrum(snap)`). Its `frequency_hz` differs from that of the
 defaults, and its `max_frequency_hz` is 1000.0. A call with `window_s=0.1` and
 `frequency_oversampling=2.0` is the object of `gradient_spectrum` with those two arguments, and
 the result has both values.
@@ -4633,17 +4557,17 @@ the three arguments.
 
 #### `test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result`
 
-**Checks:** `SEQ_INDEX.compute(seq)` and `GRADIENT_BLOCKS.compute(seq)` give the objects
-that `sequence_index(seq)` and `block_gradient_values(seq)` keep for the sequence.
+**Checks:** `SEQ_INDEX.compute(snap)` and `GRADIENT_BLOCKS.compute(snap)` give the objects
+that `sequence_index(snap)` and `block_gradient_values(snap)` keep for the sequence.
 
 **How:** The test compares each pair with `is` for a `gre_sequence(num_trs=4)`.
 
-**Assumptions:** Each function keeps its result for the sequence object. The other three
+**Assumptions:** Each function keeps its result for the snapshot. The other three
 analyses have their own tests of `compute`.
 
 #### `test_compute_of_pns_safe_levels_passes_bin_s_on`
 
-**Checks:** `PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
+**Checks:** `PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
 object (`is`) as `pns_levels` with that `bin_s`, and not the object of the default. Its
 `bin_samples` is 100 (500 for the default), and the `coord_step` of its `pns_total` series
 is `bin_samples * dt_s`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
@@ -4656,7 +4580,7 @@ raises `AssertionError` when the code reads any attribute of it.
 
 #### `test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read`
 
-**Checks:** `PNS_SAFE_LEVELS.compute(seq)` without `hardware` raises Python's own
+**Checks:** `PNS_SAFE_LEVELS.compute(snap)` without `hardware` raises Python's own
 `TypeError` (a missing required keyword-only argument `hardware`), also with
 `thresholds_hz_per_t=(_LIMIT,)`. A `hardware` that is not a tuple of two items with a `str`
 second item (`None`, the bare struct, a 1-tuple, a pair with a label that is not a `str`, a
@@ -4685,10 +4609,10 @@ in this order, with one entry for each interval of `above[_LIMIT]` (`start` and 
 `{"threshold": _LIMIT}`. For a `PnsLevels` of `hardware_from_asc(path)`, `meta["hardware"]`
 is the name in the file.
 
-**How:** The test calls `compute` with the hardware of `hardware_for_peak(seq, 1.5)` (`tests/pns_hardware.py`) and
+**How:** The test calls `compute` with the hardware of `hardware_for_peak(snap, 1.5)` (`tests/pns_hardware.py`) and
 `thresholds_hz_per_t=(_LIMIT,)`, and compares each field of `to_series` with the field of the same `PnsLevels` (`numpy.array_equal`
 for the arrays, `tolist` for the intervals). For the file it writes a gradient `.asc` file with
-the `write_gradient_asc` fixture and calls `pns_levels(seq, hardware=hardware_from_asc(path))`.
+the `write_gradient_asc` fixture and calls `pns_levels(snap, hardware=hardware_from_asc(path))`.
 
 **Assumptions:** The test does not build the expected `Series` with the code under test: each
 field is compared by itself.
@@ -4737,6 +4661,17 @@ for a sequence with gradients and for one without.
 `compute` to `to_series`.
 
 **Assumptions:** None.
+
+#### `test_compute_raises_type_error_that_names_load_for_a_non_snapshot`
+
+**Checks:** `compute` of each analysis of the registry raises `TypeError` with a message that
+names `load` for a `pp.Sequence` and for a path.
+
+**How:** Parametrized over the five analyses and over `gre_sequence()` and the path string
+`"sequence.seq"`. For `pns.safe.levels` the call has `hardware=EXAMPLE_HW`, the one argument
+that it needs. Each call must raise `TypeError` with `match="load"`.
+
+**Assumptions:** The path is not read: the type check comes before any read.
 
 ### 2.10 Gradient spectrum (`test_grad_spectrum.py`)
 
@@ -4991,34 +4926,17 @@ frequencies, each axis spectrum and the RSS must be exactly equal.
 
 **Assumptions:** None.
 
-#### `test_gradient_spectrum_refuses_rotations`
-
-**Checks:** `gradient_spectrum` raises `NotImplementedError` for a sequence
-with the rotation extension.
-
-**How:** The test gives `gradient_spectrum` a GRE sequence with a rotation
-library (`with_rotation_library` of `tests/synthetic.py`). The error message
-must contain "rotation extension".
-
-**Assumptions:**
-
-- pypulseq 1.5.0.post1 cannot make a rotation, so the test adds a rotation
-  library by hand, as `test_gradient_peaks_refuses_rotations` does.
-
 #### `test_gradient_spectrum_keeps_the_result`
 
 **Checks:** `gradient_spectrum` gives the same object for two calls on one
-sequence, and a new object after the sequence changed.
+snapshot, and another object for a second snapshot of the same sequence.
 
-**How:** The test calls `gradient_spectrum` two times on a GRE sequence of
-2 TRs, and checks that the objects are the same (`is`). It then adds a delay
-block and checks that the next call gives another object.
+**How:** The test calls `gradient_spectrum` two times on a snapshot of a GRE sequence of
+2 TRs, and checks that the objects are the same (`is`). It then calls it on a new snapshot of
+a GRE sequence of 2 TRs and checks that the result is another object.
 
-**Assumptions:**
-
-- The test changes the number of blocks and the last block id, the changes that
-  the kept result sees. A block replaced in place is not seen, as for
-  `sequence_index`.
+**Assumptions:** A snapshot never changes, so there is no test of a change of the
+sequence here (`test_snapshot.py` has it).
 
 #### `test_the_arrays_of_a_spectrum_are_read_only`
 
@@ -5108,7 +5026,7 @@ frequency of the result: the tolerance of `keep_n` keeps a bin that float roundi
 just above `max_frequency_hz`.
 
 **How:** A sequence on a 4 us raster (gradient, RF and block duration rasters) with one
-trapezoid. `gradient_spectrum(seq, window_s=0.01)`, and `frequency_hz[-1]` is 2000.0
+trapezoid. `gradient_spectrum(snap, window_s=0.01)`, and `frequency_hz[-1]` is 2000.0
 (`approx`, `abs=1e-9`).
 
 **Assumptions:** 2500 samples and an `nfft` of 7500 put a bin at 2000 Hz, and the float
@@ -5155,6 +5073,31 @@ no arguments again must give the first object. A call with
 `max_frequency_hz=1000` (an integer) must give the second object.
 
 **Assumptions:** None.
+
+#### `test_gradient_spectrum_raises_type_error_that_names_load_for_a_non_snapshot`
+
+**Checks:** `gradient_spectrum` with good other arguments raises `TypeError` with a message
+that names `load` for a `pp.Sequence` and for a path.
+
+**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. The call with
+the default arguments must raise `TypeError` with `match="load"`.
+
+**Assumptions:** The path is not read: the type check comes before any read.
+
+#### `test_gradient_spectrum_refuses_arguments_that_need_no_raster_before_the_snapshot_type`
+
+**Checks:** A `max_frequency_hz` that is NaN, a `window_s` that is negative and a
+`frequency_oversampling` that is a string raise their own error before the type of the first
+argument is checked.
+
+**How:** Parametrized over the three. The first argument is `gre_sequence()`, a `pp.Sequence`
+that is not a snapshot. The call must raise a `TypeError` or `ValueError` whose message does not
+contain "load".
+
+**Assumptions:** The checks that need the gradient raster of the snapshot (the window in samples,
+the oversampling of 1 or more and the maximum frequency against the raster) come after the type
+check, so they are not covered here; `test_gradient_spectrum_refuses_bad_arguments` covers them
+with a snapshot.
 
 ### 2.11 Value equality (`test_equality.py`)
 
@@ -5309,235 +5252,14 @@ unchanged.
 **Assumptions:** The message of numpy is "cannot set WRITEABLE flag to True of this
 array"; the test matches it.
 
-### 2.12 Kept results (`test_kept.py`)
-
-`test_kept.py` tests `_kept.py`, the rule that says when the kept results of a sequence
-object are old, through `sequence_index`, `event_points`, `gradient_peaks`,
-`block_gradient_values`, `pns_levels` and `gradient_spectrum`.
-The tests use small sequences that they write with pypulseq or that
-`tests/synthetic.py` builds.
-
-#### `test_a_second_read_into_one_object_gives_the_values_of_a_new_object`
-
-**Checks:** After a second file is read into one `Sequence`, the five measurements give
-the values of that file, not the kept values of the first file.
-
-**How:** The test writes two files with pypulseq. Both have 6 blocks. File A has three
-times an x trapezoid and a delay of 15 ms. File B has three times a y trapezoid of
-another area and a delay of 22 ms. The test reads A into an object, and calls
-`sequence_index`, `pns_levels` (with pypulseq's example hardware), `gradient_spectrum`,
-`gradient_peaks` and `block_gradient_values`. It then reads B into the same object, and reads B into a new
-object. The index of the new object must have another `end_s` than the index of A. For the
-object that read both files, the index must have the same values as the index of the new
-object (each array with `array_equal`), and the levels, the spectrum, the limits and the
-block values must be equal (`==`) to those of the new object and not equal to those of A.
-
-**Assumptions:**
-
-- A and B are different in the values that the five results hold, so a kept result of A
-  is not equal to the result of B.
-- `GradientPeaks`, `BlockGradientValues`, `PnsLevels` and `GradientSpectrum` compare by
-  value.
-
-#### `test_event_points_are_kept_and_made_again_after_a_second_read_into_one_object`
-
-**Checks:** `event_points` keeps its result for a sequence object until a new file is read
-into the object, and then makes it again.
-
-**How:** The test writes the two files of the first test of this section and reads A into
-an object. Two calls of `event_points` must give one object (`is`). It then reads B into
-the same object. The next call must give a new object, a second call must give that object
-again, and its arrays must be equal (`array_equal`) to those of `event_points` of a new
-object that read B only. The `amp` arrays of B and A must differ.
-
-**Assumptions:** A and B have gradients with other amplitudes, so a kept result of A is
-not equal to the points of B.
-
-#### `test_pns_levels_gives_a_new_result_after_add_block_and_the_same_without_a_change`
-
-**Checks:** `pns_levels` keeps its result until a block is added, and then makes it
-again.
-
-**How:** For the synthetic spin echo, two calls with the same arguments must give one
-object. The test then adds a z trapezoid with `add_block`. The next call must give a new
-object, a second call must give that object again, and the new result must be equal to
-the result for a second sequence built with the same blocks.
-
-**Assumptions:** None.
-
-#### `test_gradient_peaks_and_block_gradient_values_give_a_new_result_after_add_block_and_the_same_without_a_change`
-
-**Checks:** `gradient_peaks(seq)` and `block_gradient_values(seq)` keep their result until a
-block is added, and then make it again.
-
-**How:** For the synthetic spin echo, two calls of each function must give one object (`is`).
-The test then adds a z trapezoid with `add_block`. The next call of each must give a new
-object, a second call must give that object again, and the new results must be equal (`==`)
-to the results for a second sequence built with the same blocks. The new block values must
-not be equal to the old ones.
-
-**Assumptions:** None.
-
-#### `test_gradient_peaks_with_a_window_is_a_new_object_for_each_call_and_is_not_kept`
-
-**Checks:** A result of `gradient_peaks` with a window is not kept: a caller that asks for
-many windows does not fill the kept results. A call with a window does not change the kept
-result of `window=None`.
-
-**How:** For the synthetic spin echo and the window of its first half, the test calls
-`gradient_peaks(seq)`, then `gradient_peaks(seq, window=window)` two times. The two windowed
-results are equal and are not the same object (`is not`); and neither is the whole-file
-result. A new call of `gradient_peaks(seq)` gives
-the first whole-file object (`is`). For a new sequence object, a call with the window comes
-first: the next call of `gradient_peaks(fresh)` is not that object.
-
-**Assumptions:** The window gives a result that is equal each time, so `==` between the two
-windowed results is meaningful (`GradientPeaks` compares by value).
-
-#### `test_a_windowed_gradient_peaks_uses_the_kept_per_event_values`
-
-**Checks:** The per-event values (`_EventData`) of a sequence object are built one time, and a
-call with a window uses them. A new sequence object, and an object after `add_block`, build
-them again.
-
-**How:** The test replaces `grad_peaks._event_values` with a function that counts its calls
-and calls the original. For the synthetic spin echo it calls `gradient_peaks` with a window
-(the count is 1), then with another window, `gradient_peaks(seq)` and
-`block_gradient_values(seq)` (the count is still 1). A call for a new spin echo makes the
-count 2, and a windowed call after `add_block` on the first object makes it 3.
-
-**Assumptions:** `_event_values` is the one function that builds the per-event values, and
-`gradient_peaks` and `block_gradient_values` look it up in the module when they call it.
-
-#### `test_a_kept_gradient_peaks_cannot_be_changed_in_place`
-
-**Checks:** A caller cannot change a kept result of `gradient_peaks(seq)` or
-`block_gradient_values(seq)`, which all callers of one sequence share.
-
-**How:** For the synthetic spin echo, the assignment of a field of the `GradientPeaks` and of
-an `AxisResult` raises `FrozenInstanceError`, a change of `axes` raises `TypeError`, a write
-to an array of the block values raises `ValueError` ("read-only") and a change of one of its
-dicts raises `TypeError`. After the refusals the next call of each function gives the same
-object, and the peaks are equal to those of a new sequence.
-
-**Assumptions:** The tests of `test_grad_peaks.py` cover every array and dict of the results.
-
-#### `test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result`
-
-**Checks:** `pns_levels` has one kept result for `hardware_from_asc` of the relative
-path and `hardware_from_asc` of the absolute path of one gradient `.asc` file.
-
-**How:** The test writes an `.asc` file, changes the working directory to its directory,
-and makes the two pairs. For each order of the two pairs, on a new sequence, the call with
-the first pair and the call with the second pair must give one object (`is`).
-
-**Assumptions:**
-
-- The file is not changed or replaced between the calls (the pairs are made before the
-  calls).
-
-#### `test_a_change_of_the_last_block_id_with_the_same_number_of_blocks_gives_a_new_index`
-
-**Checks:** `sequence_index` makes the index again when the last block ID changes and the
-number of blocks does not.
-
-**How:** For the synthetic spin echo, two calls must give one object. The test then moves
-the first entry of `seq.block_events` and of `seq.block_durations` to a new key, the
-largest ID plus 1. The number of blocks is the same. The next call must give a new object,
-with the same number of blocks, and with the block IDs of the old index without the first,
-then the new ID.
-
-**Assumptions:**
-
-- `seq.block_events` and `seq.block_durations` are dicts that keep their order, as in the
-  pinned pypulseq fork.
-
-#### `test_a_new_block_durations_object_with_the_same_keys_gives_a_new_index`
-
-**Checks:** `sequence_index` makes the index again when `seq.block_durations` is a new
-object and nothing else of the stamp changes.
-
-**How:** For the synthetic spin echo, two calls give one object. The test then sets
-`seq.block_durations` to a new dict with the same block IDs and each duration doubled.
-`seq.block_events` and `seq.grad_library` are the same objects, and the number of blocks,
-the last block ID and the raster time are the same. The next call gives a new object,
-with an `end_s` of 2 times the old `end_s` and a `duration_s` equal (`array_equal`) to 2
-times the old `duration_s`.
-
-**Assumptions:** Doubling a float duration is exact, so the doubled values compare with
-`==`.
-
-#### `test_a_new_block_events_object_with_the_same_keys_gives_a_new_index`
-
-**Checks:** `sequence_index` makes the index again when `seq.block_events` is a new object
-and nothing else of the stamp changes.
-
-**How:** For the synthetic spin echo, two calls give one object. The test then sets
-`seq.block_events` to a new dict with the same block IDs and copies of the event arrays, in
-which blocks 2 and 3 have swapped events (block 2 had the x prephaser, block 3 the y
-crusher). `seq.block_durations` and `seq.grad_library` are the same objects, and the number
-of blocks, the last block ID and the raster time are the same. The next call gives a new
-object with the same number of blocks. Its `gx` column is `[0, 0, 2]` and its `gy` column
-`[0, 1, 0]` for the first three blocks (the old index has `[0, 1, 0]` and `[0, 0, 2]`).
-
-**Assumptions:** The columns of the index number the events from 1 in the order of their
-first use, so the swap gives these numbers.
-
-#### `test_a_new_grad_library_object_with_other_amplitudes_gives_new_levels`
-
-**Checks:** `pns_levels` makes its result again when `seq.grad_library` is a new
-object and nothing else of the stamp changes.
-
-**How:** For the synthetic spin echo, two calls with pypulseq's example hardware give one
-object. The test then sets `seq.grad_library` to a deep copy in which each amplitude is
-doubled. `seq.block_events` and `seq.block_durations` are the same objects, and the number
-of blocks, the last block ID and the raster time are the same. The next call gives a new
-object, whose `peak_hz_per_t` is 2 times the old one (`approx`).
-
-**Assumptions:** `EventLibrary.data` maps an ID to a tuple whose first item is the
-amplitude, and `get_block` reads it.
-
-#### `test_a_removed_block_with_the_same_last_block_id_gives_a_new_index`
-
-**Checks:** `sequence_index` makes the index again when the number of blocks changes and
-the last block ID and the three objects do not.
-
-**How:** For the synthetic spin echo, two calls give one object. The test then deletes
-block 3 from `seq.block_events` and from `seq.block_durations`, in place. The last block
-ID is 6 as before. The next call gives a new object with one block less and the block IDs
-1, 2, 4, 5 and 6.
-
-**Assumptions:** Block 3 is not the last block, and the dicts keep their order, as in the
-pinned pypulseq fork.
-
-#### `test_a_change_of_the_gradient_raster_time_gives_new_kept_results`
-
-**Checks:** A change of `seq.grad_raster_time` makes the five kept results again.
-
-**How:** For the synthetic spin echo, the test calls `sequence_index`, `gradient_peaks`,
-`block_gradient_values`, `pns_levels` and `gradient_spectrum`, and calls each again: each
-must give the same object. It then halves `seq.grad_raster_time`. Each of the five must give
-a new object, and a call again must give that new object.
-
-**Assumptions:**
-
-- The functions can run with a gradient raster time that is not the raster of the
-  blocks. The test does not check the values of the new results.
-
-#### `test_a_kept_result_does_not_keep_the_sequence_alive`
-
-**Checks:** The kept results of `sequence_index`, `event_points`, `gradient_peaks`,
-`block_gradient_values`, `pns_levels` and `gradient_spectrum` do not keep a reference to the sequence, so the sequence can be
-collected.
-
-**How:** For each function, the test calls it for the synthetic spin echo, keeps a
-`weakref` to the sequence and the result, deletes the sequence and runs `gc.collect()`.
-The `weakref` must be dead.
-
-**Assumptions:**
-
-- CPython collects the sequence at once, or in the `gc.collect()` call. The test does not
-  cover another Python.
+### 2.12 Kept results (no test file)
+
+The tests of `_kept.py`, which made a kept result again after a change of the sequence
+object, are gone with `_kept.py`: a snapshot (section 2.17) never changes, so no stamp is
+needed. Test 3 of the guard tests of the snapshot (`test_snapshot.py`) checks that a change
+of the source sequence in place changes no result of a snapshot. The tests that a result is
+kept for one snapshot are in `test_events.py` (section 2.14), `test_seq_index.py` (section
+2.4), `test_pns_levels_kept.py` (section 2.7) and `test_grad_spectrum.py` (section 2.10).
 
 ### 2.13 Number arguments (`test_validate.py`)
 
@@ -5613,12 +5335,14 @@ raise `ValueError`.
 ### 2.14 Kept event points (`test_events.py`)
 
 `test_events.py` tests `_events.py`: `event_points`, which reads the points of the unique
-gradient events of a sequence one time and keeps them for the sequence object, and the two
+gradient events of a snapshot one time and keeps them on it, and the two
 users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The values of
 `_event_values` are tested with hand-computed values. The tests
 use the synthetic spin echo, gradient echo and arbitrary gradient sequences (and, for the
-types of the arrays, the empty sequence). That the kept result is made again after a new
-read is tested in section 2.12.
+types of the arrays, the empty sequence). Each test makes its snapshot with `synthetic.loaded`.
+The tests of the kept results are here too: a measurement gives one object for one snapshot, a
+windowed `gradient_peaks` uses the kept values of the events, and a kept result does not keep its
+snapshot alive. A snapshot never changes, so a kept result is never old (section 2.12).
 
 #### `test_the_measurements_of_one_sequence_read_each_unique_gradient_event_once`
 
@@ -5652,7 +5376,7 @@ test checks the dtype (float64 for `delay`, `offsets` and `amp`; int64 for `coun
 
 #### `test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy`
 
-**Checks:** `GradientSampler(index, event_points(seq))` keeps the pooled points of
+**Checks:** `GradientSampler(snap)` keeps the pooled points of
 `event_points` as they are, with no copy.
 
 **How:** For each sequence of the file, the test checks `np.shares_memory` of the
@@ -5682,6 +5406,100 @@ fail it. This test does.
 steepest segment without a tie. The arbitrary gradient has 5 samples, because pypulseq
 reads back an arbitrary gradient of 4 samples or fewer with a shape that ends at the last
 sample, not half a raster after it.
+
+#### `test_a_measurement_gives_the_same_object_for_one_snapshot_and_an_equal_one_for_another`
+
+**Checks:** Two calls of a measurement with one snapshot give one object (the result is
+kept). A second snapshot of the same sequence gives another object with an equal value.
+
+**How:** Parametrized over `sequence_index`, `gradient_peaks`, `block_gradient_values`,
+`pns_levels` (with pypulseq's example hardware) and `gradient_spectrum`. The test builds
+`spin_echo_sequence()` and two snapshots of it. Two calls with the first snapshot must give
+one object (`is`). The call with the second snapshot must give another object (`is not`)
+that is `==` to the first.
+
+**Assumptions:** Each result type compares by value.
+
+#### `test_event_points_are_the_same_object_for_one_snapshot_and_equal_arrays_for_another`
+
+**Checks:** Two calls of `event_points` with one snapshot give one object. A second snapshot
+of the same sequence gives another object with equal arrays.
+
+**How:** The test builds `spin_echo_sequence()` and two snapshots of it. `event_points` of
+the first, twice, must be one object (`is`). `event_points` of the second must be another
+object, and each field must be equal to the field of the first (`array_equal`).
+
+**Assumptions:** `EventPoints` does not compare by value, so the fields are compared.
+
+#### `test_a_windowed_gradient_peaks_is_a_new_object_for_each_call_and_is_not_kept`
+
+**Checks:** Two calls of `gradient_peaks` with one window give equal results that are two
+objects, and a call with a window does not change the kept result of `window=None`.
+
+**How:** On a snapshot of `spin_echo_sequence()` with the window `(0, end_s / 2)`: two
+windowed calls must give two objects (`is not`) that are `==`, and not the object of the call
+with no window. After them, `gradient_peaks(snap)` must be the same object as before. On a
+new snapshot, the call with the window must not make the result of `window=None`: the next
+call with no window gives another object.
+
+**Assumptions:** None.
+
+#### `test_a_windowed_gradient_peaks_uses_the_kept_per_event_values`
+
+**Checks:** `grad_peaks._event_values` runs one time for a snapshot, whatever the calls: a
+call with a window, a call with another window, `gradient_peaks(snap)` and
+`block_gradient_values(snap)` share one result. A new snapshot has its own.
+
+**How:** The test replaces `grad_peaks._event_values` with a wrapper that records each
+call. On a snapshot of `spin_echo_sequence()` it calls `gradient_peaks` with the window
+`(0, end_s / 2)`, with the window `(end_s / 4, end_s)` and with none, and
+`block_gradient_values`. The wrapper must have been called once. A call on a new snapshot
+makes the count 2.
+
+**Assumptions:** The window `(end_s / 4, end_s)` is inside the sequence.
+
+#### `test_a_kept_gradient_peaks_cannot_be_changed_in_place`
+
+**Checks:** The kept result of `gradient_peaks(snap)` refuses an assignment to a field of
+the result and of an axis and a change of `axes`, and the kept `block_gradient_values(snap)`
+refuses a write to an array and a change of a dict. After the refusals the next call gives the
+same, equal values.
+
+**How:** On a snapshot of `spin_echo_sequence()`, the test takes both results. Setting
+`vector_peak_hz_per_m` raises `FrozenInstanceError`, setting a field of `axes["x"]` raises
+`FrozenInstanceError`, setting `axes["x"]` raises `TypeError`, a write to `start_s[0]` raises
+`ValueError` ("read-only") and setting `peak_hz_per_m["x"]` raises `TypeError`. Then
+`gradient_peaks(snap)` must be the first object and equal to the result of a second
+snapshot, and `block_gradient_values(snap)` must be the first object.
+
+**Assumptions:** None.
+
+#### `test_a_kept_result_does_not_keep_the_snapshot_alive`
+
+**Checks:** A kept result has no reference to its snapshot: after the call and `del snap`,
+the snapshot is collected.
+
+**How:** Parametrized over `sequence_index`, `event_points`, `gradient_peaks`,
+`block_gradient_values`, `pns_levels` (with pypulseq's example hardware) and
+`gradient_spectrum`. The test makes a snapshot of `spin_echo_sequence()`, calls the
+function, keeps the result, takes a `weakref` to the snapshot, deletes the snapshot and runs
+`gc.collect()`. The `weakref` must be dead.
+
+**Assumptions:**
+
+- CPython collects the snapshot at once, or in the `gc.collect()` call. The test does not
+  cover another Python.
+
+#### `test_a_measurement_raises_type_error_that_names_load_for_a_sequence`
+
+**Checks:** `event_points`, `gradient_peaks`, `block_gradient_values`, `pns_levels`,
+`gradient_spectrum` and `GradientSampler` raise `TypeError` with a message that names `load`
+for a `pp.Sequence`.
+
+**How:** Parametrized over the six. Each is called with `spin_echo_sequence()` (and pypulseq's
+example hardware for `pns_levels`) and must raise `TypeError` with `match="load"`.
+
+**Assumptions:** None.
 
 ### 2.15 The oracle of the gradient waveform (`test_oracle_waveform.py`)
 
@@ -5986,5 +5804,224 @@ writes the file. The test checks that the result is a tuple, that its label equa
 `hardware_name(asc)` and is `"MP_GPA_TEST"`, that the struct has the same attribute names
 as `asc_to_hw(asc)`, and that `vars` of each axis (`x`, `y`, `z`) equals `vars` of the same
 axis of `asc_to_hw(asc)`.
+
+**Assumptions:** None.
+
+### 2.17 The snapshot (`test_snapshot.py`)
+
+`test_snapshot.py` tests `snapshot.py`: `load`, which makes a `Snapshot` of a `.seq` file or
+of a `pp.Sequence`, and the four guards of the design (`docs/plans/fourth-review-fixes.md`,
+section 5.1). The sequences are the synthetic sequences, a sequence with each kind of event
+that `add_block` takes (a sinc pulse with its slice gradients, a trapezoid with an ADC and two
+labels, an arbitrary gradient, an extended trapezoid, a digital output, a trigger, a soft
+delay, a delay and definitions), and a sequence with a soft delay between two trapezoids.
+The results that the tests compare are the index, the events, the event points, the samples
+of the sampler and the four measurements of the gradients (`gradient_peaks`,
+`block_gradient_values`, `pns_levels` with pypulseq's example hardware and
+`gradient_spectrum`), each with its default arguments.
+
+#### `test_a_snapshot_of_a_sequence_shares_no_mutable_object_with_it`
+
+**Checks:** The object graph of a sequence and the object graph of `load(seq).sequence` have no
+mutable object in common, so no change of the sequence in place can reach the snapshot. With a
+warm block cache in the source, the snapshot has an empty block cache that is turned off, and
+the source keeps its own cache object with the same blocks.
+
+**How:** Parametrized over the seven sequences and over a cold and a warm block cache (each
+block of the source read with `get_block` before `load`). A walk collects each object that can
+be reached from a root and that can change: through attributes, `__slots__`, dicts, lists,
+tuples, sets, and the items and the base of arrays. It leaves out numbers, strings, `None`,
+numpy scalars and dtypes, tuples and frozensets (their items are walked), and read-only arrays
+(an array and each array that it views are read-only, and the data is `bytes`). A list, dict,
+set, writable array, object with attributes, or an object of a type that the walk does not
+know counts as mutable. The test first checks that the walk finds shared objects between the
+sequence and `copy.copy(seq)`, so that the walk can fail. It then checks that the two graphs of
+the sequence and of the snapshot share none, that `snapshot.source` is `None`, that
+`use_block_cache` of the snapshot's sequence is False and its `block_cache` is `{}`, and, with
+the warm cache, that `seq.block_cache` is the same dict object with the same blocks and
+`seq.use_block_cache` is still True.
+
+**Assumptions:**
+
+- The walk finds an object only through the ways above. An object that is held in a way that
+  the walk does not follow (for example in a closure) is not found.
+- This test is the proof for every way to change the source. The tests of
+  `test_a_change_of_the_source_changes_no_result_of_the_snapshot` are examples.
+
+#### `test_a_snapshot_of_a_sequence_read_from_a_file_shares_no_mutable_object_with_it`
+
+**Checks:** A sequence that `read` made from a file with definitions, labels, extensions and
+soft delays shares no mutable object with `load(seq).sequence`.
+
+**How:** Parametrized over the sequence with each kind of event, the sequence with a soft
+delay and the gradient echo. The test writes each one to a file, reads the file into a new
+`Sequence`, and checks by the walk of the test above that the sequence and the snapshot's
+sequence share no mutable object, and that they are two objects.
+
+**Assumptions:** The walk is the one of the first test of this section.
+
+#### `test_a_snapshot_writes_the_bytes_of_its_source`
+
+**Checks:** `load(seq).sequence.write(path)` gives a file with the same bytes as
+`seq.write(path)`.
+
+**How:** Parametrized over the seven sequences. The test makes the snapshot first, then writes
+the source and the snapshot's sequence to two files and compares the bytes. The snapshot is made
+before the writes because `write` sets the definition `TotalDuration` and the signature of the
+sequence that it writes.
+
+**Assumptions:** The bytes are those of pypulseq's `write`, which removes duplicate events and
+rounds the values. Two sequences with the same bytes can differ in a value that `write` does
+not write.
+
+#### `test_load_of_a_sequence_and_of_its_file_give_equal_results`
+
+**Checks:** For a file that `write` made from a sequence, `load(seq)` of the sequence that `read`
+makes from that file (a copy) and `load(path)` (no copy) have equal results, and
+`snapshot.source` is the path.
+
+**How:** Parametrized over the seven sequences. The test writes the sequence, reads the file
+into a `Sequence`, and compares `_results` of `load(that sequence)` and `load(path)` with
+`values_equal` (arrays: same dtype, shape and values). `_results` is the index, the events
+(each as the dict of its attributes), the event points, `sample` of each axis at 501 times
+from 0 to the end, `block_samples` of each axis for the whole sequence when every block is on
+the raster, and the four measurements of the gradients.
+
+**Assumptions:** The sequence is read from the file, not the sequence that was built in memory,
+because `write` rounds the values of the file, so the results of the built sequence and of
+the file can differ in the last digits. The next test compares the built sequence.
+
+#### `test_a_snapshot_of_a_sequence_has_the_results_of_the_same_sequence_with_no_copy`
+
+**Checks:** The copy that `load(seq)` makes does not change a result.
+
+**How:** Parametrized over the seven sequences. The test builds the sequence two times and
+compares `_results` (see above) of `load(first)` with `_results` of `Snapshot(second)`, which holds
+the second sequence with no copy and no check.
+
+**Assumptions:** Two builds of one builder give the same sequence. `Snapshot(sequence)` makes a
+snapshot with no check, which the package does not use.
+
+#### `test_a_change_of_the_source_changes_no_result_of_the_snapshot`
+
+**Checks:** After `load(seq)`, a change of `seq` in place changes no result of the snapshot. A
+new `load(seq)` gives the new results.
+
+**How:** Parametrized over six changes (`mod_grad_axis("x", 0.5)` of the gradient echo,
+`set_block` on the existing block 3 of the spin echo, `apply_soft_delay(TE=5e-3)` of the soft delay
+sequence, a write into a row of `seq.block_events`, a write into `seq.block_durations`, and a
+write into `seq.grad_raster_time`) and over two cases: the snapshot made its results before the
+change, and it makes them after it. The reference is `_results` of `load` of a second sequence
+of the same builder that does not change. After the change of `seq`, `_results` of the snapshot
+must equal the reference. Then the test makes the same change to a third sequence, and checks
+that `_results` of a new `load(seq)` equals `_results` of `load` of the third sequence and
+differs from the reference.
+
+**Assumptions:** The six changes are examples of the calls of pypulseq that change a sequence in
+place; the first test of this section is the proof for every way. Each change changes at least
+one result, which the last check shows.
+
+#### `test_load_refuses_an_unsigned_sequence_and_an_unsigned_file`
+
+**Checks:** `load` raises `ValueError` that names the `[SIGNATURE]` section for a sequence with
+no hash and for a file with no `[SIGNATURE]` section.
+
+**How:** The test calls `load` with a sequence that `add_block` built, and with a file of the spin
+echo whose `[SIGNATURE]` section was cut off.
+
+**Assumptions:** The check is for the presence of a hash only (`extensions.refuse_unsigned`).
+
+#### `test_load_refuses_a_sequence_with_a_rotation`
+
+**Checks:** `load` raises `NotImplementedError` for a sequence with the rotation extension.
+
+**How:** Parametrized over a sequence with a `rotation_library` and a sequence with the
+`"ROTATIONS"` extension type. The test calls `load` and checks the error message.
+
+**Assumptions:** The two ways to find a rotation are those of `extensions.refuse_rotations`;
+pypulseq 1.5.0.post1 cannot make a rotation.
+
+#### `test_load_checks_the_signature_before_the_rotation`
+
+**Checks:** The order of the checks of `load` is the signature, then the rotation.
+
+**How:** A sequence with a rotation library and no hash gives `ValueError` (the signature), not
+`NotImplementedError`.
+
+**Assumptions:** None.
+
+#### `test_a_measurement_of_a_snapshot_calls_neither_check_again`
+
+**Checks:** `load` calls `refuse_unsigned` one time and `refuse_rotations` one time, and no
+measurement of the snapshot calls either again.
+
+**How:** Parametrized over the seven sequences. The test replaces both functions in `snapshot`
+with wrappers that count the calls and call the original, loads the sequence, and checks one call
+of each. Then it replaces both functions, in `extensions`, in `snapshot` and in `seq_index`,
+`_events`, `sampling`, `grad_peaks`, `pns_levels` and `grad_spectrum` (also where the module has
+no such name), with functions that raise, and runs `_results` (the index, the events, the event
+points, the sampler and the four measurements). No call is made, and the count stays at one.
+
+**Assumptions:** A module that reaches the checks in another way than by these names is not
+found.
+
+#### `test_load_refuses_another_type_and_a_snapshot`
+
+**Checks:** `load` raises `TypeError` that names `load` for `None`, an `int`, `bytes`, a list,
+and a `Snapshot`.
+
+**How:** Parametrized over the five arguments. The test calls `load` and checks the type of the
+error and that its message has `load`.
+
+**Assumptions:** None.
+
+#### `test_check_snapshot_raises_a_type_error_that_names_load`
+
+**Checks:** `_check_snapshot` (the check that each public function makes of its first argument)
+raises `TypeError` that names `load` for a `pp.Sequence`, `None` and a path, and nothing for a
+`Snapshot`.
+
+**How:** Parametrized over the three bad arguments. The test calls `_check_snapshot` with a
+snapshot (no error), then with the argument (`TypeError`, message with `load`).
+
+**Assumptions:** The test calls a private function; each public function calls it for its first
+argument, and the tests of each public function check that.
+
+#### `test_a_copy_of_a_snapshot_is_a_new_snapshot_with_no_kept_results`
+
+**Checks:** A copy of a `Snapshot` from `pickle` or `copy.deepcopy` is a new snapshot with a new
+sequence, the same `source`, no kept results, and the same results when it makes them again.
+
+**How:** Parametrized over `pickle.loads(pickle.dumps(s))` and `copy.deepcopy`. The test writes
+the gradient echo to a file, loads the file (so `source` is the path, not `None`) and makes its
+index and event points, so the kept dict is not empty. It checks
+that the copy is a `Snapshot`, is not the same object, has a sequence that is not the same
+object, has the same `source`, and has an empty kept dict (`_kept_results`). It then checks
+that `sequence_index` and `event_points` of the copy equal those of the original
+(`values_equal`).
+
+**Assumptions:** The test reads the kept dict through the private `_kept_results`. `source` is
+`None` here, as the snapshot is of a sequence.
+
+#### `test_a_snapshot_has_read_only_properties_no_new_attribute_and_the_hash_of_its_identity`
+
+**Checks:** The properties `sequence` and `source` cannot be set, a new attribute cannot be
+added, two snapshots of one sequence are not equal, and a snapshot is a key of a dict by
+identity.
+
+**How:** The test makes two snapshots of one sequence. Setting `sequence`, `source` or a new
+attribute raises `AttributeError`. A snapshot equals itself and not the other one, its hash is
+stable, and a dict with both snapshots as keys gives each one its own value.
+
+**Assumptions:** The test does not check that the kept dict, which is private, cannot be set.
+
+#### `test_load_accepts_a_path_like_and_source_is_its_str`
+
+**Checks:** `load` takes the path of a file as a `str` or as an `os.PathLike`, and
+`snapshot.source` is the `str` of the path.
+
+**How:** Parametrized over `str` and `pathlib.Path`. The test writes the spin echo, loads the
+path in each form, and checks that `source` equals the path as a `str`, that its type is `str`,
+and that the index has the 6 blocks of the sequence.
 
 **Assumptions:** None.

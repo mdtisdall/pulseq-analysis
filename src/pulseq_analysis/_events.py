@@ -1,9 +1,9 @@
 """The points of the unique gradient events of one sequence, read one time, and the gap rule.
 
-`event_points` reads each unique gradient event of a sequence one time, with one
-`get_block` call for each event (`seq_index.grad_events`), and keeps the result for the
-sequence object. `sampling.GradientSampler` and `grad_peaks._event_values` both build
-their data from it, so the measurements of one sequence read each event one time, and
+`event_points` reads each unique gradient event of a snapshot one time, with one
+`get_block` call for each event (`seq_index.grad_events`), and keeps the result on the
+snapshot. `sampling.GradientSampler` and `grad_peaks._event_values` both build
+their data from it, so the measurements of one snapshot read each event one time, and
 hold one copy of its points.
 
 The points of the K unique events are in two pools, event by event, in the dense order
@@ -12,8 +12,7 @@ and `amp[at[k] : at[k] + count[k]]`, and the times of its points from the start 
 block that plays it are `delay[k] + offsets[...]`. The values are those of
 `seq_utils.gradient_offsets`. `grad_raster_time` is the gradient raster of the sequence.
 
-All the arrays are read-only: all callers share the kept result. The rule that makes the
-kept result old is the one of `_kept`.
+All the arrays are read-only (`_equality._freeze`): all callers share the kept result.
 
 The gap rule of the waveform is here too, so that `grad_peaks` and `sampling` use one copy
 of it (`docs/implementation.md`, "The gradient waveform"). `axis_events` gives the first and
@@ -24,16 +23,15 @@ is, and `polyline` gives the points of a run of events with the ramp points. The
 to.
 """
 
-import weakref
 from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
-import pypulseq as pp
 
-from ._kept import _Entry, kept_results
-from .seq_index import SequenceIndex, grad_events, sequence_index
+from ._equality import _freeze
+from .seq_index import SequenceIndex, grad_events
 from .seq_utils import TIME_TOLERANCE, gradient_offsets
+from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 
 @dataclass(frozen=True, eq=False)
@@ -46,34 +44,31 @@ class EventPoints:
     offsets: np.ndarray  # float64: the offsets of all the points, event by event (s)
     amp: np.ndarray  # float64: the amplitudes of all the points, event by event (Hz/m)
     # The gradient raster of the sequence (s), `seq.grad_raster_time`. The gap rule of
-    # `sampling` needs it, and the kept result is read again when it changes (`_kept`).
+    # `sampling` needs it.
     grad_raster_time: float
 
 
-# One `EventPoints` for each sequence object, under the key "points" of its kept results.
-_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
+def event_points(snap: Snapshot) -> EventPoints:
+    """The `EventPoints` of `snap`.
 
-
-def event_points(seq: pp.Sequence) -> EventPoints:
-    """The `EventPoints` of `seq`.
-
-    The result is kept for the sequence object, so that several measurements of one
-    sequence read each unique gradient event one time. It is read again after the changes
-    that make the kept index old (the rule of `_kept`).
+    The result is made on the first call and kept on the snapshot, so that several
+    measurements of one snapshot read each unique gradient event one time. Raises TypeError
+    for an argument that is not a `Snapshot`.
     """
-    kept = kept_results(_CACHE, seq)
+    _check_snapshot(snap)
+    kept = _kept_results(snap)
     if "points" not in kept:
-        kept["points"] = _read_points(seq)
+        kept["points"] = _read_points(snap)
     return kept["points"]
 
 
-def _read_points(seq: pp.Sequence) -> EventPoints:
-    """The `EventPoints` of `seq`, read without the cache of `event_points`."""
+def _read_points(snap: Snapshot) -> EventPoints:
+    """The `EventPoints` of `snap`, read without the keep of `event_points`."""
     delays: list[float] = []
     counts: list[int] = []
     offset_chunks: list[np.ndarray] = []
     amp_chunks: list[np.ndarray] = []
-    for number, g in grad_events(seq, sequence_index(seq)):
+    for number, g in grad_events(snap):
         delay, offsets, amp = gradient_offsets(g)
         offsets = np.asarray(offsets, dtype=np.float64)
         amp = np.asarray(amp, dtype=np.float64)
@@ -85,7 +80,7 @@ def _read_points(seq: pp.Sequence) -> EventPoints:
         amp_chunks.append(amp)
 
     count = np.asarray(counts, dtype=np.int64)
-    arrays = (
+    arrays = _freeze(  # read-only arrays, shared by all callers through the kept result
         np.asarray(delays, dtype=np.float64),
         count,
         # The exclusive prefix sum: the start of the points of each event in the pools.
@@ -93,9 +88,7 @@ def _read_points(seq: pp.Sequence) -> EventPoints:
         np.concatenate(offset_chunks) if offset_chunks else np.empty(0, dtype=np.float64),
         np.concatenate(amp_chunks) if amp_chunks else np.empty(0, dtype=np.float64),
     )
-    for array in arrays:
-        array.flags.writeable = False  # shared by all callers through the kept result
-    return EventPoints(*arrays, grad_raster_time=float(seq.grad_raster_time))
+    return EventPoints(*arrays, grad_raster_time=float(snap.sequence.grad_raster_time))
 
 
 @dataclass(frozen=True, eq=False)

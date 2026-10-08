@@ -58,8 +58,8 @@ use pypulseq's line across each gap.
 
 ### 1.2 The events
 
-In this section, `dt` is `seq.grad_raster_time`, the `GradientRasterTime` of
-the file. It is not the raster of `seq.system`. `TIME_TOLERANCE` is 1e-9 s
+In this section, `dt` is `snap.sequence.grad_raster_time`, the `GradientRasterTime` of
+the file. It is not the raster of `snap.sequence.system`. `TIME_TOLERANCE` is 1e-9 s
 (`seq_utils.TIME_TOLERANCE`).
 
 The waveform of one axis is a polyline. A gradient event gives its points at
@@ -199,7 +199,7 @@ an end of the window is cut there, and a step is in the window by the rule of
 section 1.7. The `reason` is `None` when the range has a part of a gradient
 event, or a ramp, a line or a step with a value that is not 0.
 
-A call with a window uses the values of each block that the sequence object
+A call with a window uses the values of each block that the snapshot
 keeps (the peak, the slew, the junction, the RMS integral and the vector peak,
 with their times) for the blocks that are whole in the window. It makes the
 other blocks of an edge of the window from the exact waveform. The time range
@@ -219,7 +219,7 @@ waveform, so an edge is not limited to one or two blocks.
   of the axis, in the block of the last event, when that point is more than
   `TIME_TOLERANCE` before the end of the sequence.
 - `junction_hz_per_m_per_s` is the step into the event of the block across a
-  zero gap, `|last - first|` divided by `seq.grad_raster_time`, or the slope of
+  zero gap, `|last - first|` divided by `snap.sequence.grad_raster_time`, or the slope of
   the line into it across a short gap, `|last - first|` divided by the gap. It
   is 0 for a long gap, and for a block with no event on the axis. For the first
   event of the axis it is the step from 0. Its time is the time of the first
@@ -240,7 +240,7 @@ the blocks that have the largest value.
 ### 2.2 `pns_levels`
 
 **The samples.** The model takes one sample of each axis for each gradient
-raster time `dt = seq.grad_raster_time`. Sample `k` is at the time
+raster time `dt = snap.sequence.grad_raster_time`. Sample `k` is at the time
 `(k + 0.5) * dt`. The value of a sample is the waveform of section 1 at that
 time: a line across a gap of one raster time or less, a ramp to 0 and a ramp
 from 0 across a longer gap, and a step at a block junction.
@@ -372,18 +372,20 @@ Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 0.
 
 ### 2.5 The block table
 
-`sequence_index` reads `seq.block_events` and `seq.block_durations`, with no
-`get_block`. It numbers the unique events of each kind from 1, in the order of
+`sequence_index` reads `snap.sequence.block_events` and
+`snap.sequence.block_durations`, with no `get_block`. It numbers the unique events of each kind from 1, in the order of
 their first use: block by block in play order, and in one block in the order
 gx, gy, gz. The three gradient axes share one number space, so one event that
 plays on x and on y has one number. The event columns use the smallest of
 uint8, uint16 and uint32 that holds the number of unique events.
 
-`rf_events`, `grad_events` and `adc_events` read one block with `get_block`
-for each unique event, not for each block, with pypulseq's block cache off.
-`block_cache_off(seq)` is the context manager that they use: pypulseq keeps
-each block that `get_block` reads when `seq.use_block_cache` is true, and
-nothing removes it.
+`rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` read one block
+with `get_block` for each unique event, not for each block. Each gives a tuple of
+`(number, event)` in the order of the numbers, made on its first call and kept
+on the snapshot (section 4). pypulseq keeps each block that `get_block` reads
+when `seq.use_block_cache` is true, and nothing removes it, so `load` sets
+`use_block_cache` to False on the private sequence of the snapshot: the block
+cache cannot reach a caller.
 
 ## 3. Algorithms and cost
 
@@ -413,11 +415,16 @@ K that grows with B.
 ### 3.2 The shared work
 
 Each gradient measurement starts from some of the same parts. The package makes
-each part one time for each sequence object and keeps it (section 4), so only
-the first measurement that needs a part pays for it.
+each part one time for each snapshot and keeps it (section 4), so only the first
+measurement that needs a part pays for it. `snapshot.load` is before all of
+them: for a path it reads the file, and for a `pp.Sequence` it makes
+`copy.deepcopy` of it (on the machine of section 3.5, for 100,000 blocks: 0.12 s
+for `build_repeating`, 0.31 s for `build_worst`, and 0.14 s and 0.39 s for the
+same sequences read from their files). It also checks the sequence (section 7). Its cost is not in the table of
+section 3.5.
 
-- **The block table** (`sequence_index`). One read of `seq.block_events` into
-  an array and of `seq.block_durations` into a vector (a Python loop over the
+- **The block table** (`sequence_index`). One read of `block_events` into
+  an array and of `block_durations` into a vector (a Python loop over the
   rows only for a file whose rows differ in length), then numpy: a cumulative
   sum for the starts, and a lookup table over the event IDs that numbers the
   events in the order of their first use (`np.unique` of the used IDs when the
@@ -442,7 +449,7 @@ the first measurement that needs a part pays for it.
 
 ### 3.3 Each call
 
-**`gradient_peaks(seq)` and `block_gradient_values(seq)`.** The first call
+**`gradient_peaks(snap)` and `block_gradient_values(snap)`.** The first call
 makes the values of each block, and keeps them for the two functions and for
 all windows:
 
@@ -462,7 +469,7 @@ all windows:
 `block_gradient_values` then copies the arrays of the blocks, in time O(B).
 Time of the first call O(K + B + P_play log P_play), memory O(B + P_play).
 
-**`gradient_peaks(seq, window=...)`.** A binary search finds the blocks of the
+**`gradient_peaks(snap, window=...)`.** A binary search finds the blocks of the
 window in the kept arrays. The blocks that are whole in the window give their
 kept values (a vectorised largest value and sum over them). The blocks whose
 time range an edge of the window crosses (section 2.1) are made from the exact
@@ -474,7 +481,7 @@ time: a window of 5000 blocks takes about the time of a window of one TR.
 `t[0]` to `t[-1]`. The points of their events, with the ramps of the long gaps,
 make the polyline of that range, and `np.interp` gives the values. Time
 O(log B + points of the events in the range + Q), memory O(Q + those points).
-This leaves out two costs of the first call. `gradient_sampler(seq)` makes a
+This leaves out two costs of the first call. `gradient_sampler(snap)` makes a
 new sampler for each call, and the first `sample` of a sampler on an axis finds
 the events, the gaps and the ramps of that axis (`_events.axis_events`,
 `gap_kinds` and `ramps`, time O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
@@ -537,7 +544,7 @@ less one hop (half a window) for each 256 windows, is sampled twice.
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
 `decode_array` take time O(n) for n values. `asc.read_gradient_asc` takes time
 O(the size of the file and of its included files). `extensions.refuse_rotations`
-and `refuse_unsigned` take time O(1). `analyses.registry()` reads the entry
+and `refuse_unsigned` take time O(1); `load` calls them one time. `analyses.registry()` reads the entry
 points of the installed packages. An analysis `compute` is its function.
 
 ### 3.4 Summary
@@ -546,8 +553,8 @@ points of the installed packages. An analysis `compute` is its function.
 |---|---|---|---|
 | `sequence_index` | O(B) | O(B) | blocks |
 | First gradient measurement (the points of the unique events) | O(K) `get_block` | O(P) | unique events |
-| `gradient_peaks(seq)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
-| `gradient_peaks(seq, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
+| `gradient_peaks(snap)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
+| `gradient_peaks(snap, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
 | `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
 | `pns_levels` | O(S + U) | O(chunk + bins + samples of the U events) | duration, and unique events |
 | `gradient_spectrum` | O(S · oversampling · log nfft) | O(256 · nfft) | duration |
@@ -563,7 +570,7 @@ new phase-encode event in each TR (`build_worst`).
 | Call | 100,000 blocks, 120 s, K = 258 | 100,000 blocks, 140 s, K = 20,002 | 1,000,000 blocks, 1198 s, K = 258 |
 |---|---|---|---|
 | `sequence_index` | 59 ms | 60 ms | 0.60 s |
-| `gradient_peaks(seq)`, first call | 74 ms | 0.44 s | 0.75 s |
+| `gradient_peaks(snap)`, first call | 74 ms | 0.44 s | 0.75 s |
 | `block_gradient_values`, after it | 0.4 ms | 0.4 ms | 3.3 ms |
 | `gradient_peaks`, a window of 1 block | 0.4 ms | 0.4 ms | 0.4 ms |
 | `gradient_peaks`, a window of 1 TR | 0.8 ms | 0.8 ms | 0.8 ms |
@@ -574,8 +581,8 @@ new phase-encode event in each TR (`build_worst`).
 | `pns_levels`, 3 thresholds | – | – | 9.9 s |
 
 Each row is the time of its call after the rows above it, on the same
-sequence object, so the first call of `gradient_peaks` does not include the
-block table. The time of the first call grows by about 19 µs for each unique
+snapshot, so the first call of `gradient_peaks` does not include the
+block table. `load` is not in any row. The time of the first call grows by about 19 µs for each unique
 gradient event (the second column). `scripts/time_pns_levels.py` builds only
 `build_repeating`, so the `pns_levels` rows have no value for `build_worst`. `pns_levels` takes about 80 ns for each
 sample, and `gradient_spectrum` about 85 ns.
@@ -618,15 +625,20 @@ with the machine and the commit.
 
 ## 4. Kept results
 
-Each measurement keeps its result for the sequence object:
+A `Snapshot` (`snapshot.load`, see the module docstring of `pulseq_analysis.snapshot`)
+holds a private sequence that does not change, and a dict of kept results. Each
+measurement keeps its result in the dict on its first use, under a key made from
+the measurement and its arguments. There is no stamp and no check of a change:
+the sequence of a snapshot cannot change, so a kept result is never old.
 
-| Function | Kept for each |
+| Function | Key of the kept result |
 |---|---|
-| `sequence_index` | sequence object |
-| `gradient_peaks` | sequence object, for `window=None` only |
-| `block_gradient_values` | sequence object |
-| `pns_levels` | sequence object, hardware, tuple of thresholds (in its order) and `bin_s` |
-| `gradient_spectrum` | sequence object and tuple of its three arguments |
+| `sequence_index` | the snapshot |
+| `rf_events`, `grad_events`, `adc_events` | the snapshot, for each function |
+| `gradient_peaks` | the snapshot, for `window=None` only |
+| `block_gradient_values` | the snapshot |
+| `pns_levels` | the snapshot, hardware, tuple of thresholds (in its order) and `bin_s` |
+| `gradient_spectrum` | the snapshot and tuple of its three arguments |
 
 A second call with the same arguments gives the same object. A result with a
 window is not kept, because a caller can ask for many windows, but it uses the
@@ -636,27 +648,26 @@ kept with the points, but only `GradientSampler` (so `pns_levels`,
 `gradient_spectrum` and `gradient_sampler`) uses them: `gradient_peaks` and
 `block_gradient_values` classify their gaps themselves.
 
-The package builds a result again after `add_block`, after a new read of a
-file into the object (`seq.read`), and after a change of
-`seq.grad_raster_time`. It sees these by the identity of `seq.block_events`,
-`seq.block_durations` and `seq.grad_library`, the number of blocks, the last
-block ID and `seq.grad_raster_time`. A change that keeps all of these is not
-seen, so a kept result can be old after it:
+A different `bin_s` is another kept result of `pns_levels`, also when it gives
+the same `bin_samples`. The same thresholds in another order are another kept
+result too, because the order of `above` is the order of `thresholds_hz_per_t`.
 
-- `seq.mod_grad_axis` and `seq.flip_grad_axis`, which rewrite the entries of
-  `seq.grad_library` in place;
-- `seq.set_block` on a block ID that exists;
-- `seq.apply_soft_delay`, which writes the values of `seq.block_durations` in
-  place;
-- a direct write into `seq.block_events`, `seq.block_durations` or a library.
+**What keeps a result true.** `load(path)` reads the file into a sequence that no
+other object holds, and `load(seq)` holds `copy.deepcopy(seq)`, which shares no
+mutable object with `seq`. So `seq.add_block`, `seq.mod_grad_axis`,
+`seq.set_block`, `seq.apply_soft_delay` and a direct write into `seq.block_events`
+or a library change the caller's sequence and not the snapshot. A caller and an
+analysis must not change `snap.sequence`, or an object that they get from it (for
+example a block from `get_block`): nothing in the package stops it, and a kept
+result would then be wrong. The tuples of `rf_events`, `grad_events` and
+`adc_events` hold the events of the private sequence, and these must not change
+either.
 
-For example, after `gradient_peaks(seq)`, the call `seq.mod_grad_axis("x", 0.5)`
-leaves the kept peak of x as it was, and a new call gives that kept value.
-After such a change, make a new sequence object, for example by reading the file
-again. A different `bin_s` is another kept result
-of `pns_levels`, also when it gives the same `bin_samples`. The same thresholds
-in another order are another kept result too, because the order of `above` is
-the order of `thresholds_hz_per_t`.
+A snapshot is equal only to itself, and its hash is the identity hash, so it can
+be the key of a dict. A copy from `pickle` or `copy.deepcopy` is a new snapshot
+with a copy of the sequence and no kept results: it makes them again. The kept
+results go away with the snapshot. `gradient_sampler(snap)` makes a new sampler
+for each call, from the kept points and gaps.
 
 **The rasters.** The `rasters` of an analysis are the rasters of the file
 whose value changes the value of the analysis. `Sequence.read` makes each block
@@ -664,11 +675,6 @@ duration from the `BlockDurationRaster`, and each analysis reads the
 durations. The block table (`seq.index`) does not use the
 `GradientRasterTime`. The gradient, PNS and spectrum measurements use both
 rasters.
-
-The kept results are in weak dictionaries keyed by the sequence object, so
-they go away with the object. The other functions keep nothing.
-`gradient_sampler(seq)` makes a new sampler for each call, from the kept
-points and gaps.
 
 ## 5. The result objects
 
@@ -702,8 +708,9 @@ of the spectrum, the ends of a `window`, a coordinate of a `Series`) is a real
 number (`numbers.Real`: an `int`, a `float`, a `fractions.Fraction` or a numpy
 real scalar; not a `bool`). A value of another type raises `TypeError`. A value
 that is too large for a float, not finite or out of range raises `ValueError`.
-Each function checks its arguments before it reads the sequence and before it
-looks up a kept result.
+Each function checks its arguments before it reads the snapshot and before it
+looks up a kept result. A first argument that is not a `Snapshot` raises
+`TypeError` that names `load`.
 
 **`gradient_peaks`, `window`.** A tuple or a list of two real numbers, in the
 sequence (each end within `seq_utils.TIME_TOLERANCE`), with `start_s < end_s`.
@@ -761,19 +768,26 @@ the `spec.id`).
 ## 7. The signature check
 
 A sequence must have a `[SIGNATURE]` hash: `seq.signature_value` must be a
-`str` that is not `''`, or `sequence_index` and each measurement raise
-`ValueError` (`extensions.refuse_unsigned`). A sequence that `add_block` built
-in memory has none, and `seq.write(path)` signs it.
+`str` that is not `''`, or `load` raises `ValueError`
+(`extensions.refuse_unsigned`). A sequence that `add_block` built in memory has
+none, and `seq.write(path)` signs it. `load` also refuses the rotation extension
+(`extensions.refuse_rotations`, `NotImplementedError`). It calls `refuse_unsigned`
+first, so an unsigned sequence with a rotation raises `ValueError`. A measurement
+calls neither check: a snapshot has passed both.
 
-The package checks only that the hash is there. It does not compute the hash
-again, and pypulseq's `read` does not check it against the file. pypulseq
-keeps `signature_value` on the object when the object changes, so two cases
-pass the check with a stale hash:
+The package checks only that the hash is there. The hash is not an identity of
+the sequence: the package does not compute it again, does not compare it, and
+does not use it to tell two sequences or two states of one sequence apart.
+pypulseq's `read` does not check it against the file. pypulseq keeps
+`signature_value` on the object when the object changes, so two cases pass the
+check with a stale hash:
 
 - a sequence changed with `add_block` after `read` of a signed file;
 - a `read` of an unsigned file into an object that read a signed file.
 
-Use a new `Sequence` object for each file.
+`load(path)` reads into a new `Sequence`, so it does not have the second case.
+`load(seq)` of a changed sequence passes with the old hash. Write the sequence
+and `load` the file when the hash must be right.
 
 ## 8. `Series`: checks and the array encoding
 
