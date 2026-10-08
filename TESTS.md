@@ -4642,11 +4642,12 @@ The kept result of the whole sequence is still the same object after the calls w
 #### `test_compute_of_gradient_spectrum_passes_its_arguments_on`
 
 **Checks:** `GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)` is the object (`is`)
-that `gradient_spectrum(snap, max_frequency_hz=1000.0)` gives, and it is not the object of the
+that `gradient_spectrum(snap, max_frequency_hz=1000.0)` keeps, and it is not the object of the
 defaults (which is `gradient_spectrum(snap)`). Its `frequency_hz` differs from that of the
 defaults, and its `max_frequency_hz` is 1000.0. A call with `window_s=0.1` and
-`frequency_oversampling=2.0` is the object of `gradient_spectrum` with those two arguments, and
-the result has both values.
+`frequency_oversampling=2.0` is the object that `gradient_spectrum` keeps for those two
+arguments, and its `window_s` and `frequency_oversampling` are 0.1 and 2.0. So each of the
+three arguments reaches the function.
 
 **How:** `spin_echo_sequence()`. The test compares the objects with `is` and the fields of the
 results.
