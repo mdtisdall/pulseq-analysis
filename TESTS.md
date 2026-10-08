@@ -4516,6 +4516,40 @@ checks for `ValueError` with `match=` of the message.
 
 **Assumptions:** None.
 
+#### `test_analysis_spec_raises_for_a_field_that_a_runner_uses`
+
+**Checks:** `AnalysisSpec` raises `ValueError` for an empty `id`, a `version` of 0 or
+below, a `cost` other than "fast" and "slow", a raster that is not in `RASTERS` (also the
+empty str), a repeated name in `params`, and a default float that is NaN, infinite or
+negative infinite (also inside a tuple). It raises `TypeError` for an `id` that is not a
+`str`, a `version` that is a str, a float or a `bool`, a `cost` that is None, and `params`
+or `rasters` that is a list or has an item that is not a `str`.
+
+**How:** Parametrized with the changed fields, the exception type and the message. Each case
+makes a valid spec with the changed fields and checks `pytest.raises` with `match=`.
+
+**Assumptions:** None.
+
+#### `test_analysis_spec_accepts_each_raster_cost_and_finite_default`
+
+**Checks:** `RASTERS` is the four names `GradientRasterTime`, `BlockDurationRaster`,
+`RadiofrequencyRasterTime` and `AdcRasterTime`, in this order. A spec with all of them,
+version 3, cost "fast" and the finite defaults `(0.0, -1e300)` is accepted, and so is the
+cost "slow".
+
+**How:** The test builds the two specs.
+
+**Assumptions:** None.
+
+#### `test_the_spec_of_each_analysis_of_the_package_passes_the_checks`
+
+**Checks:** For each of the five analyses of the package, `dataclasses.replace(spec)` (which
+runs the checks again) equals the spec, and each of its rasters is in `RASTERS`.
+
+**How:** Parametrized over the five analyses.
+
+**Assumptions:** None.
+
 #### `test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window`
 
 **Checks:** `GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`,

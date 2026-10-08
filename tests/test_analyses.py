@@ -28,6 +28,7 @@ from pulseq_analysis.analyses import (
     GRADIENT_SPECTRUM,
     GROUP,
     PNS_SAFE_LEVELS,
+    RASTERS,
     SEQ_INDEX,
     AnalysisSpec,
     RegistryError,
@@ -339,6 +340,108 @@ def test_analysis_spec_accepts_the_defaults_of_each_json_type_and_stays_hashable
     assert spec.necessary == ("n",)
     with pytest.raises(dataclasses.FrozenInstanceError):
         spec.params = ()  # type: ignore[misc]
+
+
+def _spec_args(**changes):
+    """`_SPEC_ARGS` with the fields of `changes` replaced."""
+    return {**_SPEC_ARGS, "params": (), **changes}
+
+
+@pytest.mark.parametrize(
+    ("changes", "error", "message"),
+    [
+        pytest.param({"id": 1}, TypeError, "id is 1", id="id-int"),
+        pytest.param({"id": ""}, ValueError, "id is an empty str", id="id-empty"),
+        pytest.param({"version": "one"}, TypeError, "version is 'one'", id="version-str"),
+        pytest.param({"version": 1.0}, TypeError, "version is 1.0", id="version-float"),
+        pytest.param({"version": True}, TypeError, "version is True", id="version-bool"),
+        pytest.param({"version": 0}, ValueError, "less than 1", id="version-zero"),
+        pytest.param({"version": -2}, ValueError, "less than 1", id="version-negative"),
+        pytest.param({"cost": "medium"}, ValueError, "cost is 'medium'", id="cost-unknown"),
+        pytest.param({"cost": "Fast"}, ValueError, "cost is 'Fast'", id="cost-case"),
+        pytest.param({"cost": None}, TypeError, "cost is None", id="cost-none"),
+        pytest.param(
+            {"rasters": ("GradientRaster",)},
+            ValueError,
+            "raster 'GradientRaster'",
+            id="raster-name",
+        ),
+        pytest.param(
+            {"rasters": ("AdcRasterTime", "")}, ValueError, "raster ''", id="raster-empty-name"
+        ),
+        pytest.param({"rasters": ["AdcRasterTime"]}, TypeError, "rasters is", id="rasters-list"),
+        pytest.param({"rasters": (1,)}, TypeError, "rasters is", id="rasters-not-str"),
+        pytest.param({"params": ["a"]}, TypeError, "params is", id="params-list"),
+        pytest.param({"params": (1,)}, TypeError, "params is", id="params-not-str"),
+        pytest.param(
+            {"params": ("a", "a"), "necessary": ("a",)},
+            ValueError,
+            "repeated in params",
+            id="params-repeated",
+        ),
+        pytest.param(
+            {"params": ("a",), "defaults": (("a", float("nan")),)},
+            ValueError,
+            "not finite",
+            id="default-nan",
+        ),
+        pytest.param(
+            {"params": ("a",), "defaults": (("a", float("inf")),)},
+            ValueError,
+            "not finite",
+            id="default-inf",
+        ),
+        pytest.param(
+            {"params": ("a",), "defaults": (("a", (1.0, (float("-inf"),))),)},
+            ValueError,
+            "not finite",
+            id="default-tuple-with-minus-inf",
+        ),
+    ],
+)
+def test_analysis_spec_raises_for_a_field_that_a_runner_uses(changes, error, message):
+    """`AnalysisSpec` raises `ValueError` for an empty `id`, a `version` below 1, a `cost`
+    that is not "fast" or "slow", a raster that is not in `RASTERS`, a repeated name in
+    `params`, and a default float that is NaN or infinite (also in a tuple), and `TypeError`
+    for an `id` that is not a `str`, a `version` that is not an `int` (a `bool`, a float, a
+    str), a `cost` that is not a `str`, and `params` or `rasters` that is not a tuple of
+    `str`."""
+    with pytest.raises(error, match=message):
+        AnalysisSpec(**_spec_args(**changes))
+
+
+def test_analysis_spec_accepts_each_raster_cost_and_finite_default():
+    """`AnalysisSpec` accepts each name of `RASTERS` with the cost "fast" or "slow", a
+    version above 1, and a finite float default, and `RASTERS` has the four names."""
+    spec = AnalysisSpec(
+        **_spec_args(
+            version=3,
+            rasters=RASTERS,
+            params=("a",),
+            defaults=(("a", (0.0, -1e300)),),
+            cost="fast",
+        )
+    )
+
+    assert RASTERS == (
+        "GradientRasterTime",
+        "BlockDurationRaster",
+        "RadiofrequencyRasterTime",
+        "AdcRasterTime",
+    )
+    assert spec.version == 3
+    assert AnalysisSpec(**_spec_args(cost="slow")).cost == "slow"
+
+
+@pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
+def test_the_spec_of_each_analysis_of_the_package_passes_the_checks(analysis):
+    """A copy of the spec of each of the five analyses, made again from its fields, passes the
+    checks of `AnalysisSpec` (the spec was made once at import, so this makes it again), and
+    its rasters are in `RASTERS`."""
+    spec = analysis.spec
+
+    assert dataclasses.replace(spec) == spec
+    assert set(spec.rasters) <= set(RASTERS)
 
 
 @pytest.mark.parametrize("fractions", [(0.0, 0.5), (0.25, 0.5), (0.5, 1.0)])

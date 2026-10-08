@@ -417,7 +417,7 @@ An analysis has:
   contract of the value), `params` (the keyword arguments of `compute`),
   `necessary` (the arguments with no default), `defaults` (pairs
   `(name, default)`), `rasters` (the rasters of the file that change its
-  value), `cost` (`"fast"` or `"slow"`) and `series` (what `to_series` gives).
+  value), `cost` and `series` (what `to_series` gives).
 - `compute(snap, **params)`: the full Python value, the kept result of its
   function. `snap` is a `Snapshot`.
 - `to_series(value)`: a tuple of `Series`, the part of the value that can go
@@ -433,6 +433,15 @@ The analyses of this package (each `version` is 1):
 | `gradient.blocks` | `block_gradient_values(snap)` | none | none | fast | `()` |
 | `pns.safe.levels` | `pns_levels(snap, hardware=..., thresholds_hz_per_t=..., bin_s=...)` | `hardware` | `thresholds_hz_per_t=()`, `bin_s=BIN_S` | slow | `pns_total`, `pns_above_<k>` |
 | `gradient.spectrum` | `gradient_spectrum(snap, max_frequency_hz=..., window_s=..., frequency_oversampling=...)` | none | the defaults of `grad_spectrum` | slow | `gradient_spectrum` |
+
+The `cost` is `"fast"` when the time grows with the number of blocks and of
+unique events, and `"slow"` when it grows with the duration of the sequence. The
+`rasters` are names from `analyses.RASTERS` (`GradientRasterTime`,
+`BlockDurationRaster`, `RadiofrequencyRasterTime`, `AdcRasterTime`). `AnalysisSpec`
+checks its fields: `id` is a `str` that is not empty, `version` is an `int` of 1
+or more, `cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params`
+is a tuple of unique `str`, and a float default is finite. It raises
+`ValueError` for a bad value and `TypeError` for a wrong type.
 
 `seq.index` has the rasters `("BlockDurationRaster",)`. The other four have
 `("GradientRasterTime", "BlockDurationRaster")`.

@@ -46,6 +46,7 @@ windows); with the default `window=None` it gives the kept result of the whole s
 """
 
 import importlib.metadata
+import math
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Protocol
@@ -67,6 +68,10 @@ from .snapshot import Snapshot
 
 GROUP = "pulseq_analysis.analyses"
 
+# The names that `AnalysisSpec.rasters` can have: the rasters of a Pulseq file.
+RASTERS = ("GradientRasterTime", "BlockDurationRaster", "RadiofrequencyRasterTime", "AdcRasterTime")
+_COSTS = ("fast", "slow")
+
 
 class RegistryError(Exception):
     """An entry point that cannot be used, for example two packages that give one analysis
@@ -81,6 +86,13 @@ def _is_default_value(value: Any) -> bool:
     return value is None or isinstance(value, (bool, int, float, str))
 
 
+def _has_non_finite_float(value: Any) -> bool:
+    """True when `value` is a `float` that is not finite, or a tuple with one (recursively)."""
+    if isinstance(value, tuple):
+        return any(_has_non_finite_float(item) for item in value)
+    return isinstance(value, float) and not math.isfinite(value)
+
+
 @dataclass(frozen=True)
 class AnalysisSpec:
     """The specification of an analysis.
@@ -90,8 +102,12 @@ class AnalysisSpec:
     each other name of `params` with its default, in the order of `params`: a runner can
     leave these out. Each default is None, a `bool`, an `int`, a `float`, a `str` or a tuple
     of these (recursively), so that the spec is hashable and its defaults can go into JSON.
-    Every name of `params` is in `necessary` or in `defaults`, and not in both. A spec that
-    breaks one of these rules raises `ValueError`.
+    Every name of `params` is in `necessary` or in `defaults`, and not in both. A float in a
+    default is finite. `id` is a `str` that is not empty. `version` is an `int` of 1 or more
+    (not a `bool`). `cost` is `"fast"` (the cost grows with the number of blocks and of unique
+    events) or `"slow"` (it grows with the duration of the sequence). Each name of `rasters`
+    is in `RASTERS`. `params` is a tuple of unique `str`. A spec that breaks one of these
+    rules raises `ValueError`, or `TypeError` for a value of a wrong type.
     """
 
     id: str  # for example "pns.safe.levels"
@@ -106,6 +122,25 @@ class AnalysisSpec:
     defaults: tuple[tuple[str, Any], ...] = ()  # (name, default) for the other names of params
 
     def __post_init__(self) -> None:
+        if not isinstance(self.id, str):
+            raise TypeError(f"id is {self.id!r}, which is not a str")
+        if not self.id:
+            raise ValueError("id is an empty str")
+        if not isinstance(self.version, int) or isinstance(self.version, bool):
+            raise TypeError(f"version is {self.version!r}, which is not an int")
+        if self.version < 1:
+            raise ValueError(f"version is {self.version!r}, which is less than 1")
+        if not isinstance(self.cost, str):
+            raise TypeError(f"cost is {self.cost!r}, which is not a str")
+        if self.cost not in _COSTS:
+            raise ValueError(f"cost is {self.cost!r}, which is not one of {_COSTS!r}")
+        for field in ("params", "rasters"):
+            value = getattr(self, field)
+            if not isinstance(value, tuple) or not all(isinstance(name, str) for name in value):
+                raise TypeError(f"{field} is {value!r}, which is not a tuple of str")
+        for name in self.rasters:
+            if name not in RASTERS:
+                raise ValueError(f"raster {name!r} is not one of {RASTERS!r}")
         for name in self.necessary:
             if name not in self.params:
                 raise ValueError(f"necessary {name!r} is not in params {self.params!r}")
@@ -123,12 +158,16 @@ class AnalysisSpec:
                 raise ValueError(f"{name!r} of params has no default and is not in necessary")
         if names != [name for name in self.params if name in names]:
             raise ValueError(f"defaults {names!r} are not in the order of params {self.params!r}")
+        if len(set(self.params)) != len(self.params):
+            raise ValueError(f"a name is repeated in params {self.params!r}")
         for name, value in self.defaults:
             if not _is_default_value(value):
                 raise ValueError(
                     f"the default of {name!r} is {value!r}, which is not None, a bool, an "
                     "int, a float, a str or a tuple of these"
                 )
+            if _has_non_finite_float(value):
+                raise ValueError(f"the default of {name!r} is {value!r}, which is not finite")
 
 
 class Analysis(Protocol):

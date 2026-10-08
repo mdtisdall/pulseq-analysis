@@ -757,8 +757,13 @@ files. A file that two branches include is not a cycle.
 `necessary` name that is not in `params`, a name that has both a default and a
 place in `necessary`, a name of `params` with neither, a default for a name
 that is not in `params` or is repeated, defaults not in the order of `params`,
-and a default of another kind than `None`, `bool`, `int`, `float`, `str` or a
-tuple of these. A test checks that the signature of each `compute` agrees with
+a default of another kind than `None`, `bool`, `int`, `float`, `str` or a
+tuple of these, a default float that is not finite, an empty `id`, a `version`
+below 1, a `cost` other than `"fast"` and `"slow"`, a raster that is not in
+`analyses.RASTERS`, and a repeated name in `params`. It raises `TypeError` for
+an `id` that is not a `str`, a `version` that is not an `int` (a `bool` too), a
+`cost` that is not a `str`, and `params` or `rasters` that is not a tuple of
+`str`. A test checks that the signature of each `compute` agrees with
 its spec. `analyses.registry()` raises `analyses.RegistryError` for two
 analyses with one ID, an entry point that cannot load, an object with no
 `spec.id`, and an entry point whose name is not the `spec.id` of its object.
