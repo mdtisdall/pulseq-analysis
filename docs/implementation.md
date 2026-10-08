@@ -497,7 +497,7 @@ samples of each new event one time. A sequence that repeats a TR has few
 unique events.
 
 **`pns_levels`.** The model runs on chunks of about 30,000 samples, or of one
-bin when a bin is longer (a chunk is `bin_samples * ceil(CHUNK_SAMPLES /
+bin when a bin is longer (a chunk is `bin_samples * ceil(_CHUNK_SAMPLES /
 bin_samples)` samples, so a `bin_s` of 2 s gives chunks of 200,000 samples). The
 memory does not grow with the duration:
 
@@ -693,7 +693,7 @@ other frozen dataclasses (for example `AxisResult` and `PnsInterval`) have the
 are read-only: a change in place, such as `index.start_s[0] = 1.0`, raises
 `ValueError`. This holds also for a result with `NO_GRADIENTS`. The arrays of a
 `BlockGradientValues` are its own arrays, not views of the index. The dicts of
-a result are `FrozenDict`s (`_equality.FrozenDict`): subclasses of `dict` whose
+a result are `FrozenDict`s (`series.FrozenDict`): subclasses of `dict` whose
 methods that change them (`d[key] = x`, `del d[key]`, `update`, `pop` and the
 like) raise `TypeError`. A `FrozenDict` is still a `dict` for `isinstance`,
 `json.dumps`, `pickle` and `copy.deepcopy`, and it equals a `dict` with the

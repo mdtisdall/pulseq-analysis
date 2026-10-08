@@ -338,7 +338,7 @@ waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_
 
 A second call of `pns_levels` with the same snapshot and the same arguments gives the
 kept object. Each test makes its snapshot with `synthetic.loaded`, which signs the sequence and
-loads it (`snapshot.load`), and the oracles get the `pp.Sequence`. A test that changes `CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
+loads it (`snapshot.load`), and the oracles get the `pp.Sequence`. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
 the change), or that compares two calculations of one sequence, calls `_compute_levels` through
 the helper `_compute` of the test file. It checks the hardware, the thresholds and `bin_s` as
 `pns_levels` does and gives `_compute_levels` the checked values, so each call runs the model
@@ -559,7 +559,7 @@ of `1e-3`.
 **How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(snap, 1.5)` and
 `thresholds_hz_per_t=(_LIMIT,)`. The calls are `_compute` calls (`_compute_levels`), and
 the result of `bin_s=1e-3` must not be the object of the default one. The default call is first. For `bin_s=1e-3` the test sets
-`CHUNK_SAMPLES` to `10**9` (one chunk) and replaces `_chunk_total` with a function that
+`_CHUNK_SAMPLES` to `10**9` (one chunk) and replaces `_chunk_total` with a function that
 records its total, so the first recorded total is that of the whole sequence. It takes the
 minimum and the maximum of each 100 samples with `numpy.minimum.reduceat` and
 `numpy.maximum.reduceat`, and compares with `<=`, `>=` and `numpy.array_equal` to the
@@ -592,9 +592,9 @@ equality for chunks of 1, 2 and 7 bins and one chunk larger than the whole file.
 
 **How:** `gre_sequence(num_trs=20)`, long enough that the smallest case (1 bin per
 chunk) still has more than one chunk. `reference` is a `_compute` call (`_compute_levels`,
-with the `CHUNK_SAMPLES` of the module); then, for each size in `1`, `bin_samples + 1`,
+with the `_CHUNK_SAMPLES` of the module); then, for each size in `1`, `bin_samples + 1`,
 `7 * bin_samples - 1` and `bin_samples * (num_samples // bin_samples + 10)`,
-`monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to it and
+`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to it and
 `_compute` runs again; its result must not be the object of the reference. `_compute_levels`
 rounds the chunk up to a whole number of
 bins, so the sizes give chunks of 1, 2 and 7 bins and one chunk bigger than the file.
@@ -613,7 +613,7 @@ intervals of a threshold below the peak. Each chunk reads only its part of the b
 
 **How:** A block with a trapezoid on x (`delay` of 2000 samples), a trapezoid on z and
 a delay event of 10,000 samples, then a trapezoid block on y. The threshold is `0.05 *
-_LIMIT`. The calls are `_compute` calls (`_compute_levels`). `CHUNK_SAMPLES` is set to
+_LIMIT`. The calls are `_compute` calls (`_compute_levels`). `_CHUNK_SAMPLES` is set to
 `10**9` for the reference (the test checks that four bins are fewer than 10,000 samples, and
 that the reference has an interval), then to 1 and `bin_samples + 1`. Each result must not be
 the object of the reference, and `assert_levels_equal` (`tests/asserts.py`) compares it with
@@ -624,11 +624,11 @@ the reference, every field.
 #### `test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks`
 
 **Checks:** A trapezoid and one delay block of 1 s (more than three chunks of the real
-`CHUNK_SAMPLES`) gives exactly the same result as the trapezoid and ten delay blocks of
+`_CHUNK_SAMPLES`) gives exactly the same result as the trapezoid and ten delay blocks of
 0.1 s.
 
 **How:** Two sequences with the same trapezoid on x. The threshold is `0.1 * _LIMIT`.
-The test checks that the long sequence has more than `3 * CHUNK_SAMPLES` samples and
+The test checks that the long sequence has more than `3 * _CHUNK_SAMPLES` samples and
 that the result of the short blocks has an interval. `assert_levels_equal` (`tests/asserts.py`) compares
 every field. The samples of a delay are 0 in both, so the totals are equal.
 
@@ -693,7 +693,7 @@ gives another result.
 sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
 (`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. Both
 calls are `_compute` calls (`_compute_levels`). `monkeypatch` sets
-`CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
+`_CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
 for the second call. The test checks that the second result is not the object of the
 reference, `on_raster is False`, more than three chunks, an
 interval above `_LIMIT`, `got == reference`, and `num_samples`.
@@ -703,7 +703,7 @@ interval above `_LIMIT`, `got == reference`, and `num_samples`.
 #### `test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns`
 
 **Checks:** An off-raster sequence that is longer than one chunk at the real
-`CHUNK_SAMPLES` has the peak, the peak time and the axis peaks of `seq.calculate_pns`,
+`_CHUNK_SAMPLES` has the peak, the peak time and the axis peaks of `seq.calculate_pns`,
 within the tolerances of `test_off_raster_block_falls_back_to_sampling` (each value
 divided by `seq.system.gamma`). The peak is in the second chunk.
 
@@ -711,7 +711,7 @@ divided by `seq.system.gamma`). The peak is in the second chunk.
 1000) and `pp.make_delay(1.5 * dt)`. The reference is
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`. The test checks
 `on_raster is False`, `num_samples` more than one chunk
-(`bin_samples * ceil(CHUNK_SAMPLES / bin_samples)`), a peak time after the first chunk,
+(`bin_samples * ceil(_CHUNK_SAMPLES / bin_samples)`), a peak time after the first chunk,
 and then the peak, the peak time and the axis peaks.
 
 **Assumptions:** None.
@@ -772,10 +772,10 @@ interval, not two), and for one chunk larger than the whole file.
 and `thresholds_hz_per_t=(_LIMIT,)`, and every call has `bin_s=10.0 / 1624`
 (615 samples at the 10 us raster; see the assumptions). Every call is a `_compute` call
 (`_compute_levels`). `reference` is the one with
-the `CHUNK_SAMPLES` of the module.
+the `_CHUNK_SAMPLES` of the module.
 The test searches the chunks of 1 to 19 bins for the first one where the last sample of
 an interval is in a later chunk than its first sample, and fails if there is none. Then
-`monkeypatch.setattr` sets `CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
+`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
 size and to a size larger than the file, each result must not be the object of the
 reference, and the whole `PnsLevels` is compared with the reference
 (`numpy.array_equal` for the arrays, `==` for the rest).
@@ -797,7 +797,7 @@ chunk.
 **How:** `gre_sequence(num_trs=3)` with the example hardware and
 `thresholds_hz_per_t=(1e-5 * _LIMIT,)`, a threshold far below the peak. Both calls are
 `_compute` calls (`_compute_levels`). `monkeypatch`
-sets `CHUNK_SAMPLES` to `10**9` for the reference and to 1 (a chunk of one bin) for the
+sets `_CHUNK_SAMPLES` to `10**9` for the reference and to 1 (a chunk of one bin) for the
 second call. The test checks that the second result is not the object of the reference,
 that an interval of the reference has
 `last // chunk - first // chunk >= 2` (with `_sample_range`), and that the two `above`
@@ -815,7 +815,7 @@ sequence on the raster and for one with a block off it (the path of
 
 **How:** Parametrized with `gre_sequence(num_trs=20)` and `_off_raster_sequence()`, each
 with hardware that gives a peak of 1.5 times `_LIMIT`, and
-`thresholds_hz_per_t=(_LIMIT,)`. The test sets `CHUNK_SAMPLES` to `10**9` (one chunk) and
+`thresholds_hz_per_t=(_LIMIT,)`. The test sets `_CHUNK_SAMPLES` to `10**9` (one chunk) and
 wraps `_chunk_total` to keep the totals it returns. The call is a `_compute` call
 (`_compute_levels`), so that the model runs and the wrapper records the totals. It finds the runs of
 `total >= _LIMIT` with `itertools.groupby`, and takes the peak as the maximum of the run
@@ -856,7 +856,7 @@ those of `0.5 * _LIMIT` have more samples in total (so the two thresholds do not
 same runs). For each chunk size (the normal one, 1,
 and for each threshold the first of 1 to 19 bins with an interval across its end, found
 as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
-`CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
+`_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
 have the keys `[_LIMIT, 0.5 * _LIMIT]`, the same tuple as `single` for each threshold, and
 every other field equal (`assert_levels_equal` (`tests/asserts.py`) with `ignore=("above",)`).
 The results of the chunk sizes must be different objects (each size ran the model). After
@@ -962,7 +962,7 @@ of 0 and axis peaks of 0, `peak_time_s` None, and an empty tuple for a threshold
 runs one time for each chunk, and not a second time for the peak time.
 
 **How:** `pp.make_trapezoid(channel="x", amplitude=0, flat_time=20e-3)` in one block.
-`CHUNK_SAMPLES` is set to 1 (a chunk of one bin), and `_chunk_total` is replaced by a
+`_CHUNK_SAMPLES` is set to 1 (a chunk of one bin), and `_chunk_total` is replaced by a
 recorder. The call is a `_compute` call (`_compute_levels`), so that the model runs. The
 number of calls of the recorder must equal `ceil(num_samples / bin_samples)`, which is more
 than 3.
@@ -4785,7 +4785,7 @@ of the three axes in each window, then the maximum over windows. The values are
 in Hz/m/√Hz, the unit of the gradients of a `.seq` file, with no gamma. To get
 mT/m/√Hz, a caller multiplies the values by `1e3 / gamma`. The gradients are
 sampled through the raster sampler (`sampling.GradientSampler`), in chunks of
-`CHUNK_WINDOWS` windows, so the memory does not grow with the sequence length.
+`_CHUNK_WINDOWS` windows, so the memory does not grow with the sequence length.
 `tests/oracles/grad_spectrum.py` is the module before the raster sampler. It samples the
 polyline of `tests/oracles/waveform.py` (the model of MATLAB Pulseq) instead. It gives mT/m/√Hz with
 `seq.system.gamma`. The oracle comparison multiplies this module's values by
@@ -4900,7 +4900,7 @@ object.
 
 **How:** The test makes a synthetic GRE sequence of 30 TRs of 20 ms (600 ms,
 25 windows). It calls `_compute_spectrum` (the calculation without the kept
-result) with the default arguments as plain floats, with `CHUNK_WINDOWS` set to
+result) with the default arguments as plain floats, with `_CHUNK_WINDOWS` set to
 1,000,000 (one chunk) and to 4 (7 chunks, the last one shorter). The two results
 must not be the same object. The frequencies, each axis spectrum and the RSS must
 be equal bit for bit (`array_equal`).
@@ -4921,7 +4921,7 @@ those made with scipy's `spectrogram`, the call that the module used before and
 that pypulseq's `calculate_gradient_spectrum` uses, on the synthetic spin echo,
 a GRE of 30 TRs and the arbitrary-gradient sequence.
 
-**How:** The test sets `CHUNK_WINDOWS` to 4, so the sequences make several
+**How:** The test sets `_CHUNK_WINDOWS` to 4, so the sequences make several
 chunks, and calls `_compute_spectrum` with the default arguments as plain floats
 (the calculation without the kept result). For the reference, it samples each axis
 with `GradientSampler` at the sample times of the module (the number of samples
@@ -4976,10 +4976,10 @@ within a relative 1e-12 or an absolute 1e-12 times the array's own peak.
 
 **Checks:** The same comparison with the oracle as `test_matches_oracle_on_synthetic_sequences`,
 on sequences of `tests/scale_sequences.py`: `build_repeating` and `build_worst` at 1000 blocks
-(200 TRs, 1.2 s and 1.4 s, 48 and 56 windows). `CHUNK_WINDOWS` is 4, so each has 12 or 14 chunks
+(200 TRs, 1.2 s and 1.4 s, 48 and 56 windows). `_CHUNK_WINDOWS` is 4, so each has 12 or 14 chunks
 and a shorter last chunk, as in `test_matches_scipy_spectrogram`.
 
-**How:** The test sets `grad_spectrum.CHUNK_WINDOWS` to 4 (`monkeypatch`), builds each sequence
+**How:** The test sets `grad_spectrum._CHUNK_WINDOWS` to 4 (`monkeypatch`), builds each sequence
 with `1000 / TR_BLOCKS` TRs, and compares this module's spectrum (times `1e3 / gamma`) with the
 oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in s)` instead of
 1e-12.
@@ -6158,5 +6158,59 @@ stable, and a dict with both snapshots as keys gives each one its own value.
 **How:** Parametrized over `str` and `pathlib.Path`. The test writes the spin echo, loads the
 path in each form, and checks that `source` equals the path as a `str`, that its type is `str`,
 and that the index has the 6 blocks of the sequence.
+
+**Assumptions:** None.
+
+### 2.18 The names of the interface (`test_interface.py`)
+
+The tests read the backtick spans and the code blocks of `docs/usage.md` and
+`docs/implementation.md`. A dotted name whose first part (after an optional
+`pulseq_analysis.`) is a module of the package is a name with a module, and so is each name of a
+`from pulseq_analysis.module import ...` line of a Python code block. A bare name in a span or a
+block is a name of any module.
+
+#### `test_each_name_that_the_documents_give_with_a_module_can_be_imported`
+
+**Checks:** Each module and each name that the documents give with a module (`analyses.registry`,
+`series.FrozenDict`, `pulseq_analysis.snapshot`, the names of the imports of the code blocks)
+exists in the package.
+
+**How:** The test reads the dotted names and the imports of the documents, checks that it found
+`series.FrozenDict`, `analyses` and the import of `gradient_peaks` (so the reading is not empty),
+imports each module, and collects each name that the module does not have.
+
+**Assumptions:** A further part of a dotted name (a method, as in `Series.to_obj`) is not read.
+A name that a document gives in a private module (for example `_events._read_points`) is also
+checked.
+
+#### `test_the_interface_names_of_the_review_are_in_the_documents`
+
+**Checks:** The documents give `series.SeriesKind`, `analyses.Analysis` and `series.FrozenDict`,
+and the three names are at their public paths: `series.FrozenDict` is the `FrozenDict` of
+`_equality`, and the other two are defined in `series` and `analyses`.
+
+**How:** The test reads the dotted names of the documents, imports the three names, and compares
+the object and the `__module__` of each.
+
+**Assumptions:** None.
+
+#### `test_each_public_name_of_a_module_is_in_the_documents_or_an_exception`
+
+**Checks:** Each name that a public module defines (a module without a `_` at the start, a name
+without a `_` at the start) is in the documents, or is in `EXCEPTIONS` of the test.
+
+**How:** The test takes the names of the top level of the source of each module (def, class and
+assignment, so an imported name such as `np` does not count), and compares those that no span or
+code block of the documents gives with `EXCEPTIONS`.
+
+**Assumptions:** A bare name counts for any module. The modules `_equality`, `_events` and
+`_validate` are not read.
+
+#### `test_each_exception_is_a_public_name_that_no_document_gives`
+
+**Checks:** Each entry of `EXCEPTIONS` is a name that its module defines, that no document gives,
+and has a reason.
+
+**How:** The test loops over `EXCEPTIONS`. It passes with no entry.
 
 **Assumptions:** None.

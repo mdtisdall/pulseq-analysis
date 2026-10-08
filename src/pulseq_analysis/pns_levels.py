@@ -61,7 +61,7 @@ from .sampling import (
     sequence_samples,
 )
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from .seq_utils import AXES, GRAD_COLUMNS
+from .seq_utils import _AXES, _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 # The default bin of the level, in seconds: 5 ms (500 samples at the 10 us raster). A caller
@@ -74,7 +74,7 @@ BIN_S = 0.005
 MAX_BINS = 2_000_000
 # The fork's chunk size (samples): smaller chunks add time, larger ones add memory. A
 # chunk of `pns_levels` is the whole number of bins nearest at or above it.
-CHUNK_SAMPLES = 30_000
+_CHUNK_SAMPLES = 30_000
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
@@ -134,7 +134,7 @@ class PnsLevels:
     `pns_levels` can share one result: convert to a new array
     (`levels.level_max_hz_per_t / abs(gamma) * 100`), not in place.
     `hw` (the outer dict and each inner dict), `axis_peaks_hz_per_t` and `above` are
-    read-only `_equality.FrozenDict`s (subclasses of `dict`): a change raises `TypeError`.
+    read-only `series.FrozenDict`s (subclasses of `dict`): a change raises `TypeError`.
     They keep `isinstance(x, dict)`, `json.dumps`, `pickle` and `copy.deepcopy`, and a
     `FrozenDict` equals a `dict` with the same items.
 
@@ -203,7 +203,7 @@ def _check_hardware(hardware: object) -> None:
             'a real scanner), give hardware=(safe_example_hw(), "<a label>")'
         )
     struct = hardware[0]
-    for axis in AXES:
+    for axis in _AXES:
         axis_struct = getattr(struct, axis, None)
         if axis_struct is None:
             raise ValueError(f"'{axis}' missing in the hardware struct")
@@ -286,8 +286,8 @@ def pns_levels(
        and `end` the end of the last block (`calc_pns` stops at the last gradient point
        instead; the samples after it are the decay of the filters).
     2. The samples go through `_safe_gwf_to_pns_chunk` in chunks of
-       `bin_samples * ceil(CHUNK_SAMPLES / bin_samples)` samples (the whole number of
-       bins nearest at or above `CHUNK_SAMPLES`), with `state=None` for the first chunk
+       `bin_samples * ceil(_CHUNK_SAMPLES / bin_samples)` samples (the whole number of
+       bins nearest at or above `_CHUNK_SAMPLES`), with `state=None` for the first chunk
        and the returned state after.
     3. The axis values are `0.01 *` the returned percent, and the total of a sample is
        `sqrt(x^2 + y^2 + z^2)` of them, with the numpy operations of `calc_pns`
@@ -401,7 +401,7 @@ def _compute_levels(
             level_max_hz_per_t=empty,
             peak_hz_per_t=0.0,
             peak_time_s=None,
-            axis_peaks_hz_per_t=FrozenDict(dict.fromkeys(AXES, 0.0)),
+            axis_peaks_hz_per_t=FrozenDict(dict.fromkeys(_AXES, 0.0)),
             on_raster=on_raster,
             above=FrozenDict({key: () for key in keys}),
         )
@@ -422,7 +422,7 @@ def _compute_levels(
             return _read_sampled_range(sampler, dt, s0, s1)
 
     bin_samples = bin_samples_for(num_samples, dt, bin_s)
-    chunk_samples = bin_samples * math.ceil(CHUNK_SAMPLES / bin_samples)
+    chunk_samples = bin_samples * math.ceil(_CHUNK_SAMPLES / bin_samples)
 
     num_bins = math.ceil(num_samples / bin_samples)
     level_min = np.empty(num_bins, dtype=np.float32)
@@ -481,7 +481,7 @@ def _compute_levels(
         level_max_hz_per_t=level_max,
         peak_hz_per_t=peak,
         peak_time_s=peak_time_s,
-        axis_peaks_hz_per_t=FrozenDict(zip(AXES, axis_peak.tolist(), strict=True)),
+        axis_peaks_hz_per_t=FrozenDict(zip(_AXES, axis_peak.tolist(), strict=True)),
         on_raster=on_raster,
         above=FrozenDict({key: finder.finish() for key, finder in zip(keys, finders, strict=True)}),
     )
@@ -514,7 +514,7 @@ def _hw_to_dict(hw_ns) -> FrozenDict[str, FrozenDict[str, float]]:
             axis: FrozenDict(
                 {field: float(getattr(getattr(hw_ns, axis), field)) for field in _HW_FIELDS}
             )
-            for axis in AXES
+            for axis in _AXES
         }
     )
 
@@ -532,7 +532,7 @@ def _read_block_range(
     offset = int(cumulative[first_block - 1]) if first_block > 0 else 0
     columns = [
         sampler.block_samples(axis, first_block, stop_block, dt, skip=s0 - offset, count=s1 - s0)
-        for axis in GRAD_COLUMNS
+        for axis in _GRAD_COLUMNS
     ]
     return np.stack(columns, axis=1)
 
@@ -542,7 +542,7 @@ def _read_sampled_range(sampler: GradientSampler, dt: float, s0: int, s1: int) -
     `GradientSampler.sample` at the file times `(k + 0.5) * dt` (the fallback for a
     sequence with a block that is not on the raster)."""
     t = (np.arange(s0, s1, dtype=np.float64) + 0.5) * dt
-    columns = [sampler.sample(axis, t) for axis in GRAD_COLUMNS]
+    columns = [sampler.sample(axis, t) for axis in _GRAD_COLUMNS]
     return np.stack(columns, axis=1)
 
 

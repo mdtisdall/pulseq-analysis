@@ -20,7 +20,7 @@ two spectra differ for a sequence with an event that starts or ends at a value t
 next to a gap of more than one raster time (the model has a ramp to 0 and from 0 of half a
 raster time each, and 0 between them), and with a step at a block junction.
 
-The gradients are sampled in chunks of `CHUNK_WINDOWS` windows, so the memory does not
+The gradients are sampled in chunks of `_CHUNK_WINDOWS` windows, so the memory does not
 grow with the length of the sequence. Each chunk starts at a multiple of the hop and
 overlaps the next chunk by one window less one hop, so the chunks give the same windows
 as one spectrogram of the whole padded waveform.
@@ -57,19 +57,19 @@ from ._equality import FrozenDict, _freeze, value_dataclass
 from ._validate import real
 from .sampling import gradient_sampler, sequence_samples
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from .seq_utils import AXES, GRAD_COLUMNS
+from .seq_utils import _AXES, _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05
 FREQUENCY_OVERSAMPLING = 3.0
-CHUNK_WINDOWS = 256  # windows in each chunk of samples
+_CHUNK_WINDOWS = 256  # windows in each chunk of samples
 
 
 @value_dataclass
 class GradientSpectrum:
     """The spectrum of one sequence, in Hz/m/sqrt(Hz). Each array is read-only, and `axes` is
-    a read-only `_equality.FrozenDict` (a subclass of `dict`), so that the callers of
+    a read-only `series.FrozenDict` (a subclass of `dict`), so that the callers of
     `gradient_spectrum` can share one result: convert to a new array
     (`s.rss * 1e3 / abs(gamma)`), not in place.
 
@@ -192,7 +192,7 @@ def _compute_spectrum(
         return GradientSpectrum(
             NO_GRADIENTS,
             frequency_hz,
-            FrozenDict(zip(AXES, axes, strict=True)),
+            FrozenDict(zip(_AXES, axes, strict=True)),
             rss,
             max_frequency_hz,
             window_s,
@@ -227,13 +227,13 @@ def _compute_spectrum(
 
     axes_max: dict[str, np.ndarray] = {}
     rss_max = None
-    for first in range(0, num_windows, CHUNK_WINDOWS):
-        last = min(first + CHUNK_WINDOWS, num_windows)
+    for first in range(0, num_windows, _CHUNK_WINDOWS):
+        last = min(first + _CHUNK_WINDOWS, num_windows)
         # The samples of windows first to last - 1.
         start = first * hop
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
-        for axis, column in zip(AXES, GRAD_COLUMNS, strict=True):
+        for axis, column in zip(_AXES, _GRAD_COLUMNS, strict=True):
             sxx = _chunk_spectrogram(
                 sampler, column, start, stop, pad, nt, dt, nwin, nfft, keep_n, window
             )
@@ -244,11 +244,11 @@ def _compute_spectrum(
             rss_sq = rss_sq + sxx**2
         chunk_rss = np.sqrt(rss_sq).max(axis=1)
         rss_max = chunk_rss if rss_max is None else np.maximum(rss_max, chunk_rss)
-    frequency_hz, rss, *axes = _freeze(freq[:keep_n], rss_max, *(axes_max[axis] for axis in AXES))
+    frequency_hz, rss, *axes = _freeze(freq[:keep_n], rss_max, *(axes_max[axis] for axis in _AXES))
     return GradientSpectrum(
         None,
         frequency_hz,
-        FrozenDict(zip(AXES, axes, strict=True)),
+        FrozenDict(zip(_AXES, axes, strict=True)),
         rss,
         max_frequency_hz,
         window_s,
