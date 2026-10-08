@@ -112,5 +112,6 @@ fraction of the stimulation limit.
   the plan by which `load` accepts a sequence with no `[SIGNATURE]` hash, and
   `refuse_unsigned` is removed (for `0.1.0rc7`).
 - [`docs/plans/explicit-sourcing.md`](docs/plans/explicit-sourcing.md):
-  the plan of the rule "explicit inputs", the documented source of each
-  input of pypulseq, and the drift tests.
+  the plan of the rule "explicit inputs", the rejection of a file before
+  Pulseq 1.4, the documented source of each input of pypulseq, and the drift
+  tests.
