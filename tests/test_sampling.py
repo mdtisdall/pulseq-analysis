@@ -611,7 +611,8 @@ def test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand():
 
 def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
     """The pieces of `long_gap_sequence` (gx): the ramp to 0 from 100 us to 105 us, and the
-    ramp from 0 from 295 us to 300 us. Two samplers of one sequence have the same kept
+    ramp from 0 from 295 us to 300 us, with the points of the two ramps at 105 us and 295 us
+    (`_events.ramps`, kept with the events of the axis). Two samplers of one sequence have the same kept
     `_AxisGaps` object (read-only arrays). An axis with no event has none. A block added to the
     sequence gives new points, so the gaps are found again."""
     seq = _model_sequence("long_gap")
@@ -622,8 +623,10 @@ def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
     np.testing.assert_allclose(gaps.end_s, [105e-6, 300e-6], rtol=0, atol=1e-12)
     np.testing.assert_allclose(gaps.start_hz_per_m, [3e4, 0.0])
     np.testing.assert_allclose(gaps.end_hz_per_m, [0.0, 2e4])
-    np.testing.assert_allclose(gaps.ramp_s, [105e-6, 295e-6], rtol=0, atol=1e-12)
-    for array in (gaps.start_s, gaps.end_s, gaps.start_hz_per_m, gaps.end_hz_per_m, gaps.ramp_s):
+    _, _, ramp = sampler._axis_events("gx")
+    np.testing.assert_allclose(ramp.to_s[ramp.after], [105e-6], rtol=0, atol=1e-12)
+    np.testing.assert_allclose(ramp.from_s[ramp.before], [295e-6], rtol=0, atol=1e-12)
+    for array in (gaps.start_s, gaps.end_s, gaps.start_hz_per_m, gaps.end_hz_per_m):
         assert not array.flags.writeable
     assert sampler._gaps("gy").start_s.size == 0
     seq.add_block(pp.make_delay(1e-3))

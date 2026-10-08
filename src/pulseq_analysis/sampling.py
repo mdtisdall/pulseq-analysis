@@ -17,6 +17,10 @@ gradient waveform"). With `dt = seq.grad_raster_time`:
 3. Straight lines between consecutive points. 0 before the first point and after the last
    point (a first or a last value that is not 0 is a step).
 
+The rule of the gaps (the first and the last point of each event, the zero, the short and
+the long gap, and the ramp points) is in `_events` (`axis_events`, `gap_kinds`, `ramps`
+and `polyline`), where `grad_peaks` uses it too.
+
 pypulseq's `Sequence.get_gradients()` draws a straight line across each gap, also across
 a long gap (pypulseq-issues 12). The two waveforms differ where an event starts or ends at
 a value that is not 0 next to a long gap, and at the step of a zero gap (pypulseq's line
@@ -38,7 +42,17 @@ from dataclasses import dataclass
 import numpy as np
 import pypulseq as pp
 
-from ._events import EventPoints, event_points
+from ._events import (
+    AxisEvents,
+    EventPoints,
+    GapKinds,
+    Ramps,
+    axis_events,
+    event_points,
+    gap_kinds,
+    polyline,
+    ramps,
+)
 from .extensions import refuse_rotations
 from .seq_index import SequenceIndex, sequence_index
 from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE
@@ -53,13 +67,12 @@ class _AxisGaps:
     the line across a short gap whose two ends are not both 0, the ramp to 0 after an event
     that ends at a value that is not 0, and the ramp from 0 before an event that starts at
     a value that is not 0 (the last two are the ramps of a long gap). The pieces do not
-    overlap. `ramp_s` are the times of the points `(time, 0)` that the ramps add."""
+    overlap."""
 
     start_s: np.ndarray
     end_s: np.ndarray
     start_hz_per_m: np.ndarray
     end_hz_per_m: np.ndarray
-    ramp_s: np.ndarray
     max_length_s: float  # the length of the longest piece, 0 without pieces
 
 
@@ -78,17 +91,18 @@ class GradientSampler:
     The points of the unique gradient events come from `_events.event_points`, which reads
     each event one time. The sampler does not copy them. The gaps between the events of an
     axis (the module docstring) are found one time for each sequence and axis, from the
-    index and the points, and kept (`_GAPS`). Only the sampler uses them: `gradient_peaks`
-    finds its gaps itself. A new sampler also scans all the blocks one time for each axis,
-    in its first `sample` on that axis (`_event_blocks`). Apart from these, a call to `sample`
-    costs O(samples + blocks between the first and the last sample), not O(all blocks).
+    index and the points, and kept (`_GAPS`). Only the sampler keeps them: `gradient_peaks`
+    uses the same rule (`_events.gap_kinds`) for its own values. A new sampler also finds
+    the events of an axis one time, in its first `sample` or gap search on that axis
+    (`_axis_events`). Apart from these, a call to `sample` costs O(samples + blocks between
+    the first and the last sample), not O(all blocks).
 
     `gradient_sampler(seq)` makes a sampler of a sequence.
     """
 
     def __init__(self, index: SequenceIndex, points: EventPoints) -> None:
         self._index = index
-        self._points_key = points
+        self._points = points
         self._grad_raster_time = points.grad_raster_time
         self._delay = points.delay
         self._n = points.count
@@ -96,44 +110,30 @@ class GradientSampler:
         self._at = points.at
         self._offsets = points.offsets
         self._amp = points.amp
-        # Filled lazily, one time for each axis that `sample` is called with.
-        self._axis_blocks: dict[str, np.ndarray] = {}
+        # Filled lazily, one time for each axis that `sample` or `_find_gaps` is called with.
+        self._events: dict[str, tuple[AxisEvents, GapKinds, Ramps]] = {}
         # The samples of each (event, dt) that `block_samples` has computed, from the first
         # to the last one at or before the last point of the event (`_kept_samples`). A block
         # of `n` samples has the first `n` of them.
         self._block_sample_cache: dict[tuple[int, float], np.ndarray] = {}
 
-    def _event_blocks(self, axis: str) -> np.ndarray:
-        """The play indexes that have an event on `axis`, sorted, computed one time and
+    def _axis_events(self, axis: str) -> tuple[AxisEvents, GapKinds, Ramps]:
+        """The `AxisEvents` of `axis` with their `gap_kinds` and `ramps`, computed one time and
         kept for later calls."""
-        blocks = self._axis_blocks.get(axis)
-        if blocks is None:
-            blocks = np.flatnonzero(getattr(self._index, axis))
-            self._axis_blocks[axis] = blocks
-        return blocks
-
-    def _points(self, axis: str, blocks: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Times (s) and values (Hz/m) of the corner or sample points of the gradient
-        events of `axis` at the play indexes `blocks` (sorted, each with an event on
-        `axis`), in block order, with no point added or left out."""
-        col = getattr(self._index, axis)
-        k = col[blocks].astype(np.int64) - 1  # 0-based event index
-        counts = self._n[k]
-        total = int(counts.sum())
-        base = np.repeat(self._index.start_s[blocks] + self._delay[k], counts)
-        group_start = np.cumsum(counts) - counts
-        local = np.arange(total, dtype=np.int64) - np.repeat(group_start, counts)
-        pool_index = np.repeat(self._at[k], counts) + local
-        times = base + self._offsets[pool_index]
-        values = self._amp[pool_index]
-        return times, values
+        found = self._events.get(axis)
+        if found is None:
+            events = axis_events(self._index, self._points, axis)
+            gaps = gap_kinds(events, self._grad_raster_time)
+            found = (events, gaps, ramps(events, gaps, self._grad_raster_time))
+            self._events[axis] = found
+        return found
 
     def _gaps(self, axis: str) -> _AxisGaps:
         """The gaps of `axis`, found one time for each sequence and kept (`_GAPS`)."""
-        entry = _GAPS.get(self._points_key)
+        entry = _GAPS.get(self._points)
         if entry is None or entry[0] is not self._index:
             entry = (self._index, {})
-            _GAPS[self._points_key] = entry
+            _GAPS[self._points] = entry
         by_axis = entry[1]
         if axis not in by_axis:
             by_axis[axis] = self._find_gaps(axis)
@@ -142,41 +142,28 @@ class GradientSampler:
     def _find_gaps(self, axis: str) -> _AxisGaps:
         """The `_AxisGaps` of `axis`, from the first and the last point of each event, with
         the rule of the module docstring. O(blocks with an event on `axis`)."""
-        blocks = self._event_blocks(axis)
-        if blocks.size < 2:
+        events, kinds, ramp = self._axis_events(axis)
+        if events.pos.size < 2:
             empty = np.empty(0, dtype=np.float64)
-            return _frozen_gaps(empty, empty, empty, empty, empty)
-        k = getattr(self._index, axis)[blocks].astype(np.int64) - 1
+            return _frozen_gaps(empty, empty, empty, empty)
 
-        # The times are added in the order of `_points`: `(start + delay) + offset`.
-        base = self._index.start_s[blocks] + self._delay[k]
-        first_at = self._at[k]
-        last_at = first_at + self._n[k] - 1
-        first_s, last_s = base + self._offsets[first_at], base + self._offsets[last_at]
-        first_v, last_v = self._amp[first_at], self._amp[last_at]
-
-        dt = self._grad_raster_time
-        before_s, before_v = last_s[:-1], last_v[:-1]  # the end of the earlier event
-        after_s, after_v = first_s[1:], first_v[1:]  # the start of the later event
-        gap = after_s - before_s
-        long = gap > dt + TIME_TOLERANCE
-        short = ~long & (gap > TIME_TOLERANCE) & ((before_v != 0.0) | (after_v != 0.0))
-        down = long & (before_v != 0.0)
-        up = long & (after_v != 0.0)
+        before_s, before_v = events.lt[:-1], events.last[:-1]  # the end of the earlier event
+        after_s, after_v = events.ft[1:], events.first[1:]  # the start of the later event
+        short = kinds.short & ((before_v != 0.0) | (after_v != 0.0))
+        down = ramp.after[:-1]  # the ramp to 0 after the earlier event of the gap
+        up = ramp.before[1:]  # the ramp from 0 before the later event of the gap
+        down_s, up_s = ramp.to_s[:-1], ramp.from_s[1:]  # the times of the points of the ramps
 
         # Each piece has its gap number and its place in the gap (the ramp to 0 is before
         # the ramp from 0), which give the order in time.
-        number = np.arange(gap.size)
+        number = np.arange(kinds.gap.size)
         key = np.concatenate([2 * number[short], 2 * number[down], 2 * number[up] + 1])
         order = np.argsort(key, kind="stable")
-        half = dt / 2
-        start_s = np.concatenate([before_s[short], before_s[down], after_s[up] - half])[order]
-        end_s = np.concatenate([after_s[short], before_s[down] + half, after_s[up]])[order]
+        start_s = np.concatenate([before_s[short], before_s[down], up_s[up]])[order]
+        end_s = np.concatenate([after_s[short], down_s[down], after_s[up]])[order]
         start_v = np.concatenate([before_v[short], before_v[down], np.zeros(up.sum())])[order]
         end_v = np.concatenate([after_v[short], np.zeros(down.sum()), after_v[up]])[order]
-        ramp_s = np.concatenate([before_s[down] + half, after_s[up] - half])
-        ramp_s.sort()
-        return _frozen_gaps(start_s, end_s, start_v, end_v, ramp_s)
+        return _frozen_gaps(start_s, end_s, start_v, end_v)
 
     def sample(self, axis: str, t: np.ndarray) -> np.ndarray:
         """The waveform of `axis` ("gx", "gy" or "gz") in Hz/m at the times `t` (s), which
@@ -189,8 +176,8 @@ class GradientSampler:
         if t.size == 0:
             return np.empty(0, dtype=np.float64)
 
-        event_blocks = self._event_blocks(axis)
-        if event_blocks.size == 0:
+        events, gaps, ramp = self._axis_events(axis)
+        if events.pos.size == 0:
             return np.zeros(t.size, dtype=np.float64)
 
         # The block that contains (or, past the sequence end, precedes) each end of the
@@ -202,32 +189,21 @@ class GradientSampler:
         # The events of `axis` in that block range, plus the nearest one before it and
         # the nearest one after it, so that a gap at the edge of the range has the same
         # points as it does for the whole file.
-        lo_pos = int(np.searchsorted(event_blocks, lo_block, side="left"))
-        hi_pos = int(np.searchsorted(event_blocks, hi_block, side="right"))
-        blocks = event_blocks[max(lo_pos - 1, 0) : min(hi_pos + 1, event_blocks.size)]
+        lo_pos = int(np.searchsorted(events.pos, lo_block, side="left"))
+        hi_pos = int(np.searchsorted(events.pos, hi_block, side="right"))
+        e0, e1 = max(lo_pos - 1, 0), min(hi_pos + 1, events.pos.size)
 
-        times, values = self._points(axis, blocks)
-
-        # A point is never before the point before it (rounding can put the first point of
-        # an event an ulp before the last point of the event before it).
-        times = np.maximum.accumulate(times)
-        # A point with the time and the value of the point before it changes no value
-        # (the triangle of a trapezoid without a flat time has two such points). Without
-        # them, most sequences have no two points at one time, and `_polyline_values`
-        # needs no step rule.
-        distinct = np.ones(times.size, dtype=bool)
-        distinct[1:] = (times[1:] != times[:-1]) | (values[1:] != values[:-1])
-        times, values = times[distinct], values[distinct]
-        # The ramp points of the long gaps between these events.
-        ramp_s = self._gaps(axis).ramp_s
-        lo = int(np.searchsorted(ramp_s, times[0], side="right"))
-        hi = int(np.searchsorted(ramp_s, times[-1], side="left"))
-        inside = ramp_s[lo:hi]
-        if inside.size:
-            where = np.searchsorted(times, inside, side="right")
-            times = np.insert(times, where, inside)
-            values = np.insert(values, where, 0.0)
-
+        # The points of the run, with the ramp points of the long gaps between its events. A
+        # point with the time and the value of the point before it changes no value (the
+        # triangle of a trapezoid without a flat time has two such points). Without them,
+        # most sequences have no two points at one time, and `_polyline_values` needs no
+        # step rule.
+        points = polyline(
+            events.part(e0, e1), self._points, start_s, gaps.part(e0, e1), ramp.part(e0, e1)
+        )
+        distinct = np.ones(points.t.size, dtype=bool)
+        distinct[1:] = (points.t[1:] != points.t[:-1]) | (points.g[1:] != points.g[:-1])
+        times, values = points.t[distinct], points.g[distinct]
         return _polyline_values(times, values, t)
 
     def _kept_samples(self, event_k: int, dt: float) -> int:
@@ -510,7 +486,7 @@ def gradient_sampler(seq: pp.Sequence) -> GradientSampler:
 
 
 def _frozen_gaps(*arrays: np.ndarray) -> _AxisGaps:
-    """An `_AxisGaps` of the arrays (start, end, start value, end value, ramp times), with
+    """An `_AxisGaps` of the arrays (start, end, start value, end value), with
     `writeable` off: all callers share the kept result."""
     for array in arrays:
         array.flags.writeable = False
