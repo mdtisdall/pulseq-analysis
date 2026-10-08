@@ -2,13 +2,15 @@
 this package.
 
 An analysis is a pass that calculates information about a sequence and does not change it
-(the analysis passes of a compiler are the model). Each analysis has:
+(the analysis passes of a compiler are the model). It works on a `snapshot.Snapshot`, which
+`snapshot.load` makes from a file or a sequence: a runner loads each file one time, and gives
+the snapshot to each analysis. Each analysis has:
 
 - `spec`, an `AnalysisSpec`: its ID, its version, a title, the description of its value, the
   names of its parameters (`params`), which of them are necessary (`necessary`) and the
   default of each other one (`defaults`), the rasters of the file whose value changes its
   value (`rasters`), its cost and the text of its series.
-- `compute(seq, **params)`, which gives the full Python value (for example `PnsLevels`).
+- `compute(snap, **params)`, which gives the full Python value (for example `PnsLevels`).
   The parameters are keyword-only arguments, and their names are `spec.params`. A runner
   gives the necessary parameters (`spec.necessary`) and can leave out the others, which then
   have the values of `spec.defaults`.
@@ -37,11 +39,10 @@ The analyses of this package:
   parameters `max_frequency_hz`, `window_s` and `frequency_oversampling`, and the series of
   the spectrum.
 
-Each of these functions keeps its result for the sequence object (`_kept`), so `compute`
-of a second call for one sequence gives the kept object. `gradient.peaks` with a `window`
-gives the result of `gradient_peaks(seq, window=window)`, which is not kept (a caller can
-ask for many windows); with the default `window=None` it gives the kept result of the whole
-sequence.
+Each of these functions keeps its result on the snapshot, so `compute` of a second call for
+one snapshot gives the kept object. `gradient.peaks` with a `window` gives the result of
+`gradient_peaks(snap, window=window)`, which is not kept (a caller can ask for many
+windows); with the default `window=None` it gives the kept result of the whole sequence.
 """
 
 import importlib.metadata
@@ -50,7 +51,6 @@ from types import SimpleNamespace
 from typing import Any, Protocol
 
 import numpy as np
-import pypulseq as pp
 
 from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
 from .grad_spectrum import (
@@ -63,6 +63,7 @@ from .grad_spectrum import (
 from .pns_levels import BIN_S, PnsLevels, pns_levels
 from .seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
 from .series import Series, SeriesKind
+from .snapshot import Snapshot
 
 GROUP = "pulseq_analysis.analyses"
 
@@ -135,7 +136,7 @@ class Analysis(Protocol):
 
     spec: AnalysisSpec
 
-    def compute(self, seq: pp.Sequence, **params: Any) -> Any: ...
+    def compute(self, snap: Snapshot, **params: Any) -> Any: ...
 
     def to_series(self, value: Any) -> tuple[Series, ...]: ...
 
@@ -159,8 +160,7 @@ class _SeqIndex:
             "uint8, uint16 and uint32 that holds the number of unique events. It reads no "
             "block with `get_block`. The layout of the `SequenceIndex` (its fields, these "
             "numbers and this dtype rule) is the contract of version 1 of this analysis: a "
-            "change of it raises `spec.version`. A sequence with no `[SIGNATURE]` hash "
-            "raises `ValueError`."
+            "change of it raises `spec.version`."
         ),
         params=(),
         rasters=("BlockDurationRaster",),
@@ -168,9 +168,9 @@ class _SeqIndex:
         series=None,
     )
 
-    def compute(self, seq: pp.Sequence) -> SequenceIndex:
-        """`seq_index.sequence_index(seq)`."""
-        return sequence_index(seq)
+    def compute(self, snap: Snapshot) -> SequenceIndex:
+        """`seq_index.sequence_index(snap)`."""
+        return sequence_index(snap)
 
     def to_series(self, value: SequenceIndex) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""
@@ -199,13 +199,11 @@ class _GradientPeaks:
             "values are of the logical axes of the file, not of the axes of a scanner, and "
             "they are not compared with a limit. The values are in the units of pypulseq, "
             "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
-            "T/m/s. A sequence with the rotation extension raises `NotImplementedError`, "
-            "and a sequence with no `[SIGNATURE]` hash raises `ValueError`. The "
-            "result is read-only. `window` is None or `(start_s, end_s)` in seconds from the "
-            "start of the sequence. With a window, the values are those of that range, as "
-            "`gradient_peaks(seq, window=window)` gives them, and the result is not kept. "
-            "With the default None, the values are those of the whole sequence, and the "
-            "result is kept for the sequence object."
+            "T/m/s. The result is read-only. `window` is None or `(start_s, end_s)` in "
+            "seconds from the start of the sequence. With a window, the values are those of "
+            "that range, as `gradient_peaks(snap, window=window)` gives them, and the result "
+            "is not kept. With the default None, the values are those of the whole sequence, "
+            "and the result is kept on the snapshot."
         ),
         params=("window",),
         rasters=_GRADIENT_RASTERS,
@@ -215,12 +213,12 @@ class _GradientPeaks:
     )
 
     def compute(
-        self, seq: pp.Sequence, *, window: tuple[float, float] | None = None
+        self, snap: Snapshot, *, window: tuple[float, float] | None = None
     ) -> GradientPeaks:
-        """`grad_peaks.gradient_peaks(seq, window=window)`: for `window=None`, the kept result
-        of the whole sequence for the sequence object; for a window, the result of that range,
-        which is not kept."""
-        return gradient_peaks(seq, window=window)
+        """`grad_peaks.gradient_peaks(snap, window=window)`: for `window=None`, the kept result
+        of the whole sequence for the snapshot; for a window, the result of that range, which
+        is not kept."""
+        return gradient_peaks(snap, window=window)
 
     def to_series(self, value: GradientPeaks) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""
@@ -248,10 +246,8 @@ class _GradientBlocks:
             "`gradient.peaks`. Its slew is the larger of the largest segment slew and the "
             "largest junction. "
             "The values are in the units of pypulseq, with no gamma. Divide them by the "
-            "magnitude of gamma (Hz/T) to get T/m and T/m/s. A sequence with the rotation "
-            "extension raises `NotImplementedError`, and a sequence with no `[SIGNATURE]` "
-            "hash raises `ValueError`. The result is read-only, and it is kept "
-            "for the sequence object."
+            "magnitude of gamma (Hz/T) to get T/m and T/m/s. The result is read-only, and "
+            "it is kept on the snapshot."
         ),
         params=(),
         rasters=_GRADIENT_RASTERS,
@@ -259,9 +255,9 @@ class _GradientBlocks:
         series=None,
     )
 
-    def compute(self, seq: pp.Sequence) -> BlockGradientValues:
-        """`grad_peaks.block_gradient_values(seq)`: the kept result for the sequence object."""
-        return block_gradient_values(seq)
+    def compute(self, snap: Snapshot) -> BlockGradientValues:
+        """`grad_peaks.block_gradient_values(snap)`: the kept result for the snapshot."""
+        return block_gradient_values(snap)
 
     def to_series(self, value: BlockGradientValues) -> tuple[Series, ...]:
         """`()`: this analysis has no series (a later version can give `POINTS` series)."""
@@ -295,15 +291,13 @@ class _PnsSafeLevels:
             '`hardware=(safe_example_hw(), "<a label>")`. A value that is not such a pair '
             "raises `TypeError`. A struct with a missing axis or field, a field that is not a "
             "finite real number, a `stim_limit` not above 0 or an axis with `a1 + a2 + a3` "
-            "not within 0.001 of 1 raises `TypeError` or `ValueError`, before the sequence is "
+            "not within 0.001 of 1 raises `TypeError` or `ValueError`, before the snapshot is "
             "read. "
             "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
             "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
             "default is `()`: no runs. A sequence with no gradient event has no "
-            "prediction (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
-            "extension raises `NotImplementedError`, and a sequence with no `[SIGNATURE]` "
-            "hash raises `ValueError`. The arrays are read-only, and the "
-            "result is kept for the sequence object, the hardware, the thresholds and the bin "
+            "prediction (`reason` is `NO_GRADIENTS`). The arrays are read-only, and the "
+            "result is kept on the snapshot, for the hardware, the thresholds and the bin "
             "size. `bin_s` is the length of a bin of the level in seconds. It gives a whole "
             "number of samples: the nearest number when `bin_s / dt` is within "
             "`ON_RASTER_TOLERANCE` of it, else the number rounded down. The bin has at least "
@@ -338,19 +332,19 @@ class _PnsSafeLevels:
 
     def compute(
         self,
-        seq: pp.Sequence,
+        snap: Snapshot,
         *,
         hardware: tuple[SimpleNamespace, str],
         thresholds_hz_per_t: tuple[float, ...] = (),
         bin_s: float = BIN_S,
     ) -> PnsLevels:
-        """`pns_levels.pns_levels(seq, hardware=hardware,
+        """`pns_levels.pns_levels(snap, hardware=hardware,
         thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)`: the kept result for the
-        sequence object, the hardware, the thresholds and the bin size. `hardware` is
-        necessary; a call without it, or with a value that is not a pair, raises TypeError
-        before the sequence is read."""
+        snapshot, the hardware, the thresholds and the bin size. `hardware` is necessary; a
+        call without it, or with a value that is not a pair, raises TypeError before the
+        snapshot is read."""
         return pns_levels(
-            seq,
+            snap,
             hardware=hardware,
             thresholds_hz_per_t=thresholds_hz_per_t,
             bin_s=bin_s,
@@ -428,10 +422,8 @@ class _GradientSpectrum:
             "then the maximum over windows. The values are in Hz/m/sqrt(Hz), the unit of "
             "the gradients of a `.seq` file, with no gamma. To get mT/m/sqrt(Hz), multiply "
             "them by 1e3 / abs(gamma), with gamma in Hz/T. A sequence with no gradient event has "
-            "no spectrum (`reason` is `NO_GRADIENTS`). A sequence with the rotation "
-            "extension raises `NotImplementedError`, and a sequence with no `[SIGNATURE]` "
-            "hash raises `ValueError`. The arrays are read-only, and the "
-            "result is kept for the sequence object, for each tuple of the three arguments. "
+            "no spectrum (`reason` is `NO_GRADIENTS`). The arrays are read-only, and the "
+            "result is kept on the snapshot, for each tuple of the three arguments. "
             "The parameters `max_frequency_hz`, `window_s` and `frequency_oversampling` are "
             "the arguments of `grad_spectrum.gradient_spectrum`, with its defaults."
         ),
@@ -455,17 +447,17 @@ class _GradientSpectrum:
 
     def compute(
         self,
-        seq: pp.Sequence,
+        snap: Snapshot,
         *,
         max_frequency_hz: float = MAX_FREQUENCY_HZ,
         window_s: float = FFT_WINDOW_S,
         frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
     ) -> GradientSpectrum:
-        """`grad_spectrum.gradient_spectrum(seq, max_frequency_hz=max_frequency_hz,
+        """`grad_spectrum.gradient_spectrum(snap, max_frequency_hz=max_frequency_hz,
         window_s=window_s, frequency_oversampling=frequency_oversampling)`: the kept result
-        for the sequence object and the three arguments."""
+        for the snapshot and the three arguments."""
         return gradient_spectrum(
-            seq,
+            snap,
             max_frequency_hz=max_frequency_hz,
             window_s=window_s,
             frequency_oversampling=frequency_oversampling,

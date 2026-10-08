@@ -6,21 +6,24 @@ times `pns_levels`.
 The script builds `build_repeating` (or, with `--case worst`, `build_worst`) of
 `tests/scale_sequences.py` with about `--blocks` blocks: a GRE-like TR of 5 blocks. In
 `build_repeating` the gradient events repeat (the phase-encode table has 256 entries), and
-in `build_worst` each TR has a new phase-encode event. Then it calls the public functions
-in this order, on the same sequence object, and times each call:
+in `build_worst` each TR has a new phase-encode event. Then it times the two ways to make a
+snapshot, and calls the public functions in this order, on the snapshot of `load(seq)`, and
+times each call:
 
-1. `sequence_index(seq)`: the block table.
-2. `gradient_peaks(seq)`: the first call of a gradient measurement. It reads the points of
+1. `load(seq)`: the copy of the sequence, with the checks.
+2. `load(path)`: the read of the file that `seq.write` makes (the write is not timed).
+3. `sequence_index(snap)`: the block table.
+4. `gradient_peaks(snap)`: the first call of a gradient measurement. It reads the points of
    the unique gradient events and makes the values of each block, and keeps them.
-3. `block_gradient_values(seq)`: with the kept values of each block.
-4. `gradient_peaks(seq, window=...)`: the median of `WINDOWS` windows at random places, of
+5. `block_gradient_values(snap)`: with the kept values of each block.
+6. `gradient_peaks(snap, window=...)`: the median of `WINDOWS` windows at random places, of
    one block, of one TR and of 1000 TRs.
-5. `gradient_sampler(seq).sample("gx", t)`: `SAMPLE_TIMES` sorted times over the sequence.
-6. `gradient_spectrum(seq)`: the default arguments.
+7. `gradient_sampler(snap).sample("gx", t)`: `SAMPLE_TIMES` sorted times over the sequence.
+8. `gradient_spectrum(snap)`: the default arguments.
 
 A row is thus the time of its call after the calls above it. Each repeat builds a new
-sequence, so it keeps nothing from the repeat before it. The result of each row is the
-minimum over the repeats. Run it in the devShell:
+sequence and a new snapshot, so it keeps nothing from the repeat before it. The result of
+each row is the minimum over the repeats. Run it in the devShell:
 
     nix develop --command uv run python scripts/time_measurements.py [--blocks N] \
 [--case repeating|worst] [--repeat R] [--json OUT]
@@ -38,7 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from time_pns_levels import machine
+from time_pns_levels import load_times, machine
 
 WINDOWS = 100
 SAMPLE_TIMES = 1_000_000
@@ -51,7 +54,7 @@ def timed(fn):
     return time.perf_counter() - start, result
 
 
-def median_window_time(seq, index, n_blocks, rng):
+def median_window_time(snap, index, n_blocks, rng):
     """The median time of `WINDOWS` calls of `gradient_peaks` with a window of `n_blocks`
     whole blocks, at random places, after one call that is not timed."""
     from pulseq_analysis.grad_peaks import gradient_peaks
@@ -63,7 +66,7 @@ def median_window_time(seq, index, n_blocks, rng):
         lo = float(index.start_s[first])
         last = first + n_blocks - 1
         hi = float(index.start_s[last] + index.duration_s[last])
-        seconds, _ = timed(lambda lo=lo, hi=hi: gradient_peaks(seq, window=(lo, hi)))
+        seconds, _ = timed(lambda lo=lo, hi=hi: gradient_peaks(snap, window=(lo, hi)))
         times.append(seconds)
     return float(np.median(times[1:]))
 
@@ -78,18 +81,19 @@ def run_once(build, n_trs, rng):
 
     seq = build(n_trs)
     rows = {}
-    rows["sequence_index"], index = timed(lambda: sequence_index(seq))
-    rows["gradient_peaks, first call"], _ = timed(lambda: gradient_peaks(seq))
-    rows["block_gradient_values"], _ = timed(lambda: block_gradient_values(seq))
+    rows["load(seq)"], rows["load(path)"], snap = load_times(seq)
+    rows["sequence_index"], index = timed(lambda: sequence_index(snap))
+    rows["gradient_peaks, first call"], _ = timed(lambda: gradient_peaks(snap))
+    rows["block_gradient_values"], _ = timed(lambda: block_gradient_values(snap))
     for label, n_blocks in (
         ("gradient_peaks, window of 1 block", 1),
         ("gradient_peaks, window of 1 TR", TR_BLOCKS),
         ("gradient_peaks, window of 1000 TRs", min(1000 * TR_BLOCKS, int(index.num_blocks))),
     ):
-        rows[label] = median_window_time(seq, index, n_blocks, rng)
+        rows[label] = median_window_time(snap, index, n_blocks, rng)
     t = np.linspace(0.0, float(index.end_s), SAMPLE_TIMES)
-    rows[f"sample, {SAMPLE_TIMES} times"], _ = timed(lambda: gradient_sampler(seq).sample("gx", t))
-    rows["gradient_spectrum"], spectrum = timed(lambda: gradient_spectrum(seq))
+    rows[f"sample, {SAMPLE_TIMES} times"], _ = timed(lambda: gradient_sampler(snap).sample("gx", t))
+    rows["gradient_spectrum"], spectrum = timed(lambda: gradient_spectrum(snap))
     return rows, index, spectrum
 
 

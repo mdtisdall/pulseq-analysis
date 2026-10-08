@@ -2,7 +2,7 @@
 
 `pulseq-analysis` gives derived values of a [Pulseq](https://pulseq.github.io/)
 sequence: the block table, the gradient amplitude and slew, the SAFE PNS
-prediction and the gradient spectrum. An *analysis* takes a sequence and
+prediction and the gradient spectrum. An *analysis* takes a snapshot of a sequence (`load` makes it) and
 explicit physical parameters, and gives a series (for example in time or in
 frequency) or a summary. An analysis does not change the
 sequence. It has no target profile, no limit, no pass or fail and no finding.
@@ -44,17 +44,15 @@ pip does not.
 The SAFE PNS peak of a `.seq` file:
 
 ```python
-import pypulseq as pp
-
 from pulseq_analysis.asc import hardware_from_asc
 from pulseq_analysis.pns_levels import pns_levels
+from pulseq_analysis.snapshot import load
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
-seq = pp.Sequence()
-seq.read("sequence.seq")
+snap = load("sequence.seq")  # or load(seq) for a pypulseq Sequence
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
-levels = pns_levels(seq, hardware=hardware)
+levels = pns_levels(snap, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)
 print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```

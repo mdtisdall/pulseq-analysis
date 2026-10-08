@@ -18,6 +18,7 @@ from synthetic import (
     GAMMA_1H,
     empty_sequence,
     gre_sequence,
+    loaded,
     spin_echo_sequence,
 )
 
@@ -229,7 +230,7 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
 
 @pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
 def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis):
-    """For each analysis of `registry()`: after `seq`, the parameters of `compute` are all
+    """For each analysis of `registry()`: after `snap`, the parameters of `compute` are all
     keyword-only and their names are `spec.params` in order; each name of `spec.necessary`
     has no default; and each default of `spec.defaults` equals the default of the signature,
     with the same type. Each name of `params` is in one of the two. An unknown keyword is a
@@ -237,7 +238,7 @@ def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis
     spec = analysis.spec
     parameters = list(inspect.signature(analysis.compute).parameters.values())
 
-    assert parameters[0].name == "seq"
+    assert parameters[0].name == "snap"
     assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters[1:])
     assert tuple(p.name for p in parameters[1:]) == spec.params
@@ -252,7 +253,7 @@ def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis
         assert default == value
         assert type(default) is type(value)
     with pytest.raises(TypeError):
-        analysis.compute(empty_sequence(), unknown=1)
+        analysis.compute(loaded(empty_sequence()), unknown=1)
 
 
 _SPEC_ARGS = {
@@ -342,68 +343,68 @@ def test_analysis_spec_accepts_the_defaults_of_each_json_type_and_stays_hashable
 
 @pytest.mark.parametrize("fractions", [(0.0, 0.5), (0.25, 0.5), (0.5, 1.0)])
 def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(fractions):
-    """`GRADIENT_PEAKS.compute(seq, window=w)` equals `gradient_peaks(seq, window=w)`, and it
+    """`GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`, and it
     is not the result of the whole sequence: the window reaches the function."""
-    seq = gre_sequence(num_trs=4)
-    end_s = sequence_index(seq).end_s
+    snap = loaded(gre_sequence(num_trs=4))
+    end_s = sequence_index(snap).end_s
     window = (fractions[0] * end_s, fractions[1] * end_s)
 
-    result = GRADIENT_PEAKS.compute(seq, window=window)
+    result = GRADIENT_PEAKS.compute(snap, window=window)
 
-    assert result == gradient_peaks(seq, window=window)
-    assert result != gradient_peaks(seq)
+    assert result == gradient_peaks(snap, window=window)
+    assert result != gradient_peaks(snap)
 
 
 def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
-    """`GRADIENT_PEAKS.compute(seq)` and `compute(seq, window=None)` are the object (`is`) that
-    `gradient_peaks(seq)` keeps, and a result with a window is not that object and not kept."""
-    seq = gre_sequence(num_trs=4)
-    end_s = sequence_index(seq).end_s
+    """`GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object (`is`) that
+    `gradient_peaks(snap)` keeps, and a result with a window is not that object and not kept."""
+    snap = loaded(gre_sequence(num_trs=4))
+    end_s = sequence_index(snap).end_s
     window = (0.0, end_s / 2)
 
-    whole = GRADIENT_PEAKS.compute(seq)
+    whole = GRADIENT_PEAKS.compute(snap)
 
-    assert whole is gradient_peaks(seq)
-    assert GRADIENT_PEAKS.compute(seq, window=None) is whole
-    first = GRADIENT_PEAKS.compute(seq, window=window)
+    assert whole is gradient_peaks(snap)
+    assert GRADIENT_PEAKS.compute(snap, window=None) is whole
+    first = GRADIENT_PEAKS.compute(snap, window=window)
     assert first is not whole
-    assert first == gradient_peaks(seq, window=window)
-    assert first is not GRADIENT_PEAKS.compute(seq, window=window)
-    assert GRADIENT_PEAKS.compute(seq) is whole
+    assert first == gradient_peaks(snap, window=window)
+    assert first is not GRADIENT_PEAKS.compute(snap, window=window)
+    assert GRADIENT_PEAKS.compute(snap) is whole
 
 
 def test_compute_of_gradient_spectrum_passes_its_arguments_on():
-    """`GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)` is the object (`is`) that
-    `gradient_spectrum(seq, max_frequency_hz=1000.0)` keeps, and it is not the object of the
+    """`GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)` is the object (`is`) that
+    `gradient_spectrum(snap, max_frequency_hz=1000.0)` keeps, and it is not the object of the
     defaults and has other frequencies. Each of the three arguments reaches the function: the
     `to_series` meta gives them."""
-    seq = spin_echo_sequence()
+    snap = loaded(spin_echo_sequence())
 
-    default = GRADIENT_SPECTRUM.compute(seq)
-    spectrum = GRADIENT_SPECTRUM.compute(seq, max_frequency_hz=1000.0)
+    default = GRADIENT_SPECTRUM.compute(snap)
+    spectrum = GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)
 
-    assert spectrum is gradient_spectrum(seq, max_frequency_hz=1000.0)
+    assert spectrum is gradient_spectrum(snap, max_frequency_hz=1000.0)
     assert spectrum is not default
-    assert default is gradient_spectrum(seq)
+    assert default is gradient_spectrum(snap)
     assert not np.array_equal(spectrum.frequency_hz, default.frequency_hz)
     assert spectrum.max_frequency_hz == 1000.0
-    both = GRADIENT_SPECTRUM.compute(seq, window_s=0.1, frequency_oversampling=2.0)
-    assert both is gradient_spectrum(seq, window_s=0.1, frequency_oversampling=2.0)
+    both = GRADIENT_SPECTRUM.compute(snap, window_s=0.1, frequency_oversampling=2.0)
+    assert both is gradient_spectrum(snap, window_s=0.1, frequency_oversampling=2.0)
     assert (both.window_s, both.frequency_oversampling) == (0.1, 2.0)
 
 
 def test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result():
-    """`SEQ_INDEX.compute(seq)` and `GRADIENT_BLOCKS.compute(seq)` are the objects (`is`)
-    that `sequence_index(seq)` and `block_gradient_values(seq)` keep for the sequence
+    """`SEQ_INDEX.compute(snap)` and `GRADIENT_BLOCKS.compute(snap)` are the objects (`is`)
+    that `sequence_index(snap)` and `block_gradient_values(snap)` keep for the sequence
     object."""
-    seq = gre_sequence(num_trs=4)
+    snap = loaded(gre_sequence(num_trs=4))
 
-    assert SEQ_INDEX.compute(seq) is sequence_index(seq)
-    assert GRADIENT_BLOCKS.compute(seq) is block_gradient_values(seq)
+    assert SEQ_INDEX.compute(snap) is sequence_index(snap)
+    assert GRADIENT_BLOCKS.compute(snap) is block_gradient_values(snap)
 
 
 def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read():
-    """`PNS_SAFE_LEVELS.compute(seq)` without `hardware` raises Python's own `TypeError`
+    """`PNS_SAFE_LEVELS.compute(snap)` without `hardware` raises Python's own `TypeError`
     (a required keyword-only argument), and a `hardware` that is not a pair raises
     `TypeError` with the message that says how to make one. Both do so for an object that
     raises when the code reads any attribute of it, so the check comes before the sequence
@@ -424,17 +425,17 @@ def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_
 
 
 def test_compute_of_pns_safe_levels_passes_bin_s_on():
-    """`PNS_SAFE_LEVELS.compute(seq, hardware=..., bin_s=...)` is the object (`is`) that
+    """`PNS_SAFE_LEVELS.compute(snap, hardware=..., bin_s=...)` is the object (`is`) that
     `pns_levels` gives with that `bin_s` (and not the object of the default), its
     `bin_samples` is that of the `bin_s`, and `to_series` gives `pns_total` with the
     `coord_step` of that bin. A `bin_s` that `pns_levels` refuses raises the same
     error before the sequence is read."""
-    seq = gre_sequence(num_trs=4)
+    snap = loaded(gre_sequence(num_trs=4))
 
-    default = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW)
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=EXAMPLE_HW, bin_s=1e-3)
+    default = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW)
+    levels = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW, bin_s=1e-3)
 
-    assert levels is pns_levels(seq, hardware=EXAMPLE_HW, bin_s=1e-3)
+    assert levels is pns_levels(snap, hardware=EXAMPLE_HW, bin_s=1e-3)
     assert levels is not default
     assert default.bin_samples == 500
     assert levels.bin_samples == 100
@@ -456,9 +457,9 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times and the `meta`
     of design 4.4) and `pns_above_0` (a RUNS series of `above[_LIMIT]`, in the array order of
     design 4.4), each with the unit "Hz/T"."""
-    seq = gre_sequence(num_trs=20)
+    snap = loaded(gre_sequence(num_trs=20))
     levels = PNS_SAFE_LEVELS.compute(
-        seq, hardware=hardware_for_peak(seq, 1.5), thresholds_hz_per_t=(_LIMIT,)
+        snap, hardware=hardware_for_peak(snap, 1.5), thresholds_hz_per_t=(_LIMIT,)
     )
     assert len(levels.above[_LIMIT]) > 1
 
@@ -508,7 +509,7 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert above.meta == {"threshold": _LIMIT}
 
     path = write_gradient_asc(name="MP_GPA_SERIES")
-    from_file = PNS_SAFE_LEVELS.to_series(pns_levels(seq, hardware=hardware_from_asc(path)))[0]
+    from_file = PNS_SAFE_LEVELS.to_series(pns_levels(snap, hardware=hardware_from_asc(path)))[0]
     assert from_file.meta["hardware"] == "MP_GPA_SERIES"
 
 
@@ -517,11 +518,11 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     `pns_above_0` and `pns_above_1`, in this order, and the runs of each are `above` of its
     threshold (which are not empty and not equal). With the thresholds swapped the names are
     the same: the two RUNS series swap their runs and their `meta`."""
-    seq = gre_sequence(num_trs=20)
-    hardware = hardware_for_peak(seq, 1.5)
+    snap = loaded(gre_sequence(num_trs=20))
+    hardware = hardware_for_peak(snap, 1.5)
     high, low = _LIMIT, 0.5 * _LIMIT
 
-    levels = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=(high, low))
+    levels = PNS_SAFE_LEVELS.compute(snap, hardware=hardware, thresholds_hz_per_t=(high, low))
     series = PNS_SAFE_LEVELS.to_series(levels)
 
     assert [s.name for s in series] == ["pns_total", "pns_above_0", "pns_above_1"]
@@ -535,7 +536,7 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
         assert s.arrays["end"].tolist() == [i.end_s for i in levels.above[threshold]]
         assert s.arrays["peak"].tolist() == [i.peak_hz_per_t for i in levels.above[threshold]]
 
-    swapped = PNS_SAFE_LEVELS.compute(seq, hardware=hardware, thresholds_hz_per_t=(low, high))
+    swapped = PNS_SAFE_LEVELS.compute(snap, hardware=hardware, thresholds_hz_per_t=(low, high))
     swapped_series = PNS_SAFE_LEVELS.to_series(swapped)
     assert [s.name for s in swapped_series] == ["pns_total", "pns_above_0", "pns_above_1"]
     assert [s.meta for s in swapped_series[1:]] == [{"threshold": low}, {"threshold": high}]
@@ -549,8 +550,8 @@ def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     the RSS and the axes of the same spectrum, in this order. `coord_start` is 0 and
     `coord_start + k * coord_step` is `frequency_hz` bit for bit. The `meta` has the
     three values of the call."""
-    seq = spin_echo_sequence()
-    spectrum = GRADIENT_SPECTRUM.compute(seq)
+    snap = loaded(spin_echo_sequence())
+    spectrum = GRADIENT_SPECTRUM.compute(snap)
 
     (series,) = GRADIENT_SPECTRUM.to_series(spectrum)
 
@@ -577,7 +578,7 @@ def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
         "frequency_oversampling": FREQUENCY_OVERSAMPLING,
     }
     # A value of other arguments gives its own arguments, not the defaults.
-    (wide,) = GRADIENT_SPECTRUM.to_series(gradient_spectrum(seq, window_s=0.1))
+    (wide,) = GRADIENT_SPECTRUM.to_series(gradient_spectrum(snap, window_s=0.1))
     assert wide.meta["window_s"] == 0.1
 
 
@@ -585,5 +586,17 @@ def test_the_other_three_analyses_give_no_series():
     """`to_series` of `seq.index`, `gradient.peaks` and `gradient.blocks` gives `()`, for
     a sequence with gradients and for one without."""
     for seq in (gre_sequence(num_trs=2), empty_sequence()):
+        snap = loaded(seq)
         for analysis in (SEQ_INDEX, GRADIENT_PEAKS, GRADIENT_BLOCKS):
-            assert analysis.to_series(analysis.compute(seq)) == ()
+            assert analysis.to_series(analysis.compute(snap)) == ()
+
+
+@pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
+@pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
+def test_compute_raises_type_error_that_names_load_for_a_non_snapshot(analysis, build):
+    """`compute` of each analysis, with the other arguments that it needs, raises `TypeError`
+    that names `load` for a `pp.Sequence` and for a path: the first argument is a
+    `Snapshot`."""
+    params = {"hardware": EXAMPLE_HW} if analysis is PNS_SAFE_LEVELS else {}
+    with pytest.raises(TypeError, match="load"):
+        analysis.compute(build(), **params)

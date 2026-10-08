@@ -1,5 +1,5 @@
-"""Small synthetic pypulseq sequences for the tests of pulseq-analysis. This module
-imports nothing from the package, so the oracles of `tests/oracles/` can use it."""
+"""Small synthetic pypulseq sequences for the tests of pulseq-analysis. Only `loaded` uses
+the package: the oracles of `tests/oracles/` are independent of it."""
 
 import math
 
@@ -7,6 +7,8 @@ import numpy as np
 import pypulseq as pp
 from pypulseq.event_lib import EventLibrary
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
+
+from pulseq_analysis.snapshot import Snapshot, load
 
 # The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
 # gamma: the tests use this value to convert its values to tesla.
@@ -45,6 +47,12 @@ def signed(seq: pp.Sequence) -> pp.Sequence:
     seq.signature_file = "text"
     seq.signature_value = SIGNATURE_VALUE
     return seq
+
+
+def loaded(seq: pp.Sequence) -> Snapshot:
+    """The `Snapshot` of `seq`, signed with `signed` first: `load(signed(seq))`. `seq` gets the
+    hash, as with `signed`, and the snapshot holds a copy of it."""
+    return load(signed(seq))
 
 
 def block_pulse(use: str, flip: float):

@@ -20,6 +20,7 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    loaded,
     signed,
     spin_echo_sequence,
 )
@@ -27,12 +28,12 @@ from synthetic import (
 from pulseq_analysis import seq_index
 from pulseq_analysis.seq_index import (
     adc_events,
-    block_cache_off,
     grad_events,
     has_gradients,
     rf_events,
     sequence_index,
 )
+from pulseq_analysis.snapshot import Snapshot
 
 _AXES = ("gx", "gy", "gz")
 
@@ -106,9 +107,9 @@ def _reference_index(seq: pp.Sequence) -> SimpleNamespace:
     )
 
 
-def _assert_index_matches_reference(seq: pp.Sequence) -> None:
-    index = sequence_index(seq)
-    ref = _reference_index(seq)
+def _assert_index_matches_reference(snap: Snapshot) -> None:
+    index = sequence_index(snap)
+    ref = _reference_index(snap.sequence)
     assert np.array_equal(index.block_id, ref.block_id)
     assert np.array_equal(index.rf.astype(np.int64), ref.rf)
     assert np.array_equal(index.gx.astype(np.int64), ref.gx)
@@ -144,8 +145,7 @@ def test_dense_columns_and_first_arrays_match_the_reference_numbering(builder):
     """`sequence_index`'s `rf`/`gx`/`gy`/`gz`/`adc` columns, `rf_first`, `grad_first`,
     `grad_first_axis`, `adc_first` and `block_id` equal `_reference_index`'s, for each
     synthetic sequence and for `build_repeating`/`build_worst` at 50 TRs (250 blocks)."""
-    seq = builder()
-    _assert_index_matches_reference(seq)
+    _assert_index_matches_reference(loaded(builder()))
 
 
 def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries():
@@ -180,16 +180,16 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     seq.add_block(e1, g1, a1)
     seq.add_block(e2, g2, g3, a2)
     seq.add_block(e1, g1_as_gx, a1)
-    signed(seq)
-    ids = np.array(list(seq.block_events.values()))
+    snap = loaded(seq)
+    ids = np.array(list(snap.sequence.block_events.values()))
     assert ids[:, 1].tolist() == [2, 1, 2]  # RF library ids
     assert ids[:, 2].tolist() == [0, 2, 3]  # gx
     assert ids[:, 3].tolist() == [0, 1, 0]  # gy
     assert ids[:, 4].tolist() == [3, 0, 0]  # gz
     assert ids[:, 5].tolist() == [2, 1, 2]  # ADC library ids
-    assert len(seq.grad_library.data) == 3
+    assert len(snap.sequence.grad_library.data) == 3
 
-    index = sequence_index(seq)
+    index = sequence_index(snap)
 
     assert index.rf.tolist() == [1, 2, 1]
     assert index.rf_first.tolist() == [0, 1]
@@ -200,13 +200,14 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     assert index.grad_first_axis.tolist() == [2, 0, 1]  # gz, gx, gy
     assert index.adc.tolist() == [1, 2, 1]
     assert index.adc_first.tolist() == [0, 1]
-    _assert_index_matches_reference(seq)
-    assert [ev.amplitude for _, ev in grad_events(seq, index)] == [1e5, 2e5, 3e5]
+    _assert_index_matches_reference(snap)
+    assert [ev.amplitude for _, ev in grad_events(snap)] == [1e5, 2e5, 3e5]
 
 
 def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
-    seq = build_repeating(50)
-    index = sequence_index(seq)
+    snap = loaded(build_repeating(50))
+    seq = snap.sequence
+    index = sequence_index(snap)
 
     block_ids = list(seq.block_events.keys())
     t = 0.0
@@ -224,8 +225,7 @@ def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
 
 
 def test_dtype_is_uint8_for_a_sequence_with_few_unique_events():
-    seq = gre_sequence()
-    index = sequence_index(seq)
+    index = sequence_index(loaded(gre_sequence()))
     assert index.rf_first.size <= 255
     assert index.grad_first.size <= 255
     assert index.adc_first.size <= 255
@@ -240,8 +240,7 @@ def test_dtype_widens_to_uint16_past_255_unique_gradient_events():
     """`build_repeating`'s phase-encode table alone has 256 amplitudes (`PE_STEPS`), so
     260 TRs give more than 255 unique gradient events (the phase-encode events, plus
     the readout and the spoiler, each reused every TR), past the uint8 range."""
-    seq = build_repeating(260)
-    index = sequence_index(seq)
+    index = sequence_index(loaded(build_repeating(260)))
     assert index.grad_first.size > 255
     assert index.gx.dtype == np.uint16
     assert index.gy.dtype == np.uint16
@@ -281,7 +280,7 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
             pp.make_trapezoid(channel="x", amplitude=100.0 * k, duration=1e-3, system=SYSTEM)
         )
 
-    index = sequence_index(seq)
+    index = sequence_index(loaded(seq))
 
     assert index.grad_first.size == unique
     assert index.gx.dtype == dtype
@@ -293,7 +292,7 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
 def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
     """A file with a large event ID must not make a table in proportion to the ID. pypulseq
     gives the IDs 1, 2, ... in order, so this sets the gx ID of the second block in
-    `seq.block_events` to 10**8 after `add_block` (`sequence_index` reads only
+    `seq.block_events` to 10**8 after `add_block`, before `load` (`sequence_index` reads only
     `seq.block_events` and `seq.block_durations`, not the libraries). The peak of
     `tracemalloc` over the build is below 100 MB, and the dense numbers are as for small IDs.
     A lookup table over the IDs takes 800 MB."""
@@ -304,10 +303,11 @@ def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
         )
     big = 10**8
     seq.block_events[2][seq_index._GX] = big
+    snap = loaded(seq)
 
     tracemalloc.start()
     try:
-        index = sequence_index(seq)
+        index = sequence_index(snap)
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
@@ -319,7 +319,7 @@ def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
 
 @pytest.mark.parametrize("build", [gre_sequence, empty_sequence])
 def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
-    index = sequence_index(build())
+    index = sequence_index(loaded(build()))
     arrays = [
         getattr(index, f.name)
         for f in dataclasses.fields(index)
@@ -338,11 +338,12 @@ def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
 
 
 def test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable():
-    first, second = sequence_index(gre_sequence()), sequence_index(gre_sequence())
+    first = sequence_index(loaded(gre_sequence()))
+    second = sequence_index(loaded(gre_sequence()))
     assert first is not second
     assert first == second
-    assert first != sequence_index(gre_sequence(num_trs=5))
-    assert first != sequence_index(spin_echo_sequence())
+    assert first != sequence_index(loaded(gre_sequence(num_trs=5)))
+    assert first != sequence_index(loaded(spin_echo_sequence()))
     with pytest.raises(TypeError):
         hash(first)
 
@@ -372,12 +373,11 @@ def _delay_only() -> pp.Sequence:
     ids=["spin echo", "x", "y", "z", "delay only", "no blocks"],
 )
 def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, expected):
-    assert has_gradients(sequence_index(build())) is expected
+    assert has_gradients(sequence_index(loaded(build()))) is expected
 
 
 def test_sequence_index_of_a_sequence_with_no_blocks():
-    seq = signed(pp.Sequence(SYSTEM))
-    index = sequence_index(seq)
+    index = sequence_index(loaded(pp.Sequence(SYSTEM)))
     assert index.num_blocks == 0
     assert index.end_s == 0.0
     for arr in (
@@ -397,56 +397,23 @@ def test_sequence_index_of_a_sequence_with_no_blocks():
         assert arr.size == 0
 
 
-def test_sequence_index_is_kept_for_one_sequence_object_and_rebuilt_after_add_block():
+def test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another():
+    """Two calls of `sequence_index` with one snapshot give the same object. A second snapshot
+    of the same sequence gives its own, equal index."""
     seq = gre_sequence()
-    first = sequence_index(seq)
-    second = sequence_index(seq)
-    assert first is second
+    snap = loaded(seq)
+    first = sequence_index(snap)
+    assert sequence_index(snap) is first
 
-    seq.add_block(pp.make_delay(1e-3))
-    third = sequence_index(seq)
-    assert third is not first
-    assert third.num_blocks == first.num_blocks + 1
-
-
-def test_block_cache_off_restores_use_block_cache_true():
-    seq = pp.Sequence(SYSTEM)
-    seq.use_block_cache = True
-    with block_cache_off(seq):
-        assert seq.use_block_cache is False
-    assert seq.use_block_cache is True
+    other = sequence_index(loaded(seq))
+    assert other is not first
+    assert other == first
 
 
-def test_block_cache_off_restores_use_block_cache_false():
-    seq = pp.Sequence(SYSTEM)
-    seq.use_block_cache = False
-    with block_cache_off(seq):
-        assert seq.use_block_cache is False
-    assert seq.use_block_cache is False
-
-
-def test_block_cache_off_restores_the_old_value_after_an_exception():
-    seq = pp.Sequence(SYSTEM)
-    seq.use_block_cache = True
-    with pytest.raises(ValueError, match="boom"), block_cache_off(seq):
-        assert seq.use_block_cache is False
-        raise ValueError("boom")
-    assert seq.use_block_cache is True
-
-
-def test_block_cache_off_does_not_remove_blocks_already_in_the_cache():
-    seq = gre_sequence()
-    first_block_id = next(iter(seq.block_events))
-    seq.get_block(first_block_id)  # populates seq.block_cache with this one block
-    assert first_block_id in seq.block_cache
-    with block_cache_off(seq):
-        pass
-    assert first_block_id in seq.block_cache
-
-
-def _wrap_get_block(seq, monkeypatch):
-    """Replace `seq.get_block` with a counting wrapper that also records
-    `seq.use_block_cache` at each call, and return `(original, calls, cache_flags)`."""
+def _count_get_block(snap, monkeypatch):
+    """Replace `get_block` of the sequence of `snap` with a counting wrapper that also records
+    `use_block_cache` at each call, and return `(original, calls, cache_flags)`."""
+    seq = snap.sequence
     original = seq.get_block
     calls: list[int] = []
     cache_flags: list[bool] = []
@@ -460,20 +427,20 @@ def _wrap_get_block(seq, monkeypatch):
     return original, calls, cache_flags
 
 
-def test_rf_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch):
-    seq = spin_echo_sequence()  # two distinct RF events: excitation and refocusing
-    index = sequence_index(seq)
+def test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
+    snap = loaded(spin_echo_sequence())  # two distinct RF events: excitation and refocusing
+    index = sequence_index(snap)
     assert index.rf_first.size == 2
-    seq.use_block_cache = True
-    original, calls, cache_flags = _wrap_get_block(seq, monkeypatch)
+    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
 
-    results = list(rf_events(seq, index))
+    results = rf_events(snap)
 
+    assert isinstance(results, tuple)
     # One RF event per block, so the number of get_block calls is exactly the number
     # of unique RF events here.
     assert len(calls) == np.unique(index.rf_first).size
     assert cache_flags and all(flag is False for flag in cache_flags)
-    assert seq.use_block_cache is True
+    assert snap.sequence.use_block_cache is False
 
     assert [k for k, _ in results] == list(range(1, index.rf_first.size + 1))
     for (_, ev), play_index in zip(results, index.rf_first.tolist()):
@@ -483,8 +450,12 @@ def test_rf_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch):
         assert ev.type == expected.type
         assert np.array_equal(ev.signal, expected.signal)
 
+    calls.clear()
+    assert rf_events(snap) is results
+    assert not calls
 
-def test_grad_events_reads_each_unique_first_use_block_once_with_the_cache_off(
+
+def test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple(
     monkeypatch,
 ):
     seq = signed(pp.Sequence(SYSTEM))
@@ -495,16 +466,17 @@ def test_grad_events_reads_each_unique_first_use_block_once_with_the_cache_off(
         pp.make_trapezoid(channel="x", amplitude=2e5, **common),
         pp.make_trapezoid(channel="y", amplitude=3e5, **common),
     )
-    index = sequence_index(seq)
+    snap = loaded(seq)
+    index = sequence_index(snap)
     assert index.grad_first.tolist() == [0, 1, 1]
-    seq.use_block_cache = True
-    original, calls, cache_flags = _wrap_get_block(seq, monkeypatch)
+    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
 
-    results = list(grad_events(seq, index))
+    results = grad_events(snap)
 
+    assert isinstance(results, tuple)
     assert len(calls) == np.unique(index.grad_first).size == 2
     assert cache_flags and all(flag is False for flag in cache_flags)
-    assert seq.use_block_cache is True
+    assert snap.sequence.use_block_cache is False
 
     assert [k for k, _ in results] == [1, 2, 3]
     for (_, ev), play_index, axis in zip(
@@ -516,19 +488,23 @@ def test_grad_events_reads_each_unique_first_use_block_once_with_the_cache_off(
         assert ev.type == expected.type
         assert ev.amplitude == expected.amplitude
 
+    calls.clear()
+    assert grad_events(snap) is results
+    assert not calls
 
-def test_adc_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch):
-    seq = gre_sequence(num_trs=5)  # the same ADC event is reused every TR
-    index = sequence_index(seq)
+
+def test_adc_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
+    snap = loaded(gre_sequence(num_trs=5))  # the same ADC event is reused every TR
+    index = sequence_index(snap)
     assert index.adc_first.size == 1
-    seq.use_block_cache = True
-    original, calls, cache_flags = _wrap_get_block(seq, monkeypatch)
+    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
 
-    results = list(adc_events(seq, index))
+    results = adc_events(snap)
 
+    assert isinstance(results, tuple)
     assert len(calls) == np.unique(index.adc_first).size == 1
     assert cache_flags and all(flag is False for flag in cache_flags)
-    assert seq.use_block_cache is True
+    assert snap.sequence.use_block_cache is False
 
     assert [k for k, _ in results] == [1]
     for (_, ev), play_index in zip(results, index.adc_first.tolist()):
@@ -538,28 +514,17 @@ def test_adc_events_reads_each_unique_event_once_with_the_cache_off(monkeypatch)
         assert ev.num_samples == expected.num_samples
         assert ev.dwell == expected.dwell
 
-
-def test_sequence_index_raises_for_an_unsigned_sequence():
-    """`sequence_index` raises `ValueError` for a sequence that only `add_block` built (no
-    `[SIGNATURE]` hash), and gives its index for the same sequence once it has a hash."""
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_delay(1e-3))
-    with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
-        sequence_index(seq)
-    signed(seq)
-    assert sequence_index(seq).num_blocks == 1
+    calls.clear()
+    assert adc_events(snap) is results
+    assert not calls
 
 
-def test_sequence_index_checks_the_signature_before_the_kept_results(monkeypatch):
-    """The refusal of an unsigned sequence comes before `kept_results`: with
-    `seq_index.kept_results` set to fail, `sequence_index` still raises the `ValueError`
-    of the signature, not the error of `kept_results`."""
-
-    def fail(cache, seq):
-        raise RuntimeError("kept_results was called")
-
-    monkeypatch.setattr(seq_index, "kept_results", fail)
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_delay(1e-3))
-    with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
-        sequence_index(seq)
+@pytest.mark.parametrize("function", [sequence_index, rf_events, grad_events, adc_events])
+@pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
+def test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot(
+    function, build
+):
+    """`sequence_index`, `rf_events`, `grad_events` and `adc_events` raise `TypeError` that
+    names `load` for a `pp.Sequence` and for a path: they take a `Snapshot`."""
+    with pytest.raises(TypeError, match="load"):
+        function(build())

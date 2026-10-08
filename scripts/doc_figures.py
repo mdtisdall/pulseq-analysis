@@ -32,6 +32,7 @@ from scale_sequences import build_repeating
 from synthetic import SYSTEM, signed
 
 from pulseq_analysis.sampling import gradient_sampler
+from pulseq_analysis.snapshot import load
 
 OUT = ROOT / "docs" / "figures"
 # With `DOC_FIGURES_PREVIEW=<dir>`, a PNG of each figure goes to <dir> too, to look at.
@@ -68,8 +69,8 @@ def sequence(*blocks):
     return signed(seq)
 
 
-def ours(seq, axis, t):
-    return gradient_sampler(seq).sample(axis, t)
+def ours(snap, axis, t):
+    return gradient_sampler(snap).sample(axis, t)
 
 
 def pypulseq_points(seq, axis):
@@ -94,20 +95,21 @@ def draw_blocks(ax, edges, bottom):
 def panel(ax, seq, title, *, axis="gx", notes=(), samples=False, show_pypulseq=True):
     """One waveform of `seq` on `ax`: ours (solid), pypulseq's (dashed), the block edges,
     and `notes`, each `(text, (t_us, value_in_U), (text_t_us, text_value_in_U))`."""
+    snap = load(seq)
     edges = block_edges(seq)
     end = edges[-1]
     pad = 0.06 * end
     t = np.linspace(-pad, end + pad, 4001)
     t = np.union1d(t, edges)
-    ax.plot(t * 1e6, ours(seq, axis, t) / U, color=OURS, lw=1.8, label="pulseq-analysis")
+    ax.plot(t * 1e6, ours(snap, axis, t) / U, color=OURS, lw=1.8, label="pulseq-analysis")
     if show_pypulseq:
         pt, pv = pypulseq_points(seq, axis)
         ax.plot(pt * 1e6, pv / U, color=PYPULSEQ, lw=1.2, ls="--", label="pypulseq waveforms()")
     if samples:
         k = np.arange(math.ceil(end / DT - 1e-9))
         ts = (k + 0.5) * DT
-        ax.plot(ts * 1e6, ours(seq, axis, ts) / U, "o", ms=3.5, color=OURS, mfc="white")
-    values = ours(seq, axis, t) / U
+        ax.plot(ts * 1e6, ours(snap, axis, ts) / U, "o", ms=3.5, color=OURS, mfc="white")
+    values = ours(snap, axis, t) / U
     bottom = min(0.0, float(values.min())) - 0.75
     ax.set_ylim(bottom, max(1.0, float(values.max())) * 1.35)
     ax.set_xlim(-pad * 1e6, (end + pad) * 1e6)
@@ -137,11 +139,12 @@ def save(fig, name):
 def typical():
     """One TR of the GRE-like sequence of the scale tests: each event starts and ends at 0."""
     seq = build_repeating(1)
+    snap = load(seq)
     fig, axes = plt.subplots(3, 1, figsize=(7.5, 4.6), sharex=True)
     edges = block_edges(seq)
     t = np.union1d(np.linspace(0, edges[-1], 6001), edges)
     for ax, axis in zip(axes, ("gx", "gy", "gz"), strict=True):
-        v = ours(seq, axis, t) / 1e3
+        v = ours(snap, axis, t) / 1e3
         ax.plot(t * 1e3, v, color=OURS, lw=1.6, label="pulseq-analysis")
         pt, pv = pypulseq_points(seq, axis)
         ax.plot(pt * 1e3, pv / 1e3, color=PYPULSEQ, lw=1.0, ls="--", label="pypulseq waveforms()")

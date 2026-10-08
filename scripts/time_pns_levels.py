@@ -17,10 +17,12 @@ peak is in Hz/T. Run it in the devShell:
 
 `--blocks` must be at least `TR_BLOCKS` (one TR), and the thresholds are checked with
 the validation of `pns_levels` before the sequence is built. The build of the sequence is
-timed and printed, but it is not part of the result.
-`sequence_index` keeps its result for the sequence object, so the first run also builds
-the block table and the later runs do not. The minimum is thus the time of the PNS model,
-the sampling and the bins, without the block table.
+timed and printed, but it is not part of the result. So are the times of `load(seq)` and of
+`load(path)` for the file that `seq.write` makes (`load_times`): each is printed and given in
+the JSON, one time.
+`sequence_index` keeps its result on the snapshot, so the first run also builds the block
+table and the later runs do not. The minimum is thus the time of the PNS model, the sampling
+and the bins, without the block table.
 """
 
 import argparse
@@ -28,6 +30,7 @@ import json
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from importlib.metadata import version
 from pathlib import Path
@@ -46,6 +49,23 @@ def git_commit() -> str:
 
     commit = git("rev-parse", "HEAD") or "unknown"
     return commit + ("-dirty" if git("status", "--porcelain", "--untracked-files=no") else "")
+
+
+def load_times(seq) -> tuple[float, float, object]:
+    """The time of `load(seq)`, the time of `load(path)` for the file that `seq.write` makes
+    (the write is not timed), and the `Snapshot` of `load(seq)`."""
+    from pulseq_analysis.snapshot import load
+
+    start = time.perf_counter()
+    snap = load(seq)
+    load_seq_s = time.perf_counter() - start
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "sequence.seq"
+        seq.write(str(path))
+        start = time.perf_counter()
+        load(path)
+        load_path_s = time.perf_counter() - start
+    return load_seq_s, load_path_s, snap
 
 
 def machine() -> dict:
@@ -111,6 +131,8 @@ def main() -> None:
     seq = build_repeating(n_trs)
     build_s = time.perf_counter() - start
     print(f"build {build_s:.1f} s (not part of the result)")
+    load_seq_s, load_path_s, snap = load_times(seq)
+    print(f"load(seq) {load_seq_s:.2f} s, load(path) {load_path_s:.2f} s (not part of the result)")
 
     hardware = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
     _check_hardware(hardware)
@@ -118,7 +140,7 @@ def main() -> None:
     for i in range(args.repeat):
         print(f"run {i + 1} of {args.repeat}", file=sys.stderr)
         start = time.perf_counter()
-        levels = _compute_levels(seq, hardware, keys, BIN_S)
+        levels = _compute_levels(snap, hardware, keys, BIN_S)
         seconds.append(time.perf_counter() - start)
 
     info = machine()
@@ -137,6 +159,8 @@ def main() -> None:
         report = {
             "blocks": blocks,
             "build_seconds": build_s,
+            "load_seq_seconds": load_seq_s,
+            "load_path_seconds": load_path_s,
             "machine": info,
             "num_samples": levels.num_samples,
             "peak_hz_per_t": levels.peak_hz_per_t,

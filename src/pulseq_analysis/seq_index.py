@@ -1,35 +1,31 @@
 """The block table of one sequence, in play order, with dense event indexes.
 
 `sequence_index` reads `seq.block_events` as one array and `seq.block_durations` as one
-vector, without `get_block`, so it costs O(N) for N blocks with no per-block pypulseq
-call. It numbers the unique RF, gradient and ADC events from 1, in the order of their
+vector (`seq` is the sequence of the snapshot), without `get_block`, so it costs O(N) for N
+blocks with no per-block pypulseq call. It numbers the unique RF, gradient and ADC events from 1, in the order of their
 first use in play order. The three gradient axes share one index space: in one block, gx
 comes before gy and gz. The measurements use these numbers to compute a value one time
 for each unique event, not one time for each block, and then give it to each block that
 plays the event.
 
-`sequence_index` refuses a sequence with no `[SIGNATURE]` hash
-(`extensions.refuse_unsigned`). Each measurement reads the index before it reads a block,
-so each one refuses an unsigned sequence through it.
+All the functions take a `snapshot.Snapshot` (`snapshot.load`) and keep their result on it.
+The sequence of a snapshot does not change, and `load` has refused an unsigned sequence and a
+sequence with a rotation, so these functions check neither.
 
 `rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
-first block that uses it. Only they call `get_block`, with the block cache off
-(`block_cache_off`): pypulseq keeps every block that `get_block` reads in
-`seq.block_cache` when `use_block_cache` is True, and nothing removes it.
+first block that uses it, as a tuple that is made on the first call and kept. Only they call
+`get_block`. The block cache of the sequence of a snapshot is off (`load`), so pypulseq keeps
+no block.
 """
 
-import weakref
-from collections.abc import Iterator
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import numpy as np
 import pypulseq as pp
 
-from ._equality import value_dataclass
-from ._kept import _Entry, kept_results
-from .extensions import refuse_unsigned
+from ._equality import _freeze, value_dataclass
 from .seq_utils import GRAD_COLUMNS
+from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 # The columns of a row of `seq.block_events`.
 _RF, _GX, _GY, _GZ, _ADC = 1, 2, 3, 4, 5
@@ -43,9 +39,10 @@ class SequenceIndex:
     events of that kind in the order of their first use. Their dtype is the smallest of
     uint8, uint16 and uint32 that holds K (one dtype for the three gradient columns).
 
-    The arrays are read-only (`writeable` is False): all callers share the index that
-    `sequence_index` keeps, so a change in place would change it for all of them. A caller
-    that needs a writable array makes a copy, for example `np.array(index.start_s)`.
+    The arrays are read-only (`_equality._freeze`: `writeable` is False and cannot be set to
+    True): all callers share the index that `sequence_index` keeps, so a change in place would
+    change it for all of them. A caller that needs a writable array makes a copy, for example
+    `np.array(index.start_s)`.
 
     Two indexes are equal when each field is equal (`_equality.values_equal`), for example
     two indexes of two reads of one file. An index is not hashable.
@@ -78,31 +75,17 @@ def has_gradients(index: SequenceIndex) -> bool:
     return index.grad_first.size > 0
 
 
-# One index for each sequence object, under the key "index" of its kept results.
-_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
+def sequence_index(snap: Snapshot) -> SequenceIndex:
+    """The `SequenceIndex` of `snap`.
 
-
-def sequence_index(seq: pp.Sequence) -> SequenceIndex:
-    """The `SequenceIndex` of `seq`.
-
-    Raises `ValueError` for a sequence with no `[SIGNATURE]` hash
-    (`extensions.refuse_unsigned`, before the kept results are read). The hash is
-    not part of the rule for a new build (`_kept`): the hash can be stale.
-
-    The result is kept for the sequence object, so that several measurements of one
-    sequence build it one time. It is built again after `add_block`, after a new read of
-    a file into the object, and after a change of `seq.grad_raster_time` (the rule of
-    `_kept`). A change that keeps the number of blocks and the last block id and does not
-    replace `seq.block_events`, `seq.block_durations` or `seq.grad_library` is not seen:
-    `mod_grad_axis` and `flip_grad_axis` (they rewrite the entries of `seq.grad_library`),
-    `set_block` on a block id that exists, `apply_soft_delay` (it writes the values of
-    `seq.block_durations`), and a direct write into `seq.block_events`, `seq.block_durations`
-    or a library. Build a new sequence object for it.
+    The result is made on the first call and kept on the snapshot, so that several
+    measurements of one snapshot build it one time. Raises TypeError for an argument that is
+    not a `Snapshot`.
     """
-    refuse_unsigned(seq)
-    kept = kept_results(_CACHE, seq)
+    _check_snapshot(snap)
+    kept = _kept_results(snap)
     if "index" not in kept:
-        kept["index"] = _build_index(seq)
+        kept["index"] = _build_index(snap.sequence)
     return kept["index"]
 
 
@@ -162,7 +145,7 @@ def _dense_sorted(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarr
 
 def _build_index(seq: pp.Sequence) -> SequenceIndex:
     """The `SequenceIndex` of `seq`, built from `seq.block_events` and `seq.block_durations`
-    without the cache of `sequence_index`."""
+    without the keep of `sequence_index`."""
     block_events = seq.block_events
     n = len(block_events)
     block_id = np.fromiter(block_events.keys(), dtype=np.uint32, count=n)
@@ -200,12 +183,12 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
 
     grad_first = grad_key // 3
     grad_first_axis = (grad_key % 3).astype(np.uint8)
-    arrays = (
-        block_id, start_s, duration_s, rf, gx, gy, gz, adc,
-        rf_first, grad_first, grad_first_axis, adc_first,
-    )  # fmt: skip
-    for array in arrays:
-        array.flags.writeable = False  # shared by all callers through the kept index
+    # Read-only arrays, shared by all callers through the kept index.
+    block_id, start_s, duration_s = _freeze(block_id, start_s, duration_s)
+    rf, gx, gy, gz, adc = _freeze(rf, gx, gy, gz, adc)
+    rf_first, grad_first, grad_first_axis, adc_first = _freeze(
+        rf_first, grad_first, grad_first_axis, adc_first
+    )
 
     return SequenceIndex(
         num_blocks=n,
@@ -225,45 +208,55 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
     )
 
 
-@contextmanager
-def block_cache_off(seq: pp.Sequence) -> Iterator[None]:
-    """Turn pypulseq's block cache off for `seq` while the block runs, and give back the
-    old setting after it, also after an error. Blocks already in `seq.block_cache` stay
-    there."""
-    old = seq.use_block_cache
-    seq.use_block_cache = False
-    try:
-        yield
-    finally:
-        seq.use_block_cache = old
-
-
 def _first_events(
-    seq: pp.Sequence, index: SequenceIndex, first: np.ndarray, attrs: list[str]
-) -> Iterator[tuple[int, SimpleNamespace]]:
+    snap: Snapshot, first: np.ndarray, attrs: list[str]
+) -> tuple[tuple[int, SimpleNamespace], ...]:
     """(dense index, event) for each unique event, in dense order: attribute `attrs[k]`
     of the block at play index `first[k]`. A block is read one time for consecutive
     events in it."""
-    with block_cache_off(seq):
-        position, block = -1, None
-        for k, (p, attr) in enumerate(zip(first.tolist(), attrs, strict=True)):
-            if p != position:
-                position, block = p, seq.get_block(int(index.block_id[p]))
-            yield k + 1, getattr(block, attr)
+    seq, block_id = snap.sequence, sequence_index(snap).block_id
+    events = []
+    position, block = -1, None
+    for k, (p, attr) in enumerate(zip(first.tolist(), attrs, strict=True)):
+        if p != position:
+            position, block = p, seq.get_block(int(block_id[p]))
+        events.append((k + 1, getattr(block, attr)))
+    return tuple(events)
 
 
-def rf_events(seq: pp.Sequence, index: SequenceIndex) -> Iterator[tuple[int, SimpleNamespace]]:
-    """(dense index, event) for each unique RF event of `seq`, in dense order."""
-    return _first_events(seq, index, index.rf_first, ["rf"] * index.rf_first.size)
+def rf_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
+    """(dense index, event) for each unique RF event of `snap`, in dense order, as a tuple.
+
+    The tuple is made on the first call and kept on the snapshot. The events are the objects
+    that `get_block` gives, shared by all callers: a caller must not change them. Raises
+    TypeError for an argument that is not a `Snapshot`."""
+    _check_snapshot(snap)
+    kept = _kept_results(snap)
+    if "rf_events" not in kept:
+        first = sequence_index(snap).rf_first
+        kept["rf_events"] = _first_events(snap, first, ["rf"] * first.size)
+    return kept["rf_events"]
 
 
-def grad_events(seq: pp.Sequence, index: SequenceIndex) -> Iterator[tuple[int, SimpleNamespace]]:
-    """(dense index, event) for each unique gradient event of `seq`, in dense order. The
-    axis of the block where it is first used is `index.grad_first_axis[k - 1]`."""
-    attrs = [GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
-    return _first_events(seq, index, index.grad_first, attrs)
+def grad_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
+    """(dense index, event) for each unique gradient event of `snap`, in dense order, as a
+    tuple, kept as `rf_events` is, with the same rules for the events. The axis of the block
+    where it is first used is `sequence_index(snap).grad_first_axis[k - 1]`."""
+    _check_snapshot(snap)
+    kept = _kept_results(snap)
+    if "grad_events" not in kept:
+        index = sequence_index(snap)
+        attrs = [GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
+        kept["grad_events"] = _first_events(snap, index.grad_first, attrs)
+    return kept["grad_events"]
 
 
-def adc_events(seq: pp.Sequence, index: SequenceIndex) -> Iterator[tuple[int, SimpleNamespace]]:
-    """(dense index, event) for each unique ADC event of `seq`, in dense order."""
-    return _first_events(seq, index, index.adc_first, ["adc"] * index.adc_first.size)
+def adc_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
+    """(dense index, event) for each unique ADC event of `snap`, in dense order, as a tuple,
+    kept as `rf_events` is, with the same rules for the events."""
+    _check_snapshot(snap)
+    kept = _kept_results(snap)
+    if "adc_events" not in kept:
+        first = sequence_index(snap).adc_first
+        kept["adc_events"] = _first_events(snap, first, ["adc"] * first.size)
+    return kept["adc_events"]

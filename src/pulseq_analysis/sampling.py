@@ -36,15 +36,13 @@ covers.
 """
 
 import math
-import weakref
 from dataclasses import dataclass
 
 import numpy as np
-import pypulseq as pp
 
+from ._equality import _freeze
 from ._events import (
     AxisEvents,
-    EventPoints,
     GapKinds,
     Ramps,
     axis_events,
@@ -53,9 +51,9 @@ from ._events import (
     polyline,
     ramps,
 )
-from .extensions import refuse_rotations
 from .seq_index import SequenceIndex, sequence_index
 from .seq_utils import GRAD_COLUMNS, TIME_TOLERANCE
+from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 
 @dataclass(frozen=True, eq=False)
@@ -76,32 +74,28 @@ class _AxisGaps:
     max_length_s: float  # the length of the longest piece, 0 without pieces
 
 
-# For each `EventPoints` object, the `SequenceIndex` that the gaps were found with, and the
-# gaps of each axis. `event_points` gives a new object when the kept results of the
-# sequence are old (`_kept`), so the gaps of an old sequence are not found here again. The
-# index is checked, because a sampler can be made from any index and points.
-_GAPS: "weakref.WeakKeyDictionary[EventPoints, tuple[SequenceIndex, dict[str, _AxisGaps]]]" = (
-    weakref.WeakKeyDictionary()
-)
-
-
 class GradientSampler:
     """The waveform of each axis of one sequence, sampled at any sorted times.
 
-    The points of the unique gradient events come from `_events.event_points`, which reads
-    each event one time. The sampler does not copy them. The gaps between the events of an
-    axis (the module docstring) are found one time for each sequence and axis, from the
-    index and the points, and kept (`_GAPS`). Only the sampler keeps them: `gradient_peaks`
+    The index and the points of the unique gradient events of the snapshot come from
+    `seq_index.sequence_index` and `_events.event_points`, which make each one time. The
+    sampler does not copy them. The gaps between the events of an axis (the module docstring)
+    are found one time for each snapshot and axis, from the index and the points, and kept on
+    the snapshot (the key `("gaps", axis)`). Only the sampler keeps them: `gradient_peaks`
     uses the same rule (`_events.gap_kinds`) for its own values. A new sampler also finds
     the events of an axis one time, in its first `sample` or gap search on that axis
     (`_axis_events`). Apart from these, a call to `sample` costs O(samples + blocks between
     the first and the last sample), not O(all blocks).
 
-    `gradient_sampler(seq)` makes a sampler of a sequence.
+    `gradient_sampler(snap)` makes a sampler of a snapshot. Raises TypeError for an
+    argument that is not a `Snapshot`.
     """
 
-    def __init__(self, index: SequenceIndex, points: EventPoints) -> None:
-        self._index = index
+    def __init__(self, snap: Snapshot) -> None:
+        _check_snapshot(snap)
+        self._snapshot = snap
+        self._index = sequence_index(snap)
+        points = event_points(snap)
         self._points = points
         self._grad_raster_time = points.grad_raster_time
         self._delay = points.delay
@@ -129,15 +123,12 @@ class GradientSampler:
         return found
 
     def _gaps(self, axis: str) -> _AxisGaps:
-        """The gaps of `axis`, found one time for each sequence and kept (`_GAPS`)."""
-        entry = _GAPS.get(self._points)
-        if entry is None or entry[0] is not self._index:
-            entry = (self._index, {})
-            _GAPS[self._points] = entry
-        by_axis = entry[1]
-        if axis not in by_axis:
-            by_axis[axis] = self._find_gaps(axis)
-        return by_axis[axis]
+        """The gaps of `axis`, found one time for each snapshot and kept on it."""
+        kept = _kept_results(self._snapshot)
+        key = ("gaps", axis)
+        if key not in kept:
+            kept[key] = self._find_gaps(axis)
+        return kept[key]
 
     def _find_gaps(self, axis: str) -> _AxisGaps:
         """The `_AxisGaps` of `axis`, from the first and the last point of each event, with
@@ -474,25 +465,21 @@ class GradientSampler:
         out[position[inside]] = v0_in + (v1_in - v0_in) * ((time[inside] - t0_in) / (t1_in - t0_in))
 
 
-def gradient_sampler(seq: pp.Sequence) -> GradientSampler:
-    """The `GradientSampler` of `seq`: the public way to make a sampler.
+def gradient_sampler(snap: Snapshot) -> GradientSampler:
+    """The `GradientSampler` of `snap`: the public way to make a sampler.
 
-    It is `GradientSampler(sequence_index(seq), event_points(seq))`. The index and the
-    event points are kept for each sequence object, so the sampler is not kept. Raises
-    NotImplementedError for a sequence with the rotation extension
-    (`extensions.refuse_rotations`): the sampler does not apply a rotation."""
-    refuse_rotations(seq)
-    return GradientSampler(sequence_index(seq), event_points(seq))
+    It is `GradientSampler(snap)`. The index, the event points and the gaps are kept on the
+    snapshot, so the sampler is not kept. Raises TypeError for an argument that is not a
+    `Snapshot`."""
+    return GradientSampler(snap)
 
 
 def _frozen_gaps(*arrays: np.ndarray) -> _AxisGaps:
-    """An `_AxisGaps` of the arrays (start, end, start value, end value), with
-    `writeable` off: all callers share the kept result."""
-    for array in arrays:
-        array.flags.writeable = False
-    start_s, end_s = arrays[0], arrays[1]
+    """An `_AxisGaps` of the arrays (start, end, start value, end value), read-only
+    (`_equality._freeze`): all callers share the kept result."""
+    start_s, end_s, start_hz_per_m, end_hz_per_m = _freeze(*arrays)
     max_length_s = float(np.max(end_s - start_s)) if start_s.size else 0.0
-    return _AxisGaps(*arrays, max_length_s=max_length_s)
+    return _AxisGaps(start_s, end_s, start_hz_per_m, end_hz_per_m, max_length_s=max_length_s)
 
 
 def _polyline_values(times: np.ndarray, values: np.ndarray, q: np.ndarray) -> np.ndarray:

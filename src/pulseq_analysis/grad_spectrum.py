@@ -49,21 +49,16 @@ three axes. This includes the RSS spectrum.
 `docs/usage.md` section 9 gives the rule for all the values of the package.
 """
 
-import weakref
-
 import numpy as np
-import pypulseq as pp
 from scipy import fft as scipy_fft
 from scipy.signal import get_window
 
-from ._equality import FrozenDict, value_dataclass
-from ._events import event_points
-from ._kept import _Entry, kept_results
+from ._equality import FrozenDict, _freeze, value_dataclass
 from ._validate import real
-from .extensions import refuse_rotations
-from .sampling import GradientSampler, sequence_samples
+from .sampling import gradient_sampler, sequence_samples
 from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
 from .seq_utils import AXES, GRAD_COLUMNS
+from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05
@@ -93,26 +88,22 @@ class GradientSpectrum:
     frequency_oversampling: float
 
 
-def _read_only(spectrum: GradientSpectrum) -> GradientSpectrum:
-    """`spectrum`, with `writeable` off for each of its arrays."""
-    for a in (spectrum.frequency_hz, spectrum.rss, *spectrum.axes.values()):
-        a.flags.writeable = False
-    return spectrum
-
-
 def _validated_arguments(
-    seq: pp.Sequence,
+    snap: Snapshot,
     max_frequency_hz: float,
     window_s: float,
     frequency_oversampling: float,
 ) -> tuple[float, float, float]:
     """The three arguments of `gradient_spectrum` as floats, in this order. Raises
     TypeError or ValueError for a refused value (the rules are in the docstring of
-    `gradient_spectrum`). It reads the gradient raster of `seq`, and no block."""
+    `gradient_spectrum`). The rules that need the gradient raster come after the type of
+    `snap` is checked (`_check_snapshot`), because the raster is the one of the sequence of
+    `snap`. It reads no block."""
     max_frequency_hz = real("max_frequency_hz", max_frequency_hz)
     window_s = real("window_s", window_s, positive=True)
     frequency_oversampling = real("frequency_oversampling", frequency_oversampling)
-    dt = seq.grad_raster_time
+    _check_snapshot(snap)
+    dt = snap.sequence.grad_raster_time
     nwin = round(window_s / dt)
     if nwin < 2:
         raise ValueError(
@@ -137,21 +128,20 @@ def _validated_arguments(
     return max_frequency_hz, window_s, frequency_oversampling
 
 
-# For each sequence object: the kept results (`_kept.kept_results`), which hold one
-# `GradientSpectrum` for each tuple of (max_frequency_hz, window_s,
-# frequency_oversampling) as floats.
-_SPECTRUM_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
+# The kept results of a snapshot (`snapshot._kept_results`) that this module makes: one
+# `GradientSpectrum` for each key `("spectrum", max_frequency_hz, window_s,
+# frequency_oversampling)`, with the three arguments as floats.
 
 
 def gradient_spectrum(
-    seq: pp.Sequence,
+    snap: Snapshot,
     *,
     max_frequency_hz: float = MAX_FREQUENCY_HZ,
     window_s: float = FFT_WINDOW_S,
     frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
 ) -> GradientSpectrum:
-    """The spectrum of each gradient axis up to `max_frequency_hz`, and its RSS, in
-    Hz/m/sqrt(Hz) (see the module docstring for the conversion).
+    """The spectrum of each gradient axis of `snap` (`snapshot.load`) up to `max_frequency_hz`,
+    and its RSS, in Hz/m/sqrt(Hz) (see the module docstring for the conversion).
 
     The waveform is the model of MATLAB Pulseq (see the module docstring), not the one of
     pypulseq's `calculate_gradient_spectrum`, for a sequence with an event that starts or
@@ -163,58 +153,56 @@ def gradient_spectrum(
     `frequency_oversampling` gives the FFT length, `nfft = round(frequency_oversampling *
     nwin)` for a window of `nwin` samples. The overlap is `nwin // 2`.
 
-    The result is kept for the sequence object and for each tuple of the three arguments as
-    floats, so that callers of one sequence that need the same spectrum (for example the
-    analysis of each target of one sequence) calculate it one time. The kept results are
-    built again after `add_block`, after a new read of a file into the object, and after a
-    change of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not
-    seen (`seq_index.sequence_index`). The arrays of a result are read-only, because all
+    The result is kept on the snapshot, for each tuple of the three arguments as floats, so
+    that callers of one snapshot that need the same spectrum (for example the analysis of
+    each target of one sequence) calculate it one time. The sequence of a snapshot does not
+    change, so a kept result is never old. The arrays of a result are read-only, because all
     callers share them.
 
-    Raises NotImplementedError for a sequence with the rotation extension
-    (`extensions.refuse_rotations`), TypeError for an argument that is not a number (a
-    bool is not), and ValueError for an argument that is not finite or is too large for a
-    float, for `window_s` not
+    Raises TypeError for an argument that is not a number (a bool is not) and for a `snap`
+    that is not a `snapshot.Snapshot` (the message names `load`), and ValueError for an
+    argument that is not finite or is too large for a float, for `window_s` not
     above 0 or less than 2 samples at the gradient raster of the file, for
     `frequency_oversampling` below 1, and for `max_frequency_hz` not above 0, above the
     Nyquist frequency `1 / (2 * dt)`, or below the frequency step `1 / (nfft * dt)`
-    (the result then has fewer than two frequencies). The arguments are checked before the
-    blocks are read and before the kept result is looked up.
+    (the result then has fewer than two frequencies). The three arguments are checked for a
+    number first, then the type of `snap` (the other rules need its gradient raster). All are
+    checked before the blocks are read and before the kept result is looked up.
     """
-    refuse_rotations(seq)
-    key = _validated_arguments(seq, max_frequency_hz, window_s, frequency_oversampling)
-    by_key = kept_results(_SPECTRUM_CACHE, seq)
-    if key not in by_key:
-        by_key[key] = _compute_spectrum(seq, *key)
-    return by_key[key]
+    key = _validated_arguments(snap, max_frequency_hz, window_s, frequency_oversampling)
+    kept = _kept_results(snap)
+    kept_key = ("spectrum", *key)
+    if kept_key not in kept:
+        kept[kept_key] = _compute_spectrum(snap, *key)
+    return kept[kept_key]
 
 
 def _compute_spectrum(
-    seq: pp.Sequence,
+    snap: Snapshot,
     max_frequency_hz: float,
     window_s: float,
     frequency_oversampling: float,
 ) -> GradientSpectrum:
-    """The spectrum of `seq` for three arguments that `_validated_arguments` has checked
+    """The spectrum of `snap` for three arguments that `_validated_arguments` has checked
     (as floats). It does not check them again and does not keep the result."""
-    index = sequence_index(seq)
+    index = sequence_index(snap)
     if not has_gradients(index):
-        # Each array is its own, as `_read_only` makes each one read-only.
-        return _read_only(
-            GradientSpectrum(
-                NO_GRADIENTS,
-                np.zeros(0),
-                FrozenDict({axis: np.zeros(0) for axis in AXES}),
-                np.zeros(0),
-                max_frequency_hz,
-                window_s,
-                frequency_oversampling,
-            )
+        # Each array is its own, as `_freeze` makes a copy of each.
+        frequency_hz, rss, *axes = _freeze(*(np.zeros(0) for _ in range(5)))
+        return GradientSpectrum(
+            NO_GRADIENTS,
+            frequency_hz,
+            FrozenDict(zip(AXES, axes, strict=True)),
+            rss,
+            max_frequency_hz,
+            window_s,
+            frequency_oversampling,
         )
-    sampler = GradientSampler(index, event_points(seq))
+    sampler = gradient_sampler(snap)
 
-    # The file's raster ([DEFINITIONS]): `Sequence.read` does not change `seq.system`.
-    dt = seq.grad_raster_time
+    # The file's raster ([DEFINITIONS]): `Sequence.read` does not change the `system` of the
+    # sequence.
+    dt = snap.sequence.grad_raster_time
     nwin = round(window_s / dt)
     nfft = round(frequency_oversampling * nwin)
     freq = np.fft.rfftfreq(nfft, dt)
@@ -256,16 +244,15 @@ def _compute_spectrum(
             rss_sq = rss_sq + sxx**2
         chunk_rss = np.sqrt(rss_sq).max(axis=1)
         rss_max = chunk_rss if rss_max is None else np.maximum(rss_max, chunk_rss)
-    return _read_only(
-        GradientSpectrum(
-            None,
-            freq[:keep_n],
-            FrozenDict(axes_max),
-            rss_max,
-            max_frequency_hz,
-            window_s,
-            frequency_oversampling,
-        )
+    frequency_hz, rss, *axes = _freeze(freq[:keep_n], rss_max, *(axes_max[axis] for axis in AXES))
+    return GradientSpectrum(
+        None,
+        frequency_hz,
+        FrozenDict(zip(AXES, axes, strict=True)),
+        rss,
+        max_frequency_hz,
+        window_s,
+        frequency_oversampling,
     )
 
 

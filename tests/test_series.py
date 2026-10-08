@@ -25,6 +25,7 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
+    loaded,
     raster_4us_sequence,
     spin_echo_sequence,
 )
@@ -495,10 +496,10 @@ def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
     `coord_step`, `bin_samples * dt_s`, with the tolerance), and it equals the series that
     `from_obj` reads from the strict JSON text of its `to_obj`. A sequence with no gradient
     gives no series."""
-    seq = builder()
+    snap = loaded(builder())
     kwargs = {} if bin_s is None else {"bin_s": bin_s}
     levels = PNS_SAFE_LEVELS.compute(
-        seq, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds, **kwargs
+        snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds, **kwargs
     )
 
     series = PNS_SAFE_LEVELS.to_series(levels)
@@ -518,9 +519,9 @@ def test_the_series_of_gradient_spectrum_is_valid(builder):
     """The series of `gradient.spectrum` for each synthetic sequence and for
     `build_repeating(10)` is a valid `Series` that equals the series that `from_obj` reads from
     its `to_obj`. A sequence with no gradient gives no series."""
-    seq = builder()
+    snap = loaded(builder())
 
-    series = GRADIENT_SPECTRUM.to_series(GRADIENT_SPECTRUM.compute(seq))
+    series = GRADIENT_SPECTRUM.to_series(GRADIENT_SPECTRUM.compute(snap))
 
     for s in series:
         assert Series.from_obj(s.to_obj()) == s

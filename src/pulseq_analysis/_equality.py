@@ -33,7 +33,7 @@ import numpy as np
 class FrozenDict(dict):
     """A `dict` that cannot be changed, for the dicts of a result.
 
-    The kept results (`_kept`) are shared by all callers, so a change of a dict of a result
+    The kept results of a snapshot are shared by all callers, so a change of a dict of a result
     would change it for all of them. `MappingProxyType` cannot be pickled, and it is not a
     `dict`. A subclass of `dict` keeps `isinstance(x, dict)`, `json.dumps`, `pickle` and
     `copy`. Each method that changes the dict raises `TypeError`. `|` gives a plain `dict`.

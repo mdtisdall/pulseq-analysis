@@ -10,8 +10,8 @@ scanner rotates the logical axes onto the physical ones for the prescribed orien
 an oblique slice one physical axis can see amplitude up to the vector peak,
 `GradientPeaks.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
 
-The model of one axis. `dt` is `seq.grad_raster_time` (the `GradientRasterTime` that the file
-declares), not the raster of `seq.system`. The points of each gradient event are those of
+The model of one axis. `dt` is the `grad_raster_time` of the sequence of the snapshot (the
+`GradientRasterTime` that the file declares), not the raster of its `system`. The points of each gradient event are those of
 `seq_utils.gradient_offsets`, at the times `(block start + delay) + offset`, as the Pulseq
 specification treats them: the event is piecewise linear between them. Between two consecutive
 events on the axis (the blocks between them have no event on the axis), the gap is `first_time -
@@ -58,7 +58,7 @@ and in one block the line or the step into the event is before the segments of t
 
 This computes the per-event values (`_EventData`) for each unique gradient event, with numpy over
 the points of `_events.event_points` (which reads one block with `get_block` for each unique event,
-one time for each sequence). It then makes the values of each block one time for each sequence
+one time for each snapshot). It then makes the values of each block one time for each snapshot
 (`_BlockData`; the per-event values are made with it and are not kept):
 for each axis the peak, the slew with the ramps, the junction (the step or the line into the
 event) and the RMS integral of the piece of the block, with their times, and the vector peak. The
@@ -81,24 +81,21 @@ caller that needs each place where a value is above a limit. It gives copies of 
 of its event. The junction of a block is the step or the line into its event, and 0 for a long
 gap and for a block with no event on the axis.
 
-Both public functions keep their results for the sequence object (`_kept.kept_results`):
-`gradient_peaks` for `window=None`, and `block_gradient_values`. The values of each block
-(`_BlockData`) are kept too, so a call of `gradient_peaks` with a window uses them. A result
-with a window is not kept, because a caller can ask for many windows. The kept results are
-built again after `add_block`, after a new read of a file into the object, and after a change
-of `seq.grad_raster_time` (the rule of `_kept`). A block replaced in place is not seen
-(`seq_index.sequence_index`). Each kept result is read-only, because all callers share it.
+Both public functions take a `snapshot.Snapshot` (`snapshot.load`) as their first argument
+and keep their results on it (`snapshot._kept_results`): `gradient_peaks` for `window=None`,
+and `block_gradient_values`. The values of each block (`_BlockData`) are kept too, so a call of
+`gradient_peaks` with a window uses them. A result with a window is not kept, because a caller
+can ask for many windows. The sequence of a snapshot does not change, so a kept result is
+never old. Each kept result is read-only, because all callers share it.
 """
 
 import math
-import weakref
 from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
-import pypulseq as pp
 
-from ._equality import FrozenDict, value_dataclass
+from ._equality import FrozenDict, _freeze, value_dataclass
 from ._events import (
     AxisEvents,
     EventPoints,
@@ -108,11 +105,10 @@ from ._events import (
     polyline,
     ramps,
 )
-from ._kept import _Entry, kept_results
 from ._validate import real
-from .extensions import refuse_rotations
 from .seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
 from .seq_utils import AXES, GRAD_COLUMNS, TIME_TOLERANCE
+from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 
 @dataclass(frozen=True)
@@ -196,7 +192,7 @@ class BlockGradientValues:
     `TIME_TOLERANCE` before the end of the sequence and its value is not 0, is also in the slew of
     the block of the last event.
     `junction_hz_per_m_per_s` is the step into the event, `|last value of the earlier event -
-    first value of this event|` divided by `seq.grad_raster_time`, across a zero gap, or the
+    first value of this event|` divided by the `grad_raster_time` of the sequence, across a zero gap, or the
     slope of the line into the event across a short gap, `|last value - first value|` divided by
     the gap. It is 0 for a long gap, whose ramps are in the slew, and for a block with no event on
     the axis. For the first event of the axis it is the step from 0 to its first value, which is
@@ -214,8 +210,8 @@ class BlockGradientValues:
     block. The credited block of the vector peak is the block with the earliest
     `vector_peak_time_s` among the blocks with the largest value.
 
-    Each array is read-only (`writeable` is False) and is its own array, not a view of the
-    index that `sequence_index` keeps. Each of the five dicts is a `_equality.FrozenDict`
+    Each array is read-only (`_equality._freeze`: `writeable` is False and cannot be set to
+    True) and is its own array, not a view of the index that `sequence_index` keeps. Each of the five dicts is a `_equality.FrozenDict`
     (a read-only dict). A caller that needs a writable array makes a copy. Two results are
     equal when each field is equal (`_equality.values_equal`), for example the results of
     two reads of one file. A result is not hashable.
@@ -295,10 +291,9 @@ def _event_values(points: EventPoints) -> _EventData:
     )
 
 
-# For each sequence object: the kept results (`_kept.kept_results`), under the keys "block_data"
-# (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`) and "block_values" (the
-# `BlockGradientValues`).
-_CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictionary()
+# The kept results of a snapshot (`snapshot._kept_results`) that this module makes, under the keys
+# "block_data" (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`) and
+# "block_values" (the `BlockGradientValues`).
 
 
 # ---- The events of one axis, and the gaps between them ----
@@ -646,7 +641,7 @@ def _exact_vector_peaks(
 @dataclass
 class _BlockData:
     """The values of each block that `gradient_peaks` and `block_gradient_values` take from,
-    built one time for each sequence object (`_kept_block_data`), so that a window does not
+    built one time for each snapshot (`_kept_block_data`), so that a window does not
     calculate them again and does not read the K unique events. N is the number of blocks. The
     arrays are read-only and the dicts are `FrozenDict`s, because all callers share them. The
     dicts have the keys "x", "y" and "z"."""
@@ -672,12 +667,17 @@ class _BlockData:
     end_envelope: np.ndarray  # N: the maximum of `reach_end` from the first block to the block
 
 
-def _kept_block_data(
-    seq: pp.Sequence, kept: dict, index: SequenceIndex, points: EventPoints
-) -> _BlockData:
-    """The `_BlockData` of `seq`, built one time for the kept results `kept` of `seq`. `index`
-    and `points` are the index and the event points of `seq`. The `_EventData` that it is made
-    from is not kept: nothing else reads it."""
+def _frozen_columns(columns: dict[str, np.ndarray]) -> FrozenDict:
+    """A `FrozenDict` of `_equality._freeze` copies of the arrays of `columns`, with the same
+    keys in the same order."""
+    return FrozenDict(zip(columns, _freeze(*columns.values()), strict=True))
+
+
+def _kept_block_data(snap: Snapshot, index: SequenceIndex, points: EventPoints) -> _BlockData:
+    """The `_BlockData` of `snap`, built one time and kept on it. `index` and `points` are the
+    index and the event points of `snap`. The `_EventData` that it is made from is not kept:
+    nothing else reads it."""
+    kept = _kept_results(snap)
     if "block_data" not in kept:
         ev = _event_values(points)
         dt = points.grad_raster_time
@@ -710,24 +710,23 @@ def _kept_block_data(
         slew, slew_time = column("slew"), column("slew_time")
         junction, junction_time = column("junction"), column("junction_time")
         rms_integral = column("rms_integral")
-        dicts = (peak, peak_time, slew, slew_time, junction, junction_time, rms_integral)
-        arrays = (
-            end_s, vector_peak, vector_peak_time, reach_start, reach_end,
-            start_envelope, end_envelope,
-            *(array for values in dicts for array in values.values()),
-        )  # fmt: skip
-        for array in arrays:
-            array.flags.writeable = False
         whole_integral = {axis: float(np.sum(rms_integral[axis])) for axis in AXES}
+        # All callers share these arrays: read-only copies.
+        end_s, vector_peak, vector_peak_time, reach_start, reach_end, start_envelope, end_envelope = (
+            _freeze(
+                end_s, vector_peak, vector_peak_time, reach_start, reach_end, start_envelope,
+                end_envelope,
+            )
+        )  # fmt: skip
         kept["block_data"] = _BlockData(
             end_s,
-            FrozenDict(peak),
-            FrozenDict(peak_time),
-            FrozenDict(slew),
-            FrozenDict(slew_time),
-            FrozenDict(junction),
-            FrozenDict(junction_time),
-            FrozenDict(rms_integral),
+            _frozen_columns(peak),
+            _frozen_columns(peak_time),
+            _frozen_columns(slew),
+            _frozen_columns(slew_time),
+            _frozen_columns(junction),
+            _frozen_columns(junction_time),
+            _frozen_columns(rms_integral),
             vector_peak,
             vector_peak_time,
             FrozenDict(whole_integral),
@@ -1035,9 +1034,9 @@ def _range_result(
     return axes, vector.value, vector.time, vector_peak_block, has_event_any
 
 
-def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = None) -> GradientPeaks:
-    """The peak amplitude, the peak slew rate and the RMS amplitude of `seq`'s
-    gradients, on each logical axis and as a three-axis vector.
+def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None) -> GradientPeaks:
+    """The peak amplitude, the peak slew rate and the RMS amplitude of the gradients of `snap`
+    (`snapshot.load`), on each logical axis and as a three-axis vector.
 
     With `window=None`, the range is the whole sequence, `(0.0, total_duration)`.
     Otherwise `window` is `(start_s, end_s)` in seconds from the sequence start; it
@@ -1055,37 +1054,31 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     end: a window that lies past an end of the sequence by less than `TIME_TOLERANCE` gives a
     range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and zero values.
 
-    The result for `window=None` is kept for the sequence object, so that callers of one
-    sequence calculate it one time. A result with a window is not kept, because a caller can
+    The result for `window=None` is kept on the snapshot, so that callers of one snapshot
+    calculate it one time. A result with a window is not kept, because a caller can
     ask for many windows, but it uses the kept values of each block (`_BlockData`), so its cost is
-    the number of blocks in the window. The kept results are built again after `add_block`,
-    after a new read of a file into the object, and after a change of `seq.grad_raster_time` (the
-    rule of `_kept`). A block replaced in place is not seen (`seq_index.sequence_index`). The
-    kept result is read-only: `axes` is a `FrozenDict` and the result is a
-    frozen dataclass.
+    the number of blocks in the window. The kept result is read-only: `axes` is a `FrozenDict`
+    and the result is a frozen dataclass.
 
     The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
     section 9).
 
-    This calls `extensions.refuse_rotations` first. Then it checks `window` (its form, its
-    numbers and their order), before it reads the sequence. Then it builds
-    `seq_index.sequence_index(seq)` (which refuses a sequence with no `[SIGNATURE]` hash, also
-    when the result is kept), returns the kept result for `window=None` when there is one,
-    and checks the window against the length of the sequence. Only then does it take the values
-    of each block (`_BlockData`, built one time for each sequence from the per-event values
-    `_event_values` of the points of `_events.event_points`), and combine them with numpy over
-    the blocks of the range: an `argmax` and a sum of the RMS integrals over the blocks that lie
-    whole in the range, and the points of `_events.event_points` for the few edge blocks
-    (`_range_result`). It reads no block with `get_block` for a window. The one `get_block`
-    call for each unique gradient event is in `_events.event_points`, one time for each
-    sequence.
+    This checks `window` (its form, its numbers and their order), then the type of `snap`. Then
+    it builds `seq_index.sequence_index(snap)`, returns the kept result for `window=None` when
+    there is one, and checks the window against the length of the sequence. Only then does it
+    take the values of each block (`_BlockData`, built one time for each snapshot from the
+    per-event values `_event_values` of the points of `_events.event_points`), and combine them
+    with numpy over the blocks of the range: an `argmax` and a sum of the RMS integrals over the
+    blocks that lie whole in the range, and the points of `_events.event_points` for the few
+    edge blocks (`_range_result`). It reads no block with `get_block` for a window. The one
+    `get_block` call for each unique gradient event is in `_events.event_points`, one time for
+    each snapshot.
 
-    Raises NotImplementedError for a sequence with the rotation extension
-    (`extensions.refuse_rotations`): the numbers are of the logical axes as they are stored.
+    Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
+    A snapshot has no signature hash missing and no rotation (`snapshot.load` refuses them), so
+    the numbers are of the logical axes as they are stored.
     """
-    refuse_rotations(seq)
-
     if window is not None:
         if not isinstance(window, tuple | list) or len(window) != 2:
             raise TypeError(f"window must be a pair (start_s, end_s), not {window!r}")
@@ -1094,8 +1087,9 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
         if not start_s < end_s:
             raise ValueError(f"window {window!r} must have a start before its end")
 
-    index = sequence_index(seq)
-    kept = kept_results(_CACHE, seq)
+    _check_snapshot(snap)
+    index = sequence_index(snap)
+    kept = _kept_results(snap)
     if window is None and "peaks" in kept:
         return kept["peaks"]
     total_duration = index.end_s
@@ -1115,8 +1109,8 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
             min(max(end_s, 0.0), total_duration),
         )
 
-    points = event_points(seq)
-    blocks = _kept_block_data(seq, kept, index, points)
+    points = event_points(snap)
+    blocks = _kept_block_data(snap, index, points)
 
     lo, hi = range_s
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
@@ -1143,8 +1137,9 @@ def gradient_peaks(seq: pp.Sequence, *, window: tuple[float, float] | None = Non
     return result
 
 
-def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
-    """The gradient values of each block of `seq`, in play order (`BlockGradientValues`).
+def block_gradient_values(snap: Snapshot) -> BlockGradientValues:
+    """The gradient values of each block of `snap` (`snapshot.load`), in play order
+    (`BlockGradientValues`).
 
     These are the values that `gradient_peaks` takes the largest of for the whole file, kept
     for each block: the peak amplitude and the peak slew of the block's event and its ramps on
@@ -1154,52 +1149,40 @@ def block_gradient_values(seq: pp.Sequence) -> BlockGradientValues:
 
     The values are in Hz/m and Hz/m/s, with no gamma, as for `gradient_peaks`.
 
-    The result is kept for the sequence object, with the same rule as `gradient_peaks` for
-    `window=None` (the module docstring), so a second call gives the same object. The result
+    The result is kept on the snapshot, so a second call gives the same object. The result
     is read-only: its arrays are not writeable and its dicts are `FrozenDict`s.
 
-    This builds `seq_index.sequence_index(seq)` and the values of each block (`_BlockData`, from
+    This builds `seq_index.sequence_index(snap)` and the values of each block (`_BlockData`, from
     the per-event values `_event_values` of `_events.event_points`), both shared with
-    `gradient_peaks` and built one time for each sequence. Its result holds copies
+    `gradient_peaks` and built one time for each snapshot. Its result holds copies
     of the arrays of `_BlockData`, so a caller cannot change what `gradient_peaks` uses. It
     computes the peak of |G| of each block from the exact polylines of the whole file. It reads
     one block with `get_block` for each unique gradient event (in `_events.event_points`, one
-    time for each sequence), and no other block.
+    time for each snapshot), and no other block.
 
-    Raises NotImplementedError for a sequence with the rotation extension
-    (`extensions.refuse_rotations`): the values are of the logical axes as they are stored.
+    Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
+    A snapshot has no rotation (`snapshot.load` refuses it), so the values are of the logical
+    axes as they are stored.
     """
-    refuse_rotations(seq)
-    index = sequence_index(seq)
-    kept = kept_results(_CACHE, seq)
+    _check_snapshot(snap)
+    index = sequence_index(snap)
+    kept = _kept_results(snap)
     if "block_values" in kept:
         return kept["block_values"]
-    blocks = _kept_block_data(seq, kept, index, event_points(seq))
+    blocks = _kept_block_data(snap, index, event_points(snap))
 
-    peak_hz_per_m = {axis: array.copy() for axis, array in blocks.peak.items()}
-    peak_time_s = {axis: array.copy() for axis, array in blocks.peak_time.items()}
-    slew_hz_per_m_per_s = {axis: array.copy() for axis, array in blocks.slew.items()}
-    slew_time_s = {axis: array.copy() for axis, array in blocks.slew_time.items()}
-    junction_hz_per_m_per_s = {axis: array.copy() for axis, array in blocks.junction.items()}
-    vector_peak_hz_per_m = blocks.vector_peak.copy()
-    vector_peak_time_s = blocks.vector_peak_time.copy()
-    block_id = index.block_id.astype(np.int64)
-    result_start_s = index.start_s.copy()
-    dicts = (peak_hz_per_m, peak_time_s, slew_hz_per_m_per_s, slew_time_s, junction_hz_per_m_per_s)
-    arrays = (
-        block_id, result_start_s, vector_peak_hz_per_m, vector_peak_time_s,
-        *(array for values in dicts for array in values.values()),
-    )  # fmt: skip
-    for array in arrays:
-        array.flags.writeable = False  # each is its own array, shared by all callers of the result
+    # `_freeze` copies each array, so each is its own array, shared by all callers of the result.
+    block_id, start_s, vector_peak_hz_per_m, vector_peak_time_s = _freeze(
+        index.block_id.astype(np.int64), index.start_s, blocks.vector_peak, blocks.vector_peak_time
+    )
     result = BlockGradientValues(
         block_id=block_id,
-        start_s=result_start_s,
-        peak_hz_per_m=FrozenDict(peak_hz_per_m),
-        peak_time_s=FrozenDict(peak_time_s),
-        slew_hz_per_m_per_s=FrozenDict(slew_hz_per_m_per_s),
-        slew_time_s=FrozenDict(slew_time_s),
-        junction_hz_per_m_per_s=FrozenDict(junction_hz_per_m_per_s),
+        start_s=start_s,
+        peak_hz_per_m=_frozen_columns(blocks.peak),
+        peak_time_s=_frozen_columns(blocks.peak_time),
+        slew_hz_per_m_per_s=_frozen_columns(blocks.slew),
+        slew_time_s=_frozen_columns(blocks.slew_time),
+        junction_hz_per_m_per_s=_frozen_columns(blocks.junction),
         vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=vector_peak_time_s,
     )

@@ -2,7 +2,6 @@ import pypulseq as pp
 import pytest
 from pypulseq.event_lib import EventLibrary
 from synthetic import (
-    EXAMPLE_HW,
     SYSTEM,
     arbitrary_gradient_sequence,
     empty_sequence,
@@ -11,21 +10,7 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis import grad_peaks, grad_spectrum, pns_levels
 from pulseq_analysis.extensions import refuse_rotations, refuse_unsigned
-
-_MEASUREMENTS = {
-    "gradient_peaks": grad_peaks.gradient_peaks,
-    "block_gradient_values": grad_peaks.block_gradient_values,
-    "pns_levels": lambda seq: pns_levels.pns_levels(seq, hardware=EXAMPLE_HW),
-    "gradient_spectrum": grad_spectrum.gradient_spectrum,
-}
-_RESULT_TYPES = {
-    "gradient_peaks": grad_peaks.GradientPeaks,
-    "block_gradient_values": grad_peaks.BlockGradientValues,
-    "pns_levels": pns_levels.PnsLevels,
-    "gradient_spectrum": grad_spectrum.GradientSpectrum,
-}
 
 
 def _in_memory_sequence() -> pp.Sequence:
@@ -144,20 +129,3 @@ def test_refuse_unsigned_raises_for_a_read_of_an_unsigned_file(tmp_path):
     seq.read(str(path))
     with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
         refuse_unsigned(seq)
-
-
-@pytest.mark.parametrize("name", list(_MEASUREMENTS))
-def test_each_measurement_raises_for_a_sequence_built_in_memory(name):
-    """Each public measurement raises `ValueError` for a sequence with no hash. They
-    reach `refuse_unsigned` through `sequence_index`."""
-    with pytest.raises(ValueError, match=r"no \[SIGNATURE\] hash"):
-        _MEASUREMENTS[name](_in_memory_sequence())
-
-
-@pytest.mark.parametrize("name", list(_MEASUREMENTS))
-def test_each_measurement_accepts_a_sequence_after_write(name, tmp_path):
-    """After `write` signs a sequence, each public measurement gives a result of its own
-    result type for it."""
-    seq = _in_memory_sequence()
-    seq.write(str(tmp_path / "a.seq"))
-    assert isinstance(_MEASUREMENTS[name](seq), _RESULT_TYPES[name])

@@ -28,14 +28,13 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
+    loaded,
     signed,
     spin_echo_sequence,
-    with_rotation_library,
 )
 
 from pulseq_analysis import grad_spectrum, seq_index
 from pulseq_analysis._equality import FrozenDict
-from pulseq_analysis._events import event_points
 from pulseq_analysis.sampling import GradientSampler, sequence_samples
 from pulseq_analysis.seq_index import sequence_index
 
@@ -55,10 +54,10 @@ def _sine_sequence(frequency_hz: float, duration_s: float = 0.5):
     return seq
 
 
-def _compute_default(seq):
+def _compute_default(snap):
     """A new calculation with the defaults, which `gradient_spectrum` would keep."""
     return grad_spectrum._compute_spectrum(
-        seq,
+        snap,
         grad_spectrum.MAX_FREQUENCY_HZ,
         grad_spectrum.FFT_WINDOW_S,
         grad_spectrum.FREQUENCY_OVERSAMPLING,
@@ -66,7 +65,7 @@ def _compute_default(seq):
 
 
 def test_spin_echo_spectrum():
-    s = grad_spectrum.gradient_spectrum(spin_echo_sequence())
+    s = grad_spectrum.gradient_spectrum(loaded(spin_echo_sequence()))
     assert s.reason is None
     assert s.frequency_hz[0] == 0
     assert s.frequency_hz[-1] == pytest.approx(grad_spectrum.MAX_FREQUENCY_HZ)
@@ -79,13 +78,13 @@ def test_spin_echo_spectrum():
 
 
 def test_sine_peak_is_at_its_frequency():
-    s = grad_spectrum.gradient_spectrum(_sine_sequence(600))
+    s = grad_spectrum.gradient_spectrum(loaded(_sine_sequence(600)))
     assert s.frequency_hz[np.argmax(s.rss)] == pytest.approx(600)
     assert s.rss.max() == pytest.approx(SINE_PEAK, rel=0.01)
 
 
 def test_short_sequence_is_padded_to_one_window():
-    s = grad_spectrum.gradient_spectrum(_sine_sequence(600, duration_s=0.02))
+    s = grad_spectrum.gradient_spectrum(loaded(_sine_sequence(600, duration_s=0.02)))
     assert s.reason is None
     assert abs(s.frequency_hz[np.argmax(s.rss)] - 600) <= 20
 
@@ -101,16 +100,16 @@ def test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle(samples,
     dt = SYSTEM.grad_raster_time
     trapezoid = pp.make_trapezoid("x", area=3000, system=SYSTEM)
     delay_s = round(samples * dt - pp.calc_duration(trapezoid), 9)
-    at_the_end = signed(pp.Sequence(SYSTEM))
-    in_the_middle = signed(pp.Sequence(SYSTEM))
+    at_the_end = pp.Sequence(SYSTEM)
+    in_the_middle = pp.Sequence(SYSTEM)
     for seq in (at_the_end, in_the_middle):
         seq.add_block(
             pp.make_trapezoid("x", area=3000, delay=delay_s, system=SYSTEM),
             pp.make_delay(round(samples * dt, 9)),
         )
     in_the_middle.add_block(pp.make_delay(0.06))
-    end = grad_spectrum.gradient_spectrum(at_the_end, window_s=window_s)
-    middle = grad_spectrum.gradient_spectrum(in_the_middle, window_s=window_s)
+    end = grad_spectrum.gradient_spectrum(loaded(at_the_end), window_s=window_s)
+    middle = grad_spectrum.gradient_spectrum(loaded(in_the_middle), window_s=window_s)
     assert end.rss.max() > 0
     np.testing.assert_allclose(end.rss, middle.rss, rtol=1e-12, atol=0)
     for axis in end.axes:
@@ -118,13 +117,13 @@ def test_gradients_at_the_end_are_attenuated_no_more_than_in_the_middle(samples,
 
 
 def test_no_gradients():
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(
         pp.make_block_pulse(
             flip_angle=math.pi / 2, duration=1e-3, delay=SYSTEM.rf_dead_time, system=SYSTEM
         )
     )
-    s = grad_spectrum.gradient_spectrum(seq)
+    s = grad_spectrum.gradient_spectrum(loaded(seq))
     assert s.reason == grad_spectrum.NO_GRADIENTS
     assert s.reason is seq_index.NO_GRADIENTS
     assert grad_spectrum.NO_GRADIENTS is seq_index.NO_GRADIENTS
@@ -139,11 +138,11 @@ def test_no_gradients():
 def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     # 30 TRs of 20 ms: 600 ms, 25 windows of 50 ms with a 25 ms hop, so chunks of 4
     # windows make 7 chunks, and the last chunk is shorter than the others.
-    seq = gre_sequence(num_trs=30)
+    snap = loaded(gre_sequence(num_trs=30))
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 1_000_000)
-    whole = _compute_default(seq)
+    whole = _compute_default(snap)
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
-    chunked = _compute_default(seq)
+    chunked = _compute_default(snap)
     assert chunked is not whole
     # Each window has the same samples and the same FFT of one row in each chunk size,
     # so the results are equal bit for bit.
@@ -168,15 +167,16 @@ def test_matches_scipy_spectrogram(seq, monkeypatch):
     `(i + 0.5) * dt`, `pad` zeros at the start and `pad + (-nt) % hop` at the end).
     `CHUNK_WINDOWS` is 4, so the comparison also covers the joins of the chunks and a shorter last chunk."""
     monkeypatch.setattr(grad_spectrum, "CHUNK_WINDOWS", 4)
-    got = _compute_default(seq)
+    snap = loaded(seq)
+    got = _compute_default(snap)
 
-    sampler = GradientSampler(sequence_index(seq), event_points(seq))
+    sampler = GradientSampler(snap)
     dt = seq.grad_raster_time
     nwin = round(grad_spectrum.FFT_WINDOW_S / dt)
     nfft = round(grad_spectrum.FREQUENCY_OVERSAMPLING * nwin)
     pad = nwin // 2
     hop = nwin - pad
-    nt = sequence_samples(sequence_index(seq), dt)
+    nt = sequence_samples(sequence_index(snap), dt)
     t = (np.arange(nt) + 0.5) * dt
     window_maxima = {}
     rss_sq = 0.0
@@ -247,7 +247,9 @@ def _assert_matches_oracle(
     ids=["spin_echo", "gre", "arbitrary_gradient", "empty", "sine"],
 )
 def test_matches_oracle_on_synthetic_sequences(seq):
-    _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
+    _assert_matches_oracle(
+        grad_spectrum.gradient_spectrum(loaded(seq)), oracle.gradient_spectrum(seq), seq
+    )
 
 
 # The blocks of each sequence: 1000 blocks (200 TRs, 1.2 s and 1.4 s, 48 and 56 windows), so
@@ -272,7 +274,7 @@ def test_matches_oracle_with_many_chunks(case, monkeypatch):
     seq = _MANY_CHUNK_SEQUENCES[case](_MANY_CHUNK_BLOCKS // TR_BLOCKS)
     tol = 1e-12 * max(1.0, seq.duration()[0])
     _assert_matches_oracle(
-        grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq, tol=tol
+        grad_spectrum.gradient_spectrum(loaded(seq)), oracle.gradient_spectrum(seq), seq, tol=tol
     )
 
 
@@ -317,8 +319,10 @@ def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_wavefor
     sequences are the hand sequences of `gap_sequences`, each also with every amplitude negated,
     a gap of 1.5 raster times between two values that are not 0, a short gap from 0 to a value
     that is not 0 and from one to 0, and the 8 random sequences of `random_gaps` (seeds 0 to 7)."""
-    seq = signed(build())
-    _assert_matches_oracle(grad_spectrum.gradient_spectrum(seq), oracle.gradient_spectrum(seq), seq)
+    seq = build()
+    _assert_matches_oracle(
+        grad_spectrum.gradient_spectrum(loaded(seq)), oracle.gradient_spectrum(seq), seq
+    )
 
 
 def test_spectrum_does_not_depend_on_the_gamma_of_the_system():
@@ -327,11 +331,11 @@ def test_spectrum_does_not_depend_on_the_gamma_of_the_system():
     waveform_hz_per_m = 1e-3 * SYSTEM.gamma * np.sin(2 * np.pi * 600 * np.arange(5000) * 1e-5)
     spectra = []
     for system in (SYSTEM, other):
-        seq = signed(pp.Sequence(system))
+        seq = pp.Sequence(system)
         seq.add_block(
             pp.make_arbitrary_grad("x", waveform_hz_per_m, first=0, last=0, system=system)
         )
-        spectra.append(grad_spectrum.gradient_spectrum(seq))
+        spectra.append(grad_spectrum.gradient_spectrum(loaded(seq)))
     assert spectra[0].reason is None
     assert other.gamma != SYSTEM.gamma
     np.testing.assert_array_equal(spectra[0].frequency_hz, spectra[1].frequency_hz)
@@ -341,26 +345,18 @@ def test_spectrum_does_not_depend_on_the_gamma_of_the_system():
     np.testing.assert_array_equal(spectra[0].rss, spectra[1].rss)
 
 
-def test_gradient_spectrum_refuses_rotations():
-    """`gradient_spectrum` raises `NotImplementedError` for a sequence with a rotation
-    library (`extensions.refuse_rotations`): the sampler does not apply a rotation."""
-    with pytest.raises(NotImplementedError, match="rotation extension"):
-        grad_spectrum.gradient_spectrum(with_rotation_library())
-
-
 def test_gradient_spectrum_keeps_the_result():
-    seq = gre_sequence(num_trs=2)
-    first = grad_spectrum.gradient_spectrum(seq)
-    assert grad_spectrum.gradient_spectrum(seq) is first
-    seq.add_block(pp.make_delay(1e-3))
-    assert grad_spectrum.gradient_spectrum(seq) is not first
+    snap = loaded(gre_sequence(num_trs=2))
+    first = grad_spectrum.gradient_spectrum(snap)
+    assert grad_spectrum.gradient_spectrum(snap) is first
+    assert grad_spectrum.gradient_spectrum(loaded(gre_sequence(num_trs=2))) is not first
 
 
 @pytest.mark.parametrize(
     "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
 def test_the_arrays_of_a_spectrum_are_read_only(make_seq):
-    s = grad_spectrum.gradient_spectrum(make_seq())
+    s = grad_spectrum.gradient_spectrum(loaded(make_seq()))
     arrays = [s.frequency_hz, s.rss, *s.axes.values()]
     assert len(arrays) == 5
     for a in arrays:
@@ -381,7 +377,7 @@ def test_the_axes_of_a_spectrum_are_a_read_only_frozen_dict(make_seq):
     """`axes` is a `FrozenDict` (so a `dict`), also for a sequence without gradients: a
     change of an item, a new key, a deletion and `update` raise `TypeError`, and a spectrum
     from `pickle` or `copy.deepcopy` is equal to the original."""
-    s = grad_spectrum.gradient_spectrum(make_seq())
+    s = grad_spectrum.gradient_spectrum(loaded(make_seq()))
     assert isinstance(s.axes, FrozenDict)
     assert isinstance(s.axes, dict)
     before = dict(s.axes)
@@ -403,16 +399,16 @@ def test_the_axes_of_a_spectrum_are_a_read_only_frozen_dict(make_seq):
 def test_spectra_compare_by_value():
     """`==` compares the fields of two spectra by value, not the objects, and a
     `GradientSpectrum` is not hashable."""
-    s = grad_spectrum.gradient_spectrum(spin_echo_sequence())
-    other = grad_spectrum.gradient_spectrum(spin_echo_sequence())
+    s = grad_spectrum.gradient_spectrum(loaded(spin_echo_sequence()))
+    other = grad_spectrum.gradient_spectrum(loaded(spin_echo_sequence()))
     assert other is not s
     assert other == s
     assert pickle.loads(pickle.dumps(s)) == s
-    assert grad_spectrum.gradient_spectrum(empty_sequence()) == grad_spectrum.gradient_spectrum(
-        empty_sequence()
-    )
-    assert grad_spectrum.gradient_spectrum(spin_echo_sequence(), window_s=0.1) != s
-    assert grad_spectrum.gradient_spectrum(empty_sequence()) != s
+    assert grad_spectrum.gradient_spectrum(
+        loaded(empty_sequence())
+    ) == grad_spectrum.gradient_spectrum(loaded(empty_sequence()))
+    assert grad_spectrum.gradient_spectrum(loaded(spin_echo_sequence()), window_s=0.1) != s
+    assert grad_spectrum.gradient_spectrum(loaded(empty_sequence())) != s
     assert s != "spectrum"
     with pytest.raises(TypeError):
         hash(s)
@@ -428,14 +424,14 @@ def test_the_defaults_are_those_of_pypulseq():
     object as the call with the defaults, and the test would check nothing. It also guards
     pypulseq's defaults: the test fails if a new pypulseq changes one."""
     parameters = inspect.signature(pp.Sequence.calculate_gradient_spectrum).parameters
-    seq = spin_echo_sequence()
+    snap = loaded(spin_echo_sequence())
     explicit = grad_spectrum._compute_spectrum(
-        seq,
+        snap,
         parameters["max_frequency"].default,
         parameters["window_width"].default,
         parameters["frequency_oversampling"].default,
     )
-    default = grad_spectrum.gradient_spectrum(seq)
+    default = grad_spectrum.gradient_spectrum(snap)
     assert explicit is not default
     np.testing.assert_array_equal(explicit.frequency_hz, default.frequency_hz)
     assert list(explicit.axes) == list(default.axes)
@@ -450,8 +446,8 @@ def test_the_defaults_are_those_of_pypulseq():
 
 
 def test_the_arguments_change_the_frequencies():
-    seq = _sine_sequence(600)
-    wide = grad_spectrum.gradient_spectrum(seq, window_s=0.1)
+    snap = loaded(_sine_sequence(600))
+    wide = grad_spectrum.gradient_spectrum(snap, window_s=0.1)
     assert (wide.max_frequency_hz, wide.window_s, wide.frequency_oversampling) == (
         2000.0,
         0.1,
@@ -460,10 +456,10 @@ def test_the_arguments_change_the_frequencies():
     assert wide.frequency_hz[1] == pytest.approx(1 / (3 * 0.1))
     # The sine has a whole number of cycles in the 0.1 s window, so its peak stays on a bin.
     assert wide.frequency_hz[np.argmax(wide.rss)] == pytest.approx(600)
-    coarse = grad_spectrum.gradient_spectrum(seq, frequency_oversampling=1)
+    coarse = grad_spectrum.gradient_spectrum(snap, frequency_oversampling=1)
     assert type(coarse.frequency_oversampling) is float
     assert coarse.frequency_hz[1] == pytest.approx(1 / 0.05)
-    low = grad_spectrum.gradient_spectrum(seq, max_frequency_hz=500)
+    low = grad_spectrum.gradient_spectrum(snap, max_frequency_hz=500)
     assert low.frequency_hz[-1] <= 500
 
 
@@ -480,9 +476,9 @@ def test_gradient_spectrum_keeps_the_bin_at_the_maximum_frequency_on_a_4_us_rast
         rf_raster_time=4e-6,
         block_duration_raster=4e-6,
     )
-    seq = signed(pp.Sequence(system))
+    seq = pp.Sequence(system)
     seq.add_block(pp.make_trapezoid("x", area=300, duration=1e-3, system=system))
-    s = grad_spectrum.gradient_spectrum(seq, window_s=0.01)
+    s = grad_spectrum.gradient_spectrum(loaded(seq), window_s=0.01)
     assert s.frequency_hz[-1] == pytest.approx(2000.0, abs=1e-9)
 
 
@@ -600,20 +596,48 @@ _NAN, _INF = float("nan"), float("inf")
     ],
 )
 def test_gradient_spectrum_refuses_bad_arguments(arguments, error, match, monkeypatch):
-    def fail(seq):
+    snap = loaded(spin_echo_sequence())
+
+    def fail(snap):
         raise AssertionError("the sequence was read")
 
     monkeypatch.setattr(grad_spectrum, "sequence_index", fail)
     with pytest.raises(error, match=match):
-        grad_spectrum.gradient_spectrum(spin_echo_sequence(), **arguments)
+        grad_spectrum.gradient_spectrum(snap, **arguments)
 
 
 def test_gradient_spectrum_keeps_one_result_for_each_set_of_arguments():
-    seq = gre_sequence(num_trs=2)
-    default = grad_spectrum.gradient_spectrum(seq)
-    low = grad_spectrum.gradient_spectrum(seq, max_frequency_hz=1000.0)
+    snap = loaded(gre_sequence(num_trs=2))
+    default = grad_spectrum.gradient_spectrum(snap)
+    low = grad_spectrum.gradient_spectrum(snap, max_frequency_hz=1000.0)
     assert low is not default
     assert low.frequency_hz[-1] <= 1000.0
-    assert grad_spectrum.gradient_spectrum(seq) is default
+    assert grad_spectrum.gradient_spectrum(snap) is default
     # The key is the arguments as floats, so 1000 and 1000.0 are one set.
-    assert grad_spectrum.gradient_spectrum(seq, max_frequency_hz=1000) is low
+    assert grad_spectrum.gradient_spectrum(snap, max_frequency_hz=1000) is low
+
+
+@pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
+def test_gradient_spectrum_raises_type_error_that_names_load_for_a_non_snapshot(build):
+    """`gradient_spectrum` with good other arguments raises `TypeError` that names `load` for
+    a `pp.Sequence` and for a path: the first argument is a `Snapshot`."""
+    with pytest.raises(TypeError, match="load"):
+        grad_spectrum.gradient_spectrum(build())
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"max_frequency_hz": _NAN}, {"window_s": -1.0}, {"frequency_oversampling": "3"}],
+    ids=["max_frequency_nan", "window_negative", "oversampling_string"],
+)
+def test_gradient_spectrum_refuses_arguments_that_need_no_raster_before_the_snapshot_type(
+    arguments,
+):
+    """A `max_frequency_hz` that is not finite, a `window_s` that is not above 0 and a
+    `frequency_oversampling` that is not a number raise their own error before the type of the
+    first argument is checked: the first argument is a `pp.Sequence`, which is not a snapshot
+    and would raise the `TypeError` that names `load` (the checks that need the gradient raster
+    of the snapshot come after it)."""
+    with pytest.raises((TypeError, ValueError)) as excinfo:
+        grad_spectrum.gradient_spectrum(gre_sequence(), **arguments)
+    assert "load" not in str(excinfo.value)

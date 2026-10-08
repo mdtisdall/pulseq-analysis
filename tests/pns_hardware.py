@@ -5,12 +5,12 @@ that are not a pair, and the structs that the check of the hardware refuses. It 
 
 from types import SimpleNamespace
 
-import pypulseq as pp
 import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import EXAMPLE_HW, GAMMA_1H
 
 from pulseq_analysis.pns_levels import pns_levels
+from pulseq_analysis.snapshot import Snapshot
 
 # Values of `hardware` that are not a pair `(struct, label)`: a struct alone, a list, a
 # tuple of three items, a pair whose label is not a `str`, a path string, and `None`.
@@ -71,8 +71,8 @@ def _scaled_hardware(factor: float) -> tuple[SimpleNamespace, str]:
     return hw, "SCALED"
 
 
-def hardware_for_peak(seq: pp.Sequence, peak: float) -> tuple[SimpleNamespace, str]:
-    """Hardware with which `seq` has the peak `peak` (up to float rounding), a fraction of
+def hardware_for_peak(snap: Snapshot, peak: float) -> tuple[SimpleNamespace, str]:
+    """Hardware with which `snap` has the peak `peak` (up to float rounding), a fraction of
     the limit: the peak of the example hardware (Hz/T) is divided by `peak` times the
     stimulation limit for 1H (Hz/T) to give the factor of the stimulation limit."""
-    return _scaled_hardware(pns_levels(seq, hardware=EXAMPLE_HW).peak_hz_per_t / (peak * GAMMA_1H))
+    return _scaled_hardware(pns_levels(snap, hardware=EXAMPLE_HW).peak_hz_per_t / (peak * GAMMA_1H))
