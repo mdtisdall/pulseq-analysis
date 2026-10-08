@@ -20,8 +20,6 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
-    loaded,
-    signed,
     spin_echo_sequence,
 )
 
@@ -33,7 +31,7 @@ from pulseq_analysis.seq_index import (
     rf_events,
     sequence_index,
 )
-from pulseq_analysis.snapshot import Snapshot
+from pulseq_analysis.snapshot import Snapshot, load
 
 _AXES = ("gx", "gy", "gz")
 
@@ -145,7 +143,7 @@ def test_dense_columns_and_first_arrays_match_the_reference_numbering(builder):
     """`sequence_index`'s `rf`/`gx`/`gy`/`gz`/`adc` columns, `rf_first`, `grad_first`,
     `grad_first_axis`, `adc_first` and `block_id` equal `_reference_index`'s, for each
     synthetic sequence and for `build_repeating`/`build_worst` at 50 TRs (250 blocks)."""
-    _assert_index_matches_reference(loaded(builder()))
+    _assert_index_matches_reference(load(builder()))
 
 
 def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries():
@@ -180,7 +178,7 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     seq.add_block(e1, g1, a1)
     seq.add_block(e2, g2, g3, a2)
     seq.add_block(e1, g1_as_gx, a1)
-    snap = loaded(seq)
+    snap = load(seq)
     ids = np.array(list(snap.sequence.block_events.values()))
     assert ids[:, 1].tolist() == [2, 1, 2]  # RF library ids
     assert ids[:, 2].tolist() == [0, 2, 3]  # gx
@@ -205,7 +203,7 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
 
 
 def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
-    snap = loaded(build_repeating(50))
+    snap = load(build_repeating(50))
     seq = snap.sequence
     index = sequence_index(snap)
 
@@ -225,7 +223,7 @@ def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
 
 
 def test_dtype_is_uint8_for_a_sequence_with_few_unique_events():
-    index = sequence_index(loaded(gre_sequence()))
+    index = sequence_index(load(gre_sequence()))
     assert index.rf_first.size <= 255
     assert index.grad_first.size <= 255
     assert index.adc_first.size <= 255
@@ -240,7 +238,7 @@ def test_dtype_widens_to_uint16_past_255_unique_gradient_events():
     """`build_repeating`'s phase-encode table alone has 256 amplitudes (`PE_STEPS`), so
     260 TRs give more than 255 unique gradient events (the phase-encode events, plus
     the readout and the spoiler, each reused every TR), past the uint8 range."""
-    index = sequence_index(loaded(build_repeating(260)))
+    index = sequence_index(load(build_repeating(260)))
     assert index.grad_first.size > 255
     assert index.gx.dtype == np.uint16
     assert index.gy.dtype == np.uint16
@@ -274,13 +272,13 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
     """A sequence with K different trapezoids on x (K unique gradient events): the index has
     K unique gradient events and its gradient columns are uint8 for K = 255 and uint16 for
     256."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     for k in range(1, unique + 1):
         seq.add_block(
             pp.make_trapezoid(channel="x", amplitude=100.0 * k, duration=1e-3, system=SYSTEM)
         )
 
-    index = sequence_index(loaded(seq))
+    index = sequence_index(load(seq))
 
     assert index.grad_first.size == unique
     assert index.gx.dtype == dtype
@@ -296,14 +294,14 @@ def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
     `seq.block_events` and `seq.block_durations`, not the libraries). The peak of
     `tracemalloc` over the build is below 100 MB, and the dense numbers are as for small IDs.
     A lookup table over the IDs takes 800 MB."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     for amplitude in (1e5, 2e5, 1e5):
         seq.add_block(
             pp.make_trapezoid(channel="x", amplitude=amplitude, duration=1e-3, system=SYSTEM)
         )
     big = 10**8
     seq.block_events[2][seq_index._GX] = big
-    snap = loaded(seq)
+    snap = load(seq)
 
     tracemalloc.start()
     try:
@@ -319,7 +317,7 @@ def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
 
 @pytest.mark.parametrize("build", [gre_sequence, empty_sequence])
 def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
-    index = sequence_index(loaded(build()))
+    index = sequence_index(load(build()))
     arrays = [
         getattr(index, f.name)
         for f in dataclasses.fields(index)
@@ -338,24 +336,24 @@ def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
 
 
 def test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable():
-    first = sequence_index(loaded(gre_sequence()))
-    second = sequence_index(loaded(gre_sequence()))
+    first = sequence_index(load(gre_sequence()))
+    second = sequence_index(load(gre_sequence()))
     assert first is not second
     assert first == second
-    assert first != sequence_index(loaded(gre_sequence(num_trs=5)))
-    assert first != sequence_index(loaded(spin_echo_sequence()))
+    assert first != sequence_index(load(gre_sequence(num_trs=5)))
+    assert first != sequence_index(load(spin_echo_sequence()))
     with pytest.raises(TypeError):
         hash(first)
 
 
 def _one_trapezoid(channel: str) -> pp.Sequence:
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel=channel, area=1000, system=SYSTEM))
     return seq
 
 
 def _delay_only() -> pp.Sequence:
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(1e-3))
     return seq
 
@@ -368,16 +366,16 @@ def _delay_only() -> pp.Sequence:
         (lambda: _one_trapezoid("y"), True),
         (lambda: _one_trapezoid("z"), True),
         (_delay_only, False),
-        (lambda: signed(pp.Sequence(SYSTEM)), False),
+        (lambda: pp.Sequence(SYSTEM), False),
     ],
     ids=["spin echo", "x", "y", "z", "delay only", "no blocks"],
 )
 def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, expected):
-    assert has_gradients(sequence_index(loaded(build()))) is expected
+    assert has_gradients(sequence_index(load(build()))) is expected
 
 
 def test_sequence_index_of_a_sequence_with_no_blocks():
-    index = sequence_index(loaded(pp.Sequence(SYSTEM)))
+    index = sequence_index(load(pp.Sequence(SYSTEM)))
     assert index.num_blocks == 0
     assert index.end_s == 0.0
     for arr in (
@@ -401,11 +399,11 @@ def test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another():
     """Two calls of `sequence_index` with one snapshot give the same object. A second snapshot
     of the same sequence gives its own, equal index."""
     seq = gre_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     first = sequence_index(snap)
     assert sequence_index(snap) is first
 
-    other = sequence_index(loaded(seq))
+    other = sequence_index(load(seq))
     assert other is not first
     assert other == first
 
@@ -428,7 +426,7 @@ def _count_get_block(snap, monkeypatch):
 
 
 def test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
-    snap = loaded(spin_echo_sequence())  # two distinct RF events: excitation and refocusing
+    snap = load(spin_echo_sequence())  # two distinct RF events: excitation and refocusing
     index = sequence_index(snap)
     assert index.rf_first.size == 2
     original, calls, cache_flags = _count_get_block(snap, monkeypatch)
@@ -458,7 +456,7 @@ def test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch)
 def test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple(
     monkeypatch,
 ):
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
     seq.add_block(pp.make_trapezoid(channel="z", amplitude=1e5, **common))
     # gx and gy are both first used in this second block: one get_block call, not two.
@@ -466,7 +464,7 @@ def test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple(
         pp.make_trapezoid(channel="x", amplitude=2e5, **common),
         pp.make_trapezoid(channel="y", amplitude=3e5, **common),
     )
-    snap = loaded(seq)
+    snap = load(seq)
     index = sequence_index(snap)
     assert index.grad_first.tolist() == [0, 1, 1]
     original, calls, cache_flags = _count_get_block(snap, monkeypatch)
@@ -494,7 +492,7 @@ def test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple(
 
 
 def test_adc_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
-    snap = loaded(gre_sequence(num_trs=5))  # the same ADC event is reused every TR
+    snap = load(gre_sequence(num_trs=5))  # the same ADC event is reused every TR
     index = sequence_index(snap)
     assert index.adc_first.size == 1
     original, calls, cache_flags = _count_get_block(snap, monkeypatch)

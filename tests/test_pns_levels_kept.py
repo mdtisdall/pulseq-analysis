@@ -10,20 +10,20 @@ from synthetic import (
     SYSTEM,
     block_pulse,
     empty_sequence,
-    loaded,
     spin_echo_sequence,
 )
 
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
 from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
+from pulseq_analysis.snapshot import load
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
 
 @pytest.fixture(scope="module")
 def default_snap():
-    return loaded(spin_echo_sequence())
+    return load(spin_echo_sequence())
 
 
 @pytest.fixture(scope="module")
@@ -43,14 +43,14 @@ def test_no_gradients_with_rf_and_adc():
     seq.add_block(
         pp.make_adc(num_samples=64, dwell=20e-6, delay=SYSTEM.adc_dead_time, system=SYSTEM)
     )
-    assert pns_levels(loaded(seq), hardware=EXAMPLE_HW).reason == NO_GRADIENTS
+    assert pns_levels(load(seq), hardware=EXAMPLE_HW).reason == NO_GRADIENTS
 
 
 def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monkeypatch):
     """`pns_levels` samples an on-raster sequence with
     `GradientSampler.block_samples`, not `seq.get_gradients()` (unlike the old
     `seq.calculate_pns`-based prediction), so `get_gradients` is never called."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     calls = []
     get_gradients = snap.sequence.get_gradients
 
@@ -66,7 +66,7 @@ def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monke
 def test_prediction_keeps_no_blocks():
     """`load` turns the block cache of the private sequence off, and `pns_levels` leaves it off
     and empty: `use_block_cache` is False and `block_cache` has no block."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     pns_levels(snap, hardware=EXAMPLE_HW)
     assert snap.sequence.use_block_cache is False
     assert not snap.sequence.block_cache
@@ -76,7 +76,7 @@ def test_prediction_propagates_an_error_and_keeps_the_cache_off(monkeypatch):
     """An error deep inside the SAFE model (the pinned fork's chunk function)
     propagates out of `pns_levels`, and the block cache of the private sequence stays off and
     empty."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
 
     def fail(*args, **kwargs):
         raise RuntimeError("chunk failed")
@@ -108,7 +108,7 @@ def test_pns_levels_keeps_one_result_for_equal_hardware_pairs(monkeypatch):
     different struct objects, are one hardware: the second call runs no model and gives
     the kept result."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
 
     first = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
     second = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
@@ -121,7 +121,7 @@ def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
     hardware and runs the model; going back to an earlier pair does not run it again (the
     calls for pairs a, a, b (label), c (value), a, c give 3)."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     other_value = safe_example_hw()
     other_value.z.stim_limit += 1.0
 
@@ -163,7 +163,7 @@ def test_pns_levels_ignores_stim_thresh_in_the_hardware_key(monkeypatch):
     """Two `hardware` pairs with the same label that differ only in `z.stim_thresh` are one
     hardware: the second call runs no model and gives the kept result."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     other_thresh = safe_example_hw()
     other_thresh.z.stim_thresh += 1.0
 
@@ -182,7 +182,7 @@ def test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values(
     another, and so is `EXAMPLE_HW` (the same values, another label). Each of the two
     hardwares runs the model one time, in two rounds."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     path = write_gradient_asc()
     asc = read_gradient_asc(path)
     from_file = hardware_from_asc(path)
@@ -233,7 +233,7 @@ def test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients(struct
     """The bad structs of `BAD_STRUCTS` raise the same errors for a sequence with no
     gradient event, which gives a result for a good struct."""
     with pytest.raises(error, match=match):
-        pns_levels(loaded(empty_sequence()), hardware=(struct, "BAD"))
+        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
 
 
 def test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients():
@@ -244,7 +244,7 @@ def test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without
     struct.x.a1 -= 0.1
     assert struct.x.a1 + struct.x.a2 + struct.x.a3 == pytest.approx(0.9)
     with pytest.raises(ValueError, match=r"x\.a1 \+ x\.a2 \+ x\.a3 must be 1"):
-        pns_levels(loaded(empty_sequence()), hardware=(struct, "BAD"))
+        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
 
 
 @pytest.mark.parametrize("axis", "xyz")
@@ -258,7 +258,7 @@ def test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005(axis):
     axis_struct.a1 += 1.005 - (axis_struct.a1 + axis_struct.a2 + axis_struct.a3)
     assert axis_struct.a1 + axis_struct.a2 + axis_struct.a3 == pytest.approx(1.005, abs=1e-12)
     with pytest.raises(ValueError, match=rf"{axis}\.a1 \+ {axis}\.a2 \+ {axis}\.a3 must be 1"):
-        pns_levels(loaded(empty_sequence()), hardware=(struct, "BAD"))
+        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
 
 
 def test_pns_levels_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):
@@ -267,7 +267,7 @@ def test_pns_levels_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):
     thresholds, the key `()`); the same thresholds again give the kept result (the same
     object), and an `int` threshold is the key of the equal `float`."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     thresholds = (_LIMIT, 0.5 * _LIMIT)
 
     default = pns_levels(snap, hardware=EXAMPLE_HW)
@@ -296,7 +296,7 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     result (the same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s`
     and the equal `float` are one key; and the bins are those of the `bin_s`."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
 
     default = pns_levels(snap, hardware=EXAMPLE_HW)
     assert len(calls) == 1
@@ -325,7 +325,7 @@ def test_pns_levels_shares_a_read_only_result():
     """Two callers of `pns_levels` get the same kept result. A change in place of its
     level by the first caller raises `ValueError`, and the second caller gets the level as
     it was."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     first = pns_levels(snap, hardware=EXAMPLE_HW)
     before_min, before_max = first.level_min_hz_per_t.copy(), first.level_max_hz_per_t.copy()
     # Through a local name: `first.level_max_hz_per_t *= 100` would also set the field of the frozen
@@ -351,6 +351,6 @@ def test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result(
     relative = hardware_from_asc(path.name)
     absolute = hardware_from_asc(path)
     for first, second in ((relative, absolute), (absolute, relative)):
-        snap = loaded(spin_echo_sequence())
+        snap = load(spin_echo_sequence())
         result = pns_levels(snap, hardware=first)
         assert pns_levels(snap, hardware=second) is result

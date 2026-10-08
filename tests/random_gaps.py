@@ -9,7 +9,7 @@ import math
 
 import numpy as np
 import pypulseq as pp
-from synthetic import SYSTEM, signed
+from synthetic import SYSTEM
 
 AXES = ("x", "y", "z")
 _RASTER = SYSTEM.grad_raster_time
@@ -88,7 +88,7 @@ def random_gap_sequence(rng: np.random.Generator) -> pp.Sequence:
     its events for half of them. The gaps between the events of one axis are zero, short and long,
     with steps, lines and ramps. A block that `add_block` refuses (a step at a block
     junction of more than `max_slew * grad_raster_time`) is not added."""
-    seq = signed(pp.Sequence(SYSTEM))
+    seq = pp.Sequence(SYSTEM)
     last = dict.fromkeys(AXES, 0.0)
     for _ in range(int(rng.integers(2, 9))):
         if rng.random() < 0.12:

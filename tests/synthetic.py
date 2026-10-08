@@ -1,5 +1,5 @@
-"""Small synthetic pypulseq sequences for the tests of pulseq-analysis. Only `loaded` uses
-the package: the oracles of `tests/oracles/` are independent of it."""
+"""Small synthetic pypulseq sequences for the tests of pulseq-analysis. They do not use the
+package, and the oracles of `tests/oracles/` are independent of it too."""
 
 import math
 
@@ -7,8 +7,6 @@ import numpy as np
 import pypulseq as pp
 from pypulseq.event_lib import EventLibrary
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
-
-from pulseq_analysis.snapshot import Snapshot, load
 
 # The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
 # gamma: the tests use this value to convert its values to tesla.
@@ -27,32 +25,11 @@ SYSTEM = pp.Opts(
     rf_dead_time=100e-6,
     adc_dead_time=10e-6,
 )
-# A fixed MD5-shaped hash for `signed`. The package checks only that a hash is there.
-SIGNATURE_VALUE = "0123456789abcdef0123456789abcdef"
 
 NUM_SAMPLES = 64
 CENTER = NUM_SAMPLES // 2
 DWELL = 20e-6  # s
 WIDTH = 5e-3  # m, for crusher and phase-encode areas in cycles across the width
-
-
-def signed(seq: pp.Sequence) -> pp.Sequence:
-    """Give `seq` a `[SIGNATURE]` hash, as `write` does, and return `seq`.
-
-    `snapshot.load` does not need a hash, so no test needs one: task 2 of
-    `docs/plans/load-accepts-unsigned.md` removes this function. The tests do not call `write`
-    to sign each sequence: pypulseq's `write` fails for an oversampled arbitrary gradient
-    (pypulseq-issues 04)."""
-    seq.signature_type = "md5"
-    seq.signature_file = "text"
-    seq.signature_value = SIGNATURE_VALUE
-    return seq
-
-
-def loaded(seq: pp.Sequence) -> Snapshot:
-    """The `Snapshot` of `seq`, signed with `signed` first: `load(signed(seq))`. `seq` gets the
-    hash, as with `signed`, and the snapshot holds a copy of it."""
-    return load(signed(seq))
 
 
 def block_pulse(use: str, flip: float):
@@ -93,7 +70,7 @@ def spin_echo_sequence(prephaser_position: str = "before") -> pp.Sequence:
     if prephaser_position == "after":
         seq.add_block(prephaser)
     seq.add_block(gx, adc)
-    return signed(seq)
+    return seq
 
 
 def gre_sequence(num_trs: int = 4) -> pp.Sequence:
@@ -121,14 +98,14 @@ def gre_sequence(num_trs: int = 4) -> pp.Sequence:
         if pad > 0:
             seq.add_block(pp.make_delay(pad))
     seq.set_definition("TR", tr)
-    return signed(seq)
+    return seq
 
 
 def empty_sequence() -> pp.Sequence:
     """A sequence with one delay block only: no RF, gradients or ADC."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(2e-3))
-    return signed(seq)
+    return seq
 
 
 def arbitrary_gradient_sequence() -> pp.Sequence:
@@ -141,7 +118,7 @@ def arbitrary_gradient_sequence() -> pp.Sequence:
     waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * t / (n * dt))
     g = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
     seq.add_block(g)
-    return signed(seq)
+    return seq
 
 
 def border_sequence() -> pp.Sequence:
@@ -163,7 +140,7 @@ def border_sequence() -> pp.Sequence:
     seq = pp.Sequence(SYSTEM)
     seq.add_block(g1)
     seq.add_block(g2)
-    return signed(seq)
+    return seq
 
 
 RASTER_4US = 4e-6  # s
@@ -199,7 +176,7 @@ def raster_4us_sequence() -> pp.Sequence:
             channel="y", times=[0.0, 400e-6, 800e-6], amplitudes=[start, start, 0.0], system=system
         )
     )
-    return signed(seq)
+    return seq
 
 
 # A scalar-first unit quaternion (angle 45 deg about z): q0=cos(22.5deg), qz=sin(22.5deg).
@@ -234,4 +211,4 @@ def waveform_sequence(system: pp.Opts, sign: float = 1.0) -> pp.Sequence:
     seq.add_block(gx)
     seq.add_block(gy)
     seq.add_block(gx, gy)
-    return signed(seq)
+    return seq

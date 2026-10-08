@@ -18,7 +18,6 @@ from synthetic import (
     arbitrary_gradient_sequence,
     empty_sequence,
     gre_sequence,
-    loaded,
     spin_echo_sequence,
 )
 
@@ -33,6 +32,7 @@ from pulseq_analysis.grad_spectrum import gradient_spectrum
 from pulseq_analysis.pns_levels import pns_levels
 from pulseq_analysis.sampling import GradientSampler
 from pulseq_analysis.seq_index import sequence_index
+from pulseq_analysis.snapshot import load
 
 _SEQUENCES = [
     pytest.param(spin_echo_sequence, id="spin_echo"),
@@ -46,7 +46,7 @@ def test_the_measurements_of_one_sequence_read_each_unique_gradient_event_once(b
     """`gradient_peaks`, `block_gradient_values`, `pns_levels` and `gradient_spectrum` of one
     snapshot together call `get_block` one time for each unique gradient event, and not
     for each measurement."""
-    snap = loaded(build())
+    snap = load(build())
     unique = sequence_index(snap).grad_first.size
     assert unique > 0
     calls: list[int] = []
@@ -73,7 +73,7 @@ def test_event_points_arrays_are_read_only_and_have_the_documented_types(build):
     `ValueError`, and has the dtype of the documented field: float64 for `delay`,
     `offsets` and `amp`, int64 for `count` and `at`. The arrays of the K events have K
     items, and the pools have `count.sum()` items."""
-    snap = loaded(build())
+    snap = load(build())
     points = event_points(snap)
     unique = sequence_index(snap).grad_first.size
     for name, dtype in (
@@ -96,7 +96,7 @@ def test_event_points_arrays_are_read_only_and_have_the_documented_types(build):
 def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build):
     """`GradientSampler(snap)` keeps the pooled points of `event_points(snap)` as they are,
     with no copy."""
-    snap = loaded(build())
+    snap = load(build())
     points = event_points(snap)
     sampler = GradientSampler(snap)
     assert np.shares_memory(sampler._offsets, points.offsets)
@@ -144,7 +144,7 @@ def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_comput
     seq.add_block(trapezoid)
     seq.add_block(arbitrary)
 
-    ev = _event_values(event_points(loaded(seq)))
+    ev = _event_values(event_points(load(seq)))
 
     assert ev.peak.tolist() == pytest.approx([amplitude, 3 * unit], rel=1e-12)
     assert ev.peak_offset.tolist() == pytest.approx([delay + rise, 2.5 * raster], abs=1e-12)
@@ -174,11 +174,11 @@ def test_a_measurement_gives_the_same_object_for_one_snapshot_and_an_equal_one_f
     """Two calls of the measurement with one snapshot give one object (the result is kept).
     A second snapshot of the same sequence gives another object with an equal value."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     first = measure(snap)
     assert measure(snap) is first
 
-    other = measure(loaded(seq))
+    other = measure(load(seq))
     assert other is not first
     assert other == first
 
@@ -187,11 +187,11 @@ def test_event_points_are_the_same_object_for_one_snapshot_and_equal_arrays_for_
     """Two calls of `event_points` with one snapshot give one object. A second snapshot of the
     same sequence gives another object with equal arrays."""
     seq = spin_echo_sequence()
-    snap = loaded(seq)
+    snap = load(seq)
     first = event_points(snap)
     assert event_points(snap) is first
 
-    other = event_points(loaded(seq))
+    other = event_points(load(seq))
     assert other is not first
     for field in dataclasses.fields(first):
         assert np.array_equal(getattr(other, field.name), getattr(first, field.name)), field.name
@@ -202,7 +202,7 @@ def test_a_windowed_gradient_peaks_is_a_new_object_for_each_call_and_is_not_kept
     window does not change the kept result of `window=None`: before and after the windowed
     calls, `gradient_peaks(snap)` is one object. A windowed result is not the whole-file
     result."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     window = (0.0, sequence_index(snap).end_s / 2)
     whole = gradient_peaks(snap)
     first = gradient_peaks(snap, window=window)
@@ -212,7 +212,7 @@ def test_a_windowed_gradient_peaks_is_a_new_object_for_each_call_and_is_not_kept
     assert first is not whole
     assert gradient_peaks(snap) is whole
 
-    fresh = loaded(spin_echo_sequence())
+    fresh = load(spin_echo_sequence())
     windowed_first = gradient_peaks(fresh, window=window)
     assert gradient_peaks(fresh) is not windowed_first
 
@@ -229,7 +229,7 @@ def test_a_windowed_gradient_peaks_uses_the_kept_per_event_values(monkeypatch):
         return original(points)
 
     monkeypatch.setattr(grad_peaks, "_event_values", counting)
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     end_s = sequence_index(snap).end_s
     gradient_peaks(snap, window=(0.0, end_s / 2))
     assert len(calls) == 1
@@ -238,7 +238,7 @@ def test_a_windowed_gradient_peaks_uses_the_kept_per_event_values(monkeypatch):
     block_gradient_values(snap)
     assert len(calls) == 1
 
-    gradient_peaks(loaded(spin_echo_sequence()))
+    gradient_peaks(load(spin_echo_sequence()))
     assert len(calls) == 2
 
 
@@ -246,10 +246,10 @@ def test_a_kept_gradient_peaks_cannot_be_changed_in_place():
     """The kept result of `gradient_peaks(snap)` refuses an assignment to a field of the
     result and of an axis, and a change of `axes`; the kept `block_gradient_values(snap)`
     refuses a write to an array. After the refusals the next call gives an equal value."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     peaks = gradient_peaks(snap)
     blocks = block_gradient_values(snap)
-    expected_peaks = gradient_peaks(loaded(spin_echo_sequence()))
+    expected_peaks = gradient_peaks(load(spin_echo_sequence()))
     with pytest.raises(dataclasses.FrozenInstanceError):
         peaks.vector_peak_hz_per_m = 0.0
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -287,7 +287,7 @@ def test_a_kept_gradient_peaks_cannot_be_changed_in_place():
 def test_a_kept_result_does_not_keep_the_snapshot_alive(measure):
     """After a call of the measurement and `del snap`, `gc.collect()` collects the snapshot:
     a `weakref` to it is dead. The kept result has no reference to the snapshot."""
-    snap = loaded(spin_echo_sequence())
+    snap = load(spin_echo_sequence())
     result = measure(snap)
     reference = weakref.ref(snap)
     del snap
