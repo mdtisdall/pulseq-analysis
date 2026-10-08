@@ -118,3 +118,6 @@ fraction of the stimulation limit.
 - [`docs/plans/own-parser-study.md`](docs/plans/own-parser-study.md):
   the study of an own strict parser of Pulseq files in place of pypulseq's
   `read`, and of the language of the package. Decided: option B, in Python.
+- [`docs/plans/own-parser.md`](docs/plans/own-parser.md): the plan of option
+  B: the own parser, the model of layer 1, and pypulseq as an optional
+  extra.
