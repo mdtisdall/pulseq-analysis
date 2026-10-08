@@ -19,19 +19,22 @@ The fourth, `0.1.0rc4`, adds the gradient spectrum and the analysis
 The fifth, `0.1.0rc5`, makes the arrays of a `PnsLevels` read-only, compares
 a `PnsLevels` and a `GradientSpectrum` by value, and gives each value with no
 gamma, in the units of pypulseq.
+The sixth, `0.1.0rc6`, has the work of four review plans. It fixes the
+findings of the reviews of 2026-10-04 to 2026-10-07 and changes the interface:
+`gradient_limits` becomes `gradient_peaks`, the PNS hardware is a necessary
+pair, `pns_levels` takes the argument `bin_s`, the report helpers go to
+pulseq-reports, and results are read-only and compare by value. The last plan
+adds the snapshot step: `load` makes a `Snapshot` of a `.seq` file or of a
+`Sequence`, and each measurement takes a `Snapshot`. It also adds
+`registry(strict=False)`, the argument `max_bytes` of `Series.from_obj` and the
+key `"format"` of a `Series`, and removes `block_cache_off`.
 
 ## Install
-
-The documents (`docs/usage.md` and `docs/implementation.md`) describe `main`.
-The tag `v0.1.0rc5` of the install line below has an older interface: for
-example, it has no `gradient_peaks`, `hardware_from_asc` or `gradient_sampler`,
-and `pns_levels` has no `bin_s` argument. The next release replaces this note
-and the tag.
 
 With uv, from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc5"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc6"
 ```
 
 The package needs pypulseq 1.5.0.post1 with six commits that are not in a

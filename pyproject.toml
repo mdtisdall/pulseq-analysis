@@ -1,6 +1,6 @@
 [project]
 name = "pulseq-analysis"
-version = "0.1.0rc5"
+version = "0.1.0rc6"
 description = "Derived values of a Pulseq sequence: the block table, gradient peaks, SAFE PNS and the gradient spectrum"
 readme = "README.md"
 license = "MIT"

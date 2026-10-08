@@ -84,25 +84,34 @@ says why.
   object holds, so it makes no copy. `load(seq)` makes `copy.deepcopy(seq)`: it
   shares no mutable object with `seq`, does not change `seq`, and a later
   change of `seq` does not change the snapshot. The copy costs time and memory
-  in proportion to the size of the sequence (0.1 to 0.4 s for 100,000 blocks on
-  an Apple M1 Max, more with more unique events), so call `load` one time for each
-  sequence and give the snapshot to each measurement. A sequence that changes
-  needs a new `load`.
+  in proportion to the size of the sequence (0.12 s for 100,000 blocks on an
+  Apple M1 Max, and 0.31 s with 20,002 unique gradient events instead of 258),
+  so call `load` one time for each sequence and give the snapshot to each
+  measurement. A sequence that changes needs a new `load`. Another type of
+  `source` raises `TypeError`, and a file that pypulseq cannot read raises the
+  error of pypulseq.
 - **A signed file, no rotation extension.** `load` checks the sequence, so the
   measurements do not check it again. A sequence must have a `[SIGNATURE]`
   hash, or `load` raises `ValueError`. `seq.write(path)` signs a file. A
   sequence that `add_block` built in memory has none: write it and read it with
-  `load(path)`. A sequence with the Pulseq rotation extension raises
-  `NotImplementedError` (`extensions.refuse_rotations`), because the gradients
-  of the file are not the gradients on the scanner
+  `load(path)`. `load` checks only that a hash is there, not that it is the hash
+  of the sequence, so `load(seq)` of a sequence that a caller changed after it
+  read a signed file passes with the old hash: write the sequence and `load` the
+  file when the hash must be right. A sequence with the Pulseq rotation
+  extension raises `NotImplementedError` (`extensions.refuse_rotations`),
+  because the gradients of the file are not the gradients on the scanner. `load`
+  checks the hash first, so an unsigned sequence with a rotation raises
+  `ValueError`
   ([implementation, section 7](implementation.md#7-the-signature-check)).
 - **`snap.sequence`.** It is the private `pp.Sequence` of the snapshot, for a
   caller that needs a value of the file (for example
   `snap.sequence.definitions`). A caller and an analysis must not change it, and
   must not change an object that they get from it (for example a block from
   `get_block`): the kept results are made from it, and a change would make them
-  wrong. `snap.source` is the path that `load` read, or `None` for a
-  `pp.Sequence`. A snapshot is equal only to itself.
+  wrong. Its block cache is off (`use_block_cache` is `False`), so `get_block`
+  keeps no block. `snap.source` is the path that `load` read (a `str`), or `None`
+  for a `pp.Sequence`. A snapshot is equal only to itself. Make a snapshot with
+  `load`: `Snapshot(sequence, source)` does not check the sequence.
 - **Logical axes.** The values are of the logical axes of the file (x, y, z),
   not of the physical axes of a scanner. On an oblique slice, one physical
   axis can get the magnitude of the three-axis vector.
@@ -125,7 +134,8 @@ says why.
   never old. A copy of a snapshot from `pickle` or `copy.deepcopy` has no kept
   results and makes them again. All callers share a kept result, so its arrays
   and dicts are read-only (`series.FrozenDict`, a subclass of `dict`: a change raises
-  `TypeError`). Make a copy to change one: `np.array(a)`, `dict(d)`
+  `TypeError`). Make a copy to change one: `np.array(a)`, `dict(d)`. The result
+  classes compare by value (`==`): the results of two reads of one file are equal
   ([implementation, sections 4 and 5](implementation.md#4-kept-results)).
 - **No result.** A result without a value has the `reason`
   `seq_index.NO_GRADIENTS` ("no gradients"), or
@@ -134,11 +144,18 @@ says why.
   the fields that say how it was made stay. `GradientPeaks` keeps `range_s`.
   `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_samples` and `on_raster`, has
   `num_samples` 0, and has `peak_time_s` `None` and an empty tuple in `above`
-  for each threshold. `GradientSpectrum` keeps its three arguments.
+  for each threshold (`peak_time_s` is also `None` when all the gradients have
+  the amplitude 0). `GradientSpectrum` keeps its three arguments.
   `block_gradient_values` has no `reason`: for a sequence with no gradient it
   gives zero arrays of length N.
-- **Bad arguments.** An argument of a wrong type raises `TypeError`, and a
-  value out of range raises `ValueError`, before the snapshot is read
+- **Bad arguments.** A function checks its other arguments before it reads the
+  snapshot: an argument of a wrong type raises `TypeError`, and a value out of
+  range raises `ValueError`. Then a first argument that is not a `Snapshot`
+  raises `TypeError` that names `load`. (`gradient_spectrum` checks
+  that each argument is a finite number, then the snapshot, then the limits that
+  need the gradient raster of the file.) The arguments after `snap` are keyword-only:
+  `window`, `hardware`, `thresholds_hz_per_t`, `bin_s` and the three arguments of
+  `gradient_spectrum`
   ([implementation, section 6](implementation.md#6-argument-checks)).
 
 **The cost of each call.** The time of a call grows with the size of the
@@ -148,16 +165,24 @@ sequence of 100,000 blocks (120 s, 258 unique gradient events):
 
 | Call | Grows with | Time |
 |---|---|---|
-| `sequence_index` | blocks | 60 ms |
-| `gradient_peaks(snap)`, `block_gradient_values` | blocks, and unique gradient events | 75 ms |
-| `gradient_peaks(snap, window=...)`, after the first call | (almost constant) | 1 ms |
-| `pns_levels` | duration | 1.0 s |
-| `gradient_spectrum` | duration | 1.0 s |
+| `load(seq)` | the size of the sequence | 0.12 s |
+| `load(path)` | the size of the file | 0.36 s |
+| `sequence_index` | blocks | 22 ms |
+| `gradient_peaks(snap)`, the first gradient measurement | blocks, and unique gradient events | 47 ms |
+| `block_gradient_values`, after it | blocks | 0.5 ms |
+| `gradient_peaks(snap, window=...)`, after the first call | (almost constant) | under 1 ms |
+| `pns_levels` | duration | 0.89 s |
+| `gradient_spectrum` | duration | 0.88 s |
 
-The first gradient measurement of a snapshot also reads its block table and
-the points of its unique gradient events, and the later measurements use them.
-The table does not show `load`: it reads the file (`load(path)`) or copies the
-sequence (`load(seq)`).
+From `sequence_index` on, each row is the time of its call after the rows above
+it, on one snapshot: the first call of `gradient_peaks` does not include the
+block table. The exception is `pns_levels`: it is the time of the model with no
+kept result. The first of `gradient_peaks(snap)` and `block_gradient_values`
+also reads the points of the unique gradient events and makes the values of each
+block, and the other one and the windows use them. A sequence with 20,002 unique
+gradient events (a new phase-encode event in each TR) takes 0.22 s for the first
+call of `gradient_peaks`, 0.31 s for `load(seq)`, 1.1 s for `load(path)` and
+1.0 s for `gradient_spectrum`.
 [Implementation, section 3](implementation.md#3-algorithms-and-cost) gives the
 algorithms, their complexity and more measured times.
 
@@ -196,7 +221,7 @@ raster time.
 | Field | Meaning |
 |---|---|
 | `reason` | `None`, or `NO_GRADIENTS` (or `NO_GRADIENTS_IN_WINDOW`) when the range has no gradient. |
-| `range_s` | The range of the measurement: `(0.0, end_s)`, or the window ([section 4](#4-find-where-a-value-occurs)). |
+| `range_s` | The range of the measurement: `(0.0, end_s)`, or the window clipped to `(0.0, end_s)` ([section 4](#4-find-where-a-value-occurs)). |
 | `axes` | A dict from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector (Hz/m). |
 | `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and its block ID. |
@@ -246,9 +271,10 @@ for i in over:
 | `vector_peak_hz_per_m`, `vector_peak_time_s` | The largest magnitude of the three-axis vector in the block (Hz/m), and its first time. |
 
 The slew of a block is the larger of `slew_hz_per_m_per_s` and
-`junction_hz_per_m_per_s`. The largest of each array over all the blocks is
-the value of `gradient_peaks(snap)`. A block with no event on an axis has the
-values 0 there.
+`junction_hz_per_m_per_s`. The largest of each amplitude array over all the
+blocks is the value of `gradient_peaks(snap)`, and its slew is the larger of the
+largest of `slew_hz_per_m_per_s` and the largest of `junction_hz_per_m_per_s`. A
+block with no event on an axis has the values 0 there, at the time `start_s`.
 [Implementation, section 2.1](implementation.md#21-gradient_peaks-and-block_gradient_values)
 gives each field exactly.
 
@@ -260,16 +286,21 @@ tr = 6e-3
 peaks_tr_10 = gradient_peaks(snap, window=(10 * tr, 11 * tr))
 ```
 
-The window must be in the sequence, with `start_s < end_s`. A segment that
-crosses an end of the window is cut there. A step is in the window when
-`start_s <= t < end_s`. A result with a window is not kept, because a caller
-can ask for many windows, but it uses the kept values of each block. So after
-the first call, a window costs about the number of blocks in it.
+`window` is a tuple or a list of two real numbers. It must be in the sequence
+(each end within `seq_utils.TIME_TOLERANCE`, 1e-9 s), with `start_s < end_s`.
+A window that is not a pair, or has an end that is not a real number, raises
+`TypeError`, and another bad window raises `ValueError`. A segment that crosses
+an end of the window is cut there. A step is in the window when
+`start_s <= t < end_s` (and more than `seq_utils.TIME_TOLERANCE` before the end
+of the sequence). A result with a window is not kept, because a caller can ask
+for many windows, but it uses the kept values of each block. So after the first
+call, a window costs about the number of blocks in it.
 
 ## 5. Predict the PNS on a scanner
 
 `pns_levels(snap, hardware=..., thresholds_hz_per_t=(), bin_s=BIN_S)` runs the
-SAFE PNS model of pypulseq on the gradients of the sequence.
+SAFE PNS model of pypulseq on the gradients of the sequence. The three
+arguments after `snap` are keyword-only.
 
 **The hardware.** The model needs the SAFE parameters of the gradient coil of
 the scanner. There is no default. `hardware` is a pair `(struct, label)`: a
@@ -278,11 +309,19 @@ SAFE hardware struct in the form of pypulseq's `asc_to_hw`, and a name for it.
 file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the files of
 its `$INCLUDE` lines. For a test, pypulseq's example hardware, which is not a
 real scanner, is `hardware=(safe_example_hw(), "a label")` (`safe_example_hw`
-is in `pypulseq.utils.safe_pns_prediction`).
+is in `pypulseq.utils.safe_pns_prediction`). A `hardware` that is not such a
+pair raises `TypeError`. A struct with a missing axis or a missing field of
+`pns_levels.SAFE_FIELDS`, a field that is not a finite number, a `stim_limit` not
+above 0, or an axis with `a1 + a2 + a3` more than 0.001 from 1 raises
+`ValueError` (or `TypeError` for a field that is not a number). These checks run
+also for a sequence with no gradient.
 
 **The limit.** The PNS values are in Hz/T. The stimulation limit is `abs(gamma)`,
 and a value divided by `abs(gamma)` is the fraction of the limit. To find the
-times above a fraction `f` of the limit, give the threshold `f * abs(gamma)`:
+times above a fraction `f` of the limit, give the threshold `f * abs(gamma)`.
+`thresholds_hz_per_t` is a tuple of numbers above 0, finite, with no two equal
+(a value that is not a tuple, or an element that is not a number, raises
+`TypeError`; another bad value raises `ValueError`):
 
 ```python
 from pulseq_analysis.asc import hardware_from_asc
@@ -300,7 +339,11 @@ for run in levels.above[0.8 * abs(gamma)]:
 
 **The level, for a plot.** `level_min_hz_per_t` and `level_max_hz_per_t`
 are the least and the greatest total of each bin of `bin_s` (5 ms by
-default):
+default). A bin is a whole number of samples, at least one: `bin_samples` is
+`bin_s / dt_s` rounded to the nearest whole number when it is within 1e-6 of
+one, and else rounded down. A very long sequence has longer bins, so that the
+level has at most `pns_levels.MAX_BINS` (2,000,000) bins. `bin_s` changes only
+the level, not the peak or the runs:
 
 ```python
 import numpy as np
@@ -316,7 +359,7 @@ percent = (levels.level_max_hz_per_t / abs(gamma)) * 100  # fraction -> %, a new
 | `reason` | `None`, or `NO_GRADIENTS`: then the peaks are 0, `peak_time_s` is `None`, and there are no bins and no runs. |
 | `hardware` | The label of the hardware. |
 | `hw` | The SAFE parameters of each axis that the model used. |
-| `peak_hz_per_t`, `peak_time_s` | The largest total (Hz/T), and the time of its first sample. |
+| `peak_hz_per_t`, `peak_time_s` | The largest total (Hz/T), and the time of its first sample (`None` when the peak is 0). |
 | `axis_peaks_hz_per_t` | A dict from each axis to its largest value (Hz/T). |
 | `above` | A dict from each threshold to a tuple of `PnsInterval`: the runs at or above it, in time order. `{}` with no threshold. |
 | `dt_s`, `num_samples` | The time step (the gradient raster) and the number of samples. |
@@ -365,7 +408,11 @@ for frequency, bandwidth in resonances:
 The method is that of pypulseq's `calculate_gradient_spectrum`: Hann windows
 that overlap by 50 %, the magnitude of the FFT of each window as an amplitude
 spectral density, the RSS of the three axes in each window, and the maximum
-over the windows ([implementation, section 2.3](implementation.md#23-gradient_spectrum)).
+over the windows. It differs from pypulseq in two ways. The waveform is the one
+of MATLAB Pulseq ([section 2](#2-before-you-start)). And the gradients are
+sampled to the end of the sequence, with half a window of zeros before them and
+half a window or more after them, so a sequence shorter than one window has a
+spectrum ([implementation, section 2.3](implementation.md#23-gradient_spectrum)).
 
 | Argument | Default | Argument of pypulseq | Meaning |
 |---|---|---|---|
@@ -373,8 +420,13 @@ over the windows ([implementation, section 2.3](implementation.md#23-gradient_sp
 | `window_s` | `FFT_WINDOW_S` (0.05) | `window_width` | The length of a window. |
 | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0) | `frequency_oversampling` | The length of the FFT, as a multiple of the samples of a window. |
 
-The three arguments are keyword-only. `max_frequency_hz` is at most the
-Nyquist frequency of the gradient raster.
+The three arguments are keyword-only. Each is a finite number. `window_s` is
+above 0 and at least 2 samples of the gradient raster of the file, and
+`frequency_oversampling` is 1 or more. `max_frequency_hz` is above 0, at most the
+Nyquist frequency of the gradient raster, and at least the frequency step
+`1 / (nfft * dt)` (`nfft` is the length of the FFT and `dt` the gradient raster).
+A value of a wrong type raises `TypeError`, and a value that breaks a limit
+raises `ValueError`.
 
 `GradientSpectrum`:
 
@@ -419,9 +471,12 @@ An analysis is an object that has the following, as the protocol
   contract of the value), `params` (the keyword arguments of `compute`),
   `necessary` (the arguments with no default), `defaults` (pairs
   `(name, default)`), `rasters` (the rasters of the file that change its
-  value), `cost` and `series` (what `to_series` gives).
+  value), `cost` and `series` (the text that says what `to_series` gives).
 - `compute(snap, **params)`: the full Python value, the kept result of its
-  function. `snap` is a `Snapshot`.
+  function (`gradient.peaks` with a `window` is not kept). `snap` is a
+  `Snapshot`. The parameters are keyword-only: a runner gives the names in
+  `spec.necessary` and can leave out the others, which then have their
+  `spec.defaults`.
 - `to_series(value)`: a tuple of `Series`, the part of the value that can go
   into JSON. `()` for an analysis with nothing for JSON, and for a value with
   `NO_GRADIENTS`.
@@ -442,8 +497,10 @@ unique events, and `"slow"` when it grows with the duration of the sequence. The
 `BlockDurationRaster`, `RadiofrequencyRasterTime`, `AdcRasterTime`). `AnalysisSpec`
 checks its fields: `id` is a `str` that is not empty, `version` is an `int` of 1
 or more, `cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params`
-is a tuple of unique `str`, and a float default is finite. It raises
-`ValueError` for a bad value and `TypeError` for a wrong type.
+is a tuple of unique `str`, each name of `params` is in `necessary` or has one
+default (in the order of `params`), and each default is `None`, a `bool`, an
+`int`, a finite `float`, a `str` or a tuple of these. It raises `ValueError` for
+a bad value and `TypeError` for a wrong type.
 
 The objects of this package are `analyses.SEQ_INDEX`, `analyses.GRADIENT_PEAKS`,
 `analyses.GRADIENT_BLOCKS`, `analyses.PNS_SAFE_LEVELS` and
@@ -482,12 +539,18 @@ The kind gives the shape of the data:
 
 A `Series` is read-only: its arrays cannot be made writable, also in a copy from
 `pickle` or `copy.deepcopy`. An `ENVELOPE` has `min` and `max` of one integer or
-float dtype with `min <= max`, and `POINTS` has a `coord` of an integer or float
-dtype. A numpy scalar in `meta` is stored as a Python scalar.
+float dtype with `min <= max`, `POINTS` has a `coord` of an integer or float
+dtype, and `RUNS` has `start` and `end` of an integer or float dtype, finite,
+with `end >= start` for each run. A `Series` raises `TypeError` for a value of a
+wrong type and `ValueError` for a wrong value. A numpy scalar in `meta` is stored
+as a Python scalar. Two series with the same fields and arrays are equal
+(`==`).
 
 `Series.to_obj()` gives a dict that `json.dumps(obj, allow_nan=False)` writes. Its keys
-are `format` (the number 1), `name`, `kind`, `unit`, `coord_unit`, `coord_start`,
-`coord_step`, `coord_end`, `meta` and `arrays`. `Series.from_obj(obj)` is the inverse (it
+are `format` (the number 1), `name`, `kind` (the value of the `SeriesKind`, for example
+`"envelope"`), `unit`, `coord_unit`, `coord_start`, `coord_step`, `coord_end`, `meta` and
+`arrays`. A float of `meta` that is not finite is the string `"inf"`, `"-inf"` or `"nan"`.
+`Series.from_obj(obj)` is the inverse (it
 raises `ValueError` for a bad object: with no `format`, with a `format` other than 1, with
 a key that format 1 does not have, or with a number that is too large for a float).
 `Series.from_obj(obj, max_bytes=n)` also raises `ValueError` when the arrays together have
@@ -503,9 +566,10 @@ from each installed ID to its analysis, and raises `analyses.RegistryError`
 for two analyses with one ID, an entry point that does not load, an object
 with no `spec.id`, or an entry point whose name is not the `spec.id` of its
 object. `analyses.registry(strict=False)` leaves such an entry point out
-instead, with an `analyses.RegistryWarning` (a `UserWarning`) that names the
-entry point and its package, and gives the other analyses. The analyses of this
-package are always in the result.
+instead, with an `analyses.RegistryWarning` (a `UserWarning`) that has the text
+of the error, and gives the other analyses. Of two entry points with one ID, the
+one of this package stays, or else the first. The analyses of this package are
+always in the result.
 
 ## 8. The block table and the other modules
 
@@ -551,7 +615,8 @@ t = np.linspace(0.0, 0.01, 2001)  # the first 10 ms
 gx = gradient_sampler(snap).sample("gx", t)
 ```
 
-`block_samples`, `raster_block_lengths` and `sequence_samples` give the
+`GradientSampler.block_samples`, `sampling.raster_block_lengths` and
+`sampling.sequence_samples` give the
 samples on the gradient raster that the PNS model and the spectrum use
 ([implementation, section 2.4](implementation.md#24-the-sampler-and-the-number-of-samples)).
 
@@ -566,8 +631,11 @@ line names (an included field wins over a field that the file sets after the
 `$INCLUDE` line), and `asc.hardware_name(asc)` gives the name of the component
 in those fields. A `$INCLUDE` line is `$INCLUDE` in any case, a name (in double
 quotes when it has spaces) and optionally a comment that starts with `#` or
-`//`. Any other line that starts with `$INCLUDE` raises `ValueError` that
-names the file and the line.
+`//`. An included file is in the directory of the file that includes it. Any
+other line that starts with `$INCLUDE` raises `ValueError` that names the file
+and the line, a file that includes itself (or a cycle of files) raises
+`ValueError` that names the cycle, and a missing included file raises
+`FileNotFoundError`.
 
 **`extensions`.** `refuse_rotations(seq)` raises `NotImplementedError` when
 `seq` uses the Pulseq rotation extension, and `refuse_unsigned(seq)` raises

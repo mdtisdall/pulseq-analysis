@@ -418,10 +418,9 @@ Each gradient measurement starts from some of the same parts. The package makes
 each part one time for each snapshot and keeps it (section 4), so only the first
 measurement that needs a part pays for it. `snapshot.load` is before all of
 them: for a path it reads the file, and for a `pp.Sequence` it makes
-`copy.deepcopy` of it (on the machine of section 3.5, for 100,000 blocks: 0.12 s
-for `build_repeating`, 0.31 s for `build_worst`, and 0.14 s and 0.39 s for the
-same sequences read from their files). It also checks the sequence (section 7). Its cost is not in the table of
-section 3.5.
+`copy.deepcopy` of it. It also checks the sequence (section 7). Its cost is in
+the first two rows of the table of section 3.5: for 100,000 blocks, `load(seq)`
+takes 0.12 s (K = 258) to 0.31 s (K = 20,002), and `load(path)` 0.36 s to 1.09 s.
 
 - **The block table** (`sequence_index`). One read of `block_events` into
   an array and of `block_durations` into a vector (a Python loop over the
@@ -434,10 +433,10 @@ section 3.5.
   `seq_utils.gradient_offsets` for each unique gradient event, in a Python
   loop. The points go into flat arrays for all the events, and all the
   measurements share them. Time O(K) calls of pypulseq, plus O(P). This is a
-  part whose cost grows with K: about 7 µs for each unique event (section 3.5).
+  part whose cost grows with K: about 9 µs for each unique event (section 3.5).
   The first call of `gradient_peaks` also makes the values of each unique event
   (`_event_values`), with numpy over the pooled points of all the events: less
-  than 0.1 µs for each of them. So that first call grows by about 7 µs for each
+  than 0.1 µs for each of them. So that first call grows by about 9 µs for each
   unique event in all.
 - **The gaps of each axis.** The consecutive events of an axis, the length of
   each gap between them, and its kind (section 1.3). Vectorised. Time
@@ -542,7 +541,7 @@ view of those samples with no copy. Only the overlap of two chunks, one window
 less one hop (half a window) for each 256 windows, is sampled twice.
 
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
-`decode_array` take time O(n) for n values. `asc.read_gradient_asc` takes time
+`decode_array` takes time O(n) for n values. `asc.read_gradient_asc` takes time
 O(the size of the file and of its included files). `extensions.refuse_rotations`
 and `refuse_unsigned` take time O(1); `load` calls them one time. `analyses.registry()` reads the entry
 points of the installed packages. An analysis `compute` is its function.
@@ -562,39 +561,46 @@ points of the installed packages. An analysis `compute` is its function.
 ### 3.5 Measured times
 
 These times are from an Apple M1 Max, on 2026-10-07, with Python 3.12.14,
-numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, at commit `67ec640`. The
-sequences are those of `tests/scale_sequences.py`: a GRE TR of 5 blocks
-(6 ms), with a phase-encode table of 256 entries (`build_repeating`) or with a
-new phase-encode event in each TR (`build_worst`).
+numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, at commit `c920d17` (the code of
+`0.1.0rc6`). The sequences are those of `tests/scale_sequences.py`: a GRE TR of
+5 blocks (6 ms), with a phase-encode table of 256 entries (`build_repeating`) or
+with a new phase-encode event in each TR (`build_worst`).
 
 | Call | 100,000 blocks, 120 s, K = 258 | 100,000 blocks, 140 s, K = 20,002 | 1,000,000 blocks, 1198 s, K = 258 |
 |---|---|---|---|
-| `sequence_index` | 59 ms | 60 ms | 0.60 s |
-| `gradient_peaks(snap)`, first call | 74 ms | 0.44 s | 0.75 s |
-| `block_gradient_values`, after it | 0.4 ms | 0.4 ms | 3.3 ms |
+| `load(seq)` | 0.12 s | 0.31 s | 1.36 s |
+| `load(path)` | 0.36 s | 1.09 s | 3.58 s |
+| `sequence_index` | 22 ms | 22 ms | 0.23 s |
+| `gradient_peaks(snap)`, first call | 47 ms | 0.22 s | 0.57 s |
+| `block_gradient_values`, after it | 0.5 ms | 0.5 ms | 3.8 ms |
 | `gradient_peaks`, a window of 1 block | 0.4 ms | 0.4 ms | 0.4 ms |
-| `gradient_peaks`, a window of 1 TR | 0.8 ms | 0.8 ms | 0.8 ms |
-| `gradient_peaks`, a window of 1000 TRs | 0.9 ms | 0.9 ms | 0.9 ms |
-| `sample`, 1,000,000 times | 6 ms | 6 ms | 23 ms |
-| `gradient_spectrum` | 1.0 s | 1.2 s | 10.1 s |
-| `pns_levels` | 1.0 s | – | 9.6 s |
-| `pns_levels`, 3 thresholds | – | – | 9.9 s |
+| `gradient_peaks`, a window of 1 TR | 0.7 ms | 0.7 ms | 0.7 ms |
+| `gradient_peaks`, a window of 1000 TRs | 0.8 ms | 0.8 ms | 0.8 ms |
+| `sample`, 1,000,000 times | 6 ms | 7 ms | 23 ms |
+| `gradient_spectrum` | 0.88 s | 1.03 s | 8.8 s |
+| `pns_levels` | 0.89 s | – | 8.9 s |
+| `pns_levels`, 3 thresholds | – | – | 10.5 s |
 
 Each row is the time of its call after the rows above it, on the same
-snapshot, so the first call of `gradient_peaks` does not include the
-block table. `load` is not in any row. The time of the first call grows by about 19 µs for each unique
-gradient event (the second column). `scripts/time_pns_levels.py` builds only
-`build_repeating`, so the `pns_levels` rows have no value for `build_worst`. `pns_levels` takes about 80 ns for each
-sample, and `gradient_spectrum` about 85 ns.
+snapshot, so the first call of `gradient_peaks` does not include the block
+table. The `load` rows are of a snapshot that the later rows do not use: `load(seq)`
+copies the sequence that the script built, and `load(path)` reads the file that
+`seq.write` made from it (the write is not timed). The time of the first call of
+`gradient_peaks` grows by about 9 µs for each unique gradient event (the second
+column), almost all of it to read the event (`_events._read_points`).
+`scripts/time_pns_levels.py` builds only `build_repeating`, so the `pns_levels`
+rows have no value for `build_worst`. The three thresholds are 1.0, 0.8 and 0.5 of
+the stimulation limit of the example hardware, in Hz/T. `pns_levels` takes about
+75 ns for each sample, and `gradient_spectrum` about 73 ns.
 
 Four more measurements, on the same machine and software, at commit `22b57af`
 (2026-10-07). The sequences are those of `tests/scale_sequences.py`, and
 `scripts/` has no script for these:
 
-- The 19 µs of the first call of `gradient_peaks` are about 7 µs for each unique
+- The 19 µs of the first call of `gradient_peaks` were about 7 µs for each unique
   event to read it (`_events._read_points`) and about 13 µs in
-  `grad_peaks._event_values`. They are the best of 3 runs on `build_worst(20000)`
-  (K = 20,002).
+  `grad_peaks._event_values`, the best of 3 runs on `build_worst(20000)`
+  (K = 20,002). `_event_values` is now vectorised: less than 0.1 µs for each event.
 - `pns_levels._compute_levels`, with no kept result, the block table and the
   points already made, on about 14 million samples: `build_repeating(23333)`
   (K = 258) 1.19 s, and `build_worst(20000)` (K = 20,002) 1.59 s. The 0.40 s
