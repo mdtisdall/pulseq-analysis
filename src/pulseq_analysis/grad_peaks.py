@@ -1076,8 +1076,8 @@ def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None)
     each snapshot.
 
     Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
-    A snapshot has no signature hash missing and no rotation (`snapshot.load` refuses them), so
-    the numbers are of the logical axes as they are stored.
+    A snapshot has no rotation (`snapshot.load` refuses it), so the numbers are of the logical
+    axes as they are stored.
     """
     if window is not None:
         if not isinstance(window, tuple | list) or len(window) != 2:

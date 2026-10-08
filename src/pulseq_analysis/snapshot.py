@@ -11,10 +11,10 @@ snapshot.
 `load(path)` reads the file into a sequence that no other object holds, so it makes no copy.
 `load(seq)` makes `copy.deepcopy(seq)`, which shares no mutable object with `seq` (the
 guard tests of `tests/test_snapshot.py` walk both object graphs for this). `load` then
-refuses a sequence with no `[SIGNATURE]` hash (`extensions.refuse_unsigned`) and a sequence
-with a rotation (`extensions.refuse_rotations`), and turns pypulseq's block cache off for the
-private sequence, so no measurement calls either check again and no block of the
-snapshot is kept by pypulseq.
+refuses a sequence with the rotation extension (`extensions.refuse_rotations`), and turns
+pypulseq's block cache off for the private sequence, so no measurement calls the check again
+and no block of the snapshot is kept by pypulseq. `load` does not read the `[SIGNATURE]`
+hash: no result uses it.
 
 The results that the measurements make from a snapshot (`seq_index.sequence_index`, the
 events, `_events.event_points`, the gaps of `sampling` and the results of `grad_peaks`,
@@ -40,7 +40,7 @@ from typing import Any
 
 import pypulseq as pp
 
-from .extensions import refuse_rotations, refuse_unsigned
+from .extensions import refuse_rotations
 
 
 class Snapshot:
@@ -98,11 +98,10 @@ def load(source: str | os.PathLike | pp.Sequence) -> Snapshot:
     (`use_block_cache` is False), so a call of `get_block` keeps no block. Nothing else is
     built: each result is made on its first use.
 
-    Raises TypeError for another type of `source`; ValueError for a sequence with no
-    `[SIGNATURE]` hash (`extensions.refuse_unsigned`; a sequence that was built in memory gets
-    its hash from `seq.write(path)`); NotImplementedError for a sequence with the rotation
-    extension (`extensions.refuse_rotations`). A file that pypulseq cannot read raises the
-    error of `Sequence.read`.
+    Raises TypeError for another type of `source`; NotImplementedError for a sequence with the
+    rotation extension (`extensions.refuse_rotations`). A sequence or a file with no
+    `[SIGNATURE]` hash is accepted. A file that pypulseq cannot read raises the error of
+    `Sequence.read`.
     """
     if isinstance(source, pp.Sequence):
         # The block cache of `source` is not part of the copy, and pypulseq keeps in it every
@@ -122,7 +121,6 @@ def load(source: str | os.PathLike | pp.Sequence) -> Snapshot:
         raise TypeError(
             f"load takes the path of a .seq file or a pypulseq Sequence, not {type(source)!r}"
         )
-    refuse_unsigned(seq)
     refuse_rotations(seq)
     seq.use_block_cache = False
     return Snapshot(seq, path)

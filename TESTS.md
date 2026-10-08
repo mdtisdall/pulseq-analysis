@@ -1115,12 +1115,10 @@ argument.
 
 ### 2.3 Sequence extensions (`test_extensions.py`)
 
-`test_extensions.py` tests the two guards of `extensions.py`. `refuse_rotations` is the guard
-that refuses a sequence with a rotation, and `refuse_unsigned` refuses a sequence with no
-`[SIGNATURE]` hash. `snapshot.load` calls both, so the measurements, which take a snapshot, do not
-(the refusals through `load` are tested in `test_snapshot.py`, section 2.17). Its tests call the
-guards on a sequence. They build a sequence in memory with `add_block` (it has no hash), and sign
-the sequences of `tests/synthetic.py` with `synthetic.signed`. Task 6.1 of
+`test_extensions.py` tests the guard of `extensions.py`, `refuse_rotations`, which refuses a
+sequence with a rotation. `snapshot.load` calls it, so the measurements, which take a snapshot, do
+not (the refusal through `load` is tested in `test_snapshot.py`, section 2.17). Its tests call the
+guard on a sequence. Task 6.1 of
 `docs/plans/diagram-event-table.md` found that pypulseq 1.5.0.post1 cannot
 make a rotation and that its `Sequence.read` raises `ValueError` for a
 `.seq` file with a rotation section. This file therefore makes its own
@@ -1174,88 +1172,6 @@ new, empty `EventLibrary`, and calls `refuse_rotations` on it.
 
 **Assumptions:** None.
 
-#### `test_refuse_unsigned_raises_for_a_sequence_built_in_memory`
-
-**Checks:** `refuse_unsigned` raises `ValueError`, with "no [SIGNATURE] hash" in the
-message, for a sequence that only `add_block` built.
-
-**How:** The test builds a sequence with one trapezoid on x and a delay, checks that its
-`signature_value` is `''`, and calls `refuse_unsigned` inside `pytest.raises`.
-
-**Assumptions:** pypulseq leaves `signature_value` as `''` for a sequence that `write` and
-`read` have not touched (pypulseq-issues 11, fact 11 of
-`docs/plans/second-review-fixes.md`).
-
-#### `test_refuse_unsigned_accepts_synthetic_sequences`
-
-**Checks:** `refuse_unsigned` raises nothing for each synthetic sequence builder in
-`tests/synthetic.py`: each gives a signed sequence.
-
-**How:** The test is parametrized over `spin_echo_sequence`, `gre_sequence`,
-`arbitrary_gradient_sequence` and `empty_sequence`. For each, it builds the sequence and
-calls `refuse_unsigned` on it.
-
-**Assumptions:** `synthetic.signed` sets the hash that the check looks for (a `str` that
-is not `''`). It is not the hash of the sequence: only the presence counts.
-
-#### `test_refuse_unsigned_raises_for_a_signature_value_that_is_not_a_str`
-
-**Checks:** A `signature_value` that is not a `str` (`0.0`, `1`, `None`, `b"0123"`) is not a
-hash: `refuse_unsigned` raises `ValueError`.
-
-**How:** The test is parametrized over the four values. For each, it builds a sequence in
-memory, sets `seq.signature_value` to the value, and calls `refuse_unsigned` inside
-`pytest.raises`.
-
-**Assumptions:** None. The float is the value that pypulseq's `read` kept for a hash that
-looked like a number, before the pin `pulseq-reports-pin-2`.
-
-#### `test_refuse_unsigned_accepts_a_sequence_after_write`
-
-**Checks:** `write` signs a sequence: the object that `refuse_unsigned` refused passes
-after `seq.write`.
-
-**How:** The test builds a sequence in memory, checks that `refuse_unsigned` raises, calls
-`seq.write` for a file in `tmp_path`, and calls `refuse_unsigned` again.
-
-**Assumptions:**
-
-- pypulseq's `write` sets `seq.signature_value` to the hash of the file (fact 11 of
-  `docs/plans/second-review-fixes.md`).
-- The test checks the write of the pinned pypulseq fork (`TODO.md`), not the package.
-
-#### `test_refuse_unsigned_accepts_a_read_of_a_signed_file`
-
-**Checks:** A new `Sequence` that reads a signed `.seq` file has a hash, so
-`refuse_unsigned` raises nothing.
-
-**How:** The test writes a sequence built in memory to `tmp_path`, makes a new
-`pp.Sequence`, calls `read` for the file, and calls `refuse_unsigned`.
-
-**Assumptions:**
-
-- pypulseq's `read` keeps the `[SIGNATURE]` hash as text. It is the pin
-  `pulseq-reports-pin-2`: before it, a hash that looked like a number was a float.
-- The test checks the write and the read of the pinned pypulseq fork (`TODO.md`), not
-  the package.
-
-#### `test_refuse_unsigned_raises_for_a_read_of_an_unsigned_file`
-
-**Checks:** A new `Sequence` that reads a `.seq` file with no `[SIGNATURE]` section has no
-hash, so `refuse_unsigned` raises `ValueError`.
-
-**How:** The test writes a sequence built in memory to `tmp_path`, cuts the file at its
-`[SIGNATURE]` section (and checks that the section is gone), makes a new `pp.Sequence`,
-calls `read` for the file, and calls `refuse_unsigned` inside `pytest.raises`.
-
-**Assumptions:**
-
-- pypulseq's `read` of an unsigned file into a new object leaves `signature_value` as
-  `''`. The test does not cover the two stale cases (a `read` of an unsigned file into
-  an object that read a signed file, and `add_block` after `read`): in them the check
-  passes with the old hash, which `refuse_unsigned` documents as a limit.
-- The test checks the read of the pinned pypulseq fork (`TODO.md`), not the package.
-
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
@@ -1266,8 +1182,7 @@ reference numbering, `_reference_index`, is a plain loop over the blocks with on
 for each event kind: the loop that `diagram_data.diagram_tables` had before it used the
 index. Its `*_first` arrays hold play indexes, as `SequenceIndex` does (the old loop
 kept block ids). The tests load `build_repeating` and `build_worst` from
-`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes and
-refuses a sequence with no `[SIGNATURE]` hash for. Each builder of `tests/synthetic.py` and
+`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes. Each builder of `tests/synthetic.py` and
 `tests/scale_sequences.py` gives a signed sequence, and a test makes its snapshot with
 `synthetic.loaded`, which signs a sequence that a test builds by hand and loads it.
 
@@ -6057,15 +5972,19 @@ differs from the reference.
 place; the first test of this section is the proof for every way. Each change changes at least
 one result, which the last check shows.
 
-#### `test_load_refuses_an_unsigned_sequence_and_an_unsigned_file`
+#### `test_load_accepts_an_unsigned_sequence_and_an_unsigned_file`
 
-**Checks:** `load` raises `ValueError` that names the `[SIGNATURE]` section for a sequence with
-no hash and for a file with no `[SIGNATURE]` section.
+**Checks:** `load` gives a snapshot of a sequence with no `[SIGNATURE]` hash and of a file with
+no `[SIGNATURE]` section, adds no hash (`signature_value` stays `''`), and the hash changes no
+result.
 
-**How:** The test calls `load` with a sequence that `add_block` built, and with a file of the spin
-echo whose `[SIGNATURE]` section was cut off.
+**How:** The test loads a sequence that `add_block` built, and compares `_results` with those of
+the same sequence with the three signature attributes set by hand, as `write` sets them. Then it
+writes the spin echo to a file, cuts a copy of the file at its `[SIGNATURE]` section, and compares
+`_results` of `load` of the two files.
 
-**Assumptions:** The check is for the presence of a hash only (`extensions.refuse_unsigned`).
+**Assumptions:** `write` rounds the values, so the unsigned file is compared with the signed
+file, not with the sequence in memory.
 
 #### `test_load_refuses_a_sequence_with_a_rotation`
 
@@ -6077,29 +5996,30 @@ echo whose `[SIGNATURE]` section was cut off.
 **Assumptions:** The two ways to find a rotation are those of `extensions.refuse_rotations`;
 pypulseq 1.5.0.post1 cannot make a rotation.
 
-#### `test_load_checks_the_signature_before_the_rotation`
+#### `test_load_refuses_an_unsigned_sequence_with_a_rotation`
 
-**Checks:** The order of the checks of `load` is the signature, then the rotation.
+**Checks:** The rotation check of `load` does not depend on a hash: a sequence with a rotation
+and no hash raises `NotImplementedError`.
 
-**How:** A sequence with a rotation library and no hash gives `ValueError` (the signature), not
-`NotImplementedError`.
+**How:** A sequence with a rotation library and `signature_value` set to `''` is loaded inside
+`pytest.raises(NotImplementedError)`.
 
 **Assumptions:** None.
 
-#### `test_a_measurement_of_a_snapshot_calls_neither_check_again`
+#### `test_load_calls_refuse_rotations_once_and_no_measurement_calls_it`
 
-**Checks:** `load` calls `refuse_unsigned` one time and `refuse_rotations` one time, and no
-measurement of the snapshot calls either again.
+**Checks:** `load` calls `refuse_rotations` one time, and no measurement of the snapshot calls
+it again.
 
-**How:** Parametrized over the seven sequences. The test replaces both functions in `snapshot`
-with wrappers that count the calls and call the original, loads the sequence, and checks one call
-of each. Then it replaces both functions, in `extensions`, in `snapshot` and in `seq_index`,
-`_events`, `sampling`, `grad_peaks`, `pns_levels` and `grad_spectrum` (also where the module has
-no such name), with functions that raise, and runs `_results` (the index, the events, the event
-points, the sampler and the four measurements). No call is made, and the count stays at one.
+**How:** Parametrized over the seven sequences. The test replaces `refuse_rotations` in
+`snapshot` with a wrapper that counts the calls and calls the original, loads the sequence, and
+checks one call. Then it replaces `refuse_rotations`, in `extensions`, in `snapshot` and in
+`seq_index`, `_events`, `sampling`, `grad_peaks`, `pns_levels` and `grad_spectrum` (also where
+the module has no such name), with a function that raises, and runs `_results` (the index, the
+events, the event points, the sampler and the four measurements). No call is made, and the count
+stays at one.
 
-**Assumptions:** A module that reaches the checks in another way than by these names is not
-found.
+**Assumptions:** A module that reaches the check in another way than by this name is not found.
 
 #### `test_load_refuses_another_type_and_a_snapshot`
 

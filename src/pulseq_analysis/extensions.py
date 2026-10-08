@@ -1,9 +1,7 @@
-"""Guards that `snapshot.load` calls.
+"""The guard that `snapshot.load` calls.
 
-`refuse_rotations` refuses a Pulseq extension that the measurements do not support, and
-`refuse_unsigned` refuses a sequence that has no `[SIGNATURE]` hash. `load` calls
-`refuse_unsigned` first and then `refuse_rotations`, one time for each snapshot. A measurement
-takes a snapshot, so it calls neither.
+`refuse_rotations` refuses a Pulseq extension that the measurements do not support. `load`
+calls it one time for each snapshot. A measurement takes a snapshot, so it does not call it.
 """
 
 import pypulseq as pp
@@ -41,34 +39,4 @@ def refuse_rotations(seq: pp.Sequence) -> None:
             "This sequence uses the Pulseq rotation extension, which the gradient "
             "measurements do not support yet: they use the logical gradients as they are "
             "stored, and a rotation changes the gradients on the scanner."
-        )
-
-
-def refuse_unsigned(seq: pp.Sequence) -> None:
-    """Raise `ValueError` when `seq` has no `[SIGNATURE]` hash.
-
-    A `.seq` file must have a `[SIGNATURE]` section with a hash. pypulseq's `read` keeps it
-    in `seq.signature_value`, and its `write` sets it, so the value is `''` for a sequence
-    that only `add_block` has built. `snapshot.load` calls this function, so a snapshot always
-    has a hash and the measurements do not call it. A sequence built in memory gets its hash
-    from `seq.write(path)`.
-
-    The check is for the presence of a hash only: `seq.signature_value` must be a `str`
-    that is not `''`. The package does not compute the hash again, and pypulseq's `read`
-    does not check it against the file.
-
-    Limit: the hash stays on the object when the object changes (pypulseq-issues 11), so
-    two cases pass the check with a hash that is not of the sequence now in the object:
-
-    - a sequence changed with `add_block` after `read` of a signed file.
-    - a `read` of an unsigned file into an object that read a signed file before.
-
-    Use a new `Sequence` object for each file, and read before any `add_block`.
-    """
-    value = seq.signature_value
-    if not isinstance(value, str) or value == "":
-        raise ValueError(
-            "This sequence has no [SIGNATURE] hash. A .seq file must have a [SIGNATURE] "
-            "section, and this package checks only that the hash is there. Use "
-            "`seq.write(path)` to sign a sequence that was built in memory."
         )
