@@ -12,7 +12,9 @@ the time (unit "s") or the frequency (unit "Hz"). `coord_unit` is the unit of th
 - `RUNS`: a boolean that is true from `start[k]` to `end[k]`, and false elsewhere.
 
 `Series.to_obj` gives a dict that `json.dumps(obj, allow_nan=False)` writes, and
-`Series.from_obj` reads it back. Each array is one dict `{"dtype", "length", "data"}`
+`Series.from_obj` reads it back. The dict has the key `"format"`, the number of the form of
+the dict: 1. `from_obj` raises `ValueError` for an object with no `"format"`, with another
+one, or with a key that format 1 does not have. Each array is one dict `{"dtype", "length", "data"}`
 (`encode_array`, `decode_array`), where `data` is the little-endian bytes of the array,
 gzipped and base64-encoded. This is the same text as `encode_tables` of pulseq-reports
 (`pulseq_reports.diagram_data`), so a report can put the text into its
@@ -51,6 +53,9 @@ _NON_FINITE = ("inf", "-inf", "nan")
 _KINDS = "biufc"
 
 _ARRAY_KEYS = ("dtype", "length", "data")
+
+# The number of the form of the dict of `to_obj`, in its key "format".
+_FORMAT = 1
 
 
 class SeriesKind(Enum):
@@ -399,13 +404,14 @@ class Series:
             )
 
     def to_obj(self) -> dict[str, Any]:
-        """A dict of JSON values, with the keys `name`, `kind`, `unit`, `coord_unit`,
+        """A dict of JSON values, with the keys `format` (the number 1), `name`, `kind`, `unit`, `coord_unit`,
         `coord_start`, `coord_step`, `coord_end`, `meta` and `arrays`, in this order. `kind`
         is the value of the `SeriesKind`. `arrays` maps each name to `encode_array`, in the
         order of `arrays`. A float of `meta` that is not finite is a string (module
         docstring). An int stays an int and a bool stays a bool.
         `json.dumps(obj, allow_nan=False)` writes the dict."""
         return {
+            "format": _FORMAT,
             "name": self.name,
             "kind": self.kind.value,
             "unit": self.unit,
@@ -420,10 +426,17 @@ class Series:
         }
 
     @classmethod
-    def from_obj(cls, obj: Any) -> Series:
+    def from_obj(cls, obj: Any, *, max_bytes: int | None = None) -> Series:
         """The series of `to_obj`: `Series.from_obj(s.to_obj()) == s`, also after
-        `json.dumps` and `json.loads`. An unknown key, a missing key, an unknown kind, or a
-        bad value is a `ValueError`."""
+        `json.dumps` and `json.loads`. An unknown key, a missing key (also `format`), a
+        `format` other than 1, an unknown kind, or a bad value is a `ValueError`. With
+        `max_bytes`, it is also a `ValueError` when the arrays together have more than
+        `max_bytes` bytes after decompression (`decode_array`, and the check is before each
+        array is decompressed)."""
+        if isinstance(obj, dict) and "format" in obj:
+            fmt = obj["format"]
+            if type(fmt) is not int or fmt != _FORMAT:
+                raise ValueError(f'unknown "format" {fmt!r} in a series: only {_FORMAT} is read')
         _check_keys(obj, _SERIES_KEYS, "a series")
         try:
             kind = SeriesKind(obj["kind"])
@@ -439,12 +452,18 @@ class Series:
         if not isinstance(arrays, dict):
             raise ValueError('"arrays" of a series must be a JSON object')  # noqa: TRY004
         try:
+            decoded = {}
+            remaining = max_bytes
+            for key, d in arrays.items():
+                decoded[key] = decode_array(d, max_bytes=remaining)
+                if remaining is not None:
+                    remaining -= decoded[key].nbytes
             return cls(
                 name=obj["name"],
                 kind=kind,
                 unit=obj["unit"],
                 coord_unit=obj["coord_unit"],
-                arrays={key: decode_array(d) for key, d in arrays.items()},
+                arrays=decoded,
                 coord_start=_float_from_json(obj["coord_start"], '"coord_start"'),
                 coord_step=_float_from_json(obj["coord_step"], '"coord_step"'),
                 coord_end=_float_from_json(obj["coord_end"], '"coord_end"'),
@@ -457,6 +476,7 @@ class Series:
 
 
 _SERIES_KEYS = (
+    "format",
     "name",
     "kind",
     "unit",
@@ -494,13 +514,16 @@ def encode_array(a: np.ndarray) -> dict[str, Any]:
     }
 
 
-def decode_array(d: Any) -> np.ndarray:
+def decode_array(d: Any, *, max_bytes: int | None = None) -> np.ndarray:
     """The array of `encode_array`: a new writable array in native byte order. `d` must be a
     dict with exactly the keys `dtype`, `length` and `data`, else `ValueError`. It is also a
     `ValueError` when `dtype` is not the name of a bool, integer, float or complex numpy
     dtype, when `data` does not decode, or when `length` is not the number of elements in
     the decoded bytes, or when `length` items need more than `sys.maxsize` bytes. It
-    decompresses at most `length` items and one byte more. A bool byte other than 0 is
+    decompresses at most `length` items and one byte more. With `max_bytes` (not None), it
+    is a `ValueError` when `length` items have more than `max_bytes` bytes, before anything
+    is decompressed: `length` is also the bound of the decompression, so a `length` that
+    is too small for the data does not let it use more memory. A bool byte other than 0 is
     True."""
     _check_keys(d, _ARRAY_KEYS, "an encoded array")
     name, length, data = d["dtype"], d["length"], d["data"]
@@ -521,6 +544,11 @@ def decode_array(d: Any) -> np.ndarray:
     # One byte more than `length` items, so that more data than `length` shows, and no more
     # than that is decompressed (wbits=31 reads the gzip format).
     limit = length * dtype.itemsize
+    if max_bytes is not None and limit > max_bytes:
+        raise ValueError(
+            f'"length" of an encoded array is {length}, which is {limit} bytes of {name}: '
+            f"more than max_bytes, {max_bytes}"
+        )
     if limit + 1 > sys.maxsize:  # `limit + 1` is the `max_length` of `decompress` below
         raise ValueError(f'"length" of an encoded array is too large: {length}')
     try:
