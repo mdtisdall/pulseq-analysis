@@ -4484,6 +4484,44 @@ the message has the name of the entry point, the name of its package and the `sp
 analysis has the ID `t.a`, and checks the message of the error that `registry()` raises.
 
 **Assumptions:** None.
+
+#### `test_the_strict_registry_raises_for_an_entry_point_that_breaks_a_rule`
+
+**Checks:** For each rule of the registry (an entry point that cannot load, an object without
+`spec.id`, a name that is not the `spec.id`, an ID that another entry point has), a fake entry
+point of the package `pkg-bad` next to the installed ones raises `RegistryError` with the
+name of the package, for `registry()` and for `registry(strict=True)`.
+
+**How:** The test is parametrized over the four rules. It makes `entry_points` give the
+installed entry points and then the fake one, and calls `registry()` and
+`registry(strict=True)` under `pytest.raises`.
+
+**Assumptions:** None.
+
+#### `test_the_registry_that_is_not_strict_leaves_out_an_entry_point_and_warns`
+
+**Checks:** With `strict=False`, a fake entry point that breaks one of the four rules is left
+out with one `RegistryWarning` whose message has the name of the entry point, the name of its
+package and the cause, and the result has the five analyses of this package, each the object
+of this package.
+
+**How:** The test is parametrized over the four rules. It makes `entry_points` give the
+installed entry points and then the fake one, and calls `registry(strict=False)` under
+`pytest.warns`.
+
+**Assumptions:** The installed entry points are the five of this package.
+
+#### `test_the_registry_that_is_not_strict_keeps_the_analysis_of_the_package_for_one_id`
+
+**Checks:** When another package gives the ID of an analysis of this package, and its entry
+point comes before the one of this package, `registry(strict=False)` warns with the name of
+the other package, and the result has the analysis of this package for that ID.
+
+**How:** The test makes `entry_points` give a fake entry point `seq.index` of `pkg-bad` first
+and then the installed ones.
+
+**Assumptions:** The installed entry points have a `value` that starts with
+`pulseq_analysis.analyses:`.
 #### `test_the_spec_of_each_analysis_has_the_documented_values`
 
 **Checks:** The ID, the version 1, `params`, `necessary`, `defaults`, `rasters` and `cost` of

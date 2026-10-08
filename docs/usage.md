@@ -491,7 +491,12 @@ inverse ([implementation, section 8](implementation.md#8-series-checks-and-the-a
 group `pulseq_analysis.analyses` (`analyses.GROUP`). The name of an entry point
 is the ID, and its object is the analysis. `analyses.registry()` gives a dict
 from each installed ID to its analysis, and raises `analyses.RegistryError`
-for two analyses with one ID or an entry point that does not load.
+for two analyses with one ID, an entry point that does not load, an object
+with no `spec.id`, or an entry point whose name is not the `spec.id` of its
+object. `analyses.registry(strict=False)` leaves such an entry point out
+instead, with an `analyses.RegistryWarning` (a `UserWarning`) that names the
+entry point and its package, and gives the other analyses. The analyses of this
+package are always in the result.
 
 ## 8. The block table and the other modules
 

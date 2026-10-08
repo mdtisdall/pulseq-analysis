@@ -32,6 +32,7 @@ from pulseq_analysis.analyses import (
     SEQ_INDEX,
     AnalysisSpec,
     RegistryError,
+    RegistryWarning,
     registry,
 )
 from pulseq_analysis.asc import hardware_from_asc
@@ -197,6 +198,82 @@ def test_an_entry_point_whose_name_is_not_the_spec_id_raises_an_error_that_names
     assert "other.name" in message
     assert "pkg-x" in message
     assert "t.a" in message
+
+
+def _install_with_real_entry_points(monkeypatch, *fakes):
+    """Make `importlib.metadata.entry_points(group=GROUP)` give the installed entry points
+    and then `fakes`."""
+    _install_entry_points(monkeypatch, [*importlib.metadata.entry_points(group=GROUP), *fakes])
+
+
+# For each rule: a fake entry point that breaks it, the name of the entry point and the cause
+# that the message has.
+_BAD_ENTRY_POINTS = {
+    "cannot-load": (
+        lambda: _EntryPoint("bad.ep", ImportError("no module named foo"), package="pkg-bad"),
+        "bad.ep",
+        "no module named foo",
+    ),
+    "no-spec-id": (lambda: _EntryPoint("bad.ep", object(), package="pkg-bad"), "bad.ep", "spec.id"),
+    "name-is-not-the-id": (
+        lambda: _EntryPoint("bad.ep", _analysis("t.a"), package="pkg-bad"),
+        "bad.ep",
+        "t.a",
+    ),
+    "duplicate-id": (
+        lambda: _EntryPoint("seq.index", _analysis("seq.index"), package="pkg-bad"),
+        "seq.index",
+        "seq.index",
+    ),
+}
+
+
+@pytest.mark.parametrize("rule", _BAD_ENTRY_POINTS)
+def test_the_strict_registry_raises_for_an_entry_point_that_breaks_a_rule(monkeypatch, rule):
+    """For each rule of the registry, a fake entry point that breaks it, next to the
+    installed ones, raises `RegistryError` with `strict=True` and with no argument."""
+    make, *_ = _BAD_ENTRY_POINTS[rule]
+    _install_with_real_entry_points(monkeypatch, make())
+
+    with pytest.raises(RegistryError, match="pkg-bad"):
+        registry()
+    with pytest.raises(RegistryError, match="pkg-bad"):
+        registry(strict=True)
+
+
+@pytest.mark.parametrize("rule", _BAD_ENTRY_POINTS)
+def test_the_registry_that_is_not_strict_leaves_out_an_entry_point_and_warns(monkeypatch, rule):
+    """With `strict=False`, a fake entry point that breaks a rule is left out with one
+    `RegistryWarning` that has its name, its package and the cause, and the result has the
+    five analyses of this package."""
+    make, name, cause = _BAD_ENTRY_POINTS[rule]
+    _install_with_real_entry_points(monkeypatch, make())
+
+    with pytest.warns(RegistryWarning) as record:
+        found = registry(strict=False)
+
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert name in message
+    assert "pkg-bad" in message
+    assert cause in message
+    assert sorted(found) == sorted(analysis_id for _, analysis_id, *_ in _SPECS)
+    for analysis, analysis_id, *_ in _SPECS:
+        assert found[analysis_id] is analysis
+
+
+def test_the_registry_that_is_not_strict_keeps_the_analysis_of_the_package_for_one_id(
+    monkeypatch,
+):
+    """When another package gives the ID of an analysis of this package, and its entry point
+    comes first, `registry(strict=False)` still has the analysis of this package."""
+    other = _EntryPoint("seq.index", _analysis("seq.index"), package="pkg-bad")
+    _install_entry_points(monkeypatch, [other, *importlib.metadata.entry_points(group=GROUP)])
+
+    with pytest.warns(RegistryWarning, match="pkg-bad"):
+        found = registry(strict=False)
+
+    assert found["seq.index"] is SEQ_INDEX
 
 
 @pytest.mark.parametrize(
