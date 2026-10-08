@@ -22,7 +22,8 @@ A package gives its analyses as entry points of the group `GROUP`
 analysis. `registry()` loads them and gives a dict from each ID to its analysis. Two analyses
 with one ID, an entry point that cannot load, an object with no `spec.id`, and an entry point
 whose name is not the `spec.id` of its object raise `RegistryError` with the names of the
-packages.
+packages. `registry(strict=False)` leaves such an entry point out and warns with
+`RegistryWarning` instead.
 
 The analyses of this package:
 
@@ -47,6 +48,7 @@ windows); with the default `window=None` it gives the kept result of the whole s
 
 import importlib.metadata
 import math
+import warnings
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Protocol
@@ -76,6 +78,11 @@ _COSTS = ("fast", "slow")
 class RegistryError(Exception):
     """An entry point that cannot be used, for example two packages that give one analysis
     ID."""
+
+
+class RegistryWarning(UserWarning):
+    """`registry(strict=False)` left out an entry point that cannot be used. The message is
+    the one of the `RegistryError` of `registry()`."""
 
 
 def _is_default_value(value: Any) -> bool:
@@ -538,40 +545,62 @@ PNS_SAFE_LEVELS = _PnsSafeLevels()
 GRADIENT_SPECTRUM = _GradientSpectrum()
 
 
-def registry() -> dict[str, Analysis]:
+def registry(*, strict: bool = True) -> dict[str, Analysis]:
     """The installed analyses of `GROUP`, by `spec.id`. Two analyses with one ID are a
     `RegistryError` that names both packages. An entry point whose name is not the `spec.id`
     of its object is a `RegistryError` that names the entry point, its package and the
-    `spec.id`."""
+    `spec.id`. An entry point that cannot load, or whose object has no `spec.id`, is a
+    `RegistryError` that names the entry point and its package.
+
+    With `strict=False` the entry point that breaks a rule is left out, with a
+    `RegistryWarning` that has the text of the error, and the other analyses are in the
+    result. Of two entry points with one ID, the one of this package stays, or else the
+    first."""
     found: dict[str, tuple[Analysis, str]] = {}
-    for ep in importlib.metadata.entry_points(group=GROUP):
+    # The entry points of this package come first, so that they always load (a stable sort).
+    entry_points = sorted(
+        importlib.metadata.entry_points(group=GROUP),
+        key=lambda ep: not getattr(ep, "value", "").startswith(f"{__name__}:"),
+    )
+    for ep in entry_points:
         try:
-            analysis = ep.load()
-        except Exception as e:
-            raise RegistryError(
-                f"cannot load the entry point {ep.name!r} of the group {GROUP!r} from the "
-                f"package {_package(ep)!r}: {type(e).__name__}: {e}"
-            ) from e
-        try:
-            analysis_id = analysis.spec.id
-        except AttributeError as e:
-            raise RegistryError(
-                f"the analysis entry point {ep.name!r} of the package {_package(ep)!r} "
-                "has no `spec.id`"
-            ) from e
-        if ep.name != analysis_id:
-            raise RegistryError(
-                f"the name of the analysis entry point {ep.name!r} of the package "
-                f"{_package(ep)!r} is not the `spec.id` of its object, {analysis_id!r}"
-            )
-        package = _package(ep)
-        if analysis_id in found:
-            raise RegistryError(
-                f"the packages {found[analysis_id][1]!r} and {package!r} both give "
-                f"the analysis ID {analysis_id!r}"
-            )
+            analysis_id, analysis = _load(ep)
+            package = _package(ep)
+            if analysis_id in found:
+                raise RegistryError(
+                    f"the packages {found[analysis_id][1]!r} and {package!r} both give "
+                    f"the analysis ID {analysis_id!r}"
+                )
+        except RegistryError as e:
+            if strict:
+                raise
+            warnings.warn(RegistryWarning(f"{e}; the entry point is left out"), stacklevel=2)
+            continue
         found[analysis_id] = (analysis, package)
     return {analysis_id: analysis for analysis_id, (analysis, _) in found.items()}
+
+
+def _load(ep: Any) -> tuple[str, Analysis]:
+    """The `spec.id` and the object of the entry point `ep`, or a `RegistryError`."""
+    try:
+        analysis = ep.load()
+    except Exception as e:
+        raise RegistryError(
+            f"cannot load the entry point {ep.name!r} of the group {GROUP!r} from the "
+            f"package {_package(ep)!r}: {type(e).__name__}: {e}"
+        ) from e
+    try:
+        analysis_id = analysis.spec.id
+    except AttributeError as e:
+        raise RegistryError(
+            f"the analysis entry point {ep.name!r} of the package {_package(ep)!r} has no `spec.id`"
+        ) from e
+    if ep.name != analysis_id:
+        raise RegistryError(
+            f"the name of the analysis entry point {ep.name!r} of the package "
+            f"{_package(ep)!r} is not the `spec.id` of its object, {analysis_id!r}"
+        )
+    return analysis_id, analysis
 
 
 def _package(ep: Any) -> str:
