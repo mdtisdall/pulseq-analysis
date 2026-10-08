@@ -475,9 +475,9 @@ time: a window of 5000 blocks takes about the time of a window of one TR.
 make the polyline of that range, and `np.interp` gives the values. Time
 O(log B + points of the events in the range + Q), memory O(Q + those points).
 This leaves out two costs of the first call. `gradient_sampler(seq)` makes a
-new sampler for each call, and the first `sample` of a sampler on an axis scans
-all B blocks for the blocks with an event on that axis (`_event_blocks`, time
-O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
+new sampler for each call, and the first `sample` of a sampler on an axis finds
+the events, the gaps and the ramps of that axis (`_events.axis_events`,
+`gap_kinds` and `ramps`, time O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
 of that axis (section 3.2).
 
 **`GradientSampler.block_samples(...)`.** The samples of each block of a

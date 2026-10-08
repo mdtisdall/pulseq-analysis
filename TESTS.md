@@ -1901,11 +1901,13 @@ has no pieces. A block added to the sequence makes the result be found again.
 
 **How:** `long_gap_sequence` has a gradient that ends at 3 U at 100 µs, a block with no gradient,
 and a gradient that starts at 2 U at 300 µs. The test checks the pieces: 100 to 105 µs from 3 U
-to 0, and 295 to 300 µs from 0 to 2 U. It checks that `ramp_s` is 105 and 295 µs. It checks
-that a second sampler gives the same object (`is`), that `writeable` is False for each array, and
-that gy has no pieces. After `add_block`, a new sampler gives another object with equal pieces.
+to 0, and 295 to 300 µs from 0 to 2 U. It checks the ramp points of `_events.ramps`: the ramp to
+0 ends at 105 µs and the ramp from 0 starts at 295 µs. It checks that a second sampler gives the
+same object (`is`), that `writeable` is False for each array, and that gy has no pieces. After
+`add_block`, a new sampler gives another object with equal pieces.
 
-**Assumptions:** The test reads the private `GradientSampler._gaps`.
+**Assumptions:** The test reads the private `GradientSampler._gaps` and
+`GradientSampler._axis_events`.
 
 #### `test_block_samples_matches_sample_at_file_raster_times`
 

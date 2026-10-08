@@ -27,6 +27,9 @@ last_time`, with the first point of the later event and the last point of the ea
   `waveforms()` draws a line across a long gap (pypulseq-issues 12). A value of 1e-6 Hz/m or
   less also gets its ramp.
 
+The rule of the gaps (the zero, the short and the long gap, and the ramp points) is in
+`_events` (`gap_kinds` and `polyline`), where `sampling` uses it too.
+
 Before the first point and after the last point of the axis the value is 0, and a first value or
 a last value that is not 0 is a step at that point.
 
@@ -96,12 +99,20 @@ import numpy as np
 import pypulseq as pp
 
 from ._equality import FrozenDict, value_dataclass
-from ._events import EventPoints, event_points
+from ._events import (
+    AxisEvents,
+    EventPoints,
+    axis_events,
+    event_points,
+    gap_kinds,
+    polyline,
+    ramps,
+)
 from ._kept import _Entry, kept_results
 from ._validate import real
 from .extensions import refuse_rotations
 from .seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
-from .seq_utils import AXES, TIME_TOLERANCE
+from .seq_utils import AXES, GRAD_COLUMNS, TIME_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -293,38 +304,6 @@ _CACHE: "weakref.WeakKeyDictionary[pp.Sequence, _Entry]" = weakref.WeakKeyDictio
 # ---- The events of one axis, and the gaps between them ----
 
 
-@dataclass(frozen=True, eq=False)
-class _AxisEvents:
-    """The events on one axis, in play order. M is the number of blocks that have an event on
-    the axis. Times are in seconds from the sequence start, computed as the oracle and the
-    sample times are: `(block start + delay) + offset`."""
-
-    pos: np.ndarray  # int64, M: the play index of the block of each event
-    k: np.ndarray  # int64, M: the dense event index minus 1, into the pools of `EventPoints`
-    ft: np.ndarray  # float64, M: the time of the first point of the event
-    lt: np.ndarray  # float64, M: the time of the last point of the event
-    first: np.ndarray  # float64, M: the value of the first point (Hz/m)
-    last: np.ndarray  # float64, M: the value of the last point (Hz/m)
-
-
-def _axis_events(col: np.ndarray, points: EventPoints, start_s: np.ndarray) -> _AxisEvents:
-    """The `_AxisEvents` of the axis whose dense event column (`seq_index.SequenceIndex.gx`,
-    `gy` or `gz`) is `col`."""
-    pos = np.flatnonzero(col)
-    k = col[pos].astype(np.int64) - 1
-    base = start_s[pos] + points.delay[k]
-    first_at = points.at[k]
-    last_at = first_at + points.count[k] - 1
-    return _AxisEvents(
-        pos,
-        k,
-        base + points.offsets[first_at],
-        base + points.offsets[last_at],
-        points.amp[first_at],
-        points.amp[last_at],
-    )
-
-
 @dataclass
 class _AxisColumns:
     """The values of each block on one axis (N entries, one for each block). The columns that
@@ -343,7 +322,7 @@ class _AxisColumns:
     piece_end: np.ndarray  # the latest time of the piece of the block
 
 
-def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: float) -> _AxisColumns:
+def _axis_columns(index: SequenceIndex, ev: _EventData, ae: AxisEvents, dt: float) -> _AxisColumns:
     """The `_AxisColumns` of one axis, by the model of the module docstring, for the whole
     file: the window `[0, index.end_s]` of the oracle (a step at the last point of the axis is
     in it when that point is more than `TIME_TOLERANCE` before the end of the sequence). `dt` is
@@ -355,7 +334,7 @@ def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: flo
     point of the axis. Each item is credited to this block (the module docstring). The `slew` of
     the block is the first largest of the ramp from 0, the segments of the event, and the ramp to
     0 or the last step, in this order, and the `junction` is the step or the line. A gap is zero,
-    short or long by the rule of the module docstring."""
+    short or long by the rule of the module docstring (`_events.gap_kinds`)."""
     n = index.num_blocks
     start_s = index.start_s
     c = _AxisColumns(
@@ -373,30 +352,26 @@ def _axis_columns(index: SequenceIndex, ev: _EventData, ae: _AxisEvents, dt: flo
     if m == 0:
         return c
     pos, k, ft, lt, first, last = ae.pos, ae.k, ae.ft, ae.lt, ae.first, ae.last
-    half = dt / 2
 
     # The gap before each event. The first event has the step from 0 at its first point: it is
     # a zero gap after a point with the value 0.
     prev_last = np.concatenate(([0.0], last[:-1]))
     prev_lt = np.concatenate(([ft[0]], lt[:-1]))
-    gap = ft - prev_lt
-    zero = gap <= TIME_TOLERANCE
-    long = gap > dt + TIME_TOLERANCE
-    short = ~(zero | long)
+    kinds = gap_kinds(ae, dt)
+    gap = np.concatenate(([0.0], kinds.gap))
+    zero = np.concatenate(([True], kinds.zero))
+    short = np.concatenate(([False], kinds.short))
 
     jump = np.abs(first - prev_last)
     junction = np.where(zero, jump / dt, np.where(short, jump / np.where(short, gap, 1.0), 0.0))
     junction_time = np.where(short, prev_lt, ft)
 
     # The ramps across a long gap: from 0 to the first point, and from the last point to 0.
-    t_from = ft - half
+    ramp = ramps(ae, kinds, dt)
+    t_from, has_from, t_to, has_to = ramp.from_s, ramp.before, ramp.to_s, ramp.after
     from_len = ft - t_from
-    has_from = long & (first != 0.0)
     from_slope = np.where(has_from, np.abs(first) / from_len, 0.0)
-    t_to = lt + half
     to_len = t_to - lt
-    has_to = np.zeros(m, dtype=bool)
-    has_to[:-1] = long[1:] & (last[:-1] != 0.0)
     after = np.where(has_to, np.abs(last) / to_len, 0.0)
     # The step to 0 after the last point of the axis, at that point, counts in the window
     # `[0, end]` when its time is more than `TIME_TOLERANCE` before the end.
@@ -488,54 +463,28 @@ _EMPTY_POLYLINE = _Polyline(
 
 
 def _build_polyline(
-    ae: _AxisEvents, e0: int, e1: int, points: EventPoints, start_s: np.ndarray, dt: float
+    ae: AxisEvents, e0: int, e1: int, points: EventPoints, start_s: np.ndarray
 ) -> _Polyline:
-    """The `_Polyline` of the events `e0` to `e1` (exclusive) of `ae`, with the ramp points of
-    the long gaps between them and the steps across their zero gaps. This function adds no
-    event: the caller gives the run, with the event before it and the event after it when it
-    needs them, so that each gap of the run is known. It adds the step from 0 at the first
-    point of the first event only when `e0 == 0`, and the step to 0 at the last point of the
-    last event only when `e1 == ae.pos.size`, each only when that value is not 0."""
+    """The `_Polyline` of the events `e0` to `e1` (exclusive) of `ae`: the points of
+    `_events.polyline`, with the credit of each point and the steps across the zero gaps. This
+    function adds no event: the caller gives the run, with the event before it and the event
+    after it when it needs them, so that each gap of the run is known. It adds the step from 0
+    at the first point of the first event only when `e0 == 0`, and the step to 0 at the last
+    point of the last event only when `e1 == ae.pos.size`, each only when that value is not 0."""
     if e1 <= e0:
         return _EMPTY_POLYLINE
-    pos, k = ae.pos[e0:e1], ae.k[e0:e1]
-    ft, lt, first, last = ae.ft[e0:e1], ae.lt[e0:e1], ae.first[e0:e1], ae.last[e0:e1]
-    n = pos.size
-    half = dt / 2
-    gap = ft[1:] - lt[:-1]
-    zero = gap <= TIME_TOLERANCE
-    long = gap > dt + TIME_TOLERANCE
-    # The ramp from 0 before an event, and the ramp to 0 after it: one point each.
-    before = np.zeros(n, dtype=bool)
-    before[1:] = long & (first[1:] != 0.0)
-    after = np.zeros(n, dtype=bool)
-    after[:-1] = long & (last[:-1] != 0.0)
-    count = points.count[k]
-    width = before.astype(np.int64) + count + after.astype(np.int64)
-    out0 = np.cumsum(width) - width
-    total = int(width.sum())
-
-    event = np.repeat(np.arange(n), width)
-    j = np.arange(total) - out0[event]
-    is_before = before[event] & (j == 0)
-    is_after = after[event] & (j == width[event] - 1)
-    is_event_point = ~(is_before | is_after)
-    pool = points.at[k][event] + j - before[event]
-    base = start_s[pos] + points.delay[k]
-    t = np.where(
-        is_before,
-        ft[event] - half,
-        np.where(is_after, lt[event] + half, base[event] + points.offsets[pool * is_event_point]),
-    )
-    g = np.where(is_event_point, points.amp[pool * is_event_point], 0.0)
-    t = np.maximum.accumulate(t)
+    events = ae.part(e0, e1)
+    run = polyline(events, points, start_s)
+    t, g, event, is_event_point, out0 = run.t, run.g, run.event, run.is_event_point, run.start
+    pos, ft, first, last = events.pos, events.ft, events.first, events.last
+    total = t.size
     play = pos[event]
 
     own = is_event_point[:-1] & is_event_point[1:] & (event[:-1] == event[1:])
     step = np.zeros(max(total - 1, 0), dtype=bool)
     # The events after a zero gap: the first point is the point after the last point of the
     # event before it.
-    joined = np.flatnonzero(zero) + 1
+    joined = np.flatnonzero(run.gaps.zero) + 1
     step[out0[joined] - 1] = True
     differs = joined[first[joined] != last[joined - 1]]
 
@@ -673,7 +622,7 @@ def _best_by_play(
 def _exact_vector_peaks(
     index: SequenceIndex,
     points: EventPoints,
-    axis_events: dict[str, _AxisEvents],
+    events_by_axis: dict[str, AxisEvents],
     end_s: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """The peak of |G| of each block, and its time from the sequence start, from the candidates
@@ -681,10 +630,8 @@ def _exact_vector_peaks(
     polylines of all the events. A block with no candidate has 0 and its start as the time."""
     peak = np.zeros(index.num_blocks)
     time = np.array(index.start_s)
-    dt = points.grad_raster_time
     polys = [
-        _build_polyline(ae, 0, ae.pos.size, points, index.start_s, dt)
-        for ae in axis_events.values()
+        _build_polyline(ae, 0, ae.pos.size, points, index.start_s) for ae in events_by_axis.values()
     ]
     values, times, plays = _vector_candidates(polys, index.start_s, end_s, 0.0, index.end_s)
     plays, values, times = _best_by_play(values, times, plays)
@@ -717,7 +664,7 @@ class _BlockData:
     vector_peak: np.ndarray  # N: the largest |G| of the block (`_exact_vector_peaks`)
     vector_peak_time: np.ndarray  # N: the first time of that peak, from the sequence start
     whole_integral: dict[str, float]  # for each axis, the sum of `rms_integral`
-    axis_events: dict[str, _AxisEvents]  # the events of each axis, for the exact blocks
+    axis_events: dict[str, AxisEvents]  # the events of each axis, for the exact blocks
     reach_start: np.ndarray  # N: the earliest time that the block (its pieces, its vector peak
     # range) has, from the sequence start
     reach_end: np.ndarray  # N: the latest time of the same
@@ -736,10 +683,12 @@ def _kept_block_data(
         dt = points.grad_raster_time
         start_s = index.start_s
         end_s = start_s + index.duration_s
-        axis_cols = dict(zip(AXES, (index.gx, index.gy, index.gz), strict=True))
-        axis_events = {axis: _axis_events(col, points, start_s) for axis, col in axis_cols.items()}
-        columns = {axis: _axis_columns(index, ev, axis_events[axis], dt) for axis in AXES}
-        vector_peak, vector_peak_time = _exact_vector_peaks(index, points, axis_events, end_s)
+        events_by_axis = {
+            axis: axis_events(index, points, column)
+            for axis, column in zip(AXES, GRAD_COLUMNS, strict=True)
+        }
+        columns = {axis: _axis_columns(index, ev, events_by_axis[axis], dt) for axis in AXES}
+        vector_peak, vector_peak_time = _exact_vector_peaks(index, points, events_by_axis, end_s)
 
         # The range of time of a block: its pieces, and the range in which a candidate of the
         # vector peak can be credited to it (`_vector_candidates`). The margin of that range also
@@ -782,7 +731,7 @@ def _kept_block_data(
             vector_peak,
             vector_peak_time,
             FrozenDict(whole_integral),
-            FrozenDict(axis_events),
+            FrozenDict(events_by_axis),
             reach_start,
             reach_end,
             start_envelope,
@@ -963,7 +912,7 @@ def _exact_edge_blocks(
         e0 = int(np.searchsorted(ae.lt, t_lo, side="left"))
         e1 = int(np.searchsorted(ae.ft, t_hi, side="right"))
         poly = _build_polyline(
-            ae, max(e0 - 1, 0), min(max(e1, e0) + 1, ae.pos.size), points, index.start_s, dt
+            ae, max(e0 - 1, 0), min(max(e1, e0) + 1, ae.pos.size), points, index.start_s
         )
         polys.append(poly)
         axis_state, own = _evaluate_axis(poly, dt, lo, hi, index.end_s, first_play, stop_play)
