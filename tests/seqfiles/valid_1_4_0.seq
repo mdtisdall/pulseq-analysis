@@ -1,0 +1,49 @@
+# Pulseq sequence file
+# Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
+
+[VERSION]
+major 1
+minor 4
+revision 0
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+Name valid_1_4_0
+RadiofrequencyRasterTime 1e-06
+
+# NUM DUR RF GX GY GZ ADC EXT
+[BLOCKS]
+1  30  1  0  0  0  0  0
+2  50  0  1  0  0  1  0
+3 100  0  0  0  0  0  0
+
+[RF]
+1 1000 1 2 0 100 0 0
+
+[TRAP]
+1 1000000 100 200 100 100
+
+[ADC]
+1 8 25000 100 0 0
+
+[SHAPES]
+
+shape_id 1
+num_samples 100
+1
+0
+0
+97
+
+shape_id 2
+num_samples 100
+0
+0
+98
+
+[SIGNATURE]
+# This is the hash of the Pulseq file, calculated right before the [SIGNATURE] section was added
+Type md5
+Hash 58a282e59c6a5d2a27bde9c150b08f16
