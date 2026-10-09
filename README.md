@@ -121,3 +121,7 @@ fraction of the stimulation limit.
 - [`docs/plans/own-parser.md`](docs/plans/own-parser.md): the plan of option
   B: the own parser, the model of layer 1, and pypulseq as an optional
   extra.
+- [`docs/plans/own-parser-tasks.md`](docs/plans/own-parser-tasks.md): the
+  implementation plan of tasks 2, 4, 5a, 5b and 6 of that plan: the event
+  types, the converter, `load` on the model, pypulseq as an extra, and the
+  MATLAB oracle under Octave.
