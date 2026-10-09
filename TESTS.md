@@ -34,7 +34,7 @@ Contents:
    peaks; the kept PNS levels; the series; the analyses and their registry; the
    gradient spectrum; value equality; the kept results; the number arguments;
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
-   snapshot
+   snapshot; the C++ oracle
 
 ---
 
@@ -6133,3 +6133,92 @@ and has a reason.
 **How:** The test loops over `EXCEPTIONS`. It passes with no entry.
 
 **Assumptions:** None.
+
+### 2.19 The C++ oracle (`test_cpp_oracle.py`)
+
+`test_cpp_oracle.py` tests `pulseq-cpp-oracle`, the program that `flake.nix` builds from the
+driver in `tests/cpp_oracle/` and the reader `ExternalSequence` of pulseq/pulseq (the reader of
+the Pulseq interpreter on the scanner; MIT; the commit is in `flake.nix`). The program reads one
+`.seq` file with `ExternalSequence::load` and then decodes each block with `decodeBlock`, as the
+scanner does when it runs a sequence. It exits 0 when the file loads and each block decodes, 1
+when it does not (the messages are on stderr), and 70 when the reader receives a signal such as
+SIGSEGV. The devShell and the `ci` devShell have the program on the PATH. The whole module skips
+when it is not on the PATH. The test helper counts an exit status other than 0 and 1, and a run
+that takes more than 10 s, as a "crash". A cycle in an extension list makes the reader loop with
+no end, so a file with such a cycle costs the 10 s.
+
+#### `test_the_oracle_accepts_a_minimal_valid_file`
+
+**Checks:** The oracle accepts a Pulseq 1.5.0 file of one block (a delay), with the four
+rasters in `[DEFINITIONS]`.
+
+**How:** The test writes the text of the file to `tmp_path`, runs the oracle and checks that the
+exit status is 0.
+
+**Assumptions:** The test shows that the program runs and that it accepts one file. It does not
+test that the file is valid by another reader.
+
+#### `test_the_oracle_rejects_a_file_without_a_required_part`
+
+**Checks:** The oracle rejects the minimal file when `GradientRasterTime` is removed from
+`[DEFINITIONS]`, and when the `[VERSION]` section is removed. It exits with 1 and prints a
+message with `ERROR`.
+
+**How:** The test (two cases) removes the line or the section from the text of the minimal file
+with a regular expression, checks that the text changed, runs the oracle on it and checks the
+exit status and the message.
+
+**Assumptions:** The test does not check the text of the message beyond `ERROR`. Its two
+cases are two of the checks that the reader does when it loads a file.
+
+#### `test_the_oracle_does_not_accept_a_file_that_it_cannot_decode`
+
+**Checks:** A file with one RF event whose phase shape is not in `[SHAPES]`, one whose time
+shape is not there, and one whose phase shape has `num_samples 0` is a rejection or a crash of
+the oracle, not an acceptance. On the aarch64-darwin build, each of the three ends with exit
+70 (a crash).
+
+**How:** The test (three cases) writes the file (the minimal file with an RF event of 6 samples
+and the shapes of the case), runs the oracle and checks that the verdict is "reject" or "crash".
+
+**Assumptions:** The test does not tell a rejection from a crash, because the result depends on
+the build of the reader (a build can end the process with a signal where another reports an
+error). It does not check that the oracle crashes the same way on every platform.
+
+#### `test_the_oracle_accepts_the_rf_file_with_both_shapes`
+
+**Checks:** The file of the previous test with both shapes defined (6 samples each, time shape 0)
+is accepted: the files of that test are rejected because of their shapes, not because of
+the RF event.
+
+**How:** The test writes the file, runs the oracle and checks that the verdict is "accept".
+
+**Assumptions:** The test does not test that the file is valid by another reader.
+
+#### `test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files`
+
+**Checks:** For each `.seq` file under `tests/seqfiles/`, `pulseq_analysis.seqfile.read_seqfile`
+and the oracle accept the file or reject it alike. The exception: a file that `read_seqfile`
+rejects, only with rules from `NOT_CHECKED_BY_THE_READER` of the test, may be accepted by the
+oracle. Each entry of that dictionary is a rule that the oracle does not check, with a fixture or
+a change of a valid file that it accepted. The files of `ORACLE_KNOWN_WRONG` (now
+`oracle/koma_v1.5_unknown_ext.seq`, which the oracle rejects because it cannot read the rows of
+an unknown extension that the file does not require, while section 2.8.4 of the specification
+says that the interpreter MUST detect unknown extensions and MAY ignore them) are not compared.
+The test skips when `pulseq_analysis.seqfile` cannot be imported, and when `tests/seqfiles/` has
+no `.seq` file.
+
+**How:** The test runs the oracle on each file (a crash counts as a rejection) and calls
+`read_seqfile`. It collects each file where `read_seqfile` accepts and the oracle does not,
+and each file where `read_seqfile` rejects with a rule outside `NOT_CHECKED_BY_THE_READER` and
+the oracle accepts. It fails with the list.
+
+**Assumptions:**
+
+- When both readers reject a file, the test does not check that they reject it for the same
+  rule.
+- The entries of `NOT_CHECKED_BY_THE_READER` come from the fixtures of `tests/seqfiles/` and from
+  changes of one valid file, tried by hand with the oracle. They do not show that the oracle
+  never checks the rule.
+- A file of `ORACLE_KNOWN_WRONG` is skipped whatever the verdicts are, also when the oracle
+  changes.
