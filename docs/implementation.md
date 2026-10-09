@@ -802,6 +802,20 @@ pypulseq keeps `signature_value` on the object when the object changes
 (`add_block` after `read`), and its `read` does not check the hash against the
 file.
 
+### 7.1 The reader of Pulseq files (in progress)
+
+`seqfile.read_seqfile(path)` gives a `model.SequenceData` of a Pulseq text file
+(versions 1.4.0 to 1.5.x), or raises `seqfile.SeqFileError` with the
+`seqfile.Violation` of every rule that the file breaks (`seqfile.RULES`, at
+most `seqfile.MAX_LOCATIONS` for each rule). The module docstring of `seqfile`
+gives each rule with its source in the specification, and the docstring of
+`model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`, `model.Shape`,
+`model.Signature`, `model.Extensions` and `model.decompress_shape` are part of
+the model. `seqfile.RANGE_TOLERANCE` and `seqfile.TOLERANCE_NS` are the
+tolerances of the shape range rule and of the raster rules. `load` does not use
+the reader yet. Task 6 of `docs/plans/own-parser.md` documents these names in
+full.
+
 ## 8. `Series`: checks and the array encoding
 
 **The fields.** `name` is a short, stable name, not empty, for example

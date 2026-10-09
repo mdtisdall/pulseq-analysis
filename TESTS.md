@@ -6133,3 +6133,508 @@ and has a reason.
 **How:** The test loops over `EXCEPTIONS`. It passes with no entry.
 
 **Assumptions:** None.
+
+### 2.19 The reader of Pulseq files (`test_seqfile.py`)
+
+`test_seqfile.py` tests `seqfile.read_seqfile` and the model of `model.py`. The files are in
+`tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule (`bad_*.seq`,
+each made from a valid fixture with one change, by hand), and `tests/seqfiles/oracle`, the copies
+of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the
+source, the commit and the license of each). The tests need no pypulseq, except
+`test_files_of_pypulseq_are_read` and `test_tables_agree_with_pypulseq_read_without_merging`, which
+skip when pypulseq is not installed.
+
+#### `test_valid_fixture_loads_with_its_version`
+
+**Checks:** Each valid fixture loads into a `SequenceData` of its version and with `origin` `"file"`:
+the four versions 1.4.0, 1.4.1, 1.5.0 and 1.5.1, a file with CRLF line ends, a file with comments and
+blank lines between its sections, a file with no signature, and a file with a wrong signature hash.
+
+**How:** For each file (parametrized), the test calls `read_seqfile` and compares the version.
+
+**Assumptions:** The fixtures are valid by the specification: the test cannot find a rule that the
+parser lacks.
+
+#### `test_valid_1_5_1_fixture_has_the_values_of_the_file`
+
+**Checks:** The model of the 1.5.1 fixture has the values that the text gives: the rasters, the
+definitions (as text, in file order), `RequiredExtensions`, the block table, the RF event, the
+gradients, the trapezoid and the ADC events in seconds, and the shapes as stored and decompressed.
+
+**How:** The test reads the fixture and compares each table and each shape with the numbers of the
+text, which it writes in the test.
+
+**Assumptions:** The expected numbers were read from the text of the fixture by hand, and the
+conversion to seconds is a division by 1e6 (microseconds) or 1e9 (the ADC dwell time in ns).
+
+#### `test_valid_1_5_1_fixture_has_the_extensions_of_the_file`
+
+**Checks:** The extension list table, the type ID of each `extension` section, and the tables of
+LABELSET, LABELINC, TRIGGERS, DELAYS (soft delays), ROTATIONS and RF_SHIMS are those of the text,
+and an extension that the parser does not know is in `skipped_extensions`.
+
+**How:** The test compares each table with the rows of the fixture, with the trigger times and the
+soft delay offset in seconds.
+
+**Assumptions:** None.
+
+#### `test_extension_tables_of_a_file_without_extensions_are_empty`
+
+**Checks:** A file with no extension has empty extension tables, an empty RF_SHIMS mapping and no
+type ID.
+
+**How:** The test reads the 1.4.0 fixture and checks the length of each table.
+
+**Assumptions:** None.
+
+#### `test_valid_1_4_fixtures_have_the_1_5_layout_with_the_values_of_the_format`
+
+**Checks:** A 1.4.x file gives the 1.5 layout with the values that the format defines: RF `freq_ppm`
+and `phase_ppm` 0, `use` `u`, `center` NaN, ADC ppm terms and `phase_shape_id` 0. The `first` and
+`last` of a gradient with a time shape are the amplitude times its first and last sample.
+
+**How:** The test reads the 1.4.0 and 1.4.1 fixtures and compares the RF and ADC rows, and the
+gradient of the 1.4.1 fixture with `400000 * 0.2`.
+
+**Assumptions:** Those values are the decision of the plan (3.4); the test checks that the parser
+follows it, not that the decision is right.
+
+#### `test_signature_matches_is_reported_and_is_not_a_rule`
+
+**Checks:** `signature.matches` is `True` for a hash that is the MD5 of the bytes before
+`\n[SIGNATURE]` (also in a file with CRLF line ends), `False` for another hash, and the signature is
+`None` for a file without the section. A wrong hash does not make the file fail.
+
+**How:** The test reads four fixtures and compares the signature.
+
+**Assumptions:** The fixtures were signed by a script with the rule of the specification
+(the hash of the bytes before the newline that precedes `[SIGNATURE]`).
+
+#### `test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file`
+
+**Checks:** `read_seqfile` takes a `str` or a `pathlib.Path` with the same result, and raises
+`FileNotFoundError` for a file that is not there.
+
+**How:** The test reads the same fixture by both, compares the models, and reads a path that does
+not exist.
+
+**Assumptions:** None.
+
+#### `test_each_bad_fixture_is_listed_and_each_rule_has_a_fixture`
+
+**Checks:** The test table lists each `bad_*.seq` fixture except `bad_many.seq`, and each rule of
+`seqfile.RULES` is broken by a fixture or by an oracle file.
+
+**How:** The test compares the file names of the folder with the keys of the table, and the rules of
+the table and of the oracle files with `RULES`.
+
+**Assumptions:** None.
+
+#### `test_bad_fixture_breaks_its_rule_and_no_other`
+
+**Checks:** Each rule fixture raises `SeqFileError` with violations of its rule and of no other, with
+no omitted violation, a message, and the path of the file in the text of the error.
+
+**How:** For each fixture (parametrized), the test reads it and collects the rules of the
+violations.
+
+**Assumptions:** Each fixture was made to break one rule only, and the test depends on that: a
+fixture with a second violation fails the test and is changed, not the test.
+
+#### `test_violation_names_the_section_and_the_line`
+
+**Checks:** A violation has the section and the line number (from 1) of the row that breaks the
+rule, or `None` where the rule is about the file or a missing definition.
+
+**How:** For each fixture of the table (parametrized), the test compares the one violation with the
+section and the line that the test writes. For a row it also checks that the line of the file is not
+blank.
+
+**Assumptions:** The line numbers are those of the fixture files, which do not change.
+
+#### `test_a_file_with_several_violations_gives_all_of_them_in_file_order`
+
+**Checks:** A file that breaks three rules gives the violations of the three, in the order of the
+lines of the file.
+
+**How:** The test reads `bad_many.seq` (a required unknown extension, an unresolved RF reference and
+an ADC dwell time off the raster) and compares the rules and the order of the lines.
+
+**Assumptions:** None.
+
+#### `test_an_error_lists_20_locations_of_a_rule_and_counts_the_rest`
+
+**Checks:** For a rule that 25 rows break, the error lists 20 violations and `omitted` has the
+other 5; the text of the error says "5 more".
+
+**How:** The test writes a copy of the valid fixture with 25 more RF rows whose `use` is `x`.
+
+**Assumptions:** The limit of 20 is `MAX_LOCATIONS` (the test checks its value).
+
+#### `test_seqfile_error_is_a_value_error_and_can_be_pickled`
+
+**Checks:** `SeqFileError` is a `ValueError`, a copy from `pickle` has the same violations, omitted
+counts and path, and a `Violation` cannot be changed.
+
+**How:** The test pickles the error of `bad_many.seq` and compares the fields.
+
+**Assumptions:** None.
+
+#### `test_each_rule_of_the_module_docstring_is_a_rule_of_the_table`
+
+**Checks:** The rule IDs in backticks in the module docstring of `seqfile` are the keys of `RULES`,
+so the documentation of the rules and the table do not differ.
+
+**How:** The test finds the words in backticks that have the form of a rule ID (a dot between two
+lower-case parts) whose first part is the first part of a rule, and compares the set with the keys.
+
+**Assumptions:** The first part of an ID (`version`, `definitions`, `section`, ...) is the prefix of
+at least one rule of the table.
+
+#### `test_syntax_of_numbers_in_a_table`
+
+**Checks:** An integer column rejects `3e1`, `0x1e` and `30.0`; a float column takes `1e+06`, `+1000000`
+and `1000000.`, and rejects `inf`, `1,5` and `1e999`.
+
+**How:** The test changes one value of a valid fixture and reads it.
+
+**Assumptions:** The syntax of numbers is not in the specification. These are the rules of the
+parser (an integer is `-?[0-9]+`; a float has the form of a decimal number and is finite).
+
+#### `test_an_empty_file_and_a_file_with_only_a_version_list_what_is_missing`
+
+**Checks:** An empty file gives `version.missing`. A file with only a version gives the four missing
+rasters and no block.
+
+**How:** The test writes both files and compares the rules.
+
+**Assumptions:** None.
+
+#### `test_a_comment_with_a_non_ascii_character_is_read`
+
+**Checks:** A comment line with a non-ASCII character (µ) does not change the model.
+
+**How:** The test adds the character to a comment line of a valid fixture and compares the model with
+the one of the fixture.
+
+**Assumptions:** The file is UTF-8.
+
+#### `test_comments_and_blank_lines_between_sections_are_read_as_nothing`
+
+**Checks:** A file with comment lines and blank lines before each of nine section headers (and a comment
+after the `[SIGNATURE]` header) loads with all its blocks, shapes and extensions.
+
+**How:** The test reads `valid_comments_between_sections.seq` and checks the blocks, the number of
+shapes and the label table. The file has no unknown extension, so that the C++ reader can read it too.
+
+**Assumptions:** None.
+
+#### `test_a_comment_or_blank_line_ends_a_section_and_a_later_row_is_syntax_line`
+
+**Checks:** A blank line, a line of only spaces, or a `#` line inside a table section ends it (as in
+`read.m`), and a row after it, before the next header, is `syntax.line`. The test covers
+`[BLOCKS]`, `[GRADIENTS]` and the list of `[EXTENSIONS]`. Dropping the rows can leave a reference
+with no target, so for the last three cases `ref.unresolved` may also be in the error.
+
+**How:** For each case (parametrized), the test inserts the line after a row of a valid fixture and reads
+the file. It checks that `syntax.line` is in the rules, that it is the only rule for `[BLOCKS]`, and that
+each `syntax.line` is at a data line.
+
+**Assumptions:** `read.m` ends the section at an empty line or a line that starts with `#` (it tests the
+first character of the line, and this reader strips white space first).
+
+#### `test_a_comment_right_after_a_table_header_ends_the_table`
+
+**Checks:** A comment line right after a table header ends the table, and its rows are `syntax.line` with
+the section name of the table.
+
+**How:** The test inserts a comment after `[TRAP]` and reads the file.
+
+**Assumptions:** The same as the test before.
+
+#### `test_definitions_and_signature_skip_comments_and_blanks_before_the_first_line`
+
+**Checks:** `[DEFINITIONS]` takes comment and blank lines before its first line. A comment between `Type`
+and `Hash` of `[SIGNATURE]` ends it (`syntax.line` and `signature.invalid`). A comment right after
+`[VERSION]` is `syntax.line`.
+
+**How:** The test edits the 1.5.1 fixture three ways and compares the model (without the signature, whose
+hash changes with the bytes) or the rules.
+
+**Assumptions:** These are the rules of `read.m` (`readDefinitions` skips comments before the first line;
+`readVersion` does not).
+
+#### `test_a_comment_line_ends_a_shape_like_a_blank_line`
+
+**Checks:** A `#` line in place of the blank line between two shapes gives the same model. A `#` line among
+the samples of a shape cuts it (`syntax.shape` for the samples after it, and `shape.length`). A comment
+between `shape_id` and `num_samples` is `syntax.shape`.
+
+**How:** The test edits a valid fixture three ways.
+
+**Assumptions:** `read.m` ends the samples at a blank or `#` line. It skips such a line between `shape_id`
+and `num_samples`; this reader does not, which is stricter.
+
+#### `test_a_shape_ends_only_at_a_blank_line`
+
+**Checks:** A `shape_id` line right after the samples of a shape, with no blank line between, is
+`syntax.shape` at the line of the `shape_id`. The shapes are still read, so the file has no other
+violation.
+
+**How:** The test removes the blank line before each `shape_id` line of a valid fixture except the
+first, and checks that there is one `syntax.shape` violation for each, each at a `shape_id` line.
+
+**Assumptions:** The specification (section 2.9) says that a blank line ends a shape. The last shape
+of a section may end at the end of the section: the test does not cover that.
+
+#### `test_a_repeated_block_id_is_id_unique_and_not_blocks_order`
+
+**Checks:** A block ID that is used twice (after a larger ID, or after a smaller one) gives
+`id.unique` only. IDs that fall below an earlier ID give `blocks.order` only.
+
+**How:** The test changes the ID of one block of a valid fixture to a repeat, two ways, and swaps
+two block rows once.
+
+**Assumptions:** The rule is the choice of the user: IDs increase through the file.
+
+#### `test_required_extensions_is_an_extension_rule_from_1_5_1_only`
+
+**Checks:** In a 1.5.0 file, the definition `RequiredExtensions` is an ordinary definition: the file
+loads with an unknown name in it, and `required_extensions` is empty.
+
+**How:** The test adds `RequiredExtensions FOO` to the 1.5.0 fixture.
+
+**Assumptions:** The concept of required extensions is from 1.5.1 (the specification).
+
+#### `test_random_edits_of_valid_files_give_a_model_or_a_seqfile_error`
+
+**Checks:** After a random edit of a valid fixture (a deleted, repeated, changed or cut line, or a
+line added), `read_seqfile` gives a model or `SeqFileError` with at least one violation, and raises
+no other exception.
+
+**How:** The test makes 400 edits with a seeded random generator and reads each file. It checks that
+some files load and more than 100 do not.
+
+**Assumptions:** The edits are random pieces (`nan`, `-1`, a very large integer, a section header);
+this does not cover every possible edit.
+
+#### `test_decompress_shape_of_the_three_examples_of_the_specification`
+
+**Checks:** `decompress_shape` gives the shapes of the three examples of the specification (section
+2.9.1): the ramp, the constant and the ramp down (15 samples), 100 zeros, and 100 ones.
+
+**How:** The test decompresses the stored values of the examples (`... 0 0 4 ...`, `0 0 98`,
+`1 0 0 97`) and compares the samples.
+
+**Assumptions:** The stored values of example 1 were read from the table of the specification (the
+derivative with the run `0 0 4` of six zeros, and `-0.25 -0.25 2`).
+
+#### `test_decompress_shape_keeps_a_shape_with_as_many_values_as_samples`
+
+**Checks:** A shape with as many stored values as `num_samples` is uncompressed, also where two
+values are equal.
+
+**How:** The test decompresses `[0.5, 0.5, 3, 1]` with `num_samples` 4.
+
+**Assumptions:** The specification says this (section 2.9).
+
+#### `test_decompress_shape_of_values_that_look_like_a_repeat`
+
+**Checks:** Shapes whose stored values have a repeat count equal to the next value, or a value three
+times, are decompressed to the original samples.
+
+**How:** The test compresses three shapes with the compression of the test and decompresses them.
+
+**Assumptions:** The compression of the test (`_compress`) follows the specification: a run of two
+or more equal derivative values is stored as the value twice and the number of further repeats.
+
+#### `test_decompress_shape_inverts_compress_on_random_shapes`
+
+**Checks:** For 300 random shapes of integer values, with and without repeats, `decompress_shape` of
+the compressed form gives the original shape, and more than 50 of them are compressed.
+
+**How:** The test compresses with `_compress` (a run-length code of the derivative, uncompressed when
+it is not shorter) and decompresses.
+
+**Assumptions:** The shapes have integer values, so the sums are exact. The test cannot find an error
+that `_compress` has too.
+
+#### `test_decompress_shape_rejects_a_code_that_is_not_num_samples_long`
+
+**Checks:** `decompress_shape` raises `ValueError` with a message that says why, when the code gives
+more or fewer samples than `num_samples`, when a repeat is cut at the end, and when a repeat count
+is negative or not a whole number.
+
+**How:** The test decompresses six stored shapes (parametrized) and matches the message.
+
+**Assumptions:** None.
+
+#### `test_a_shape_of_the_file_is_decompressed_to_num_samples_when_read`
+
+**Checks:** The shapes of the 1.5.1 fixture decompress to the number of samples that they declare,
+and a compressed shape gives the values that the text means.
+
+**How:** The test decompresses shapes 9 and 2.
+
+**Assumptions:** None.
+
+#### `test_model_arrays_are_read_only_and_cannot_be_made_writable`
+
+**Checks:** Each array of the model is read-only, writing to it raises `ValueError`, and
+`flags.writeable = True` raises `ValueError` also for a field view of a structured array.
+
+**How:** The test tries both on the tables, a shape and an RF shim.
+
+**Assumptions:** None.
+
+#### `test_model_mappings_and_fields_cannot_be_changed`
+
+**Checks:** The mappings of the model refuse an assignment (`TypeError`), a field cannot be set
+(`FrozenInstanceError`, also in `Rasters` and `Shape`), and the sequences of the model are tuples.
+
+**How:** The test tries to change each.
+
+**Assumptions:** None.
+
+#### `test_model_without_values_of_a_target`
+
+**Checks:** `SequenceData` has exactly the fields of the plan, and no table has a field for a dead
+time, a ringdown time, gamma, B0 or a limit.
+
+**How:** The test compares the names of the fields and searches the field names of the tables.
+
+**Assumptions:** The search words are those of the plan.
+
+#### `test_models_are_equal_by_value_and_not_hashable`
+
+**Checks:** Two reads of one file are equal (also with NaN in `center`), models of two files are not,
+a model is not equal to a string, `hash` raises `TypeError`, and a changed number makes the models
+different.
+
+**How:** The test reads fixtures twice and compares them, and changes one RF amplitude.
+
+**Assumptions:** None.
+
+#### `test_models_survive_pickle_and_deepcopy_with_their_values_and_immutability`
+
+**Checks:** A copy from `pickle` or `copy.deepcopy` is equal to the model, and has read-only arrays
+and read-only mappings.
+
+**How:** The test copies the 1.5.1 model both ways and repeats the immutability checks on the copy.
+
+**Assumptions:** None.
+
+#### `test_oracle_file_loads_or_breaks_the_rule_that_it_must`
+
+**Checks:** Each oracle file of version 1.4 or later loads, except the 1.4.x files with a gradient on
+the default raster, which break `layer1.gradient-ends` only. The version is the one of the file, and
+`signature.matches` is the recorded value.
+
+**How:** For each file (parametrized), the test reads it and compares the version, the violation and
+the signature.
+
+**Assumptions:** The recorded signature values come from one run of the parser. For the files that
+MATLAB wrote they are `True`, except `koma_v1.4_epi.seq`, which differs from the file that was
+signed. The test cannot tell whether the parser is wrong for that file, except by the MD5 check that
+the other files pass.
+
+#### `test_oracle_directory_has_the_files_of_the_test_and_sources_md_names_each`
+
+**Checks:** The oracle folder has the files of the test and no other, and `SOURCES.md` names each.
+
+**How:** The test lists the folder and searches `SOURCES.md` for each name in backticks.
+
+**Assumptions:** None.
+
+#### `test_oracle_corpus_has_each_feature_of_the_task`
+
+**Checks:** The oracle files that load cover 1.4 and 1.5.x, gradients with time ID 0, -1 and a time
+shape, compressed and uncompressed shapes, labels, triggers, soft delays, rotations, a skipped
+extension, a required extension, a signature that matches, and an ADC phase shape.
+
+**How:** The test reads the files and searches the tables.
+
+**Assumptions:** None.
+
+#### `test_oracle_amplitude_shapes_are_within_the_tolerance_of_the_range`
+
+**Checks:** The largest excess of an RF magnitude shape or gradient waveform of the oracle files over 1
+is below 1e-12, far below `RANGE_TOLERANCE` (1e-9), so the tolerance does not let an oracle file
+load.
+
+**How:** The test decompresses the amplitude shapes of the files that load and takes the maximum.
+
+**Assumptions:** The tolerance is chosen above the excess of the corpus (1.3e-15) because MATLAB
+writes a shape with 9 significant digits; the corpus does not show that choice to be right.
+
+#### `test_oracle_spiral_of_1_5_has_the_oversampled_gradients_of_the_file`
+
+**Checks:** The 1.5.1 spiral has gradients with time ID -1, and their waveforms have an odd number
+of samples.
+
+**How:** The test selects the rows with `time_id` -1 and checks `num_samples`.
+
+**Assumptions:** The odd number of samples is the layout of an oversampled waveform (`Sequence.m`
+of MATLAB Pulseq asserts it).
+
+#### `test_oracle_fid_of_the_pulseq_repository_has_the_values_of_the_text`
+
+**Checks:** The first blocks of `pulseq_fid.seq` have the durations and the RF IDs of the text, and
+the block durations in seconds.
+
+**How:** The test compares the block table with the first rows of the file.
+
+**Assumptions:** The numbers are those of the first rows of the file.
+
+#### `test_oracle_1_4_gradient_with_a_time_shape_has_its_end_samples`
+
+**Checks:** The gradient of `koma_v1.4_gr-time-shaped.seq` has the amplitude, the time ID and the
+delay of the text, `first` and `last` 0 (the end samples of its waveform), and its time shape is the
+list of the text.
+
+**How:** The test reads the file and compares the row and the decompressed time shape.
+
+**Assumptions:** The waveform of that file starts and ends at 0 (the text shows it).
+
+#### `test_oracle_label_extensions_of_a_1_4_file`
+
+**Checks:** A 1.4.0 file gives its LABELSET rows with the label names and values of the text, and its
+LABELINC row.
+
+**How:** The test compares the label tables of `koma_v1.4_label_test.seq`.
+
+**Assumptions:** None.
+
+#### `test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed`
+
+**Checks:** The two unknown extensions of `koma_v1.5_unknown_ext.seq` are skipped and have type IDs,
+and `RequiredExtensions` of `koma_v1.5_rotation_radial_tiny.seq` is `ROTATIONS`, with the three
+quaternions of its rows.
+
+**How:** The test compares the fields.
+
+**Assumptions:** None.
+
+#### `test_files_of_pypulseq_are_read`
+
+**Checks:** The parser reads the files that pypulseq writes for the sequences of `scale_sequences`
+(`build_repeating` and `build_worst` with 40 TRs): the number of blocks, a version of 1.5.0 or later,
+and a signature.
+
+**How:** The test builds the sequences, writes them to `tmp_path` and reads them. It skips when
+pypulseq is not installed.
+
+**Assumptions:** The version that pypulseq writes is 1.5.0 (the test checks `>= (1, 5, 0)`).
+
+#### `test_tables_agree_with_pypulseq_read_without_merging`
+
+**Checks:** For each oracle file that pypulseq can read with `remove_duplicates=False` (all but
+those with an extension that it cannot read), its block table, block durations, trapezoids and
+shapes are those of the model.
+
+**How:** The test reads each file with pypulseq and with the parser and compares the block IDs and
+event columns, the durations in seconds, the trapezoid rows, and the shape lengths and stored values.
+At least 10 files must be compared. It skips when pypulseq is not installed.
+
+**Assumptions:** This compares the parser with pypulseq's reader, which is not an oracle for every
+value (the study lists where it differs); only values that pypulseq does not change are compared.
