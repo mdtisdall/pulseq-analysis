@@ -45,9 +45,11 @@ RadiofrequencyRasterTime 1e-06
 # oracle does not check, in `load` or in `decodeBlock`, so it may accept a file that breaks only
 # these rules. The value says what the oracle accepted: a fixture of `tests/seqfiles/`, or a
 # change to a valid 1.5.0 file of four blocks (RF, trapezoid, arbitrary gradient, ADC and delay
-# events) that was tried by hand. A rule that is not here, such as `version.missing`,
-# `syntax.shape` and `shape.event-length`, is one where the oracle rejected or crashed on the
-# fixture of the rule.
+# events) that was tried by hand. A rule that is not here, such as `version.missing` and
+# `shape.event-length`, is one where the oracle rejected or crashed on the fixture of the rule.
+# A crash can depend on the build: the fixtures share an unknown extension, on which the macOS
+# (clang) build crashes in `decodeBlock` and the Linux (gcc) build of CI does not. So a rule is
+# here when either build accepts its fixture.
 NOT_CHECKED_BY_THE_READER = {
     "version.invalid": "`bad_version_invalid.seq`",
     "version.unsupported": "version 1.6.0 (`bad_version_unsupported_1_6.seq`) and version 2.0.0 "
@@ -68,6 +70,8 @@ NOT_CHECKED_BY_THE_READER = {
     "syntax.number": "`bad_syntax_number.seq`",
     "syntax.use": "`bad_syntax_use.seq`",
     "syntax.negative": "`bad_syntax_negative.seq`",
+    "syntax.shape": "`bad_syntax_shape_no_blank_line.seq` (accepted by the Linux build; the "
+    "macOS build crashes on its unknown extension)",
     "id.positive": "`bad_id_positive.seq`",
     "id.unique": "`bad_id_unique.seq` and `bad_id_unique_block.seq`",
     "id.gradient-unique": "`bad_id_gradient_unique.seq`",
