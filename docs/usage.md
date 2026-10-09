@@ -646,6 +646,18 @@ and the line, a file that includes itself (or a cycle of files) raises
 `seq` uses the Pulseq rotation extension. `load` calls it one time for each
 snapshot. A measurement does not call it: a snapshot has passed it.
 
+### The reader of Pulseq files (in progress)
+
+`seqfile.read_seqfile(path)` reads a Pulseq text file (versions 1.4.0 to 1.5.x)
+into a `model.SequenceData`, or raises `seqfile.SeqFileError` (a `ValueError`)
+with all the `seqfile.Violation` values of the rules in `seqfile.RULES`. The
+model is made of `model.Rasters`, `model.Shape`, `model.Signature` and
+`model.Extensions`; `model.TABLE_DTYPES` has the dtype of each table, and
+`model.decompress_shape` decompresses a shape. `seqfile.MAX_LOCATIONS`,
+`seqfile.RANGE_TOLERANCE` and `seqfile.TOLERANCE_NS` are the limits of the
+reader. `load` does not use the reader yet. Task 6 of
+`docs/plans/own-parser.md` documents these names in full.
+
 ## 9. Units and gamma
 
 No value of this package uses a gamma. Gamma (γ) is the gyromagnetic ratio of

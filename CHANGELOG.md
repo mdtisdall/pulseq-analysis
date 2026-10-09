@@ -21,6 +21,18 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 
 ### Added
 
+- `seqfile.read_seqfile(path)`, a strict reader of Pulseq text files,
+  versions 1.4.0 to 1.5.x, into `model.SequenceData`, the immutable model of
+  layer 1 (the version, the definitions, the rasters, the block table, one
+  table for each kind of event, the shapes, the extensions and the
+  signature). A file that breaks a rule of the format raises
+  `seqfile.SeqFileError` (a `ValueError`) with all its `seqfile.Violation`
+  values, each with a stable rule ID (`seqfile.RULES`). A 1.4.x file with a
+  gradient on the default raster is rejected (`layer1.gradient-ends`): the
+  file has no values at the ends of such a gradient. `load` does not use the
+  reader yet, and no value of a measurement changes. The tests have an
+  oracle folder of Pulseq files from MATLAB Pulseq, pypulseq and KomaMRI.jl
+  (`tests/seqfiles/oracle/SOURCES.md`).
 - `safe.SafeHardware` and `safe.SafeAxis`: the SAFE hardware, immutable and
   checked when it is made. `SafeHardware.from_namespace` converts a
   `SimpleNamespace` in the form of pypulseq's `asc_to_hw` or
