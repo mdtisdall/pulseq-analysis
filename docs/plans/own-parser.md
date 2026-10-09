@@ -1,7 +1,11 @@
 # Implementation plan: the own parser, the model of layer 1, and pypulseq as an optional extra
 
 Status: approved by the user on 2026-10-08. Written on 2026-10-08. The user
-took the recommendation of each question of section 7 (U1 to U8).
+took the recommendation of each question of section 7 (U1 to U8). Amended on
+2026-10-08, after tasks 1, 1b and 3 were merged (#95, #96, #97): the C++ reader
+of the scanner as an oracle of the model, the events and the waveform in task 2
+(section 2.5, section 6.2), and the questions U9 and U10, answered on
+2026-10-08 (section 7.1).
 
 ## 1. Scope
 
@@ -44,7 +48,7 @@ The tasks (`CLAUDE.md`: one branch, one concern):
 | 0 | `docs/own-parser-plan` | This plan, and one line for it in `README.md`. No code. |
 | 1 | `feature/seqfile-parser` | The parser, the model, the rules and the violations, the oracle files. `load` does not change (section 6.1). |
 | 1b | `chore/cpp-oracle` | The C++ `ExternalSequence` of pulseq/pulseq built in the devShell and CI, and the test that compares its acceptance of each file with the parser's (section 6.1b, U5). |
-| 2 | `feature/event-decoding` | The gradient, RF and ADC events of the model (section 6.2). |
+| 2 | `feature/event-decoding` | The gradient, RF and ADC events of the model, checked against the waveforms that MATLAB sampled and against the decoded blocks and the gradient sampler of the C++ reader (section 6.2). |
 | 3 | `feature/own-safe-and-asc` | The package's own SAFE functions, `.asc` reader and SAFE hardware type (section 6.3). |
 | 4 | `feature/pypulseq-converter` | `pp.Sequence` to the model, the only module that imports pypulseq (section 6.4). |
 | 5 | `feature/load-on-model` | `load` and every measurement on the model; the new public interface; pypulseq an optional extra; the guards against a dependence (section 6.5). |
@@ -143,10 +147,11 @@ pulseq-checks has a draft (not merged) plan for rc6.
   a non-commercial EULA. pypulseqpp imports pypulseq and defaults the rasters.
   The C++ `ExternalSequence` of pulseq/pulseq (MIT, the reader of the
   scanner) has no Python binding.
-- **Two are oracles.** The C++ `ExternalSequence` builds with a 30-line driver
-  and is strict in the ways that matter (rasters, version, required
-  extensions); its acceptance of a file is "would the interpreter load it".
-  pulseq-rs is strict too, but has no usable Python binding (U5).
+- **Two are oracles.** The C++ `ExternalSequence` builds with a 30-line driver;
+  its acceptance of a file is "would the interpreter load it". (This plan first
+  said that it is strict about rasters, versions and required extensions. Task
+  1b found that it checks much less: section 2.5.) pulseq-rs is strict, but has
+  no usable Python binding (U5).
 - **Parsing:** numpy and the standard library suffice. `np.loadtxt` with a
   structured dtype parses a table strictly (an `int` column rejects `1.5`,
   `1e2` and `nan`, with the row and column) and fast (22 ms for 100,000
@@ -194,6 +199,95 @@ pulseq-checks has a draft (not merged) plan for rc6.
 - The survey's 31 mutated copies of one file show which of pulseq-rs, the C++
   reader, pypulseqpp and pypulseq reject each defect (study scratch; the
   table is in the survey report, section 1).
+
+### 2.5 The C++ reader as an oracle (reviewed on 2026-10-08)
+
+`src/ExternalSequence.cpp` and `.h` of pulseq/pulseq at `c746912`, built as
+`pulseq-cpp-oracle` by task 1b (#96). Line numbers are of that commit.
+
+**What it checks when it loads and decodes a file** (task 1b, by one change of a
+valid file at a time; `NOT_CHECKED_BY_THE_READER` of `tests/test_cpp_oracle.py`
+has the evidence): the `[VERSION]` section, the four rasters (present; a zero
+or negative `GradientRasterTime` only in `decodeBlock`), the event references
+of a block, some row syntax, and unknown required extensions from 1.5.1. It
+does not check versions 1.6 and 2.0, events longer than their block, values
+off a raster, shapes out of range, duplicate IDs, unknown sections, `[DELAYS]`,
+the order of block IDs, or where a shape ends. It loops with no end on a cycle
+in an extension list, and rejects the rows of a valid unknown extension
+(`ORACLE_KNOWN_WRONG`). Its crashes on bad input depend on the build (macOS
+clang and Linux gcc differ).
+
+**`checkGradient` and `checkRF` do not check: they clamp, silently**
+(`ExternalSequence.cpp:2265-2292`, called at the end of `decodeBlock`, 2088-2089):
+
+- each decompressed arbitrary-gradient sample to [-1, 1];
+- each decompressed RF magnitude sample to [0, 1]: a negative magnitude becomes
+  0;
+- each RF phase sample (the phase shape times 2π, `decodeBlock`, 2005) to
+  [0, 2π - 1e-4]: a phase outside that range is clamped, not wrapped.
+
+They return nothing and print nothing, so they cannot be an accept/reject
+oracle. Their effect is visible in the decoded shapes: when the scanner clamps
+a value of a file, it plays something else than the file says. The parser's
+`shape.range` already rejects a gradient or RF magnitude sample outside
+[-1, 1]. Two cases that the scanner changes are not rules of the parser: an RF
+magnitude below 0 (U9) and an RF phase shape outside [0, 1) (U10).
+
+**What it can serve as an oracle for:**
+
+- **The decoded blocks and events.** After `decodeBlock`, a `SeqBlock` has the
+  block duration in raster units; the RF event (amplitude, shape IDs, `center`,
+  `shape_dur`, delay, `freqPPM`, `phasePPM`, frequency and phase offsets, `use`)
+  with its decompressed magnitude and phase and its dwell time; each gradient
+  (trapezoid times in µs, or amplitude, shape IDs, `first`, `last`, the
+  decompressed waveform, and the times and values of a time-shaped gradient);
+  the ADC event (samples, dwell, delay, offsets, phase-modulation shape); the
+  trigger, soft delay, labels, rotation (quaternion, normalized) and RF shim of
+  the block. `GetVersion`, `GetAllDefinitions` and `GetDefinition` give the
+  version and the definitions. This is all of layer 1 that the model has, and
+  all that task 2 decodes.
+- **The signature.** It computes the MD5 of the file and compares it with the
+  stored hash (`isSignatureCheckSucceeded`, `ExternalSequence.cpp:1639-1653`):
+  an oracle for `SequenceData.signature.matches`.
+- **The gradient waveform inside a block.** `SeqBlock::gradientsAt(t)`
+  (`ExternalSequence.cpp:3558-3698`) gives the three gradients at a time of the
+  block, as the interpreter computes them for its phase corrections: 0 before
+  the delay and after the end of an event; a trapezoid by its ramps; a
+  time-shaped gradient by linear interpolation between its points; an
+  arbitrary gradient on the default raster by linear interpolation between its
+  samples at the centres of the raster cells, from `first` at the start of the
+  event to the first sample, and from the last sample to `last` at its end.
+  This is the model of a gradient that `docs/implementation.md` §1 gives for
+  the inside of an event, from the code of the scanner's reader.
+  `gradMomentsAt` and `totalBlockGradMoments` give the moments; the package
+  has no value that needs them now.
+
+**Its limits as an oracle:**
+
+- It does not join blocks: `gradientsAt` is inside one block. The waveform
+  across a block boundary, and across a gap between events of one block, is
+  the package's model (MATLAB's), checked against MATLAB's samples. For a
+  valid file the two agree inside a block: `gradient.nonzero-start-delay` and
+  `gradient.nonzero-end-align` make each gap between events of a block start
+  and end at 0.
+- An arbitrary gradient on a raster other than 10 µs is not decoded ("Shape is
+  on a raster that is different from the system raster",
+  `ExternalSequence.cpp:2114-2119`): `decodeBlock` returns false, so the driver
+  of task 1b rejects a valid file with such a gradient. No file of
+  `tests/seqfiles/` has one today. Task 2 makes the comparison of acceptance
+  skip such a file by this rule (a gradient raster other than 10 µs and an
+  arbitrary gradient), with the reason, not by its name.
+- Its values are `float` (32 bits): a relative tolerance of about 1e-6.
+- For a 1.4 file it sets `first` and `last` to `FLOAT_UNDEFINED`: nothing to
+  compare (the parser rejects the 1.4 files where they matter).
+- It is one oracle among others: the known-wrong files stay skipped.
+
+**Not useful as an oracle now:** `applyRfPhaseModulation` and
+`updateAdcPhaseModulation` (the positioning of the field of view: layer 2,
+perhaps for pulseq-checks later), the label bookkeeping
+(`checkLabelValuesADC`: the ranges of the labels at run time, perhaps for
+pulseq-checks later), `isGradientInBlockStartAtNonZero` (a helper), and
+`checkBlockReferences` (already part of `load`).
 
 ## 3. Design
 
@@ -437,8 +531,47 @@ Each task: start the branch with the `start-task` skill; run
 2. Tests against the MATLAB-sampled waveforms of KomaMRI's
    `read_comparison/v1.4` and `v1.5` (gradients and RF, block by block, to the
    precision of the text format), and against pypulseq's `get_block` for 1.5
-   files (marker `pypulseq`).
+   files (marker `pypulseq`). The `.mat` files are copied into
+   `tests/seqfiles/oracle/` with their `.seq` files, as `SOURCES.md` requires.
 3. The oversampled spiral (time_id -1) decodes; today pypulseq crashes on it.
+4. The C++ reader as an oracle of the decoding (section 2.5). The driver of
+   `tests/cpp_oracle/` gets two modes, with no change to its present mode:
+   - `--dump`: after `load` and `decodeBlock`, it writes JSON to stdout: the
+     version, the definitions, `isSignatureCheckSucceeded`, and for each block
+     its index, ID, duration in raster units, and its decoded events with every
+     field of section 2.5 (the decompressed shapes after `checkGradient` and
+     `checkRF`). The JSON is written by the driver with the standard library of
+     C++ (no new dependency).
+   - `--sample`: it reads lines `block_index time_us` on stdin and writes the
+     three values of `gradientsAt` for each.
+5. Tests (marker `cpp_oracle`; skipped where the binary is absent):
+   - For each file of `tests/seqfiles/` that both readers accept (and that is
+     not in `ORACLE_KNOWN_WRONG`): the model and the decoded events equal the
+     dump, field by field, with the relative tolerance of `float`. The decoded
+     shapes after the clamping of `checkGradient` and `checkRF` must equal the
+     package's: a difference would mean that the scanner plays something else
+     than the file says, for a file that the parser accepts. `signature.matches`
+     equals `isSignatureCheckSucceeded` (for an md5 signature).
+   - For the same files, with all arbitrary gradients on a 10 µs raster: the
+     package's gradient waveform at the centres of the raster cells and at the
+     ends of each event, inside each block, equals `gradientsAt` at those times,
+     with the same tolerance.
+   - Each part of the comparison that cannot run (a raster other than 10 µs, a
+     1.4 file's `first` and `last`) is skipped with its reason, not ignored.
+     The accept/reject comparison of task 1b skips a file with an arbitrary
+     gradient on a raster other than 10 µs, and a valid fixture with a 4 µs
+     raster and an arbitrary gradient is added to show the skip.
+6. The rules of U9 and U10 (section 7.1) go in this task, in
+   `pulseq_analysis.seqfile`: `shape.rf-magnitude-negative` (an RF magnitude
+   sample below 0, beyond the tolerance of `shape.range`) and
+   `shape.rf-phase-range` (an RF phase sample outside [0, 1)), each with a
+   fixture, its entry in `NOT_CHECKED_BY_THE_READER` (the reader clamps, and
+   accepts), and its source in the docstring. The docstring of
+   `shape.rf-magnitude-negative` says that the rule is stricter than the
+   specification, which allows [-1, 1] for an amplitude shape, and that it was
+   chosen to agree with MATLAB, which writes the magnitude as an absolute value,
+   and with the scanner's reader, which sets a negative sample to 0. Every
+   oracle file must still load.
 
 ### 6.3 Task 3: `feature/own-safe-and-asc`
 
@@ -510,6 +643,13 @@ This is the change of the public interface.
 | U6 | The `center` of an RF event of a 1.4 file is not in the file. | Absent (`None`): layer 1. A caller that needs it computes it (pulseq-reports uses `calc_rf_center` today). | Compute it with MATLAB's `calcRfCenter` and document it as derived. |
 | U7 | A file with many violations: all of them, or the first? | All, with at most 20 locations for each rule (the count of the rest is kept), so that pulseq-checks can show each kind. | The first only. |
 | U8 | The pypulseq fork pin. | Remove it. After task 3 no code of `src/` needs the fork; the converter reads pypulseq's in-memory form, and the extra requires `pypulseq>=1.5.0`. Tests that used the fork's fixes compare with MATLAB's waveforms instead. | Keep the pin for the tests. |
+
+### 7.1 Questions of the amendment (answered on 2026-10-08)
+
+| ID | Question | Decision | Alternatives |
+|---|---|---|---|
+| U9 | An RF magnitude shape with a sample below 0. The specification allows [-1, 1] for "amplitude shapes"; MATLAB writes the magnitude as an absolute value; the scanner's reader sets a negative sample to 0 (`checkRF`). Does the parser reject it? | Reject: a new rule `shape.rf-magnitude-negative` (with a tolerance as `shape.range`). The documents and the docstring of the rule say that this is stricter than the specification (which allows [-1, 1]), chosen to agree with the reference implementations: MATLAB writes the magnitude as an absolute value, and the scanner's reader sets a negative sample to 0. | Accept it, and document that the scanner clamps it. |
+| U10 | An RF phase shape with a sample outside [0, 1) (times 2π: outside [0, 2π)). The specification says nothing; MATLAB writes the phase as a fraction of a turn in [0, 1); the scanner's reader clamps the radians to [0, 2π - 1e-4] (`checkRF`), and does not wrap them. Does the parser reject it? | Reject: a new rule `shape.rf-phase-range`. A clamped phase is a different pulse than the file says. | Accept it; or accept it and wrap the phase in the model. |
 
 ## 8. Decisions with no question
 
