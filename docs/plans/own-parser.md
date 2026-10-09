@@ -5,7 +5,10 @@ took the recommendation of each question of section 7 (U1 to U8). Amended on
 2026-10-08, after tasks 1, 1b and 3 were merged (#95, #96, #97): the C++ reader
 of the scanner as an oracle of the model, the events and the waveform in task 2
 (section 2.5, section 6.2), and the questions U9 and U10, answered on
-2026-10-08 (section 7.1).
+2026-10-08 (section 7.1). Made exact for tasks 2, 4, 5 and 6 on 2026-10-08 by
+`docs/plans/own-parser-tasks.md`, which splits task 5 into 5a and 5b, replaces
+the KomaMRI `.mat` files with MATLAB Pulseq run under Octave, and decides where
+it differs from this plan (its section 1).
 
 ## 1. Scope
 
@@ -51,12 +54,13 @@ The tasks (`CLAUDE.md`: one branch, one concern):
 | 2 | `feature/event-decoding` | The gradient, RF and ADC events of the model, checked against the waveforms that MATLAB sampled and against the decoded blocks and the gradient sampler of the C++ reader (section 6.2). |
 | 3 | `feature/own-safe-and-asc` | The package's own SAFE functions, `.asc` reader and SAFE hardware type (section 6.3). |
 | 4 | `feature/pypulseq-converter` | `pp.Sequence` to the model, the only module that imports pypulseq (section 6.4). |
-| 5 | `feature/load-on-model` | `load` and every measurement on the model; the new public interface; pypulseq an optional extra; the guards against a dependence (section 6.5). |
+| 5a | `feature/load-on-model` | `load` and every measurement on the model; the new public interface (section 6.5; `own-parser-tasks.md` section 7). |
+| 5b | `chore/pypulseq-optional` | pypulseq an optional extra; the fork pin goes; the guards against a dependence (section 6.5; `own-parser-tasks.md` section 8). |
 | 6 | `docs/own-parser-docs` | `docs/usage.md`, `docs/implementation.md`, the migration guide and `CHANGELOG.md` (section 6.6). |
 
 Tasks 1, 1b and 3 can run in parallel (the test of 1b compares with the
 parser when task 1 is merged, and is skipped before). 2 needs 1; 4 needs 1 and
-2; 5 needs 1 to 4; 6 needs 5. Each task merges into `main` with no release; the work goes under
+2; 5a needs 1 to 4; 5b needs 5a; 6 needs 5b. Each task merges into `main` with no release; the work goes under
 `## Unreleased` of `CHANGELOG.md`. The release is a separate decision of the
 user.
 
@@ -189,7 +193,8 @@ pulseq-checks has a draft (not merged) plan for rc6.
 
 - KomaMRI.jl `read_comparison/v1.4`, `v1.5`: `.seq` files with `.mat`
   waveforms that MATLAB Pulseq sampled. KomaMRI is MIT; some files come from
-  other projects.
+  other projects. (Not used: their generator and units are KomaMRI's;
+  `own-parser-tasks.md` section 3.1.)
 - pulseq/pulseq `tests/expected_output/` and `tests/legacy/approved/`
   (MATLAB-written 1.5.0 and 1.5.1, with labels, ROTATIONS, soft delays,
   triggers, an ADC phase shape). MIT.
@@ -440,8 +445,9 @@ Two kinds of dependence are guarded.
   `read.m` / `decompressShape.m`, not pypulseq.
 - The parser's tests do not use files that pypulseq wrote as their only
   oracle: each rule has a hand-written fixture (a small text file in
-  `tests/seqfiles/`), and the decoding is checked against the waveforms that
-  MATLAB sampled (KomaMRI's `.mat` files) and the C++ reader (U5).
+  `tests/seqfiles/`), and the decoding is checked against MATLAB Pulseq, run
+  under Octave at the commit of the C++ oracle (`own-parser-tasks.md` section
+  4.4), and against the C++ reader (U5).
 - pypulseq stays an oracle where it is right for 1.5 files (`get_block` of
   trapezoids and of arbitrary gradients on the default raster), and is
   compared, not trusted, elsewhere.
@@ -528,11 +534,10 @@ Each task: start the branch with the `start-task` skill; run
 
 1. `pulseq_analysis.events` (section 3.5): decoding from `SequenceData`,
    functions that take the model (not yet the snapshot).
-2. Tests against the MATLAB-sampled waveforms of KomaMRI's
-   `read_comparison/v1.4` and `v1.5` (gradients and RF, block by block, to the
-   precision of the text format), and against pypulseq's `get_block` for 1.5
-   files (marker `pypulseq`). The `.mat` files are copied into
-   `tests/seqfiles/oracle/` with their `.seq` files, as `SOURCES.md` requires.
+2. Tests against MATLAB Pulseq at `c746912`, run under Octave in the default
+   devShell: the events of each block and the gradient waveform of each axis.
+   This replaces KomaMRI's `.mat` files and the comparison with pypulseq's
+   `get_block` (`own-parser-tasks.md` sections 1 and 4.4).
 3. The oversampled spiral (time_id -1) decodes; today pypulseq crashes on it.
 4. The C++ reader as an oracle of the decoding (section 2.5). The driver of
    `tests/cpp_oracle/` gets two modes, with no change to its present mode:
@@ -601,7 +606,10 @@ Each task: start the branch with the `start-task` skill; run
 
 ### 6.5 Task 5: `feature/load-on-model`
 
-This is the change of the public interface.
+This is the change of the public interface. `own-parser-tasks.md` splits it:
+items 1 to 3, 6 and 7 are task 5a (section 7 there), and items 4 and 5 are task
+5b `chore/pypulseq-optional` (section 8 there). Item 6 changes there: no
+`spec.version` changes before the first release (U17 there).
 
 1. `load(path)` uses `read_seqfile`; `load(seq)` uses `from_pypulseq`.
    `Snapshot.sequence` goes; `Snapshot.data` is the `SequenceData`. The block
