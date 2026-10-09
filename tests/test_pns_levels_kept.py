@@ -16,6 +16,7 @@ from synthetic import (
 from pulseq_analysis import pns_levels as pns_levels_module
 from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
 from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
+from pulseq_analysis.safe import SafeHardware
 from pulseq_analysis.snapshot import load
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
@@ -171,6 +172,23 @@ def test_pns_levels_ignores_stim_thresh_in_the_hardware_key(monkeypatch):
     second = pns_levels(snap, hardware=(other_thresh, "A"))
     assert len(calls) == 1
     assert second is first
+
+
+def test_pns_levels_keeps_one_result_for_a_safe_hardware_and_its_namespace(monkeypatch):
+    """A `SafeHardware` and the namespace with the same values, with the same label, are one
+    hardware: the call with the namespace runs the model one time, and the call with the
+    `SafeHardware` gives the kept result (`is`). The same values with another label are
+    another hardware."""
+    calls = _count_pns_levels_calls(monkeypatch)
+    snap = load(spin_echo_sequence())
+    namespace_pair = (safe_example_hw(), "A")
+    safe_pair = (SafeHardware.from_namespace(safe_example_hw()), "A")
+
+    first = pns_levels(snap, hardware=namespace_pair)
+    assert pns_levels(snap, hardware=safe_pair) is first
+    assert len(calls) == 1
+    assert pns_levels(snap, hardware=(safe_pair[0], "B")) is not first
+    assert len(calls) == 2
 
 
 def test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values(

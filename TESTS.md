@@ -34,7 +34,8 @@ Contents:
    peaks; the kept PNS levels; the series; the analyses and their registry; the
    gradient spectrum; value equality; the kept results; the number arguments;
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
-   snapshot; the reader of Pulseq files; the C++ oracle
+   snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
+   the SAFE hardware and filter
 
 ---
 
@@ -302,8 +303,8 @@ passes, showing the report if it does not.
 `test_pns_levels.py` tests `pns_levels.py`: `pns_levels`, which keeps its result for the
 snapshot (section 2.7 tests the keep) and, for a result that is not kept, calls
 `_compute_levels`, which samples the gradients block by
-block (`GradientSampler.block_samples`), runs the SAFE model of the pinned pypulseq
-fork (`_safe_gwf_to_pns_chunk`) over them in chunks, and keeps only the stored level
+block (`GradientSampler.block_samples`), runs the SAFE model of `safe.py`
+(`_safe_gwf_to_pns_chunk`, ported from the pinned pypulseq fork) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
 peak, the peak time and the axis peaks), and the intervals of consecutive samples
 whose total is at or above each threshold of the `thresholds_hz_per_t` argument
@@ -320,7 +321,8 @@ pypulseq's or with its own other output).
 `calc_pns` samples `seq.get_gradients()` at the file times `(k + 0.5) * dt`, which
 drift off the ideal raster grid by float rounding of the block start time sums;
 `pns_levels` samples each block at its own local
-raster times, with no such drift. Both then run the same chunk function, so a
+raster times, with no such drift. Both then run the same SAFE model (the chunk function of
+`safe.py` is the fork's, to the last bit: section 2.21), so a
 relative 1e-6-of-peak tolerance covers the whole
 difference, except for a file with a block off the gradient raster, where both
 sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradients by
@@ -347,8 +349,8 @@ that they are not the same object (`first is not second`): with `pns_levels` the
 result would be the first and the test could not fail.
 
 `pns_levels` takes the hardware of the SAFE model as a pair `(struct, label)` (`hardware`),
-which is necessary and keyword-only; `struct` is a SAFE hardware struct in the form of
-pypulseq's `asc_to_hw`. The tests give pypulseq's example hardware as the pair `EXAMPLE_HW`
+which is necessary and keyword-only; `struct` is a `safe.SafeHardware` or a SAFE hardware
+struct in the form of pypulseq's `asc_to_hw`. The tests give pypulseq's example hardware as the pair `EXAMPLE_HW`
 of `tests/synthetic.py` (`safe_example_hw()` and a label), and the hardware of a gradient
 `.asc` file as `hardware_from_asc(path)`. The tests of `hardware` in this section check
 a `hardware` with the struct of `safe_example_hw()` and a `hardware` from a gradient
@@ -631,6 +633,19 @@ the reference, every field.
 The test checks that the long sequence has more than `3 * _CHUNK_SAMPLES` samples and
 that the result of the short blocks has an interval. `assert_levels_equal` (`tests/asserts.py`) compares
 every field. The samples of a delay are 0 in both, so the totals are equal.
+
+**Assumptions:** None.
+
+#### `test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly`
+
+**Checks:** `hardware=(SafeHardware.from_namespace(struct), label)` gives the same result as
+`hardware=(struct, label)`, every field exactly equal, for the example hardware.
+
+**How:** Parametrized over the four sequences of the comparison with `calculate_pns`. The test
+calls `_compute` (no keep) with the namespace pair `EXAMPLE_HW` and with the `SafeHardware`
+pair, with one threshold of half of `_LIMIT`, checks that the peak is above 0, and compares the
+two results with `assert_levels_equal` and `ignore=()` (`numpy.array_equal` for the arrays,
+`==` for the rest, so the intervals of the threshold are also compared).
 
 **Assumptions:** None.
 
@@ -3281,7 +3296,7 @@ after the type check, and are tested with a snapshot above.
 of the SAFE model. It gives the `PnsLevels` of a
 sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 `peak_time_s`, `axis_peaks_hz_per_t`) and the level. The SAFE model itself
-(`pns_levels._compute_levels`, the pinned pypulseq fork's chunked SAFE recursion) runs on a
+(`pns_levels._compute_levels`, the chunked SAFE recursion of `safe.py`) runs on a
 result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
 of `pulseq_analysis.pns_levels` with a wrapper that counts its calls.
 `pns_levels` keeps one `PnsLevels` for each (snapshot, hardware, thresholds, `bin_s`),
@@ -3408,6 +3423,20 @@ a pair and with a second pair where `z.stim_thresh` is 1 higher, both with the l
 checks that there was 1 call and that the second result `is` the first.
 
 **Assumptions:** The model does not use `stim_thresh`, and `PnsLevels.hw` does not keep it.
+
+#### `test_pns_levels_keeps_one_result_for_a_safe_hardware_and_its_namespace`
+
+**Checks:** A `SafeHardware` and the namespace with the same values, with the same label, are
+one hardware: the second call gives the kept result. The same values with another label are
+another hardware.
+
+**How:** The test counts the calls of `_compute_levels` as above. It calls `pns_levels` with
+`(safe_example_hw(), "A")`, then with `(SafeHardware.from_namespace(safe_example_hw()), "A")`,
+and checks that the second result is the first (`is`) and that there was 1 call. It then calls
+with the `SafeHardware` and the label "B" and checks that the result is not the first and that
+there were 2 calls.
+
+**Assumptions:** None.
 
 #### `test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values`
 
@@ -3545,7 +3574,9 @@ tests of section 2.2.
 `str` second item raises `TypeError` (the message names `hardware`), before the type of the
 first argument is checked.
 
-**How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py`. The test calls
+**How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py` (a struct alone, also a
+`SafeHardware` alone, a list, a tuple of three items, a label that is not a `str`, a path and
+`None`). The test calls
 `pns_levels(spin_echo_sequence(), hardware=hardware)` in
 `pytest.raises(TypeError, match="hardware")`. The first argument is a `pp.Sequence`, which is
 not a snapshot and would raise the `TypeError` that names `load`.
@@ -5728,9 +5759,11 @@ ends of the axis, where `waveforms()` has no extra point.
 ### 2.16 The `.asc` files (`test_asc.py`)
 
 `test_asc.py` tests `asc.py`: `read_gradient_asc`, which reads a gradient `.asc` file and the
-files that it includes with `$INCLUDE` into nested fields; `hardware_name`, which takes the
-name of the hardware from the fields; and `hardware_from_asc`, which gives the pair
-`(struct, label)` that `pns_levels` takes. The real `.asc` files are confidential, so the tests
+files that it includes with `$INCLUDE` into nested fields (the package's own reader; the tests
+compare it with pypulseq's `readasc`, which it replaces); `hardware_name`, which takes the
+name of the hardware from the fields; `safe_hardware`, which makes the `SafeHardware` of the
+fields; and `hardware_from_asc`, which gives the pair `(SafeHardware, label)` that
+`pns_levels` takes. The real `.asc` files are confidential, so the tests
 that need a file with the PNS parameters write one with the `write_gradient_asc` fixture of
 `tests/conftest.py` (the PNS parameters of pypulseq's example hardware, in the plain layout or in
 the layout of a scanner file). The tests of the include rules write small files in `tmp_path`.
@@ -5842,19 +5875,158 @@ cases and checks the name.
 
 **Assumptions:** None.
 
-#### `test_hardware_from_asc_gives_the_struct_and_the_name_of_the_file`
+#### `test_read_gradient_asc_reads_every_form_of_a_line`
 
-**Checks:** `hardware_from_asc(path)` is the pair `(asc_to_hw(asc), hardware_name(asc))` of
-`asc = read_gradient_asc(path)`, field by field, for the plain layout and for the layout of
-a scanner file (a main file that includes the PNS parameters with `$INCLUDE`).
+**Checks:** `read_gradient_asc` reads a string, an integer, a float with an exponent and a
+sign, a single quoted character, an empty string, indices (`e[1][2].f`) and a comment after a
+value (`#` and `//`) into nested dicts of the right types, and leaves out a blank line, a
+comment line, a line with no `=`, and the fields after `### ASCCONV END ###`. LF and CRLF line
+ends give the same fields.
 
-**How:** Parametrized on `split`. The `write_gradient_asc` fixture of `tests/conftest.py`
-writes the file. The test checks that the result is a tuple, that its label equals
-`hardware_name(asc)` and is `"MP_GPA_TEST"`, that the struct has the same attribute names
-as `asc_to_hw(asc)`, and that `vars` of each axis (`x`, `y`, `z`) equals `vars` of the same
-axis of `asc_to_hw(asc)`.
+**How:** Parametrized on the line end. The test writes one file with each form (`_FORMS`) and
+compares the fields with the expected dict (`_FORMS_FIELDS`). It checks the type of six
+values (`int` for digits only, `float` for a number with a point, an exponent or a sign, `str`
+for a quoted value).
+
+**Assumptions:** The expected dict is written by hand from the rules of the reader, not taken
+from pypulseq's `readasc`.
+
+#### `test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_included_file`
+
+**Checks:** The end marker `### ASCCONV END ###` of an included file also ends the fields of
+that file.
+
+**How:** The test writes `inc.asc` with `y = 2`, the marker and `z = 3`, and `main.asc` that
+includes it after `x = 1`. The fields must be `x` and `y`.
 
 **Assumptions:** None.
+
+#### `test_read_gradient_asc_gives_the_fields_that_pypulseqs_readasc_gives`
+
+**Checks:** For the file of every form, `read_gradient_asc` gives the fields that pypulseq's
+`readasc` gives (its first result).
+
+**How:** `pytest.importorskip` of `pypulseq.utils.siemens.readasc`. The test writes the file
+of `_FORMS` and compares the two results with `==`.
+
+**Assumptions:** The comparison covers the forms of `_FORMS` only.
+
+#### `test_read_gradient_asc_gives_the_fields_of_a_fixture_file_that_readasc_gives`
+
+**Checks:** For the plain file and for the scanner layout of the `write_gradient_asc` fixture,
+`read_gradient_asc` gives the fields that `readasc` gives for the file (for the scanner layout,
+the fields of the main file and of the included file, merged).
+
+**How:** Parametrized on `split`, with `pytest.importorskip` as above. For the scanner layout
+the expected fields are the fields of `readasc` for the main file and for the safety file, and
+the test checks that their keys are `asCOMP`, `asGPAParameters` and `GradPatSup`.
+
+**Assumptions:** `readasc` ignores `$INCLUDE`, so the test merges the two files itself.
+
+#### `test_read_gradient_asc_raises_for_a_line_it_cannot_read`
+
+**Checks:** A number that `float` cannot read, a line with `=` that is not a field (a bad value,
+no value), a field name with an empty part or an index that is not a number, and a field under
+a name that has a value, raise `ValueError` that names the file, the line number and the
+reason.
+
+**How:** Parametrized on the line. The test writes `main.asc` with `x = 5` and the line, and
+reads it. The message must match `main.asc, line 2: ` and the reason.
+
+**Assumptions:** None.
+
+#### `test_hardware_from_asc_gives_the_safe_hardware_and_the_name_of_the_file`
+
+**Checks:** `hardware_from_asc(path)` is the pair `(safe_hardware(asc), hardware_name(asc))` of
+`asc = read_gradient_asc(path)`, for the plain layout and for the layout of a scanner file (a
+main file that includes the PNS parameters with `$INCLUDE`). The `SafeHardware` has the name of
+the file, also for the scanner layout, and the nine fields of each axis of pypulseq's example
+hardware, which the fixture writes.
+
+**How:** Parametrized on `split`. The `write_gradient_asc` fixture of `tests/conftest.py` writes
+the file. The test checks that the result is a tuple, that the struct is a `SafeHardware`, that
+the label, `hardware_name(asc)` and `struct.name` are `"MP_GPA_TEST"`, that the struct equals
+`safe_hardware(asc)`, and that `dataclasses.asdict` of each axis equals the fields of
+`safe_example_hw()`.
+
+**Assumptions:** None.
+
+#### `test_hardware_from_asc_has_the_fields_of_pypulseqs_asc_to_hw`
+
+**Checks:** The `SafeHardware` of a file has the attributes of the namespace that pypulseq's
+`asc_to_hw` gives for the same fields: the same attribute names, and for each axis the same
+names and values.
+
+**How:** Parametrized on `split`, with `pytest.importorskip` of
+`pypulseq.utils.siemens.asc_to_hw`. The test compares `vars` of the struct with `vars` of the
+namespace, and `dataclasses.asdict` of each axis with `vars` of the axis of the namespace.
+
+**Assumptions:** The name is not compared: `asc_to_hw` gives "unknown" for the scanner layout.
+
+#### `test_safe_hardware_is_named_after_the_component_of_the_file`
+
+**Checks:** The name of the `SafeHardware` is `hardware_name(asc)`: the component name, also in
+the scanner layout (`asCOMP[0].tName`), and "unknown" without one.
+
+**How:** Parametrized on `split`. The test reads a file with the name "OTHER_NAME", checks the
+name, removes `asCOMP` from the fields and checks that the name is "unknown".
+
+**Assumptions:** None.
+
+#### `test_a_file_without_gradient_scale_factors_is_refused`
+
+**Checks:** A file with no `asGPAParameters` field raises `ValueError` that names the
+gradient scale factor of the first axis and says that the package does not assume one, from
+`hardware_from_asc` and from `safe_hardware`, in the plain and in the scanner layout.
+
+**How:** Parametrized on `split` and on the function. The fixture writes the file with
+`scale_factors=False`; the test checks that the text has no `asGPAParameters` and calls the
+function in `pytest.raises(ValueError, match=...)`.
+
+**Assumptions:** pypulseq's `asc_to_hw` prints a warning and assumes 1/pi for such a file: the
+test does not call it.
+
+#### `test_a_file_without_the_gradient_scale_factor_of_one_axis_is_refused`
+
+**Checks:** A file that has the scale factors of two axes but not the third raises
+`ValueError` that names the field of the missing axis.
+
+**How:** Parametrized on the axis. The test removes the line of `flGScaleFactor<axis>` from a
+plain file and calls `hardware_from_asc`.
+
+**Assumptions:** None.
+
+#### `test_a_file_without_a_pns_field_is_refused_and_the_error_names_it`
+
+**Checks:** A file that lacks a `tau`, `a`, stimulation limit or stimulation threshold field
+raises `ValueError` that names the field, with the prefix `GradPatSup.Phys.PNS.` in the
+scanner layout.
+
+**How:** Parametrized on six fields. The test removes the line of the field from the file and
+from the file that it includes, and calls `hardware_from_asc`. The message must be
+`the .asc file has no field <name>`.
+
+**Assumptions:** None.
+
+#### `test_a_scanner_file_without_the_pns_parameters_is_refused`
+
+**Checks:** A file with a `GradPatSup` field and no `Phys.PNS` under it raises `ValueError`
+that names `GradPatSup.Phys.PNS`.
+
+**How:** The test reads a scanner file, sets `asc["GradPatSup"]` to `{"Phys": {}}` and calls
+`safe_hardware(asc)`.
+
+**Assumptions:** None.
+
+#### `test_a_file_with_an_a_sum_that_is_not_1_is_refused`
+
+**Checks:** A file whose `flGSWDAX[0..2]` do not sum to 1 (within 0.001) raises `ValueError`
+from `SafeAxis`.
+
+**How:** The test sets `flGSWDAX[0]` to 0.9 in a plain file and calls `hardware_from_asc`. The
+message must name `a1 + SafeAxis.a2 + SafeAxis.a3 must be 1`.
+
+**Assumptions:** The other errors of `SafeAxis` are tested in section 2.21.
 
 ### 2.17 The snapshot (`test_snapshot.py`)
 
@@ -6727,3 +6899,203 @@ the oracle accepts. It fails with the list.
   never checks the rule.
 - A file of `ORACLE_KNOWN_WRONG` is skipped whatever the verdicts are, also when the oracle
   changes.
+
+### 2.21 The SAFE hardware and filter (`test_safe.py`)
+
+`test_safe.py` tests `safe.py`: `SafeAxis` and `SafeHardware` (immutable, checked when they are
+made), `SafeHardware.from_namespace` (the form of pypulseq's `asc_to_hw` and
+`safe_example_hw()`), and `_safe_gwf_to_pns_chunk`, the chunked SAFE filter that `pns_levels`
+runs. The module is ported from pypulseq's `safe_hw_check` and `_safe_gwf_to_pns_chunk`; the
+tests that compare with the functions of the pinned fork use `pytest.importorskip` of
+`pypulseq.utils.safe_pns_prediction` and compare exactly (`numpy.testing.assert_array_equal`
+or `==`), because the port does the same float operations. The test file has its own copy of
+the numbers of pypulseq's example hardware (`_EXAMPLE_AXES`), and one test compares the copy
+with `safe_example_hw()`.
+
+#### `test_a_safe_axis_keeps_its_fields_as_floats_and_is_frozen`
+
+**Checks:** `SafeAxis` stores each field as a `float` (an `int` argument becomes a `float`),
+and a field of a `SafeAxis` and an axis of a `SafeHardware` cannot be set.
+
+**How:** The test makes a `SafeAxis` from integers, checks `type(...) is float` for the nine
+fields, and expects `dataclasses.FrozenInstanceError` for the set of `tau1` and of `x`.
+
+**Assumptions:** None.
+
+#### `test_a_safe_axis_refuses_a_bad_field`
+
+**Checks:** `SafeAxis` raises `ValueError` for a NaN, an infinity, a `stim_limit` that is 0 or
+negative, and an `a1 + a2 + a3` that is more than 0.001 from 1; and `TypeError` for a string, a
+`bool` and `None`. The message names the field.
+
+**How:** Parametrized over nine changes of the example axis. The test expects the error and
+the message.
+
+**Assumptions:** None.
+
+#### `test_a_safe_axis_takes_a_sum_of_the_a_fields_within_0_001_of_1`
+
+**Checks:** A sum of the `a` fields 0.0009 above or below 1 is valid, and one 0.0011 above or
+below is not.
+
+**How:** The test makes an axis with `a1` changed by 0.0009, and by -0.0009, and expects
+`ValueError` for 0.0011 in both directions.
+
+**Assumptions:** None.
+
+#### `test_a_safe_hardware_refuses_a_name_that_is_not_a_str_and_an_axis_that_is_not_a_safe_axis`
+
+**Checks:** `SafeHardware` raises `TypeError` for a name that is not a `str` and for an axis
+that is not a `SafeAxis` (a namespace with the same fields), with the name of the axis.
+
+**How:** The test makes the objects for the name and for each of `x`, `y` and `z`.
+
+**Assumptions:** None.
+
+#### `test_safe_hardware_values_compare_and_hash_by_their_fields`
+
+**Checks:** Two `SafeHardware` made from equal values are equal and have one hash; a change of
+one field of one axis gives a hardware that differs, while the other axes stay equal.
+
+**How:** The test makes two from the example namespace, compares them and their hashes, and
+makes a third with `dataclasses.replace` on `z`.
+
+**Assumptions:** None.
+
+#### `test_from_namespace_reads_the_fields_of_each_axis`
+
+**Checks:** The nine fields of each axis and the name of a namespace are the fields of the
+result; an extra field of the namespace or of an axis is ignored.
+
+**How:** The test makes the example namespace with the name `MP_GPA_EXAMPLE`, an extra `checksum`
+and an extra field on `y`, and compares `dataclasses.astuple` of each axis with the example
+numbers.
+
+**Assumptions:** None.
+
+#### `test_from_namespace_takes_the_name_from_the_argument_then_the_namespace_then_unknown`
+
+**Checks:** The name is the `name` argument, else the name of the namespace, else "unknown"; a
+name that is not a `str` raises `TypeError`.
+
+**How:** The test makes the four combinations of a name argument and a name of the namespace,
+and one name argument that is an `int`.
+
+**Assumptions:** None.
+
+#### `test_from_namespace_refuses_a_bad_struct_and_names_the_field`
+
+**Checks:** A namespace with no `x` or no `z`, with no `stim_thresh` of `x` or no `g_scale` of
+`y`, with an `a` sum that is more than 0.001 from 1, a `stim_limit` of 0, a NaN and a string
+raises the error of that defect, and the message names the axis and the field in the form of
+the messages of `pns_levels` (`'x.stim_thresh' missing in the hardware struct`,
+`hardware x.a1 + x.a2 + x.a3 must be 1`).
+
+**How:** Parametrized over nine namespaces. The test expects the error and the message.
+
+**Assumptions:** None.
+
+#### `test_the_chunk_function_gives_the_values_of_the_formula_for_two_samples`
+
+**Checks:** The percent of the y axis for the waveform `[g, g]` from the zero state equals the
+SAFE formula written out in the test: three low-pass filters with `alpha = dt_ms / (tau +
+dt_ms)` of the slew, of its absolute value and of the slew, weighted with `a1`, `a2` and `a3`,
+divided by `stim_limit` and multiplied by `g_scale * 100`. The first sample is the difference
+from 0, the second has a slew of 0 and the filters decay. The other axes are 0, `g_last` is
+the last sample, and the filter state is a `(3, 3)` array.
+
+**How:** The test calls the chunk function with `state=None` on two samples of 2.0 on `y`, and
+computes the expected rows from the formula (relative 1e-12).
+
+**Assumptions:** The value of the filter state is not checked: it is the internal state of
+`scipy.signal.lfilter`.
+
+#### `test_the_chunks_of_a_waveform_give_the_rows_of_the_waveform_in_one_chunk`
+
+**Checks:** The chunks of a waveform, in order, with the state of each passed to the next,
+concatenate to the result of one chunk, with the same final state. The chunks include one of 1
+sample.
+
+**How:** A random walk of 1000 samples in four chunks; `numpy.testing.assert_array_equal` for the
+rows and for both parts of the final state.
+
+**Assumptions:** The equality is exact: `lfilter` with an initial state does the same operations
+for the samples of one chunk or of the next.
+
+#### `test_the_chunk_function_gives_the_same_values_with_a_namespace_as_with_a_safe_hardware`
+
+**Checks:** The chunk function reads only the attributes of the hardware, so a namespace and a
+`SafeHardware` with the same values give the same rows.
+
+**How:** The test compares the rows for 50 random samples (`assert_array_equal`).
+
+**Assumptions:** None.
+
+#### `test_the_example_numbers_of_these_tests_are_those_of_pypulseqs_example_hardware`
+
+**Checks:** The numbers of `_EXAMPLE_AXES` are the numbers of `safe_example_hw()`.
+
+**How:** `pytest.importorskip` of pypulseq's module; the test compares the nine fields of each
+axis with `==`.
+
+**Assumptions:** None.
+
+#### `test_the_chunk_function_equals_pypulseqs_for_every_chunk_and_state`
+
+**Checks:** The rows and the state of each chunk equal those of `_safe_gwf_to_pns_chunk` of the
+pinned fork, exactly, for the example hardware and for hardware with other numbers in every
+field (the filters differ, the `a` sum is 1), at the rasters 10 µs and 2.5 µs.
+
+**How:** Parametrized over the hardware and the raster, with `pytest.importorskip`. A random
+walk of 2000 samples goes through chunks of 1, 1, 698, 1 and 1299 samples; each function gets
+the state that it returned.
+
+**Assumptions:** The random walk is a waveform, not a gradient of a real sequence.
+
+#### `test_the_hardware_check_accepts_and_refuses_what_pypulseqs_safe_hw_check_does`
+
+**Checks:** `SafeHardware.from_namespace` accepts a namespace if and only if pypulseq's
+`safe_hw_check` does: an `a` sum 0.0009 from 1 on `x` and `y` (valid), and 0.0011 from 1 on
+`x` and `z`, a sum of 5.6, no `x`, no `y.stim_thresh` and no `z.g_scale` (not valid).
+
+**How:** Parametrized over eight namespaces, with `pytest.importorskip`. A refusal of
+`safe_hw_check` is a `ValueError` (or an `AttributeError`, for a namespace with no `x`); a
+refusal of `from_namespace` is a `ValueError`.
+
+**Assumptions:** `safe_hw_check` does not check that a field is finite, a number or above 0.
+`from_namespace` does, and the test does not compare that.
+
+#### `test_pns_levels_equals_the_levels_with_pypulseqs_chunk_function_exactly`
+
+**Checks:** `_compute_levels` gives the same `PnsLevels` (`==`) with the package's chunk
+function as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place.
+
+**How:** Parametrized over the four sequences of the comparison with `calculate_pns` and over
+the default bin and bins of one sample, with `pytest.importorskip`. `_CHUNK_SAMPLES` is 1000,
+so the state passes from chunk to chunk; two thresholds make intervals (the test checks that
+some interval exists and that the peak is above 0). The first result is with the package's
+function; `monkeypatch` then sets `_safe_gwf_to_pns_chunk` of `pulseq_analysis.pns_levels` to
+the fork's, and the second result is compared with the first.
+
+**Assumptions:** The sequences are the synthetic sequences, with the example hardware.
+
+#### `test_safe_and_asc_import_neither_pypulseq_nor_matplotlib`
+
+**Checks:** A new interpreter that imports `pulseq_analysis.safe` and `pulseq_analysis.asc`
+has no module of `pypulseq` or `matplotlib` in `sys.modules`.
+
+**How:** A subprocess runs the import and the check.
+
+**Assumptions:** `pulseq_analysis.pns_levels` is not tested: it imports the snapshot, which
+imports pypulseq, and `import pypulseq` imports matplotlib and
+`pypulseq.utils.safe_pns_prediction` (checked on 2026-10-08).
+
+#### `test_only_snapshot_extensions_and_seq_index_import_pypulseq`
+
+**Checks:** Of the modules of `src/pulseq_analysis`, only `snapshot`, `extensions` and
+`seq_index` have an `import` of pypulseq.
+
+**How:** The test parses each file with `ast` and collects the modules that have an `import` or
+an `import from` of a name that starts with `pypulseq`, in any scope.
+
+**Assumptions:** A name that is imported with `importlib` is not found.

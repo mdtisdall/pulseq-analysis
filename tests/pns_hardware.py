@@ -10,12 +10,15 @@ from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import EXAMPLE_HW, GAMMA_1H
 
 from pulseq_analysis.pns_levels import pns_levels
+from pulseq_analysis.safe import SafeHardware
 from pulseq_analysis.snapshot import Snapshot
 
-# Values of `hardware` that are not a pair `(struct, label)`: a struct alone, a list, a
-# tuple of three items, a pair whose label is not a `str`, a path string, and `None`.
+# Values of `hardware` that are not a pair `(struct, label)`: a struct alone (a namespace or a
+# `SafeHardware`), a list, a tuple of three items, a pair whose label is not a `str`, a path
+# string, and `None`.
 NOT_A_PAIR = [
     pytest.param(safe_example_hw(), id="struct"),
+    pytest.param(SafeHardware.from_namespace(safe_example_hw()), id="safe-hardware"),
     pytest.param([safe_example_hw(), "LABEL"], id="list"),
     pytest.param((safe_example_hw(), "LABEL", "LABEL"), id="three-items"),
     pytest.param((safe_example_hw(), 1), id="label-not-a-str"),
