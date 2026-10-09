@@ -19,8 +19,36 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   and pulseq-reports pin one commit. The code of this package no longer reads
   the hash, so the read of the hash as text no longer matters to it.
 
+### Added
+
+- `safe.SafeHardware` and `safe.SafeAxis`: the SAFE hardware, immutable and
+  checked when it is made. `SafeHardware.from_namespace` converts a
+  `SimpleNamespace` in the form of pypulseq's `asc_to_hw` or
+  `safe_example_hw()`. `pns_levels` takes a `SafeHardware` or such a
+  namespace as the struct of `hardware=(struct, label)`.
+- `asc.safe_hardware(asc)`, in place of pypulseq's `asc_to_hw`.
+
 ### Changed
 
+- The package has its own SAFE code (`safe.py`, ported from pypulseq's
+  `safe_hw_check` and `_safe_gwf_to_pns_chunk`, with the notices of their
+  licenses) and its own `.asc` reader (in place of pypulseq's `readasc`). The
+  PNS values do not change. `pns_levels`, `safe` and `asc` no longer import
+  anything from `pypulseq.utils`.
+- A gradient `.asc` file with no gradient scale factors
+  (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) raises
+  `ValueError` from `asc.hardware_from_asc` and `asc.safe_hardware`. Before,
+  pypulseq's `asc_to_hw` printed a warning and assumed 1/pi. The model
+  multiplies each PNS value by this factor, so the package does not assume
+  one.
+- `asc.hardware_from_asc` returns `(SafeHardware, label)`. The `SafeHardware`
+  has the same `name`, `x`, `y` and `z` attributes as the namespace before. Its
+  `name` is `hardware_name(asc)`, also for a scanner file (`asCOMP[0].tName`),
+  where the namespace had "unknown".
+- `asc.read_gradient_asc` raises `ValueError` that names the file and the
+  line for a line with `=` that it cannot read (pypulseq's `readasc` raised
+  `RuntimeError`), and for a number that `float` cannot read, a field name
+  that is not names with indices, and a field under a name that has a value.
 - `snapshot.load` does not check the hash. A sequence or a file with no hash
   gives a `Snapshot`, and `snap.sequence.signature_value` is the value of the
   source (`''` for a sequence built in memory). `load` still refuses the

@@ -13,19 +13,22 @@ gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get th
 
 `pns_levels` is the one entry point. It takes a `snapshot.Snapshot` (`snapshot.load`) and
 keeps its result on it, for each (hardware, thresholds, bin size), so a caller that needs
-both the summary and the level of one sequence runs the model one time. On a miss it calls `_compute_levels`, which samples
-the gradients block by block (`GradientSampler.block_samples`), runs the SAFE model of the
-pinned pypulseq fork over them in chunks (`_safe_gwf_to_pns_chunk`, which carries the
-filter state from one chunk to the next), and keeps only the level, the summary and the
-intervals. Its memory does not grow with the duration of the sequence, except for the
-level (at most `MAX_BINS` bins) and the intervals of each threshold.
+both the summary and the level of one sequence runs the model one time. On a miss it calls
+`_compute_levels`, which samples the gradients block by block
+(`GradientSampler.block_samples`), runs the SAFE model of `safe.py` over them in chunks
+(`safe._safe_gwf_to_pns_chunk`, which carries the filter state from one chunk to the next),
+and keeps only the level, the summary and the intervals. Its memory does not grow with the
+duration of the sequence, except for the level (at most `MAX_BINS` bins) and the intervals
+of each threshold.
 
 The model needs the scanner's gradient hardware parameters, which Siemens keeps in the
 gradient system's .asc file (MP_GPA_*.asc, or MP_GradSys_*.asc on newer software). The
 files are confidential, so this library does not include any. The hardware is necessary,
 and is the vendor-neutral pair `(struct, label)`: the package has no default. A caller makes
 the pair from the .asc file with `asc.hardware_from_asc(path)`, or, for pypulseq's example
-hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`.
+hardware (not a real scanner), gives `hardware=(safe_example_hw(), "<a label>")`. `struct` is a
+`safe.SafeHardware`, or a `SimpleNamespace` in the form of pypulseq's `asc_to_hw`, which
+`SafeHardware.from_namespace` converts.
 
 The gradient waveform is the model of MATLAB Pulseq (`sampling`, `docs/implementation.md` "The
 gradient waveform"): a line across a gap of one raster time or less between two events, a
@@ -46,13 +49,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-# The chunk function of the pypulseq fork (TODO.md, "Move from the pypulseq fork to a
-# pypulseq release"). The fork keeps it private, so that the proposal to upstream
-# pypulseq adds no public name. This is the only module that imports it.
-from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
-
 from ._equality import FrozenDict, _freeze, value_dataclass
 from ._validate import real
+from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
 from .sampling import (
     ON_RASTER_TOLERANCE,
     GradientSampler,
@@ -78,21 +77,16 @@ _CHUNK_SAMPLES = 30_000
 # Samples within this fraction of the peak count as the peak. Identical TRs differ only by
 # rounding, so the peak time is in the first of them.
 PEAK_TOLERANCE = 1e-6
-# The nine fields of each axis of a SAFE hardware struct, in the order of `safe_example_hw`
-# and `asc_to_hw`.
-SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
 # The 8 hardware fields of one axis that the dataclass keeps (not `stim_thresh`, which
 # `_safe_gwf_to_pns_chunk` does not use). `_hardware_key` keys the kept results on them.
+# `SAFE_FIELDS` (the nine fields of an axis) is in `safe.py`.
 _HW_FIELDS = tuple(f for f in SAFE_FIELDS if f != "stim_thresh")
-# The largest distance of `a1 + a2 + a3` from 1 for an axis (the rule of pypulseq's
-# `safe_hw_check`).
-_A_SUM_TOLERANCE = 0.001
 
 # The kept results of a snapshot (`snapshot._kept_results`) that this module makes: one
 # `PnsLevels` for each key `("pns", hardware, thresholds, bin size)`. The hardware is the tuple
 # of `_hardware_key`. The thresholds are the tuple of `float(t)`. The bin size is
 # `float(bin_s)`.
-_Hardware = tuple[SimpleNamespace, str]
+_Hardware = tuple[SafeHardware | SimpleNamespace, str]
 
 
 @dataclass(frozen=True)
@@ -145,7 +139,7 @@ class PnsLevels:
     reason: str | None  # why there is no prediction (NO_GRADIENTS), or None
     hardware: str  # the label of the `hardware` pair
     hw: FrozenDict[str, FrozenDict[str, float]]  # "x", "y", "z": tau1, tau2, tau3, a1, a2,
-    # a3, stim_limit, g_scale, as pypulseq's hardware namespace has them
+    # a3, stim_limit, g_scale, as the `SafeHardware` has them
     dt_s: float  # the gradient raster
     num_samples: int  # the number of samples of the whole sequence
     bin_samples: int  # samples in each bin of the level (`bin_samples_for`)
@@ -180,10 +174,12 @@ def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
     return max(wanted, coarsest_for_size, 1)
 
 
-def _check_hardware(hardware: object) -> None:
+def _check_hardware(hardware: object) -> SafeHardware:
     """Raise unless `hardware` is a pair `(struct, label)` of a SAFE hardware struct and its
-    `str` label. `pns_levels` calls it first, before it checks the snapshot
-    or reads the kept results, also for a sequence with no gradient event. It raises:
+    `str` label, and return the struct as a `SafeHardware`. `pns_levels` calls it first,
+    before it checks the snapshot or reads the kept results, also for a sequence with no
+    gradient event. A `SafeHardware` is returned as it is, and any other struct is converted
+    with `SafeHardware.from_namespace`, which raises:
 
     - TypeError, when `hardware` is not a tuple of two items with a `str` second item;
     - ValueError, when the struct has no `x`, `y` or `z`, or an axis has no field of
@@ -192,35 +188,25 @@ def _check_hardware(hardware: object) -> None:
     - TypeError, when a field is not a real number, and ValueError, when it is not finite
       (`_validate.real`);
     - ValueError, when `stim_limit` is not above 0, or when `a1 + a2 + a3` of an axis is
-      more than 0.001 from 1 (the rule of pypulseq's `safe_hw_check`, which the package does
-      not call: it raises AttributeError for a struct with no `x`).
+      more than 0.001 from 1.
     """
     if not (isinstance(hardware, tuple) and len(hardware) == 2 and isinstance(hardware[1], str)):
         raise TypeError(
-            "hardware must be a tuple (struct, label): a SAFE hardware struct in the form of "
-            "pypulseq's asc_to_hw, and its name as a str. For a Siemens gradient .asc file, "
-            "give hardware=asc.hardware_from_asc(path); for pypulseq's example hardware (not "
-            'a real scanner), give hardware=(safe_example_hw(), "<a label>")'
+            "hardware must be a tuple (struct, label): a safe.SafeHardware (or a struct in the "
+            "form of pypulseq's asc_to_hw), and its name as a str. For a Siemens gradient .asc "
+            "file, give hardware=asc.hardware_from_asc(path); for pypulseq's example hardware "
+            '(not a real scanner), give hardware=(safe_example_hw(), "<a label>")'
         )
-    struct = hardware[0]
-    for axis in _AXES:
-        axis_struct = getattr(struct, axis, None)
-        if axis_struct is None:
-            raise ValueError(f"'{axis}' missing in the hardware struct")
-        values = {}
-        for field in SAFE_FIELDS:
-            if not hasattr(axis_struct, field):
-                raise ValueError(f"'{axis}.{field}' missing in the hardware struct")
-            values[field] = real(
-                f"hardware {axis}.{field}",
-                getattr(axis_struct, field),
-                positive=field == "stim_limit",
-            )
-        if abs(values["a1"] + values["a2"] + values["a3"] - 1) > _A_SUM_TOLERANCE:
-            raise ValueError(
-                f"hardware {axis}.a1 + {axis}.a2 + {axis}.a3 must be 1 (within "
-                f"{_A_SUM_TOLERANCE}), not {values['a1'] + values['a2'] + values['a3']!r}"
-            )
+    return _as_safe_hardware(hardware)
+
+
+def _as_safe_hardware(hardware: _Hardware) -> SafeHardware:
+    """The struct of the pair `hardware` as a `SafeHardware`: the struct itself when it is
+    one, else `SafeHardware.from_namespace(struct, label)`."""
+    struct, label = hardware
+    if isinstance(struct, SafeHardware):
+        return struct
+    return SafeHardware.from_namespace(struct, label)
 
 
 def pns_levels(
@@ -234,9 +220,10 @@ def pns_levels(
     with `hardware`. The result is kept on the snapshot (see "The kept result" below).
 
     `hardware` is necessary: the package has no default hardware. It is a pair
-    `(struct, label)`: `struct` is a SAFE hardware struct in the form of pypulseq's
-    `asc_to_hw` (a `SimpleNamespace` with `.x`, `.y` and `.z`, each with `tau1` to `tau3`,
-    `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), and `label` is the string that
+    `(struct, label)`: `struct` is a `safe.SafeHardware`, or a SAFE hardware struct in the
+    form of pypulseq's `asc_to_hw` (a `SimpleNamespace` with `.x`, `.y` and `.z`, each with
+    `tau1` to `tau3`, `a1` to `a3`, `stim_limit`, `stim_thresh` and `g_scale`), which
+    `SafeHardware.from_namespace` converts, and `label` is the string that
     `PnsLevels.hardware` gives. `asc.hardware_from_asc(path)` makes the pair from a Siemens
     gradient .asc file. For pypulseq's example hardware, which is not a real scanner, give
     `hardware=(safe_example_hw(), "<a label>")`. `_check_hardware` checks it first, before
@@ -246,8 +233,8 @@ def pns_levels(
     with no field of `SAFE_FIELDS` (`stim_thresh` too), raises ValueError that names it.
     Each field is a finite real number (`_validate.real`: not a real number raises
     TypeError, not finite raises ValueError); `stim_limit` is above 0; and `a1 + a2 + a3`
-    of each axis is within 0.001 of 1 (the rule of pypulseq's `safe_hw_check`), or
-    ValueError.
+    of each axis is within 0.001 of 1, or ValueError (a `SafeHardware` has been checked when
+    it was made).
 
     `thresholds_hz_per_t` is a tuple of the totals, in Hz/T, whose intervals
     `PnsLevels.above` gives. For a fraction f of the stimulation limit, give
@@ -285,7 +272,7 @@ def pns_levels(
        `(k + 0.5) * dt`, as `calc_pns` samples, with `k = 0 .. ceil((end - 1e-10) / dt) - 1`
        and `end` the end of the last block (`calc_pns` stops at the last gradient point
        instead; the samples after it are the decay of the filters).
-    2. The samples go through `_safe_gwf_to_pns_chunk` in chunks of
+    2. The samples go through `safe._safe_gwf_to_pns_chunk` in chunks of
        `bin_samples * ceil(_CHUNK_SAMPLES / bin_samples)` samples (the whole number of
        bins nearest at or above `_CHUNK_SAMPLES`), with `state=None` for the first chunk
        and the returned state after.
@@ -379,10 +366,12 @@ def _compute_levels(
     """The calculation of `pns_levels`, with no keep. `hardware`, `keys` (the thresholds as
     floats) and `bin_s` (a float) are the values that `pns_levels` has checked
     (`_check_hardware`, `_validated_thresholds`, `real`), and `snap` is a snapshot: this does
-    not check them again. The model is the one of `pns_levels`."""
+    not check them again, but it converts the struct of `hardware` to a `SafeHardware` again
+    (`_as_safe_hardware`). The model is the one of `pns_levels`."""
     dt = snap.sequence.grad_raster_time
 
-    hw_ns, hardware_label = hardware
+    hw_ns = _as_safe_hardware(hardware)
+    hardware_label = hardware[1]
     hw = _hw_to_dict(hw_ns)
 
     index = sequence_index(snap)
@@ -507,8 +496,8 @@ def _validated_thresholds(thresholds_hz_per_t: object) -> tuple[float, ...]:
 
 
 def _hw_to_dict(hw_ns) -> FrozenDict[str, FrozenDict[str, float]]:
-    """`hw_ns` (pypulseq's hardware `SimpleNamespace`, with `.x`, `.y`, `.z`) as a
-    `FrozenDict` of the 8 fields of `_HW_FIELDS` for each axis, each a `FrozenDict`."""
+    """`hw_ns` (a `SafeHardware`) as a `FrozenDict` of the 8 fields of `_HW_FIELDS` for each
+    axis, each a `FrozenDict`."""
     return FrozenDict(
         {
             axis: FrozenDict(

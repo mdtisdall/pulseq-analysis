@@ -58,6 +58,7 @@ says why.
 | `pulseq_analysis.snapshot` | `load`, and `Snapshot`: the sequence that the measurements read. | [2](#2-before-you-start) |
 | `pulseq_analysis.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
 | `pulseq_analysis.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
+| `pulseq_analysis.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
 | `pulseq_analysis.analyses` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
@@ -301,17 +302,22 @@ arguments after `snap` are keyword-only.
 
 **The hardware.** The model needs the SAFE parameters of the gradient coil of
 the scanner. There is no default. `hardware` is a pair `(struct, label)`: a
-SAFE hardware struct in the form of pypulseq's `asc_to_hw`, and a name for it.
-`asc.hardware_from_asc(path)` makes the pair from the Siemens gradient `.asc`
-file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the files of
-its `$INCLUDE` lines. For a test, pypulseq's example hardware, which is not a
-real scanner, is `hardware=(safe_example_hw(), "a label")` (`safe_example_hw`
-is in `pypulseq.utils.safe_pns_prediction`). A `hardware` that is not such a
-pair raises `TypeError`. A struct with a missing axis or a missing field of
-`pns_levels.SAFE_FIELDS`, a field that is not a finite number, a `stim_limit` not
-above 0, or an axis with `a1 + a2 + a3` more than 0.001 from 1 raises
-`ValueError` (or `TypeError` for a field that is not a number). These checks run
-also for a sequence with no gradient.
+`safe.SafeHardware` (or a struct in the form of pypulseq's `asc_to_hw`, which
+`SafeHardware.from_namespace` converts), and a name for it. A `SafeHardware`
+has a `name` and the `SafeAxis` of `x`, `y` and `z`, and is checked when it is
+made. `asc.hardware_from_asc(path)` makes the pair from the Siemens gradient
+`.asc` file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the
+files of its `$INCLUDE` lines. A file with no gradient scale factors
+(`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y` and `Z`) raises
+`ValueError`: the model multiplies each PNS value by the factor, so the
+package does not assume one. For a test, pypulseq's example hardware, which is
+not a real scanner, is `hardware=(safe_example_hw(), "a label")`
+(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`). A `hardware`
+that is not such a pair raises `TypeError`. A struct with a missing axis or a
+missing field of `pns_levels.SAFE_FIELDS`, a field that is not a finite number,
+a `stim_limit` not above 0, or an axis with `a1 + a2 + a3` more than 0.001 from
+1 raises `ValueError` (or `TypeError` for a field that is not a number). These
+checks run also for a sequence with no gradient.
 
 **The limit.** The PNS values are in Hz/T. The stimulation limit is `abs(gamma)`,
 and a value divided by `abs(gamma)` is the fraction of the limit. To find the
@@ -625,8 +631,10 @@ amplitudes. `TIME_TOLERANCE` is 1e-9 s.
 **`asc`.** Besides `hardware_from_asc`, `asc.read_gradient_asc(path)` gives
 the fields of a `.asc` file, with the fields of each file that an `$INCLUDE`
 line names (an included field wins over a field that the file sets after the
-`$INCLUDE` line), and `asc.hardware_name(asc)` gives the name of the component
-in those fields. A `$INCLUDE` line is `$INCLUDE` in any case, a name (in double
+`$INCLUDE` line), `asc.hardware_name(asc)` gives the name of the component
+in those fields, and `asc.safe_hardware(asc)` gives the `SafeHardware` of
+those fields (`ValueError` that names a missing field, also the gradient scale
+factors). A `$INCLUDE` line is `$INCLUDE` in any case, a name (in double
 quotes when it has spaces) and optionally a comment that starts with `#` or
 `//`. An included file is in the directory of the file that includes it. Any
 other line that starts with `$INCLUDE` raises `ValueError` that names the file

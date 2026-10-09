@@ -62,6 +62,7 @@ from pulseq_analysis.pns_levels import (
     bin_samples_for,
     pns_levels,
 )
+from pulseq_analysis.safe import SafeHardware
 from pulseq_analysis.seq_index import sequence_index
 from pulseq_analysis.snapshot import load
 
@@ -593,6 +594,20 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
         load(short_blocks), thresholds_hz_per_t=(0.1 * _LIMIT,), hardware=EXAMPLE_HW
     )
     assert len(expected.above[0.1 * _LIMIT]) >= 1
+    assert_levels_equal(levels, expected, ignore=())
+
+
+@pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
+def test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly(build):
+    """`hardware=(SafeHardware.from_namespace(struct), label)` gives every field of the
+    result (the level arrays, the summary and the intervals of a threshold) exactly equal to
+    `hardware=(struct, label)`, for the example hardware."""
+    snap = load(build())
+    safe_pair = (SafeHardware.from_namespace(EXAMPLE_HW[0]), EXAMPLE_HW[1])
+    thresholds = (0.5 * _LIMIT,)
+    expected = _compute(snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
+    levels = _compute(snap, hardware=safe_pair, thresholds_hz_per_t=thresholds)
+    assert levels.peak_hz_per_t > 0
     assert_levels_equal(levels, expected, ignore=())
 
 

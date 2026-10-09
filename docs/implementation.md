@@ -258,13 +258,13 @@ short gap gives its samples the value of the line.
 number of samples (`sampling.raster_block_lengths`). Otherwise the samples come
 from the waveform of the whole file at the same times (`GradientSampler.sample`).
 
-**The model.** The SAFE model of the pinned pypulseq fork runs on the Hz/m
-samples, and reads no gamma. The value of an axis is the output of the model
-for that axis, and the total of a sample is `sqrt(x^2 + y^2 + z^2)` of the
-three values. A PNS value is in Hz/T: the fraction of the stimulation limit
-times |γ|. pypulseq's `seq.calculate_pns` divides by `seq.system.gamma`, so it
-gives fractions. `pns_levels` equals it, times |γ|, for a sequence where the
-two waveforms are equal (section 1.9).
+**The model.** The SAFE model of the module `safe` (ported from the pinned
+pypulseq fork) runs on the Hz/m samples, and reads no gamma. The value of an
+axis is the output of the model for that axis, and the total of a sample is
+`sqrt(x^2 + y^2 + z^2)` of the three values. A PNS value is in Hz/T: the
+fraction of the stimulation limit times |γ|. pypulseq's `seq.calculate_pns`
+divides by `seq.system.gamma`, so it gives fractions. `pns_levels` equals it,
+times |γ|, for a sequence where the two waveforms are equal (section 1.9).
 
 **The peak.** `peak_time_s` is the time of the first sample whose total is
 within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. It is `None` when
@@ -293,8 +293,10 @@ longer, so that the level has at most that many. Only the level depends on
 have fewer samples.
 
 **The hardware.** `pns_levels.SAFE_FIELDS` is the nine fields of each axis of
-a SAFE hardware struct, in the order of `safe_example_hw` and `asc_to_hw`.
-Section 6 gives the checks of the struct. Two pairs of one `.asc` file,
+a SAFE hardware struct, in the order of `safe_example_hw` and `asc_to_hw`
+(`safe.SAFE_FIELDS`). `safe.SafeHardware` and `safe.SafeAxis` check the fields
+when they are made, and `SafeHardware.from_namespace` converts the struct of
+`asc_to_hw`. Section 6 gives the checks of the struct. Two pairs of one `.asc` file,
 whatever the spelling of its path, have the same label and values, so
 `pns_levels` keeps one result for them.
 
@@ -734,8 +736,8 @@ hardware. A struct with no `x`, `y` or `z`, or an axis with no field of
 number: a value that is not a real number raises `TypeError`, and one that is
 not finite raises `ValueError`. `stim_limit` must be above 0, and
 `a1 + a2 + a3` of each axis must be within 0.001 of 1 (the rule of pypulseq's
-`safe_hw_check`), or `ValueError`. These checks run also for a sequence with
-no gradient event.
+`safe_hw_check`, which the module `safe` keeps), or `ValueError`. These
+checks run also for a sequence with no gradient event.
 
 **`pns_levels`, `thresholds_hz_per_t`.** A tuple, which can be empty. Each
 element is a real number above 0, and no two are equal as floats. A value that
@@ -761,7 +763,16 @@ files. A file that two branches include is not a cycle. A line that starts
 with `$INCLUDE` in any case but is not `$INCLUDE`, a name (quoted when it has
 spaces) and optionally a `#` or `//` comment raises `ValueError` that names the
 file, the line number and the line. An included field wins over a field that
-the including file sets after its `$INCLUDE` line.
+the including file sets after its `$INCLUDE` line. A line with `=` that is not
+a field, a number that `float` cannot read, a field name that is not names with
+indices, and a field under a name that has a value, raise `ValueError` that
+names the file and the line.
+
+**`asc.safe_hardware`.** A missing field (for example `flGSWDTauX[0]`, which is
+under `GradPatSup.Phys.PNS.` in a scanner file) raises `ValueError` that names
+it. The gradient scale factors
+(`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) have no default:
+a file without them raises `ValueError` that says so.
 
 **`analyses.AnalysisSpec`.** `AnalysisSpec(...)` raises `ValueError` for a
 `necessary` name that is not in `params`, a name that has both a default and a

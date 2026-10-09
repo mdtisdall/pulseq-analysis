@@ -30,12 +30,16 @@ def write_gradient_asc(tmp_path):
 
     With `split`, it writes the layout of a scanner file: an `ASCCONV` block with CRLF line
     ends and `asCOMP[0].tName`, which includes a `_GSWD_SAFETY.asc` file with the SAFE
-    parameters under `GradPatSup.Phys.PNS`."""
+    parameters under `GradPatSup.Phys.PNS`.
+
+    With `scale_factors=False`, it leaves out the `asGPAParameters` lines (the gradient scale
+    factors), as in a file that has none."""
 
     def write(
         limit_scale: float = 1.0,
         name: str = "MP_GPA_TEST",
         split: bool = False,
+        scale_factors: bool = True,
     ):
         hw = safe_example_hw()
         prefix = "GradPatSup.Phys.PNS." if split else ""
@@ -52,9 +56,10 @@ def write_gradient_asc(tmp_path):
                 f"{prefix}flGSWDStimulationLimit{suffix} = {a.stim_limit * limit_scale!r}",
                 f"{prefix}flGSWDStimulationThreshold{suffix} = {a.stim_thresh * limit_scale!r}",
             ]
-            scale_lines.append(
-                f"asGPAParameters[0].sGCParameters.flGScaleFactor{suffix} = {a.g_scale!r}"
-            )
+            if scale_factors:
+                scale_lines.append(
+                    f"asGPAParameters[0].sGCParameters.flGScaleFactor{suffix} = {a.g_scale!r}"
+                )
         path = tmp_path / f"{name}_{limit_scale:g}.asc"
         if not split:
             path.write_text(
