@@ -21,18 +21,18 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import grad_peaks
-from pulseq_analysis._events import event_points
-from pulseq_analysis.grad_peaks import (
+from pulseq_analysis.analyses import grad_peaks
+from pulseq_analysis.analyses.grad_peaks import (
     _event_values,
     block_gradient_values,
     gradient_peaks,
 )
-from pulseq_analysis.grad_spectrum import gradient_spectrum
-from pulseq_analysis.pns_levels import pns_levels
-from pulseq_analysis.sampling import GradientSampler
-from pulseq_analysis.seq_index import sequence_index
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
+from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.synth._events import event_points
+from pulseq_analysis.synth.sampling import GradientSampler
+from pulseq_analysis.synth.seq_index import sequence_index
+from pulseq_analysis.synth.snapshot import load
 
 _SEQUENCES = [
     pytest.param(spin_echo_sequence, id="spin_echo"),

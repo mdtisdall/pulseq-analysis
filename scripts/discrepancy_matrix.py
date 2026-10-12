@@ -1,7 +1,7 @@
 """The acceptance matrix of `docs/discrepancies.md`: each `.seq` file of `tests/seqfiles` (the
 fixtures and `oracle/`) through the four readers, as a Markdown table on stdout.
 
-- pulseq-analysis: `seqfile.read_seqfile`. "accept", or the rule IDs of the violations.
+- pulseq-analysis: `reader.read_seqfile`. "accept", or the rule IDs of the violations.
 - C++: `pulseq-cpp-oracle FILE`, the reader `ExternalSequence` of pulseq/pulseq
   (`tests/cpp_oracle`). "accept" (exit 0), "reject" (exit 1), "crash" and the exit status (70 is
   a signal), or "no end in 10 s".
@@ -35,7 +35,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
 
 ROOT = Path(__file__).resolve().parent.parent
 SEQFILES = ROOT / "tests" / "seqfiles"

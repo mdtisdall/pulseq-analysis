@@ -44,8 +44,8 @@ RadiofrequencyRasterTime 1e-06
 1 100 0 0 0 0 0 0
 """
 
-# The rules of `read_seqfile` (the docstring of `pulseq_analysis.seqfile` lists them) that the
-# oracle does not check, in `load` or in `decodeBlock`, so it may accept a file that breaks only
+# The rules of `read_seqfile` (the docstring of `pulseq_analysis.seqfile.reader` lists them) that
+# the oracle does not check, in `load` or in `decodeBlock`, so it may accept a file that breaks only
 # these rules. The value says what the oracle accepted: a fixture of `tests/seqfiles/`, or a
 # change to a valid 1.5.0 file of four blocks (RF, trapezoid, arbitrary gradient, ADC and delay
 # events) that was tried by hand. A rule that is not here, such as `version.missing` and
@@ -242,10 +242,10 @@ def test_the_oracle_rejects_an_arbitrary_gradient_on_a_4_us_raster_and_accepts_i
 def test_the_skip_of_the_comparison_is_for_an_arbitrary_gradient_off_the_10_us_raster_only(
     tmp_path,
 ):
-    seqfile = pytest.importorskip("pulseq_analysis.seqfile")
+    reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
 
     def skipped(path):
-        return arbitrary_gradient_off_the_10_us_raster(seqfile.read_seqfile(path))
+        return arbitrary_gradient_off_the_10_us_raster(reader.read_seqfile(path))
 
     fixture = SEQFILES / "valid_arbitrary_gradient_4us_raster.seq"
     assert skipped(fixture)
@@ -309,21 +309,21 @@ def signature_variants():
 def test_the_oracle_and_read_seqfile_check_the_same_signature_hash(
     tmp_path, before, hashed, newline
 ):
-    seqfile = pytest.importorskip("pulseq_analysis.seqfile")
+    reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
     digest = hashlib.md5(hashed).hexdigest().encode()
     tail = b"[SIGNATURE]" + newline + b"Type md5" + newline + b"Hash "
     path = tmp_path / "signed.seq"
     path.write_bytes(before + tail + digest + newline)
     assert signature_ok(path) is True
-    assert seqfile.read_seqfile(path).signature.matches is True
+    assert reader.read_seqfile(path).signature.matches is True
     # A hash of other bytes matches in neither reader.
     path.write_bytes(before + tail + hashlib.md5(before + b"x").hexdigest().encode() + newline)
     assert signature_ok(path) is False
-    assert seqfile.read_seqfile(path).signature.matches is False
+    assert reader.read_seqfile(path).signature.matches is False
 
 
 def test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files(record_property):
-    seqfile = pytest.importorskip("pulseq_analysis.seqfile")
+    reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
     paths = sorted(SEQFILES.rglob("*.seq"))
     if not paths:
         pytest.skip(f"no .seq file in {SEQFILES}")
@@ -333,8 +333,8 @@ def test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files(record_pro
         if path.relative_to(SEQFILES).as_posix() in ORACLE_KNOWN_WRONG:
             continue
         try:
-            data = seqfile.read_seqfile(path)
-        except seqfile.SeqFileError as error:
+            data = reader.read_seqfile(path)
+        except reader.SeqFileError as error:
             rules = {violation.rule for violation in error.violations}
             verdict, messages = run_oracle(path)
             # A file that breaks only rules which the oracle does not check may be accepted.

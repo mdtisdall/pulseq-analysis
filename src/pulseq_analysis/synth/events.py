@@ -41,7 +41,7 @@ from types import MappingProxyType
 
 import numpy as np
 
-from .model import SequenceData, _model, _rf_resample, _rf_time_step
+from ..seqfile.model import SequenceData, _model, _rf_resample, _rf_time_step
 
 
 @_model

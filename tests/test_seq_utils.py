@@ -13,9 +13,9 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import seq_utils
-from pulseq_analysis.events import decode_gradients
-from pulseq_analysis.seqfile import read_seqfile
+from pulseq_analysis.seqfile.reader import read_seqfile
+from pulseq_analysis.synth import seq_utils
+from pulseq_analysis.synth.events import decode_gradients
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 

@@ -13,11 +13,11 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import pns_levels as pns_levels_module
-from pulseq_analysis.asc import hardware_from_asc, hardware_name, read_gradient_asc
-from pulseq_analysis.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
-from pulseq_analysis.safe import SafeHardware
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses import pns_levels as pns_levels_module
+from pulseq_analysis.analyses.asc import hardware_from_asc, hardware_name, read_gradient_asc
+from pulseq_analysis.analyses.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
+from pulseq_analysis.analyses.safe import SafeHardware
+from pulseq_analysis.synth.snapshot import load
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 

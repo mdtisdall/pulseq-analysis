@@ -4,8 +4,8 @@ import dataclasses
 
 import numpy as np
 
-from pulseq_analysis.grad_peaks import BlockGradientValues
-from pulseq_analysis.pns_levels import PnsLevels
+from pulseq_analysis.analyses.grad_peaks import BlockGradientValues
+from pulseq_analysis.analyses.pns_levels import PnsLevels
 
 
 def assert_levels_equal(a: PnsLevels, b: PnsLevels, *, ignore: tuple[str, ...]) -> None:

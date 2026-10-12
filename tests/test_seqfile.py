@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pulseq_analysis import seqfile
-from pulseq_analysis.model import Rasters, SequenceData, Shape, decompress_shape
-from pulseq_analysis.seqfile import (
+from pulseq_analysis.seqfile import reader
+from pulseq_analysis.seqfile.model import Rasters, SequenceData, Shape, decompress_shape
+from pulseq_analysis.seqfile.reader import (
     MAX_LOCATIONS,
     RANGE_TOLERANCE,
     RULES,
@@ -403,7 +403,7 @@ def test_seqfile_error_is_a_value_error_and_can_be_pickled():
 
 
 def test_each_rule_of_the_module_docstring_is_a_rule_of_the_table():
-    named = set(re.findall(r"`([a-z0-9]+\.[a-z0-9-]+)`", seqfile.__doc__))
+    named = set(re.findall(r"`([a-z0-9]+\.[a-z0-9-]+)`", reader.__doc__))
     named = {n for n in named if n.split(".")[0] in {r.split(".")[0] for r in RULES}}
     assert named == set(RULES)
 

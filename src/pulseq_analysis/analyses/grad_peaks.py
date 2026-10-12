@@ -95,8 +95,9 @@ from typing import NamedTuple
 
 import numpy as np
 
-from ._equality import FrozenDict, _freeze, value_dataclass
-from ._events import (
+from .._equality import FrozenDict, _freeze, value_dataclass
+from .._validate import real
+from ..synth._events import (
     AxisEvents,
     EventPoints,
     axis_events,
@@ -105,10 +106,9 @@ from ._events import (
     polyline,
     ramps,
 )
-from ._validate import real
-from .seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
-from .seq_utils import _AXES, _GRAD_COLUMNS, TIME_TOLERANCE
-from .snapshot import Snapshot, _check_snapshot, _kept_results
+from ..synth.seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceIndex, sequence_index
+from ..synth.seq_utils import _AXES, _GRAD_COLUMNS, TIME_TOLERANCE
+from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 
 
 @dataclass(frozen=True)

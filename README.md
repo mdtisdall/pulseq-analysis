@@ -52,9 +52,9 @@ pip does not.
 The SAFE PNS peak of a `.seq` file:
 
 ```python
-from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.pns_levels import pns_levels
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.asc import hardware_from_asc
+from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.synth.snapshot import load
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 

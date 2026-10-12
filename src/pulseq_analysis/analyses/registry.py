@@ -55,6 +55,8 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from ..synth.seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
+from ..synth.snapshot import Snapshot
 from .grad_peaks import BlockGradientValues, GradientPeaks, block_gradient_values, gradient_peaks
 from .grad_spectrum import (
     FFT_WINDOW_S,
@@ -64,9 +66,7 @@ from .grad_spectrum import (
     gradient_spectrum,
 )
 from .pns_levels import BIN_S, PnsLevels, pns_levels
-from .seq_index import NO_GRADIENTS, SequenceIndex, sequence_index
 from .series import Series, SeriesKind
-from .snapshot import Snapshot
 
 GROUP = "pulseq_analysis.analyses"
 

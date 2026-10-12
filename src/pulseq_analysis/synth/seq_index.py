@@ -28,8 +28,8 @@ from typing import NamedTuple
 import numpy as np
 import pypulseq as pp
 
-from ._equality import _freeze, value_dataclass
-from .model import SequenceData
+from .._equality import _freeze, value_dataclass
+from ..seqfile.model import SequenceData
 from .seq_utils import _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 

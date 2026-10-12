@@ -1,4 +1,4 @@
-"""Tests for `analyses.py` (task 3.3 of `docs/plans/implementation.md`).
+"""Tests for `analyses/registry.py` (task 3.3 of `docs/plans/implementation.md`).
 
 The registry of the entry-point group `pulseq_analysis.analyses`, the specification of each
 analysis of the package, `compute`, and `to_series` of `pns.safe.levels` (design section 4.4).
@@ -21,7 +21,16 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis.analyses import (
+from pulseq_analysis.analyses.asc import hardware_from_asc
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
+from pulseq_analysis.analyses.grad_spectrum import (
+    FFT_WINDOW_S,
+    FREQUENCY_OVERSAMPLING,
+    MAX_FREQUENCY_HZ,
+    gradient_spectrum,
+)
+from pulseq_analysis.analyses.pns_levels import BIN_S, pns_levels
+from pulseq_analysis.analyses.registry import (
     GRADIENT_BLOCKS,
     GRADIENT_PEAKS,
     GRADIENT_SPECTRUM,
@@ -34,18 +43,9 @@ from pulseq_analysis.analyses import (
     RegistryWarning,
     registry,
 )
-from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.grad_peaks import block_gradient_values, gradient_peaks
-from pulseq_analysis.grad_spectrum import (
-    FFT_WINDOW_S,
-    FREQUENCY_OVERSAMPLING,
-    MAX_FREQUENCY_HZ,
-    gradient_spectrum,
-)
-from pulseq_analysis.pns_levels import BIN_S, pns_levels
-from pulseq_analysis.seq_index import sequence_index
-from pulseq_analysis.series import SeriesKind
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.series import SeriesKind
+from pulseq_analysis.synth.seq_index import sequence_index
+from pulseq_analysis.synth.snapshot import load
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
 _INDEX_RASTERS = ("BlockDurationRaster",)

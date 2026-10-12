@@ -9,7 +9,7 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis.extensions import refuse_rotations
+from pulseq_analysis.synth.extensions import refuse_rotations
 
 
 def _with_rotations_extension_type() -> pp.Sequence:

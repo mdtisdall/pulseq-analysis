@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ._equality import _freeze
+from .._equality import _freeze
 from ._events import (
     AxisEvents,
     EventPoints,

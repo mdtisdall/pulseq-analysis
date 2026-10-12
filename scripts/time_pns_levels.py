@@ -54,7 +54,7 @@ def git_commit() -> str:
 def load_times(seq) -> tuple[float, float, object]:
     """The time of `load(seq)`, the time of `load(path)` for the file that `seq.write` makes
     (the write is not timed), and the `Snapshot` of `load(seq)`."""
-    from pulseq_analysis.snapshot import load
+    from pulseq_analysis.synth.snapshot import load
 
     start = time.perf_counter()
     snap = load(seq)
@@ -108,7 +108,7 @@ def main() -> None:
     from pypulseq.utils.safe_pns_prediction import safe_example_hw
     from scale_sequences import TR_BLOCKS, build_repeating
 
-    from pulseq_analysis.pns_levels import (
+    from pulseq_analysis.analyses.pns_levels import (
         BIN_S,
         _check_hardware,
         _compute_levels,

@@ -26,18 +26,18 @@ import numpy as np
 import pytest
 from oracles import matlab
 
-from pulseq_analysis._events import _points_from_events
-from pulseq_analysis.events import (
+from pulseq_analysis.seqfile.model import _rf_time_step
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.synth._events import _points_from_events
+from pulseq_analysis.synth.events import (
     ArbitraryGradient,
     Trapezoid,
     decode_adc,
     decode_gradients,
     decode_rf,
 )
-from pulseq_analysis.model import _rf_time_step
-from pulseq_analysis.sampling import GradientSampler
-from pulseq_analysis.seq_index import _dense_ids, _index_from_data
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
+from pulseq_analysis.synth.sampling import GradientSampler
+from pulseq_analysis.synth.seq_index import _dense_ids, _index_from_data
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 FILES = sorted(SEQFILES.glob("valid_*.seq")) + sorted((SEQFILES / "oracle").glob("*.seq"))

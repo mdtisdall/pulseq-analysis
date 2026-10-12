@@ -79,7 +79,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.signal import lfilter
 
-from ._validate import real
+from .._validate import real
 
 # The nine fields of each axis of a SAFE hardware, in the order of `safe_example_hw` and
 # `asc_to_hw` of pypulseq.

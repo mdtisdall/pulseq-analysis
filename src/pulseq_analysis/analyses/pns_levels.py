@@ -49,19 +49,19 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from ._equality import FrozenDict, _freeze, value_dataclass
-from ._validate import real
-from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
-from .sampling import (
+from .._equality import FrozenDict, _freeze, value_dataclass
+from .._validate import real
+from ..synth.sampling import (
     ON_RASTER_TOLERANCE,
     GradientSampler,
     gradient_sampler,
     raster_block_lengths,
     sequence_samples,
 )
-from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from .seq_utils import _AXES, _GRAD_COLUMNS
-from .snapshot import Snapshot, _check_snapshot, _kept_results
+from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
+from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
+from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
+from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
 
 # The default bin of the level, in seconds: 5 ms (500 samples at the 10 us raster). A caller
 # that needs another bin gives `bin_s`. It changes only the bin size, not the summary or the

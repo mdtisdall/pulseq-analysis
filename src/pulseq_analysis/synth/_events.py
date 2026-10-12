@@ -30,7 +30,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from ._equality import _freeze
+from .._equality import _freeze
 from .seq_index import SequenceIndex, grad_events
 from .seq_utils import TIME_TOLERANCE, gradient_offsets
 from .snapshot import Snapshot, _check_snapshot, _kept_results

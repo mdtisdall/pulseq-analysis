@@ -30,9 +30,9 @@ from synthetic import (
 )
 
 from pulseq_analysis._equality import FrozenDict, values_equal
-from pulseq_analysis.analyses import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
-from pulseq_analysis.series import Series, SeriesKind, decode_array, encode_array
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.registry import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
+from pulseq_analysis.analyses.series import Series, SeriesKind, decode_array, encode_array
+from pulseq_analysis.synth.snapshot import load
 
 _NON_FINITE_MIN = np.array([-np.inf, 0.0, np.nan, 1.5, -np.inf], dtype=np.float32)
 _NON_FINITE_MAX = np.array([np.inf, np.inf, np.nan, 1.5, 0.0], dtype=np.float32)
