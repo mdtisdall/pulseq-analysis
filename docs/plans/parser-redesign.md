@@ -22,27 +22,28 @@ whether a file is valid, and it performs no checks. It reads a file through one 
   waveform, `cpp-siemens` makes the same waveform, including the reader's misreadings, clamps,
   resampling, defaults and its 10 µs gradient raster. If the C++ reader rejects a file,
   `cpp-siemens` rejects it. Its engine is the C++ reader itself, wrapped and run in the
-  process (P11, 7.6).
+  process (P11, 7.6), in its own precompiled package (P12).
 - **`spec`**: as true as possible to the written specification. It reads each field as the
   specification types it, takes any raster that the file defines, and gives no waveform where
   the specification says a file "must" not be as it is. Where the specification is silent, it
   makes a documented choice (section 6).
 
-Where the sources read a file differently, the package reports a **finding**: data that it
-returns with its result. A finding has no severity; pulseq-checks maps finding codes to
-warnings or errors. Findings come from two places:
+pulseq-analysis reads, interprets and measures. Each interpreter gives a waveform, or a
+rejection with its code and reasons. It reports nothing else about a file.
 
-- **The interpreters differ.** The package can run both interpreters and compare them: a file
-  that one rejects and the other reads, or that gives different waveforms. This needs no
-  hand-written test of the file.
-- **MATLAB Pulseq or pypulseq differ.** These stay test oracles, not interpreters. A
-  hand-written test of the file gives each such finding, and the oracle tests check the tests.
+Where the sources read a file differently, **pulseq-checks** reports a **finding** (P17). It
+reads the file through pulseq-analysis's public readings, as often as it needs (a read costs
+about 0.03 s per MB), and finds each discrepancy that `docs/discrepancies.md` records (7.4).
+In this plan, "with a finding" or "Finding." means that pulseq-checks reports the condition;
+pulseq-analysis only plays it.
 
 This replaces the order of preference of 2026-10-09 (C++ reader, then the specification, then
 MATLAB, then pypulseq). The record's section 4 reviews the package against that order; it is
 rewritten for this goal (section 11).
 
 ## 2. Decisions (the user, 2026-10-12)
+
+P12 to P17 follow the review of R2, R3 and R4 (2026-10-12).
 
 | ID | Decision |
 |---|---|
@@ -51,12 +52,18 @@ rewritten for this goal (section 11).
 | P3 | Where the C++ reader misreads a row and still makes a waveform (D14 (3), D16), `cpp-siemens` reproduces the misreading, with a finding. |
 | P4 | Behaviour of the C++ reader that depends on the build (undefined behaviour: reads out of bounds, crashes in one build only) is decided case by case, and each case is its own kind of finding (section 5.3). |
 | P5 | An RF time shape whose points are not on the raster edges: `cpp-siemens` resamples it as the C++ reader does, artefacts included, with a finding. Only a shape where the resampling reads past its samples is undefined behaviour (P4). |
-| P6 | float32: the package computes in float64 and gives a finding where float32 rounding in the C++ reader changes a value noticeably (D18). |
+| P6 | float32: `cpp-siemens` gives the reader's float32 values, as the wrapper computes them (P11). A finding compares them with the values as written, in float64, where float32 rounding changes a value noticeably (D18). |
 | P7 | Where the C++ reader uses a sentinel or a mode that the scanner's interpreter can set (D39 `FLOAT_UNDEFINED`, D43 oversampling), `cpp-siemens` follows the reader's default, with a finding. |
-| P8 | Findings are data on the result. Python warnings are off by default; a caller can ask for them. |
+| P8 | Superseded by P17: findings are pulseq-checks', not data on pulseq-analysis's results. |
 | P9 | `[EXTENSIONS]` as the last section (D46): `cpp-siemens` rejects it, as the C++ reader does, with its own code (section 8). |
 | P10 | Two interpreters: `cpp-siemens`, a replica of the C++ reader with all its limits, and `spec`, as true as possible to the specification. Other rasters are the `spec` interpreter's; there is no "C++ reader on any raster" interpreter for now. |
 | P11 | The engine of `cpp-siemens` is a wrapper of the C++ reader, run in the process, after the prototype of task R2 (7.6). |
+| P12 | The wrapper is its own precompiled distribution, `pulseq-cpp-siemens`, kept in this repository (`packages/pulseq-cpp-siemens/`, its own `pyproject.toml`): the extension, the checks of 5.3, the lock and the locale handling. It ships wheels for the five platforms of the R2 report. pulseq-analysis stays pure Python and depends on it (7.7). |
+| P13 | Task R5 is the **"as written" reading**: a lossless, typed reading of the text, with line numbers. It is the base of the `spec` reader, of the version gate before the C++ reader (Q1), and of pulseq-checks' findings, which compare it with what the reader read (7.4). |
+| P14 | The `SequenceData` of `cpp-siemens` is the reader's own reading, built from its libraries (blocks, events, shapes, extensions as it read them), misreadings included. |
+| P15 | Task 5a of `own-parser-tasks.md` is re-planned here as R14: `load` runs on an interpreter's output. The C++-replica code of task 2 (`_rf_resample`, `_rf_time_step`, the RF decoding of `events.py`) is retired once the wrapper covers it. |
+| P16 | Task 4 of `own-parser-tasks.md` is re-planned here as R15: a `pypulseq.Sequence` built in memory is written to `.seq` text with pypulseq's writer, then read through an interpreter. |
+| P17 | The findings move to pulseq-checks (the user, 2026-10-12, after the review). pulseq-analysis keeps the readings, the interpreters, their coded rejections and the measurements; it has no `Finding` type, catalogue, `compare` or warnings. pulseq-checks finds each discrepancy from pulseq-analysis's public readings (7.4), and owns the catalogue, the severity and the reports (7.5). |
 
 The choice between "C++ reader first" and "specification first" is no longer open, so
 `docs/plans/spec-first-study.md` is not needed. It is not committed; its readings of the
@@ -69,13 +76,13 @@ specification feed section 6.
 | Q1 | Versions outside 1.4.0–1.5.x (D03) | Both interpreters refuse them as **not supported by the package**: a separate exception (for example `NotImplementedError`), which says nothing about the file. |
 | Q2 | The undefined behaviour of the C++ reader (section 5.3) | `cpp-siemens` rejects each case, with its own code. |
 | Q3 | Rotations (D49) | `cpp-siemens` applies the rotation to the gradients, as the scanner plays them; `load` no longer refuses the rotation extension. `spec` applies it too. |
-| Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file. `compare` gives the finding that `cpp-siemens` reads it. |
+| Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file, with every violation. pulseq-checks reports that `cpp-siemens` reads it. |
 | Q5 | `spec` where the specification is silent | Section 6, row by row. |
-| Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` by default, or `interpreter=CppSiemens(oversampling="edge")` for its settings. |
+| Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` by default, or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
 
-Two choices give a finding although the file reads: a repeated section or definition (D10,
-D12), and an RF time shape read as points (D35, D36), where the reading goes beyond what the
-specification states.
+Two choices give a finding of pulseq-checks although the file reads: a repeated section or
+definition (D10, D12), and an RF time shape read as points (D35, D36), where the reading goes
+beyond what the specification states.
 
 ## 4. The classes
 
@@ -90,8 +97,9 @@ For each interpreter, each entry falls in one class:
 - **Scope**: the package does not support it in either interpreter (Q1): the "not supported"
   exception.
 
-"To establish" marks an entry where what the C++ reader plays is not yet known in enough detail
-to reproduce; the task that implements it establishes it with the oracle first.
+"To establish" marks an entry where what the C++ reader plays is not yet known in detail. With
+the wrapper (P11), `cpp-siemens` reproduces it with no work; the task that writes its finding
+and its record entry establishes it with the oracle first.
 
 ## 5. The `cpp-siemens` interpreter
 
@@ -103,7 +111,7 @@ to reproduce; the task that implements it establishes it with the oracle first.
 | D02 | Reject | Rejects | No change. |
 | D03 | Scope | Rejects outside 1.4.0–1.5.x | The "not supported" exception (Q1). |
 | D04 | Play | Rejects `5.0` | Read `5.0` as 5, as C++. Finding. |
-| D05 | Play / UB | Any order | Any order; `[VERSION]` as the last section crashes C++: reject (5.3). |
+| D05 | Play / Reject | Any order | Any order, except `[VERSION]` as the last section: the stream then stays failed after `[VERSION]`, the seek to `[SHAPES]` fails, and the reader reads no shape (R4). A file with no `[SHAPES]` section is rejected (`load` fails); one whose events use a shape is rejected by `ub.shape-missing` (D21, 5.3); one with an unused `[SHAPES]` section is played. The wrapper (P11) reproduces all three. Finding. |
 | D06 | Reject / Play | Blank or `#` line | A blank line inside a table ends it, and C++ never reads the rows after it (only `[` lines start a section): drop them, a misreading (P3), with a finding. A `#` line inside a table is read as a row and fails: reject. `[VERSION]` and `[EXTENSIONS]` skip both. |
 | D07 | Play | Rejects | No blank line after a shape: C++ stops reading `[SHAPES]`, and the later shapes are not read (cpp:939, 955-958, 978). Reproduce; a later reference to a lost shape then follows D21. Finding. |
 | D08 | Play | Rejects | Ignore an unknown section, as C++. Finding. |
@@ -120,19 +128,19 @@ to reproduce; the task that implements it establishes it with the oracle first.
 | D19 | Play | Rejects | IDs that are not positive or not unique: the last wins, as C++. To establish per table. Finding. |
 | D20 | Play | Rejects | Block IDs out of order: file order, as C++. Finding. |
 | D21 | Reject / Play | Rejects | Reject an event that does not exist (as C++) and a missing shape (UB, 5.3). Reproduce the extension cases (the list ends; an empty object; a label left out). Finding. |
-| D22 | Play / Reject | Rejects | Time ID -1 for a 1.4 gradient: as C++. For an RF event: C++ crashes: reject (5.3). |
+| D22 | Play / Reject | Rejects | Time ID -1 for a 1.4 gradient: as C++. For an RF event, the reader looks up the time shape -1, which does not exist (a case of D21): reject (`ub.rf-time-id-minus-1`, 5.3). |
 | D23 | Reject | Rejects | A cycle in an extension list: C++ does not end: reject (5.3). |
 | D24 | Play | Rejects | No block: an empty sequence, as C++. Finding. |
 | D25 | Play | Rejects | An event longer than its block: the events as C++ holds them, `gradientsAt` 0 after the block. Finding. |
 | D26 | Play | Rejects | Times off a raster: as written, as C++. Finding. |
 | D27 | Play | Rejects | A gradient that is not 0 at an end: as written, as C++. Finding. |
 | D28 | Reject | Accepts | An arbitrary gradient on a time ID of 0 or -1, in a file whose gradient raster is not 10 µs: C++ fails in `decodeBlock` (cpp:2114-2119), and `gradientsAt` uses a fixed 10 µs (`SeqBlock::s_gradientRaster`, cpp:90). Reject. `valid_arbitrary_gradient_4us_raster.seq` changes class. |
-| D29 | Play / Reject | Rejects | A shape whose decompressed length differs from `num_samples`. `decompressShape` has no bound (cpp:2213-2236): a longer result writes past its buffer of `num_samples`: reject (5.3). A shorter one leaves the rest of the derivative at 0, so after the cumulative sum the last value repeats to `num_samples`: reproduce, with a finding. |
+| D29 | Play / Reject | Rejects | A shape whose decompressed length differs from `num_samples`. `decompressShape` has no bound (cpp:2213-2236): a longer result writes past its buffer, and a shape that ends in a repeated value with no count reads one value past the stored ones (cpp:2222): reject (`ub.shape-decompression`, 5.3). A shorter one leaves the rest of the derivative at 0, so after the cumulative sum the last value repeats to `num_samples`: played, with a finding. |
 | D30 | Play | Rejects | Outside [-1, 1]: clamped, as C++. Finding. |
 | D31 | Play | Rejects | RF magnitude below 0: 0, as `checkRF`. Finding. |
 | D32 | Play | Rejects | RF phase outside [0, 1): clamped, as `checkRF`. Finding. |
 | D33 | Reject | Rejects | Empty shape: UB, reject (5.3). |
-| D34 | Reject | Rejects | Shapes of one event of two lengths: C++ crashes (RF): reject (5.3). |
+| D34 | Play / Reject | Rejects | The shapes of one RF event of two lengths. A phase shorter than the magnitude, or a resampling that reads past either shape: `checkRF` reads past the phase (cpp:2288): reject (`ub.rf-shape-lengths`, 5.3). A longer phase: the reader plays the magnitude's length: played, with a finding. |
 | D35 | Play | As C++; rejects off-centre | As C++, off-centre times included (P5). Finding. |
 | D36 | Play / Reject | As C++; rejects past the end | (1) As C++ (P5); (2) the read past the end: reject (5.3). |
 | D37 | Play | As C++ | No change. Finding (MATLAB and pypulseq round the last time up). |
@@ -154,6 +162,7 @@ to reproduce; the task that implements it establishes it with the oracle first.
 | D53 | Play | As C++ | No change. Finding (CRLF). |
 | D54 | Play | Rejects | Accept, as C++. Finding. |
 | D55 | Agree | Text | No change. |
+| D56 | Play / Reject | Accepts | The last section with no blank line after it: reading it fails the stream at the end of the file, and the reader skips each section that it reads after it, in its own order, until it resets the stream after `[SHAPES]` (as D05). For example a file with no `[SHAPES]` section loses its definitions and is rejected ("AdcRasterTime is not present"); with a `[SHAPES]` section it reads. Writers always end with a blank line. Reproduced by the wrapper; finding. New entry of the record (R10). |
 
 ### 5.2 What `cpp-siemens` rejects
 
@@ -164,18 +173,21 @@ raises the "not supported" exception instead (Q1).
 
 ### 5.3 The undefined behaviour of the C++ reader (Q2)
 
-`cpp-siemens` rejects each case (Q2).
+`cpp-siemens` rejects each case (Q2), with its code. The checks run after `load`, on the
+libraries that the reader built, before `GetBlock` and `decodeBlock` (the R2 report, 7.6). R2
+and R4 found each case with the sanitizers.
 
-| Entry | What the C++ reader does | Reason to reject |
+| Code | Entry | What the reader does |
 |---|---|---|
-| D05 | Crashes with `[VERSION]` as the last section. To establish where. | Reject: no build gives a waveform that is known. |
-| D21 | Crashes on a missing shape. | Reject. |
-| D22 | Crashes on an RF event with time ID -1. | Reject. |
-| D23 | Does not end on a cycle in an extension list. | Reject. |
-| D29 | Writes past its buffer when a shape decompresses to more samples than `num_samples` (cpp:2213-2236). | Reject the longer case. (The shorter case is not UB: section 5.1.) |
-| D33 | Takes the address of element 0 of an empty vector (cpp:1995, 2203): the macOS build traps, the Linux build accepts and plays an RF event of 0 samples. | Reject: an RF event with no samples has no waveform to reproduce. |
-| D34 | Reads the phase at each index of the magnitude (cpp:2284-2290): reads past the shorter shape. | Reject. |
-| D36 (2) | The resampling index reaches the number of samples (cpp:2039-2045) and reads one sample past the end. The Linux build plays a value from outside the shape. | Reject. This includes MATLAB's RF pulses of 4 samples or fewer at the default dwell, which it writes as an uncompressed time shape at the cell centres (`compressShape` does not compress 4 samples or fewer). |
+| `ub.shape-missing` | D21; D05 and D07 lead to it | A block uses a shape that the reader did not read: a null reference (cpp:1995, 2177). With `[VERSION]` last (D05) the reader reads no shape; with no blank line after a shape (D07) it reads none after it. |
+| `ub.rf-time-id-minus-1` | D22 | An RF event with time ID -1: the time shape -1 does not exist (cpp:2026). |
+| `ub.extension-cycle` | D23 | A cycle in an extension list: the reader appends to a vector with no end. Not undefined behaviour, but no end; in the process it would hold the reader's lock. |
+| `ub.shape-decompression` | D29 | A shape that decompresses to more than `num_samples` (a write past the buffer, cpp:2231), or that ends in a repeated value with no count (a read past it, cpp:2222). |
+| `ub.shape-empty` | D33 | An empty shape: element 0 of an empty vector (cpp:1995, 2203). |
+| `ub.rf-shape-lengths` | D34 | An RF phase shorter than its magnitude: `checkRF` reads past it (cpp:2288). |
+| `ub.rf-time-overrun` | D36 (2) | The resampling index reaches the number of samples and reads one past them (cpp:2044). This includes MATLAB's RF pulses of 4 samples or fewer at the default dwell, written as an uncompressed time shape at the cell centres. |
+| `ub.rf-time-range` | — | An RF time shape whose last time does not fit an `int` (cpp:2031). No fixture yet. |
+| `ub.gradient-time-range` | — | An extended trapezoid time that does not fit a `long` (cpp:2182). No fixture yet. |
 
 A sanitizer build of the C++ oracle (section 9) finds each case, so the list is not left to the
 memory layout of one build.
@@ -226,7 +238,7 @@ text of the specification by hand, with a citation for each.
 | D35, D36 | "The time sampling points", in RF rasters; cells are defined only for the default raster (§2.6) | **Chosen**: as the format's tools split them (C++'s two branches; MATLAB `checkTiming.m:58-69`). A regular step is cells: each sample covers one dwell. Any other shape is points on the raster edges, joined by straight lines (the intent of the C++ FIXME). A shape read as points gives a finding: the specification does not define it. |
 | D37 | Silent | **Chosen** with D35, D36: a regular step lasts N × dwell; points end at the last time. |
 | D38 | No `center` in 1.4 | Absent. |
-| D39 | No `first` and `last` in 1.4 | **Chosen**: reject a 1.4 arbitrary gradient on the default raster: the file has no ends. `spec` then refuses many 1.4 files with arbitrary gradients, which `cpp-siemens` reads; `compare` flags each. |
+| D39 | No `first` and `last` in 1.4 | **Chosen**: reject a 1.4 arbitrary gradient on the default raster: the file has no ends. `spec` then refuses many 1.4 files with arbitrary gradients, which `cpp-siemens` reads; pulseq-checks flags each. |
 | D40 | No `first` in 1.4 | A time shape that starts at 0: its first sample. **Chosen**: one that starts later: reject, as D39. |
 | D41 | Samples at the centres of the cells (§2.6) | **Chosen**: straight lines between the centres, to `first` and `last` at the edges, as `cpp-siemens` and pypulseq. |
 | D42 | Silent | 0 where no gradient event plays. With D27 rejected (Q4), every gap inside a block lies between zeros, and a gradient that ends above 0 at its block's end continues into the next block. |
@@ -252,10 +264,10 @@ One library, in three layers and a base. A layer imports only from the layers be
 
 | Layer | Subpackage | Holds | Today's modules |
 |---|---|---|---|
-| Base | `pulseq_analysis` (top-level modules) | The `Finding` type and the catalogue; shared helpers | `_equality`, `_validate`; new: `findings` |
-| Files | `pulseq_analysis.seqfile` | The lexer, the two readers, `SequenceData`, `SeqFileError`; the pypulseq converter of task 4 | `seqfile`, `model` |
-| Waveforms | `pulseq_analysis.synth` | The two decoders, the events, the block index, sampling, `compare` | `events`, `_events`, `seq_index`, `seq_utils`, `sampling`, `snapshot`, `extensions` |
-| Analyses | `pulseq_analysis.analyses` | The measurements and `load`; SAFE and the `.asc` reader | `analyses`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
+| Base | `pulseq_analysis` (top-level modules) | Shared helpers | `_equality`, `_validate` |
+| Files | `pulseq_analysis.seqfile` | The "as written" reading, the `spec` reader, the `cpp-siemens` reading (through `pulseq-cpp-siemens`), `SequenceData`, `SeqFileError`; the pypulseq path of R15 | `reader`, `model` |
+| Waveforms | `pulseq_analysis.synth` | The two decoders, the events, the block index, sampling | `events`, `_events`, `seq_index`, `seq_utils`, `sampling`, `snapshot`, `extensions` |
+| Analyses | `pulseq_analysis.analyses` | The measurements and `load`; SAFE and the `.asc` reader | `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
 
 - **The rule is enforced.** An import-linter `layers` contract in `scripts/check` (a new dev
   dependency) fails on an import from a higher layer. The code respects the order already:
@@ -263,7 +275,12 @@ One library, in three layers and a base. A layer imports only from the layers be
   analysis module.
 - **An interpreter spans two layers.** Its name picks a reader in `seqfile` and a decoder in
   `synth`. `SequenceData` carries the name, so `synth` picks the decoder from the data, and
-  `seqfile` knows nothing of decoders.
+  `seqfile` knows nothing of decoders. `pulseq-cpp-siemens` is an outside dependency: `seqfile`
+  imports it for the reading, and `synth` reaches its decoding through the `SequenceData` of
+  `cpp-siemens`, which holds the reader's object.
+- **R3 named the modules** `seqfile/reader.py` (the former `seqfile.py`) and
+  `analyses/registry.py` (the former `analyses.py`). The subpackages export nothing yet; R6
+  exports the entry points of 7.3 from them.
 - **`snapshot` and `extensions`** hold today's `load`, which is built on pypulseq, and
   `seq_index` and `_events` import `snapshot`. They sit in the waveform layer until task 5a
   builds `load` on the model; `load` then moves to the analyses layer.
@@ -276,83 +293,97 @@ One library, in three layers and a base. A layer imports only from the layers be
 
 ### 7.2 Stages
 
-1. **Lex** (shared): the bytes into sections and rows, without loss: each field's raw text,
-   its line number, the blank and `#` lines, and the bytes the signature hashes. It rejects
-   nothing that either interpreter reads.
-2. **Read** (per interpreter): the rows into `SequenceData`. The two readers differ in the text
-   itself (D07, D14, D16), so they cannot share one model. `cpp-siemens` reads as the C++
-   reader reads; `spec` as section 6 says.
-3. **Decode** (per interpreter): `SequenceData` into the events and the waveform of each block.
-   `cpp-siemens` decodes as the C++ reader and its `gradientsAt` do; `spec` as section 6 says.
-   Each records facts as it decodes (a clamp, a misread row, a sentinel), for the findings.
-4. **Find**: the findings of one interpreter (its facts, and the hand-written tests for MATLAB
-   and pypulseq), and the findings of a comparison of the two interpreters. They never raise.
+1. **Read as written** (shared, Python, R5, P13): the bytes into sections and typed fields,
+   without loss: each field's raw text and its value by its column's type, its line number,
+   the blank and `#` lines, and the bytes the signature hashes. It rejects only text it cannot
+   split into sections and fields. It interprets nothing.
+2. **Interpret** (per interpreter):
+   - `cpp-siemens`: the version gate (Q1) on the "as written" reading; then the wrapper:
+     `load`, the checks of 5.3, and `SequenceData` from the reader's libraries (P14). Its
+     decoding is the reader's: `GetBlock`, `decodeBlock` and `gradientsAt`.
+   - `spec`: the `spec` reader on the "as written" reading, as section 6 says, into
+     `SequenceData`; its decoder in Python (R11).
+3. **Find**: in pulseq-checks, not here (P17, 7.4).
 
-The measurements of task 5a take the waveforms of one interpreter.
+The measurements (R14) take the waveforms of one interpreter.
 
 ### 7.3 API (Q6)
 
 ```python
-seqfile.read_seqfile(path, interpreter="cpp-siemens") -> SequenceData  # .interpreter, .findings
-synth.compare(path) -> Comparison  # both results, and the findings of their differences
-synth.findings_of(path, interpreter="cpp-siemens") -> tuple[Finding, ...]
-analyses.load(path, interpreter="cpp-siemens") -> ...  # the measurements; .findings
+seqfile.read_as_written(path) -> AsWritten  # the "as written" reading (P13), with line numbers
+seqfile.read_seqfile(path, interpreter="cpp-siemens") -> SequenceData  # .interpreter
+synth.decode(data) -> ...  # the events and the waveform of each block, by data.interpreter
+analyses.load(path, interpreter="cpp-siemens") -> ...  # the measurements
 
 # An interpreter by name, or as an object with its settings:
 seqfile.read_seqfile(path, interpreter=CppSiemens(oversampling="edge"))  # D43
 ```
 
-`"cpp-siemens"` and `"spec"` name the objects with their defaults. A setting of `cpp-siemens`
-follows a setting of the scanner's interpreter (for example its oversampling mode, D43); a
-result records the interpreter and its settings. `SeqFileError` is the rejection of one
-interpreter, with its code. A file outside the versions of Q1 raises the "not supported"
-exception in both.
+R6 exports these names from the subpackages (R3 left them empty). `"cpp-siemens"` and
+`"spec"` name the objects with their defaults. A setting of `cpp-siemens` follows a setting of
+the scanner's interpreter (for example its oversampling mode, D43); a result records the
+interpreter and its settings. `SeqFileError` is the rejection of one interpreter, with its
+code and its reasons: for `spec`, every violation of the specification, not only the first.
+A file outside the versions of Q1 raises the "not supported" exception in both.
 
-### 7.4 Findings
+**The contract with pulseq-checks.** These readings are public and kept stable enough for
+pulseq-checks to compare: the "as written" reading with its line numbers; the `cpp-siemens`
+reading (the reader's libraries, P14) and its decoding, `gradientsAt` included; `spec`'s
+violations; and both interpreters' waveforms. A change to any of them is a change of the
+contract, noted in `CHANGELOG.md`.
 
-```python
-@dataclass(frozen=True)
-class Finding:
-    code: str  # stable: "rf.magnitude-clamped", "raster.gradient-delay", ...
-    where: Location  # section and line; block; event kind and ID
-    message: str  # one sentence, with the values
-    interpreter: str  # "cpp-siemens", "spec", or "both" for a comparison
-    readings: Readings  # cpp-siemens, spec, matlab, pypulseq: AGREES | DIFFERS | NO_WAVEFORM
-    category: Category
+### 7.4 Findings, in pulseq-checks (P17)
 
+pulseq-checks finds each discrepancy that the record documents, with five mechanisms. Each
+entry of `docs/discrepancies.md` is titled by a condition in a file, so each maps to one of
+them:
 
-CATALOGUE: Mapping[str, FindingKind]  # each code: title, category, record entry
-```
+| Mechanism | What it finds | Entries |
+|---|---|---|
+| Diff of the "as written" reading against the `cpp-siemens` reading and decoding | The reader changes, drops or misreads | D05, D06 (blank line), D07, D10, D12, D14 (3) and short rows, D16, D18, D19, D21 (extension lists), D29 (shorter), D30–D32, D34 (longer phase), D48, D50, D53, D56 |
+| A condition on the "as written" reading | The reader plays something a value diff cannot show | D04, D08, D09, D11, D13, D20, D22 (1.4 gradient), D35, D36 (1), D37–D40, D42, D43, D45, D49 |
+| `spec`'s violations on the same file | A "must" broken, which the reader plays as written | D14 (NaN), D17, D19, D24–D27, D54 |
+| A comparison of the two interpreters | One rejects and the other reads, or their waveforms differ | D15, D28, D46, and every entry above where `spec` differs |
+| A catalogue of MATLAB and pypulseq | The writers' readers differ | D20, D41, D44, D45, D51, and others |
 
-Categories describe a finding. They do not grade it:
+A file that `cpp-siemens` rejects still gets findings: pulseq-checks reads it as written and
+through `spec` itself. The float32 finding (D18) needs a tolerance, which pulseq-checks sets.
+Today's rule names stay as codes where the condition is the same (for example
+`raster.gradient-delay`), so pulseq-checks keeps its names.
 
-- `interpreters-differ`: one interpreter rejects the file and the other reads it, or their
-  waveforms differ beyond a tolerance. Found by `compare`.
-- `spec-departure`: the specification says "must", and `cpp-siemens` plays the file (D19,
-  D24–D27, D29, D30, D54).
-- `cpp-changes-value`: the C++ reader changes what the file says (D14 (3), D16, D18, D30–D32,
-  D35, D36 (1)).
-- `cpp-default`: the waveform depends on a sentinel or a mode (D39, D43).
-- `writers-differ`: MATLAB or pypulseq reads the file differently from both interpreters.
-
-Today's rule names stay as finding and rejection codes where the condition is the same (for
-example `raster.gradient-delay`), so pulseq-checks keeps its names.
-
-Python warnings: `findings.warn(findings)`, or `warn=True`, emits one
-`PulseqDiscrepancyWarning` for each (P8).
+Categories describe a finding; pulseq-checks grades them: `interpreters-differ`,
+`spec-departure`, `cpp-changes-value`, `cpp-default` (D39, D43), `writers-differ`.
 
 ### 7.5 pulseq-checks
 
-pulseq-checks owns severity: a policy that maps a code, a category, or the verdict of an
-interpreter to `ignore`, `warn` or `error`, and profiles built on it. For example:
+pulseq-checks owns the findings (7.4), their catalogue, severity, profiles, exit codes and
+reports. For example:
 
 - "scanner": an error when `cpp-siemens` rejects the file.
 - "specification": an error when `spec` rejects the file. This gives back today's strict
-  parser, from the `spec` interpreter, without a check in pulseq-analysis.
+  parser, from the `spec` interpreter.
 - "portable": an error for each `interpreters-differ` finding.
 
-It also owns exit codes and reports. pulseq-analysis does not change when pulseq-checks makes a
-policy stricter.
+pulseq-analysis does not change when pulseq-checks makes a policy stricter.
+
+**The hand-off (task C1).** This project writes one document for pulseq-checks,
+`docs/findings-for-pulseq-checks.md`, and the user shares it with that project. Nothing is
+written in pulseq-checks' repository from here, and its code is not read: what pulseq-checks
+does with the document is its own plan. The document gives:
+
+- why the findings move (P17), and what pulseq-analysis no longer reports;
+- the contract of 7.3: each public reading, with its module, its type and what it holds;
+- the five mechanisms of 7.4, each entry of `docs/discrepancies.md` with its mechanism, its
+  fixture, and today's rule name where one exists;
+- the categories, and the cases that need a choice of pulseq-checks (for example the float32
+  tolerance of D18);
+- the test oracles of this project's flake that a consumer can use (the C++ driver, its
+  sanitized build, the MATLAB oracle);
+- which readings are still to come, and from which task (R5, R6, R11).
+
+C1 writes its first version once R5 has fixed the "as written" reading. R6 and R11 update it
+when their readings are public, and each change to the contract updates it and
+`CHANGELOG.md`. Its links name a commit of `main`, so a shared copy stays exact.
 
 ### 7.6 The engine of `cpp-siemens`: a replica or a wrapper (R2)
 
@@ -363,15 +394,15 @@ around them.
 |---|---|---|
 | Fidelity | As good as the oracle tests prove, fixture by fixture | Exact by construction: float32, `checkRF`'s clamps, the resampling, the misreadings, `gradientsAt`, and quirks not yet found |
 | Upstream changes | Ported by hand | A new pinned commit |
-| Findings | Recorded while decoding | A diff of the lexer's reading against what the C++ reader decoded: the C++ reader reports no misreading or clamp, and its rejections are messages, not codes |
+| Findings | Recorded while decoding | A diff of the "as written" reading (R5) against what the C++ reader decoded: the C++ reader reports no misreading or clamp, and its rejections are messages, not codes |
 | Undefined behaviour | Detected in Python | Detected in Python before the call: in the process, a case either traps (macOS) or reads memory it does not own (Linux) |
 | Installation | Pure Python | Compiled wheels for each platform |
 | Shared state | None | `SeqBlock` keeps rasters in static variables that each load sets (cpp:807, 1540): one file at a time in a process, behind a lock |
 | Work in R6 to R10 | Port each quirk and prove it | The checks for undefined behaviour and the findings diff |
 
 The rotation (Q3), the timeline across blocks, the sampling and the measurements are the
-package's own in either case. The lexer, the `spec` reader and the checks for undefined
-behaviour are needed in either case.
+package's own in either case. The "as written" reading, the `spec` reader and the checks for
+undefined behaviour are needed in either case.
 
 **R2, the prototype.** On `chore/cpp-wrapper-prototype`:
 
@@ -489,7 +520,8 @@ The prototype changes 5.3 as follows:
 
 - **D05** is a case of D21. When reading `[VERSION]` reaches the end of the file, the stream
   fails, and `[SHAPES]` is never read. Every shape is then missing. A file whose blocks use no
-  shape reads correctly.
+  shape reads correctly if it has a `[SHAPES]` section; without one, its definitions are
+  skipped too and `load` fails (R4; D56).
 - **D22** is a case of D21: the time shape ID -1 is looked up as a shape that does not exist.
 - **D29** also covers a repeated value with no count at the end of a shape: the reader reads one
   value past the stored values.
@@ -530,7 +562,7 @@ outside 1.4.0–1.5.x (Q1; the driver reads `bad_version_unsupported_1_6.seq`).
    worker process.
 2. **Files older than 1.4.** For these, `load` itself calls `GetBlock` (cpp:1663), so a cycle
    in an extension list does not end inside `load`, before any check. The prototype has no gate
-   on the version before `load`. R6 needs one, from the lexer (R5).
+   on the version before `load`. R6 needs one, from the "as written" reading (R5).
 3. **The scanner's build is not known.** The wrapper matches a build on x86_64 with a signed
    `char` and no FMA; MSVC's `/fp:precise` gives the same bits on the fixtures. `long` is 32
    bits on Windows (it holds the trapezoid times), which matters only past 2^31 µs.
@@ -538,7 +570,7 @@ outside 1.4.0–1.5.x (Q1; the driver reads `bad_version_unsupported_1_6.seq`).
    `istringstream` reads the definitions with it), and any other code in the process that calls
    `ExternalSequence::SetPrintFunction`.
 5. **Findings.** The reader reports no misreading or clamp, and its rejections are messages. The
-   findings need a diff of the lexer's reading against what the reader decoded (as the table of
+   findings need a diff of the "as written" reading against what the reader decoded (as the table of
    7.6 says).
 6. **Release cost.** Five wheels per release from a CI matrix, where the package today is pure
    Python. An sdist build needs the network unless it carries the source.
@@ -556,10 +588,23 @@ calls; the checks are needed either way, so the wrapper runs in the process. For
 
 - moves the prototype into the package, with its build flags and its lock;
 - fuzzes the checks against R4's sanitizer build;
-- gates the version with the lexer (R5) before `load`.
+- gates the version with the "as written" reading (R5) before `load`.
 
 The oracle of flake.nix gets the same flags as the wrapper (`-fsigned-char -ffp-contract=off`)
 in its own task, R13.
+
+### 7.7 The package `pulseq-cpp-siemens` (P12)
+
+- **What it holds:** the nanobind extension of the R2 prototype around `ExternalSequence` at
+  `c746912` (MIT, with its notice), the checks of 5.3, the lock and the locale handling, and a
+  small Python API (load, the libraries as read, decode a block, `gradientsAt`).
+- **Where:** `packages/pulseq-cpp-siemens/` in this repository, with its own `pyproject.toml`
+  (scikit-build-core and CMake), sharing the flake, the fixtures and CI.
+- **Wheels:** cibuildwheel for macOS (arm64, x86_64), Linux (manylinux x86_64, aarch64) and
+  Windows (x86_64), stable ABI `cp312-abi3`; the sdist carries the reader's files. It is
+  released only when the pinned commit or a check changes.
+- **pulseq-analysis** stays pure Python and depends on it. Whether the dependency is required,
+  or an extra so that `spec` works without it, is settled in R6.
 
 ## 8. D46: `[EXTENSIONS]` as the last section
 
@@ -577,7 +622,7 @@ shape) that is written with the signature turned off.
 blocks of labels only, with no shape and no signature.
 
 - `cpp-siemens` rejects the file, with the code `section.extensions-last`; `spec` reads it
-  (the specification does not fix the order of the sections). `compare` gives an
+  (the specification does not fix the order of the sections). pulseq-checks reports an
   `interpreters-differ` finding.
 - The test of the C++ oracle drops the file from `ORACLE_KNOWN_WRONG`; the reader and
   `cpp-siemens` then agree.
@@ -587,74 +632,75 @@ blocks of labels only, with no shape and no signature.
 
 ## 9. Verification
 
-- **`cpp-siemens` waveforms.** The decoded events and the waveform in each block against
-  `--sample` of the C++ oracle, for each fixture and for generated files. Generated files:
-  property-based (the grammar of `.seq`, with values at the edges), seeded, in a marker that CI
-  runs.
+- **`cpp-siemens` against the driver.** The wrapper's dump and samples against the driver's
+  `--dump` and `--sample`, bit for bit, on each fixture and on each platform's wheel
+  (`expected_digests.json`, the R2 report). R13 (#105) builds the driver with the wrapper's flags.
+- **The checks of 5.3, fuzzed.** They are safety-critical: a case they miss costs the process.
+  Files generated from the grammar of `.seq` (with values at the edges and the shapes of 5.3),
+  seeded, each run through R4's sanitized oracle; the test fails on a file that the oracle
+  flags and the checks pass. A seeded set runs in CI; a longer run comes before each release
+  of `pulseq-cpp-siemens`. R6 sets the sizes.
 - **A sanitizer build of the C++ oracle.** `pulseq-cpp-oracle-sanitized`, built with ASan,
   UBSan and `_GLIBCXX_ASSERTIONS`, in the CI devShell. Its verdict "undefined behaviour" makes
   section 5.3 reproducible, whatever an ordinary build does.
 - **`spec` readings.** Each row of section 6 has a fixture and a test that cites the
   specification. MATLAB's `waveforms_and_times` is a second opinion where it follows the
   specification (for example D28, D35, D36, D43), not a reference.
-- **Findings, both ways.** For each fixture and generated file, run the two interpreters, the
-  MATLAB oracle and pypulseq, and compare the acceptance and the waveforms within tolerance. The
-  test asserts that each disagreement has a finding, and that each finding's code matches a
-  disagreement the run saw.
-- **The record and the catalogue.** A test checks that each code of `CATALOGUE` has a record
-  entry and a fixture, and that each record entry that an interpreter acts on has a code.
+- **The record.** Each entry of `docs/discrepancies.md` gives what each interpreter does, with
+  a fixture and a test of it. The tests of the findings (each disagreement of the four sources
+  has a finding, and each finding matches a disagreement) are pulseq-checks' (7.5).
 
 ## 10. Tasks
 
 | Task | Branch | Result |
 |---|---|---|
-| R1 | `docs/parser-redesign` | This plan. |
-| R2 | `chore/cpp-wrapper-prototype` | A prototype of `cpp-siemens` as a wrapper of the C++ reader, and its report (7.6). Done: the decision is to wrap (P11). |
-| R3 | `refactor/layers` | The modules moved into the subpackages of 7.1, and the import-linter contract. No change of behaviour. |
-| R4 | `chore/sanitized-oracle` | The sanitizer build of the C++ oracle, and the comparison of section 9 for the existing fixtures. It finds each case of undefined behaviour, which R6 then rejects. |
-| R5 | `refactor/lexer` | The lossless lexer (7.2, stage 1), and today's parser rebuilt on it. No change of behaviour: the baseline of task 2 compares the two. |
-| R6 | `feature/cpp-siemens` | The wrapper of R2 in the package (7.6), as the `cpp-siemens` reader, the `interpreter` argument, the findings module (7.4), and each rule of today moved to a rejection (5.2), a finding, or removed. The record and the tests follow; pulseq-checks adapts. |
-| R7 | `feature/cpp-siemens-rf` | D30–D32 clamps, D35 and D36 (P5), D18 findings (P6). |
-| R8 | `feature/cpp-siemens-gradients` | D39, D40 (2), D43 (P7), D28 rejection, D42. |
-| R9 | `feature/cpp-siemens-rotations` | D49: the quaternion normalized and the gradients rotated (Q3); `load` no longer refuses the rotation extension. |
-| R10 | `feature/cpp-siemens-misreadings` | D04, D07, D14, D16 (P3), D08–D10, D12, D19, D20, D24, D54. |
-| R11 | `feature/spec-interpreter` | The `spec` reader and decoder (section 6), with its fixtures. |
-| R12 | `feature/compare` | `compare`, the `interpreters-differ` findings, and the four-source test of section 9. |
-| R13 | `chore/oracle-build-flags` | The C++ oracle of flake.nix built with `-fsigned-char -ffp-contract=off`, as the wrapper (7.6): it ends on Linux aarch64, and its `gradientsAt` gives the bits of an x86_64 build on arm64. |
+| R1 | `docs/parser-redesign` | This plan. Done (#101). |
+| R2 | `chore/cpp-wrapper-prototype` | A prototype of `cpp-siemens` as a wrapper of the C++ reader, and its report (7.6). Done (#104): the decision is to wrap (P11). |
+| R3 | `refactor/layers` | The modules moved into the subpackages of 7.1, and the import-linter contract. Done (#102). |
+| R4 | `chore/sanitized-oracle` | The sanitizer build of the C++ oracle, and its verdict on each fixture. Done (#103). |
+| R5 | `refactor/as-written` | The "as written" reading (7.2, stage 1; P13), and today's parser rebuilt on it. No change of behaviour: a baseline compares the two. |
+| R6 | `feature/cpp-siemens` | `pulseq-cpp-siemens` from the prototype (7.7), with its wheels; the `cpp-siemens` interpreter: the version gate, `SequenceData` from the reader's libraries (P14), the rejection codes (5.2, 5.3), the `interpreter` argument and the exports and the contract (7.3); the fuzzing of the checks (section 9). Each rule of today becomes a rejection of `cpp-siemens`, moves to `spec` (R11), or is removed. The record's "Package" text for `cpp-siemens`, and the new D56, follow; pulseq-checks adapts. |
+| R7 | — | Moved to pulseq-checks (P17): the findings of D18, D30–D32, D34, D35–D37. |
+| R8 | — | Moved to pulseq-checks (P17): the findings of D28, D29, D39–D43. |
+| R9 | `feature/rotations` | D49: the gradients rotated by the normalized quaternion (Q3), for both interpreters; `load` no longer refuses the rotation extension. |
+| R10 | — | Moved to pulseq-checks (P17): the findings of D04, D06–D10, D12, D14, D16, D19, D20, D24, D54, D56. |
+| R11 | `feature/spec-interpreter` | The `spec` reader (section 6) on the "as written" reading, with every violation in its rejection, and its decoder in Python, adapted from task 2's `events.py`, with its fixtures. The record's "Package" text for `spec` follows. |
+| R12 | — | Moved to pulseq-checks (P17): the comparison of the two interpreters, and the four-source test. |
+| R13 | `chore/oracle-build-flags` | The C++ oracle of flake.nix built with `-fsigned-char -ffp-contract=off`, as the wrapper (7.6). Done (#105). |
+| R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output: for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. The C++-replica code of task 2 retired. A baseline of today's `load` explains each difference. |
+| C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
+| R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 
-R2 came first: its report decided that R6 to R10 wrap the C++ reader (P11, 7.6). R7 to R10
-then add findings by comparing the lexer's reading with what the reader decoded, where they
-would otherwise port each quirk. R3 and R4 do not depend on it and can run at the same time. R5 needs R3, and R6 needs R5
-and R2. R7 to R10 each need R6 and are otherwise independent, but they share
-`docs/discrepancies.md` and `TESTS.md`, so they merge in turn. R11 needs R5 and R6 (the
-interpreter argument), and it can run in parallel with R7 to R10. R12 comes last. R13 depends
-on nothing.
+R5 needs R3; R6 needs R5 and R2. R9 needs R6. R11 needs R5 and R6 (the `interpreter`
+argument). R6, R9 and R11 share `docs/discrepancies.md` and `TESTS.md`, so they merge in turn.
+R14 needs R6 and R9; the `spec` interpreter joins `load` when R11 is done. R15 needs R6. C1
+needs R5; R6 and R11 update its document.
 
 Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
 
-- Task 4 (the pypulseq converter) does not read `.seq` text, and can run in parallel with R4
-  and R5. A `Sequence` built in memory has no interpreter; the converter gives no findings.
-- Task 5a (`load` on the model) comes after R6 to R8, so that `load` takes an interpreter,
-  passes the findings on, and samples the waveforms as `cpp-siemens` makes them. The `spec`
-  interpreter joins `load` when R11 is done.
-- Tasks 5b and 6 keep their order.
+- Task 4 is replaced by R15, and task 5a by R14 (P15, P16).
+- Tasks 5b and 6 keep their order, after R14.
 
 ## 11. Documents
 
 - `docs/discrepancies.md`: section 4 is rewritten for this goal. Each entry's "Package" and
-  "Reason" text gives what each interpreter plays and which finding it gives. Each task rewrites
-  the entries it changes.
-- `docs/usage.md`: the interpreters, `compare`, the findings, the warnings, and each
-  interpreter's rejections.
+  "Reason" text gives what each interpreter plays or rejects. R6 rewrites them for
+  `cpp-siemens`, and R11 for `spec`. Which finding pulseq-checks gives is pulseq-checks'
+  documentation.
+- `docs/usage.md`: the interpreters, the "as written" reading, each interpreter's rejections,
+  and the contract of 7.3; a pointer to pulseq-checks for the findings.
 - `CHANGELOG.md`: the files that `cpp-siemens` now accepts, and those it now rejects (D15, D28,
   D46, D49).
 - `own-parser-tasks.md`: this plan supersedes the order of preference of its section 12 where
-  they differ.
+  they differ, and its tasks 4 and 5a (R15, R14); R14 and R15 mark them there.
 
 ## 12. Upstream reports to consider
 
 The user decides whether to file each, on pulseq/pulseq:
 
+- D56 and D05: reading the last section to the end of the file fails the stream, and the
+  reader then skips the sections that it reads after it (a file with no `[SHAPES]` section
+  loses its definitions).
 - D46: `[EXTENSIONS]` as the last section is rejected.
 - D36 (2): the guard `if (tc < waveform_t.size())` lets the index reach the size; the reader
   then reads past the samples. MATLAB writes such shapes for RF pulses of 4 samples or fewer.
@@ -674,12 +720,17 @@ The user decides whether to file each, on pulseq/pulseq:
   interpreter plays them. Where the decoded block is not enough to know the waveform (D25
   after the block end, D42 between blocks), `cpp-siemens` shows what `gradientsAt` gives and
   says so in the finding.
-- **Two readers to keep in step.** Each change of the format touches both. The shared lexer and
-  the four-source test keep their differences deliberate.
+- **The "as written" reading and the C++ reader must agree on structure.** pulseq-checks'
+  diff is only as good as their agreement on which field is which; the contract of 7.3 and
+  pulseq-checks' tests keep the differences deliberate.
+- **pulseq-analysis alone reports no discrepancies.** A user who wants them runs
+  pulseq-checks; pulseq-analysis gives only a rejection's code and reasons.
+- **The document of C1 can fall behind the code.** R6, R11 and each change to the contract
+  update it in the same PR.
 - **The `spec` interpreter's choices** are the package's, not the specification's. Each is
-  listed in section 6 and in the record, and a finding names it where it matters.
+  listed in section 6 and in the record, and pulseq-checks names it where it matters.
 - **pulseq-checks.** It relies on today's rejections. R6 changes them at once; the
   "specification" profile of 7.5 restores them from the `spec` interpreter, and pulseq-checks
-  adapts in the same release.
+  adapts in the same release, and gains the findings (P17).
 - **Reproducing misreadings** makes `cpp-siemens` read some files in a way a person would not
-  expect. Each misreading has a finding, and the record says why.
+  expect. The record says why, and pulseq-checks reports each one.
