@@ -21,8 +21,8 @@ whether a file is valid, and it performs no checks. It reads a file through one 
   scanner's interpreter on Siemens systems, with all its limits. If the C++ reader makes a
   waveform, `cpp-siemens` makes the same waveform, including the reader's misreadings, clamps,
   resampling, defaults and its 10 µs gradient raster. If the C++ reader rejects a file,
-  `cpp-siemens` rejects it. Its engine is a Python replica of the C++ reader or a wrapper
-  of it; the prototype of task R2 decides (7.6).
+  `cpp-siemens` rejects it. Its engine is the C++ reader itself, wrapped and run in the
+  process (P11, 7.6).
 - **`spec`**: as true as possible to the written specification. It reads each field as the
   specification types it, takes any raster that the file defines, and gives no waveform where
   the specification says a file "must" not be as it is. Where the specification is silent, it
@@ -56,6 +56,7 @@ rewritten for this goal (section 11).
 | P8 | Findings are data on the result. Python warnings are off by default; a caller can ask for them. |
 | P9 | `[EXTENSIONS]` as the last section (D46): `cpp-siemens` rejects it, as the C++ reader does, with its own code (section 8). |
 | P10 | Two interpreters: `cpp-siemens`, a replica of the C++ reader with all its limits, and `spec`, as true as possible to the specification. Other rasters are the `spec` interpreter's; there is no "C++ reader on any raster" interpreter for now. |
+| P11 | The engine of `cpp-siemens` is a wrapper of the C++ reader, run in the process, after the prototype of task R2 (7.6). |
 
 The choice between "C++ reader first" and "specification first" is no longer open, so
 `docs/plans/spec-first-study.md` is not needed. It is not committed; its readings of the
@@ -387,9 +388,178 @@ behaviour are needed in either case.
 
 Its report adds to this section: what built and what did not, on which platform; the size of
 the wheels and the time of the build; any difference from the driver; and a recommendation.
-The decision (the user's) then sets how R6 to R10 are built. The prototype's code stays on its
-branch unless the decision is to wrap, in which case R6 builds on it; the report merges as a
-change to this plan.
+The decision then sets how R6 to R10 are built. The decision is to wrap (P11): R6 builds on
+the prototype's code, which until then stays on its branch.
+
+#### R2 report (2026-10-12)
+
+The prototype is `prototypes/cpp-siemens-wrapper` on `chore/cpp-wrapper-prototype`: a nanobind
+extension of 584 lines of C++, 380 lines of Python (the API and the checks of 5.3), and its
+tests. Its README says how it works.
+
+**The source of the reader.** CMake takes the four files and the licence from
+`PULSEQ_SOURCE_DIR` (the Nix store path that flake.nix already fetches), else from
+`third_party/pulseq/` (where an sdist would carry them; not done), else from
+raw.githubusercontent.com at `c7469123`. It checks the SHA-256 of each file in all three cases.
+The files are fetched, not vendored: flake.nix already decided not to copy pulseq into this
+repository, and the hashes pin the bytes as tightly as a copy would. The cost is that a build
+from the git tree needs the network or `PULSEQ_SOURCE_DIR`. A release to PyPI would put the
+files in its sdist.
+
+**What built, and where.**
+
+| Platform | Built and tested | Tests | Wheel | Build and test |
+|---|---|---|---|---|
+| Linux x86_64 (manylinux_2_28) | CI, cibuildwheel 3.0.0, gcc | 106 passed | 200 KB | 38 s |
+| Linux aarch64 (manylinux_2_28) | CI, native ARM runner, gcc | 106 passed | 184 KB | 30 s |
+| macOS arm64 | CI, and locally in clean venvs (Python 3.12 and 3.13) | 108 passed | 159 KB | 25 s |
+| macOS x86_64 | CI (built on arm64, tested under Rosetta), and locally | 108 passed | 169 KB | 73 s |
+| Windows x86_64 | CI, MSVC 19.44 | 107 passed | 150 KB | 75 s |
+
+The times are cibuildwheel's, for the build of one wheel and its tests. A local build on macOS
+takes about 6 s. The CI run is 38291077415 of `.github/workflows/cpp-wrapper-wheels.yml`, on
+the prototype's branch only. The tests that the runners skip are the comparisons with the
+driver, which is not there; `tests/expected_digests.json` stands in for it. Linux also skips the
+two locale tests: its image has no locale with a decimal comma. The wheels use the stable ABI
+(`cp312-abi3`): one wheel per platform serves Python 3.12 and later (3.13 was tested locally).
+Each extension links only the system C++ library.
+
+Two failures on Windows were in the tests, not in the reader:
+
+- Git on the Windows runners turns LF into CRLF on checkout, so the reader hashed other bytes
+  for the signature. The workflow now turns that off.
+- MSVC's NaN for `nan` in a file has other bits than clang's and gcc's. The digest now counts
+  one NaN for all.
+
+With these fixed, each platform gives the same bits as the driver on every fixture, MSVC
+included.
+
+**The same output as the driver.** For each of the 89 fixtures (the 85 of `tests/seqfiles` at
+`cb138d4`, and 4 new ones for 5.3), the wrapper has the driver's verdict. For the 65 files that it reads, it
+gives the driver's `--dump`, compared exactly in float32, and the driver's `--sample` at 770 147
+times, compared bit for bit. `tests/expected_digests.json` records this from the driver, so the
+wheels compare against it where there is no driver. Two notes:
+
+- **Fused multiply-add.** The reference is a driver built like the wrapper. flake.nix builds
+  the driver with the compiler's defaults; on arm64 that fuses multiplies and adds in
+  `gradientsAt`. Against that driver all the dumps are identical, but 3 276 sample rows of 47
+  files differ in the last bit (at most 2.5e-16 relative). The wrapper builds the reader with
+  `-ffp-contract=off`, as an x86_64 build is without FMA: the x86_64 wheel gives the same bits as
+  the arm64 one.
+- **Signed `char`.** `ExternalSequence::getline` compares a `char` with `EOF`. With an unsigned
+  `char`, the default of gcc on Linux aarch64, the reader never ends on any file (shown with
+  `-funsigned-char` on macOS). The wrapper builds with `-fsigned-char`. flake.nix's
+  `pulseq-cpp-oracle` for aarch64-linux has the same problem. With a signed `char`, a 0xFF byte
+  in a file reads as the end of the file.
+
+**Undefined behaviour (5.3).** A build of the driver with AddressSanitizer and
+UndefinedBehaviorSanitizer found undefined behaviour in 10 fixtures, plus a loop with no end
+(D23), and in no other fixture. Every case is in `GetBlock` or `decodeBlock`; none is in `load`.
+So the wrapper calls `load`, and the checks then read the libraries that `load` built: the
+reader's own reading of the file, reached through pointers to private members that an explicit
+template instantiation gives, with no change to the source. Only then does it call `GetBlock`
+and `decodeBlock`. The checks need no reader of the text of their own.
+
+| Code | Entry | Fixtures | What the sanitizers report |
+|---|---|---|---|
+| `ub.shape-missing` | D21, and D05 | `bad_ref_shape`, `bad_ref_time_shape`, `bad_syntax_shape_no_blank_line` (D07), `ub_d05_version_last` | Null reference, cpp:1995, 2177 |
+| `ub.rf-time-id-minus-1` | D22 | `ub_d22_rf_time_id_minus_1` | Null reference, cpp:2026 |
+| `ub.extension-cycle` | D23 | `bad_ref_extension_cycle` | No end |
+| `ub.shape-decompression` | D29 | `ub_d29_longer`, `ub_d29_count_missing` | Heap overflow, cpp:2231 (write), 2222 (read) |
+| `ub.shape-empty` | D33 | `bad_shape_empty` | Null reference, cpp:1995 |
+| `ub.rf-shape-lengths` | D34 | `bad_shape_event_length` | Heap overflow, cpp:2288 |
+| `ub.rf-time-overrun` | D36 (2) | `bad_shape_rf_time_end` | Heap overflow, cpp:2044 |
+
+The prototype also checks two conversions from float to integer that are out of range: an RF
+time shape (`ub.rf-time-range`, cpp:2031) and an extended trapezoid time (`ub.gradient-time-range`,
+cpp:2182). No fixture has either.
+
+With the checks, each fixture raises `UndefinedBehaviour`, and the process then reads a valid
+file as before. With the checks skipped, each in its own process: D22 kills Python with a
+segmentation fault; D23 does not end, and in the process it would hold the reader's lock, so no
+other thread could read a file; `bad_ref_time_shape` is rejected; and the other 8 decode,
+including RF waveforms read from memory the reader does not own. Silent wrong waveforms are the
+most common outcome, so the checks matter more than the crashes suggest.
+
+R4 has since added three of these cases to `tests/seqfiles/undefined/` (`version_last`,
+`rf_time_id_minus_1`, `shape_decompress_longer`). R6 uses those, and adds the prototype's
+`ub_d29_count_missing`.
+
+The prototype changes 5.3 as follows:
+
+- **D05** is a case of D21. When reading `[VERSION]` reaches the end of the file, the stream
+  fails, and `[SHAPES]` is never read. Every shape is then missing. A file whose blocks use no
+  shape reads correctly.
+- **D22** is a case of D21: the time shape ID -1 is looked up as a shape that does not exist.
+- **D29** also covers a repeated value with no count at the end of a shape: the reader reads one
+  value past the stored values.
+- **D34** is undefined behaviour only when the phase has fewer samples than the magnitude, or
+  when the resampling reads past either shape. With a longer phase, the reader plays the
+  magnitude's length (P1 would play it).
+- **The plain driver reads both D29 files with exit status 0**: it writes past its buffer and
+  goes on.
+
+**The static state.**
+
+- `SeqBlock::s_blockDurationRaster` (cpp:89): set by `load` (cpp:807 for binary files, 1540
+  for text), and read by `GetDuration`, which `gradientsAt` uses to give 0 after the end of a
+  block (cpp:3561). A sequence sampled after another file has loaded would use the other file's
+  raster.
+- `SeqBlock::s_gradientRaster` (cpp:90): 10 µs, never written (D28).
+- `ExternalSequence::print_fun` (cpp:23): one print function for the process.
+- The C locale: `sscanf` reads every number by `LC_NUMERIC`. With a decimal comma, `0.5` reads
+  as 0. A Python program can set the locale; the driver runs in its own process with "C".
+
+Each call into the reader holds one mutex, with the GIL released. It sets
+`s_blockDurationRaster` to its own sequence's value, collects the messages in a buffer of its
+own, and runs with the "C" locale in its thread (`uselocale`; `_configthreadlocale` on Windows).
+The tests read and sample three files, two with different rasters, in 6 threads, 12 times each,
+and get the values of one thread. A sequence sampled after another load keeps its values, and a
+process locale with a decimal comma does not change what the reader reads.
+
+**Differences from the driver.** None in the values. In scope, the wrapper refuses a binary
+Pulseq file and a folder of three files (`ExternalSequence::load` reads both), and a version
+outside 1.4.0–1.5.x (Q1; the driver reads `bad_version_unsupported_1_6.seq`).
+
+**Residual risks.**
+
+1. **A case the checks miss ends the process, or corrupts it silently.** In the process there is
+   no timeout and no exit status. The cases are what ASan and UBSan find on the fixtures and on
+   four new files; nothing guarantees there are no others. Mitigations: fuzz the checks
+   against the sanitizer build of R4; or, for files from unknown sources, run the wrapper in a
+   worker process.
+2. **Files older than 1.4.** For these, `load` itself calls `GetBlock` (cpp:1663), so a cycle
+   in an extension list does not end inside `load`, before any check. The prototype has no gate
+   on the version before `load`. R6 needs one, from the lexer (R5).
+3. **The scanner's build is not known.** The wrapper matches a build on x86_64 with a signed
+   `char` and no FMA; MSVC's `/fp:precise` gives the same bits on the fixtures. `long` is 32
+   bits on Windows (it holds the trapezoid times), which matters only past 2^31 µs.
+4. **Process-wide state outside the lock.** The global C++ locale (the reader's
+   `istringstream` reads the definitions with it), and any other code in the process that calls
+   `ExternalSequence::SetPrintFunction`.
+5. **Findings.** The reader reports no misreading or clamp, and its rejections are messages. The
+   findings need a diff of the lexer's reading against what the reader decoded (as the table of
+   7.6 says).
+6. **Release cost.** Five wheels per release from a CI matrix, where the package today is pure
+   Python. An sdist build needs the network unless it carries the source.
+
+**Decision: wrap, in the process (P11).** The wrapper gives the reader's output bit for bit. That includes its
+float32 arithmetic, `checkRF`, the resampling and its artefacts, and `gradientsAt`. It needed
+about 1 000 lines and a day of work, and it reaches quirks that no oracle test has found yet. A
+Python replica would have to reproduce float32 rounding and the order of operations step by step
+(P6 computes in float64, so it would only ever be close), and every quirk ported by hand would
+need its own proof.
+
+A worker process would survive a case that the checks miss, at the cost of more code and slower
+calls; the checks are needed either way, so the wrapper runs in the process. For it the checks of
+5.3 are safety-critical: a missed case costs the process, not just a wrong finding. So R6:
+
+- moves the prototype into the package, with its build flags and its lock;
+- fuzzes the checks against R4's sanitizer build;
+- gates the version with the lexer (R5) before `load`.
+
+The oracle of flake.nix gets the same flags as the wrapper (`-fsigned-char -ffp-contract=off`)
+in its own task, R13.
 
 ## 8. D46: `[EXTENSIONS]` as the last section
 
@@ -439,23 +609,26 @@ blocks of labels only, with no shape and no signature.
 | Task | Branch | Result |
 |---|---|---|
 | R1 | `docs/parser-redesign` | This plan. |
-| R2 | `chore/cpp-wrapper-prototype` | A prototype of `cpp-siemens` as a wrapper of the C++ reader, and its report (7.6). It decides how R6 to R10 are built. |
+| R2 | `chore/cpp-wrapper-prototype` | A prototype of `cpp-siemens` as a wrapper of the C++ reader, and its report (7.6). Done: the decision is to wrap (P11). |
 | R3 | `refactor/layers` | The modules moved into the subpackages of 7.1, and the import-linter contract. No change of behaviour. |
 | R4 | `chore/sanitized-oracle` | The sanitizer build of the C++ oracle, and the comparison of section 9 for the existing fixtures. It finds each case of undefined behaviour, which R6 then rejects. |
 | R5 | `refactor/lexer` | The lossless lexer (7.2, stage 1), and today's parser rebuilt on it. No change of behaviour: the baseline of task 2 compares the two. |
-| R6 | `feature/cpp-siemens` | The `cpp-siemens` reader, the `interpreter` argument, the findings module (7.4), and each rule of today moved to a rejection (5.2), a finding, or removed. The record and the tests follow; pulseq-checks adapts. |
+| R6 | `feature/cpp-siemens` | The wrapper of R2 in the package (7.6), as the `cpp-siemens` reader, the `interpreter` argument, the findings module (7.4), and each rule of today moved to a rejection (5.2), a finding, or removed. The record and the tests follow; pulseq-checks adapts. |
 | R7 | `feature/cpp-siemens-rf` | D30–D32 clamps, D35 and D36 (P5), D18 findings (P6). |
 | R8 | `feature/cpp-siemens-gradients` | D39, D40 (2), D43 (P7), D28 rejection, D42. |
 | R9 | `feature/cpp-siemens-rotations` | D49: the quaternion normalized and the gradients rotated (Q3); `load` no longer refuses the rotation extension. |
 | R10 | `feature/cpp-siemens-misreadings` | D04, D07, D14, D16 (P3), D08–D10, D12, D19, D20, D24, D54. |
 | R11 | `feature/spec-interpreter` | The `spec` reader and decoder (section 6), with its fixtures. |
 | R12 | `feature/compare` | `compare`, the `interpreters-differ` findings, and the four-source test of section 9. |
+| R13 | `chore/oracle-build-flags` | The C++ oracle of flake.nix built with `-fsigned-char -ffp-contract=off`, as the wrapper (7.6): it ends on Linux aarch64, and its `gradientsAt` gives the bits of an x86_64 build on arm64. |
 
-R2 comes first: its report decides whether R6 to R10 port the C++ reader to Python or wrap it
-(7.6). R3 and R4 do not depend on it and can run at the same time. R5 needs R3, and R6 needs R5
+R2 came first: its report decided that R6 to R10 wrap the C++ reader (P11, 7.6). R7 to R10
+then add findings by comparing the lexer's reading with what the reader decoded, where they
+would otherwise port each quirk. R3 and R4 do not depend on it and can run at the same time. R5 needs R3, and R6 needs R5
 and R2. R7 to R10 each need R6 and are otherwise independent, but they share
 `docs/discrepancies.md` and `TESTS.md`, so they merge in turn. R11 needs R5 and R6 (the
-interpreter argument), and it can run in parallel with R7 to R10. R12 comes last.
+interpreter argument), and it can run in parallel with R7 to R10. R12 comes last. R13 depends
+on nothing.
 
 Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
 
@@ -489,6 +662,11 @@ The user decides whether to file each, on pulseq/pulseq:
 - D29: `decompressShape` writes past its buffer when a shape decompresses to more samples than
   `num_samples`.
 - D16: `-100.5` as a soft delay offset is misread as -100 and a factor of 0.5.
+- `ExternalSequence::getline` compares a `char` with `EOF` (cpp:2301, 2322). With an unsigned
+  `char` (gcc on Linux aarch64) the reader never ends on any file; with a signed one, a 0xFF
+  byte ends the file (7.6).
+- D29: `decompressShape` reads one value past the stored values when a shape ends in a
+  repeated value with no count (cpp:2222).
 
 ## 13. Risks
 
