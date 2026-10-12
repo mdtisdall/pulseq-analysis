@@ -33,8 +33,8 @@ def _defined_callables(module):
 def test_the_package_has_no_gamma():
     """The package has no gamma: each value is in the units of pypulseq and the caller
     divides by |gamma| (docs/usage.md section 9)."""
-    for info in pkgutil.iter_modules(pulseq_analysis.__path__):
-        module = importlib.import_module(f"pulseq_analysis.{info.name}")
+    for info in pkgutil.walk_packages(pulseq_analysis.__path__, "pulseq_analysis."):
+        module = importlib.import_module(info.name)
         for attribute in dir(module):
             assert "gamma" not in attribute.lower(), f"{info.name} has the attribute {attribute}"
         for name, function in _defined_callables(module):

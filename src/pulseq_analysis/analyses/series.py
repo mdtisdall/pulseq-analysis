@@ -42,8 +42,8 @@ from typing import Any
 
 import numpy as np
 
-from ._equality import FrozenDict, _freeze, value_dataclass
-from ._validate import real
+from .._equality import FrozenDict, _freeze, value_dataclass
+from .._validate import real
 
 # `FrozenDict` is defined in `_equality` and is public here (`series.FrozenDict`): the type of
 # the dicts of a result, and of `Series.arrays` and `Series.meta`.

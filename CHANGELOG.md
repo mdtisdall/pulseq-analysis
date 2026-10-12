@@ -21,13 +21,13 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 
 ### Added
 
-- `seqfile.read_seqfile(path)`, a strict reader of Pulseq text files,
+- `reader.read_seqfile(path)`, a strict reader of Pulseq text files,
   versions 1.4.0 to 1.5.x, into `model.SequenceData`, the immutable model of
   layer 1 (the version, the definitions, the rasters, the block table, one
   table for each kind of event, the shapes, the extensions and the
   signature). A file that breaks a rule of the format raises
-  `seqfile.SeqFileError` (a `ValueError`) with all its `seqfile.Violation`
-  values, each with a stable rule ID (`seqfile.RULES`). A 1.4.x file with a
+  `reader.SeqFileError` (a `ValueError`) with all its `reader.Violation`
+  values, each with a stable rule ID (`reader.RULES`). A 1.4.x file with a
   gradient on the default raster is rejected (`layer1.gradient-ends`): the
   file has no values at the ends of such a gradient. `load` does not use the
   reader yet, and no value of a measurement changes. The tests have an
@@ -50,7 +50,7 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `shape.rf-time-end`. `layer1.gradient-ends` also rejects a 1.4.x gradient
   whose time shape does not start at 0, and `block.event-too-long` uses the
   end of an RF event as the scanner's reader plays it.
-  `seqfile.FIRST_TIME_TOLERANCE` and `seqfile.RF_TIME_TOLERANCE` are the
+  `reader.FIRST_TIME_TOLERANCE` and `reader.RF_TIME_TOLERANCE` are the
   tolerances of the new checks.
 - The tests compare the parser and the decoding with two oracles: the C++
   reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`) and MATLAB
@@ -61,6 +61,25 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 
 ### Changed
 
+- The modules are in three subpackages, in layers, and their import paths
+  change. There are no aliases for the old paths:
+  - `pulseq_analysis.seqfile` (the files): `seqfile` becomes
+    `pulseq_analysis.seqfile.reader`, and `model` becomes
+    `pulseq_analysis.seqfile.model`.
+  - `pulseq_analysis.synth` (the waveforms): `snapshot`, `extensions`,
+    `seq_index`, `seq_utils`, `sampling` and `events`, for example
+    `pulseq_analysis.synth.snapshot.load`.
+  - `pulseq_analysis.analyses` (the analyses): `analyses` becomes
+    `pulseq_analysis.analyses.registry`, and `grad_peaks`, `grad_spectrum`,
+    `pns_levels`, `series`, `safe` and `asc` move into it, for example
+    `pulseq_analysis.analyses.pns_levels.pns_levels`.
+
+  The entry points of the five analyses name
+  `pulseq_analysis.analyses.registry`; their group stays
+  `pulseq_analysis.analyses`. A layer imports only from the layers below it,
+  and an import-linter contract checks it. No value and no rule changes. The
+  `TypeError` of a measurement that gets no `Snapshot` names the new paths of
+  `Snapshot` and `load`.
 - The package has its own SAFE code (`safe.py`, ported from pypulseq's
   `safe_hw_check` and `_safe_gwf_to_pns_chunk`, with the notices of their
   licenses) and its own `.asc` reader (in place of pypulseq's `readasc`). The

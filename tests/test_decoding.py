@@ -5,8 +5,9 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-from pulseq_analysis import model
-from pulseq_analysis.events import (
+from pulseq_analysis.seqfile import model
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.synth.events import (
     AdcEvent,
     ArbitraryGradient,
     RfEvent,
@@ -15,7 +16,6 @@ from pulseq_analysis.events import (
     decode_gradients,
     decode_rf,
 )
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 ORACLE = SEQFILES / "oracle"

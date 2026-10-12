@@ -38,22 +38,22 @@ from synthetic import (
     waveform_sequence,
 )
 
-from pulseq_analysis import grad_peaks
 from pulseq_analysis._equality import FrozenDict
-from pulseq_analysis.grad_peaks import (
+from pulseq_analysis.analyses import grad_peaks
+from pulseq_analysis.analyses.grad_peaks import (
     AxisResult,
     GradientPeaks,
     block_gradient_values,
     gradient_peaks,
 )
-from pulseq_analysis.seq_index import (
+from pulseq_analysis.synth.seq_index import (
     NO_GRADIENTS,
     NO_GRADIENTS_IN_WINDOW,
     grad_events,
     sequence_index,
 )
-from pulseq_analysis.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
-from pulseq_analysis.snapshot import Snapshot, _kept_results, load
+from pulseq_analysis.synth.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
+from pulseq_analysis.synth.snapshot import Snapshot, _kept_results, load
 
 
 def test_trapezoid_peak_slew_and_rms_match_hand_computed_values():

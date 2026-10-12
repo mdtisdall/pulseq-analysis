@@ -3,7 +3,7 @@
 Each figure draws what the readers give for a small Pulseq file that this script writes: MATLAB
 Pulseq (the JSON of `pulseq-matlab-oracle`, `tests/matlab_oracle`), the C++ reader of the
 scanner (`pulseq-cpp-oracle --dump` and `--sample`, `tests/cpp_oracle`) and the package
-(`seqfile.read_seqfile` and `events`). The values are the outputs of the readers, not a copy of
+(`reader.read_seqfile` and `events`). The values are the outputs of the readers, not a copy of
 their rules. Run it in the devShell, where both oracles are on the PATH:
 
     nix develop --command uv run python scripts/discrepancy_figures.py
@@ -27,8 +27,8 @@ matplotlib.use("svg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pulseq_analysis.events import decode_gradients, decode_rf
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.synth.events import decode_gradients, decode_rf
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "figures"

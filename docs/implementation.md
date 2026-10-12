@@ -11,6 +11,22 @@ The names that the two documents give are the interface of the package. A
 name that they do not give, or that starts with `_`, can change in any
 release.
 
+The package has three subpackages in layers, and a base of shared helpers at
+the top level (`_equality`, `_validate`). A layer imports only from the layers
+below it and from the base, and the base imports from no layer. An
+import-linter contract (`[tool.importlinter]` of `pyproject.toml`, run by
+`scripts/check`) enforces this order. From the top:
+
+| Layer | Subpackage | Modules |
+|---|---|---|
+| The analyses | `pulseq_analysis.analyses` | `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
+| The waveforms | `pulseq_analysis.synth` | `snapshot`, `extensions`, `seq_index`, `seq_utils`, `sampling`, `events`, `_events` |
+| The files | `pulseq_analysis.seqfile` | `reader`, `model` |
+
+The last part of the path of each module is unique, so the two documents
+write a module by it: `snapshot.load` is
+`pulseq_analysis.synth.snapshot.load`.
+
 Contents:
 
 1. [The gradient waveform](#1-the-gradient-waveform)
@@ -545,7 +561,7 @@ less one hop (half a window) for each 256 windows, is sampled twice.
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
 `decode_array` takes time O(n) for n values. `asc.read_gradient_asc` takes time
 O(the size of the file and of its included files). `extensions.refuse_rotations`
-takes time O(1); `load` calls it one time. `analyses.registry()` reads the entry
+takes time O(1); `load` calls it one time. `registry.registry()` reads the entry
 points of the installed packages. An analysis `compute` is its function.
 
 ### 3.4 Summary
@@ -633,7 +649,7 @@ with the machine and the commit.
 
 ## 4. Kept results
 
-A `Snapshot` (`snapshot.load`, see the module docstring of `pulseq_analysis.snapshot`)
+A `Snapshot` (`snapshot.load`, see the module docstring of `pulseq_analysis.synth.snapshot`)
 holds a private sequence that does not change, and a dict of kept results. Each
 measurement keeps its result in the dict on its first use, under a key made from
 the measurement and its arguments. There is no stamp and no check of a change:
@@ -774,18 +790,18 @@ it. The gradient scale factors
 (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) have no default:
 a file without them raises `ValueError` that says so.
 
-**`analyses.AnalysisSpec`.** `AnalysisSpec(...)` raises `ValueError` for a
+**`registry.AnalysisSpec`.** `AnalysisSpec(...)` raises `ValueError` for a
 `necessary` name that is not in `params`, a name that has both a default and a
 place in `necessary`, a name of `params` with neither, a default for a name
 that is not in `params` or is repeated, defaults not in the order of `params`,
 a default of another kind than `None`, `bool`, `int`, `float`, `str` or a
 tuple of these, a default float that is not finite, an empty `id`, a `version`
 below 1, a `cost` other than `"fast"` and `"slow"`, a raster that is not in
-`analyses.RASTERS`, and a repeated name in `params`. It raises `TypeError` for
+`registry.RASTERS`, and a repeated name in `params`. It raises `TypeError` for
 an `id` that is not a `str`, a `version` that is not an `int` (a `bool` too), a
 `cost` that is not a `str`, and `params` or `rasters` that is not a tuple of
 `str`. A test checks that the signature of each `compute` agrees with
-its spec. `analyses.registry()` raises `analyses.RegistryError` for two
+its spec. `registry.registry()` raises `registry.RegistryError` for two
 analyses with one ID, an entry point that cannot load, an object with no
 `spec.id`, and an entry point whose name is not the `spec.id` of its object.
 The message names the packages (and, for the last case, the entry point and
@@ -815,14 +831,14 @@ file.
 
 ### 7.1 The reader of Pulseq files (in progress)
 
-`seqfile.read_seqfile(path)` gives a `model.SequenceData` of a Pulseq text file
-(versions 1.4.0 to 1.5.x), or raises `seqfile.SeqFileError` with the
-`seqfile.Violation` of every rule that the file breaks (`seqfile.RULES`, at
-most `seqfile.MAX_LOCATIONS` for each rule). The module docstring of `seqfile`
+`reader.read_seqfile(path)` gives a `model.SequenceData` of a Pulseq text file
+(versions 1.4.0 to 1.5.x), or raises `reader.SeqFileError` with the
+`reader.Violation` of every rule that the file breaks (`reader.RULES`, at
+most `reader.MAX_LOCATIONS` for each rule). The module docstring of `reader`
 gives each rule with its source in the specification, and the docstring of
 `model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`, `model.Shape`,
 `model.Signature`, `model.Extensions` and `model.decompress_shape` are part of
-the model. `seqfile.RANGE_TOLERANCE` and `seqfile.TOLERANCE_NS` are the
+the model. `reader.RANGE_TOLERANCE` and `reader.TOLERANCE_NS` are the
 tolerances of the shape range rule and of the raster rules. `load` does not use
 the reader yet. Task 6 of `docs/plans/own-parser.md` documents these names in
 full.

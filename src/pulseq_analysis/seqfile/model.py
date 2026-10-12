@@ -1,6 +1,6 @@
 """The model of layer 1: what a Pulseq file defines, as plain read-only values.
 
-`seqfile.read_seqfile` makes a `SequenceData` from a text file. It holds the version, the
+`reader.read_seqfile` makes a `SequenceData` from a text file. It holds the version, the
 definitions, the rasters, the block table, one table for each kind of event, the shapes, the
 extensions and the signature. IDs are those of the file (no renumbering). A value is in the unit
 of the file converted to seconds, or Hz, Hz/m, rad and ppm as in the file. No value of a target
@@ -51,7 +51,7 @@ from typing import Any
 
 import numpy as np
 
-from ._equality import _freeze, values_equal
+from .._equality import _freeze, values_equal
 
 # The dtype of each table of the model, by field name of `SequenceData` or `Extensions`.
 # `Extensions.labelset`, `Extensions.labelinc` and `Extensions.soft_delays` have a text field

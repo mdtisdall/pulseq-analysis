@@ -57,7 +57,7 @@ def timed(fn):
 def median_window_time(snap, index, n_blocks, rng):
     """The median time of `WINDOWS` calls of `gradient_peaks` with a window of `n_blocks`
     whole blocks, at random places, after one call that is not timed."""
-    from pulseq_analysis.grad_peaks import gradient_peaks
+    from pulseq_analysis.analyses.grad_peaks import gradient_peaks
 
     n = int(index.num_blocks)
     firsts = rng.integers(0, n - n_blocks + 1, size=WINDOWS + 1)
@@ -74,10 +74,10 @@ def median_window_time(snap, index, n_blocks, rng):
 def run_once(build, n_trs, rng):
     from scale_sequences import TR_BLOCKS
 
-    from pulseq_analysis.grad_peaks import block_gradient_values, gradient_peaks
-    from pulseq_analysis.grad_spectrum import gradient_spectrum
-    from pulseq_analysis.sampling import gradient_sampler
-    from pulseq_analysis.seq_index import sequence_index
+    from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
+    from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
+    from pulseq_analysis.synth.sampling import gradient_sampler
+    from pulseq_analysis.synth.seq_index import sequence_index
 
     seq = build(n_trs)
     rows = {}

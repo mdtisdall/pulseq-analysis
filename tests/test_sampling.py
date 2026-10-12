@@ -29,15 +29,15 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import _events, seq_index
-from pulseq_analysis.sampling import (
+from pulseq_analysis.synth import _events, seq_index
+from pulseq_analysis.synth.sampling import (
     GradientSampler,
     gradient_sampler,
     raster_block_lengths,
     sequence_samples,
 )
-from pulseq_analysis.seq_index import grad_events, sequence_index
-from pulseq_analysis.snapshot import Snapshot, load
+from pulseq_analysis.synth.seq_index import grad_events, sequence_index
+from pulseq_analysis.synth.snapshot import Snapshot, load
 
 _AXES = ("gx", "gy", "gz")
 _RASTER = SYSTEM.grad_raster_time

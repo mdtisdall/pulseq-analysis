@@ -31,8 +31,8 @@ import itertools
 from scale_sequences import build_repeating
 from synthetic import SYSTEM
 
-from pulseq_analysis.sampling import gradient_sampler
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.synth.sampling import gradient_sampler
+from pulseq_analysis.synth.snapshot import load
 
 OUT = ROOT / "docs" / "figures"
 # With `DOC_FIGURES_PREVIEW=<dir>`, a PNG of each figure goes to <dir> too, to look at.

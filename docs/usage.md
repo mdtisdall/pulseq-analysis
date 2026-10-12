@@ -26,11 +26,11 @@ Contents:
 ## 1. Quick start
 
 ```python
-from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.grad_peaks import gradient_peaks
-from pulseq_analysis.grad_spectrum import gradient_spectrum
-from pulseq_analysis.pns_levels import pns_levels
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.asc import hardware_from_asc
+from pulseq_analysis.analyses.grad_peaks import gradient_peaks
+from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
+from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.synth.snapshot import load
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
@@ -53,20 +53,26 @@ Each measurement takes a `Snapshot` as its first argument, not a file or a
 `pp.Sequence`. `load` makes the snapshot, and [section 2](#2-before-you-start)
 says why.
 
+The modules are in three subpackages: `pulseq_analysis.analyses` (the
+measurements), `pulseq_analysis.synth` (the snapshot, the events and the
+waveforms) and `pulseq_analysis.seqfile` (the reader of Pulseq files). This
+guide writes a module by the last part of its path: `snapshot.load` is
+`pulseq_analysis.synth.snapshot.load`.
+
 | Module | What it gives | Section |
 |---|---|---|
-| `pulseq_analysis.snapshot` | `load`, and `Snapshot`: the sequence that the measurements read. | [2](#2-before-you-start) |
-| `pulseq_analysis.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
-| `pulseq_analysis.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
-| `pulseq_analysis.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
-| `pulseq_analysis.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
-| `pulseq_analysis.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
-| `pulseq_analysis.analyses` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
-| `pulseq_analysis.series` | `Series`, the part of a value that goes into JSON, its `SeriesKind`, and `FrozenDict`. | [7](#7-run-the-analyses-and-write-json) |
-| `pulseq_analysis.seq_index` | The block table, and the unique events. | [8](#8-the-block-table-and-the-other-modules) |
-| `pulseq_analysis.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
-| `pulseq_analysis.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
-| `pulseq_analysis.extensions` | The refusal of the Pulseq extensions that the measurements do not support, which `load` calls. | [2](#2-before-you-start) |
+| `pulseq_analysis.synth.snapshot` | `load`, and `Snapshot`: the sequence that the measurements read. | [2](#2-before-you-start) |
+| `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
+| `pulseq_analysis.analyses.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
+| `pulseq_analysis.analyses.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
+| `pulseq_analysis.analyses.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
+| `pulseq_analysis.analyses.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
+| `pulseq_analysis.analyses.registry` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
+| `pulseq_analysis.analyses.series` | `Series`, the part of a value that goes into JSON, its `SeriesKind`, and `FrozenDict`. | [7](#7-run-the-analyses-and-write-json) |
+| `pulseq_analysis.synth.seq_index` | The block table, and the unique events. | [8](#8-the-block-table-and-the-other-modules) |
+| `pulseq_analysis.synth.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
+| `pulseq_analysis.synth.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
+| `pulseq_analysis.synth.extensions` | The refusal of the Pulseq extensions that the measurements do not support, which `load` calls. | [2](#2-before-you-start) |
 
 ## 2. Before you start
 
@@ -196,8 +202,8 @@ the same units.
 ```python
 import pypulseq as pp
 
-from pulseq_analysis.grad_peaks import gradient_peaks
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses.grad_peaks import gradient_peaks
+from pulseq_analysis.synth.snapshot import load
 
 system = pp.Opts(max_grad=40, grad_unit="mT/m", max_slew=200, slew_unit="T/m/s")
 
@@ -251,7 +257,7 @@ along the sequence, or to find all the blocks over a limit:
 ```python
 import numpy as np
 
-from pulseq_analysis.grad_peaks import block_gradient_values
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values
 
 values = block_gradient_values(snap)
 slew_x = np.maximum(values.slew_hz_per_m_per_s["x"], values.junction_hz_per_m_per_s["x"])
@@ -327,8 +333,8 @@ times above a fraction `f` of the limit, give the threshold `f * abs(gamma)`.
 `TypeError`; another bad value raises `ValueError`):
 
 ```python
-from pulseq_analysis.asc import hardware_from_asc
-from pulseq_analysis.pns_levels import pns_levels
+from pulseq_analysis.analyses.asc import hardware_from_asc
+from pulseq_analysis.analyses.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
@@ -395,7 +401,7 @@ frequency and the bandwidth of each):
 ```python
 import numpy as np
 
-from pulseq_analysis.grad_spectrum import gradient_spectrum
+from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
 
 gamma = 42.576e6  # Hz/T
 
@@ -448,13 +454,13 @@ windows go through the FFT in chunks.
 
 An *analysis* is a measurement with an ID, a version, a specification of its
 parameters and a form for JSON. A runner such as pulseq-checks finds the
-installed analyses with `analyses.registry()`, and runs them by ID:
+installed analyses with `registry.registry()`, and runs them by ID:
 
 ```python
 import json
 
-from pulseq_analysis.analyses import registry
-from pulseq_analysis.asc import hardware_from_asc
+from pulseq_analysis.analyses.registry import registry
+from pulseq_analysis.analyses.asc import hardware_from_asc
 
 gamma = 42.576e6  # Hz/T
 
@@ -468,7 +474,7 @@ text = json.dumps([s.to_obj() for s in analysis.to_series(levels)], allow_nan=Fa
 ```
 
 An analysis is an object that has the following, as the protocol
-`analyses.Analysis` says:
+`registry.Analysis` says:
 
 - `spec`, an `AnalysisSpec`: `id`, `version`, `title`, `description` (the
   contract of the value), `params` (the keyword arguments of `compute`),
@@ -496,7 +502,7 @@ The analyses of this package (each `version` is 1):
 
 The `cost` is `"fast"` when the time grows with the number of blocks and of
 unique events, and `"slow"` when it grows with the duration of the sequence. The
-`rasters` are names from `analyses.RASTERS` (`GradientRasterTime`,
+`rasters` are names from `registry.RASTERS` (`GradientRasterTime`,
 `BlockDurationRaster`, `RadiofrequencyRasterTime`, `AdcRasterTime`). `AnalysisSpec`
 checks its fields: `id` is a `str` that is not empty, `version` is an `int` of 1
 or more, `cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params`
@@ -505,9 +511,9 @@ default (in the order of `params`), and each default is `None`, a `bool`, an
 `int`, a finite `float`, a `str` or a tuple of these. It raises `ValueError` for
 a bad value and `TypeError` for a wrong type.
 
-The objects of this package are `analyses.SEQ_INDEX`, `analyses.GRADIENT_PEAKS`,
-`analyses.GRADIENT_BLOCKS`, `analyses.PNS_SAFE_LEVELS` and
-`analyses.GRADIENT_SPECTRUM`, in the order of the table (the targets of its entry
+The objects of this package are `registry.SEQ_INDEX`, `registry.GRADIENT_PEAKS`,
+`registry.GRADIENT_BLOCKS`, `registry.PNS_SAFE_LEVELS` and
+`registry.GRADIENT_SPECTRUM`, in the order of the table (the targets of its entry
 points).
 
 `seq.index` has the rasters `("BlockDurationRaster",)`. The other four have
@@ -563,13 +569,13 @@ encoding of the tables of pulseq-reports, and `decode_array(d, max_bytes=None)` 
 inverse ([implementation, section 8](implementation.md#8-series-checks-and-the-array-encoding)).
 
 **Your own analysis.** A package gives its analyses as entry points of the
-group `pulseq_analysis.analyses` (`analyses.GROUP`). The name of an entry point
-is the ID, and its object is the analysis. `analyses.registry()` gives a dict
-from each installed ID to its analysis, and raises `analyses.RegistryError`
+group `pulseq_analysis.analyses` (`registry.GROUP`). The name of an entry point
+is the ID, and its object is the analysis. `registry.registry()` gives a dict
+from each installed ID to its analysis, and raises `registry.RegistryError`
 for two analyses with one ID, an entry point that does not load, an object
 with no `spec.id`, or an entry point whose name is not the `spec.id` of its
-object. `analyses.registry(strict=False)` leaves such an entry point out
-instead, with an `analyses.RegistryWarning` (a `UserWarning`) that has the text
+object. `registry.registry(strict=False)` leaves such an entry point out
+instead, with an `registry.RegistryWarning` (a `UserWarning`) that has the text
 of the error, and gives the other analyses. Of two entry points with one ID, the
 one of this package stays, or else the first. The analyses of this package are
 always in the result.
@@ -612,7 +618,7 @@ snapshot, and the events must not change.
 ```python
 import numpy as np
 
-from pulseq_analysis.sampling import gradient_sampler
+from pulseq_analysis.synth.sampling import gradient_sampler
 
 t = np.linspace(0.0, 0.01, 2001)  # the first 10 ms
 gx = gradient_sampler(snap).sample("gx", t)
@@ -648,14 +654,14 @@ snapshot. A measurement does not call it: a snapshot has passed it.
 
 ### The reader of Pulseq files (in progress)
 
-`seqfile.read_seqfile(path)` reads a Pulseq text file (versions 1.4.0 to 1.5.x)
-into a `model.SequenceData`, or raises `seqfile.SeqFileError` (a `ValueError`)
-with all the `seqfile.Violation` values of the rules in `seqfile.RULES`. The
+`reader.read_seqfile(path)` reads a Pulseq text file (versions 1.4.0 to 1.5.x)
+into a `model.SequenceData`, or raises `reader.SeqFileError` (a `ValueError`)
+with all the `reader.Violation` values of the rules in `reader.RULES`. The
 model is made of `model.Rasters`, `model.Shape`, `model.Signature` and
 `model.Extensions`; `model.TABLE_DTYPES` has the dtype of each table, and
-`model.decompress_shape` decompresses a shape. `seqfile.MAX_LOCATIONS`,
-`seqfile.RANGE_TOLERANCE`, `seqfile.TOLERANCE_NS`,
-`seqfile.FIRST_TIME_TOLERANCE` and `seqfile.RF_TIME_TOLERANCE` are the limits of
+`model.decompress_shape` decompresses a shape. `reader.MAX_LOCATIONS`,
+`reader.RANGE_TOLERANCE`, `reader.TOLERANCE_NS`,
+`reader.FIRST_TIME_TOLERANCE` and `reader.RF_TIME_TOLERANCE` are the limits of
 the reader. `events.decode_rf`, `events.decode_gradients` and
 `events.decode_adc` decode the events of a model, by file ID, into
 `events.RfEvent`, `events.Trapezoid`, `events.ArbitraryGradient` (together

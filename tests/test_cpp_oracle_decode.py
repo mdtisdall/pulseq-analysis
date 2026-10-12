@@ -31,9 +31,9 @@ from test_cpp_oracle import (
     arbitrary_gradient_off_the_10_us_raster,
 )
 
-from pulseq_analysis import _events, events, sampling, seq_index
-from pulseq_analysis.model import SequenceData
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.model import SequenceData
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.synth import _events, events, sampling, seq_index
 
 pytestmark = pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
 

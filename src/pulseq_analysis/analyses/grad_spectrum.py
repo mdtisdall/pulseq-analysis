@@ -53,12 +53,12 @@ import numpy as np
 from scipy import fft as scipy_fft
 from scipy.signal import get_window
 
-from ._equality import FrozenDict, _freeze, value_dataclass
-from ._validate import real
-from .sampling import gradient_sampler, sequence_samples
-from .seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from .seq_utils import _AXES, _GRAD_COLUMNS
-from .snapshot import Snapshot, _check_snapshot, _kept_results
+from .._equality import FrozenDict, _freeze, value_dataclass
+from .._validate import real
+from ..synth.sampling import gradient_sampler, sequence_samples
+from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
+from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
+from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05

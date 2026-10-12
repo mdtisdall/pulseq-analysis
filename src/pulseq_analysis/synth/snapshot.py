@@ -131,8 +131,8 @@ def _check_snapshot(snap: object) -> None:
     functions of the package take a snapshot, not a `pp.Sequence` or a path."""
     if not isinstance(snap, Snapshot):
         raise TypeError(
-            f"expected a pulseq_analysis.snapshot.Snapshot, not {type(snap)!r}: make one with "
-            "pulseq_analysis.snapshot.load(path or sequence)"
+            f"expected a pulseq_analysis.synth.snapshot.Snapshot, not {type(snap)!r}: make one "
+            "with pulseq_analysis.synth.snapshot.load(path or sequence)"
         )
 
 

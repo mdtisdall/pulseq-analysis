@@ -24,11 +24,11 @@ Four sources define how a file is read. Each is fixed at one version.
 | The specification | `doc/specification.tex` of [pulseq/pulseq](https://github.com/pulseq/pulseq) at commit `c7469123c2f381f065986e6cc3a7d09730ed16ef`: "Version 1.5.3 (DRAFT)". The PDF of that commit (`doc/specification.pdf`) is made from it. | The definition of the format. | `spec:N`, line N of `specification.tex`, with the section number of the PDF |
 | The C++ reader | `src/ExternalSequence.cpp` and `src/ExternalSequence.h` of pulseq/pulseq at the same commit, built by `flake.nix` as `pulseq-cpp-oracle` with the driver of `tests/cpp_oracle/` | The reader of the Pulseq interpreter on the scanner: what the scanner plays. | `cpp:N` (`.cpp`), `cpp.h:N` (`.h`) |
 | MATLAB Pulseq | `matlab/` of pulseq/pulseq at the same commit, run under GNU Octave 11.3.0 by `pulseq-matlab-oracle` (`tests/matlab_oracle/`) | The toolbox that writes most Pulseq files. | `read.m:N`, `Sequence.m:N` (`matlab/+mr/@Sequence/`), `restoreAdditionalShapeSamples.m:N` (`matlab/+mr/`) |
-| pypulseq | The pin of `pyproject.toml`: the fork [mdtisdall/pypulseq](https://github.com/mdtisdall/pypulseq) at `3c3bd8515e591ef859399aa20db64b1bd2c3a725` (pypulseq 1.5.0.post1 and six commits) | The reader behind `load(path)`, which does not use `seqfile.read_seqfile` yet. | `read_seq.py:N`, `sequence.py:N` (`pypulseq/Sequence/`), `event_lib.py:N` (`pypulseq/`) |
+| pypulseq | The pin of `pyproject.toml`: the fork [mdtisdall/pypulseq](https://github.com/mdtisdall/pypulseq) at `3c3bd8515e591ef859399aa20db64b1bd2c3a725` (pypulseq 1.5.0.post1 and six commits) | The reader behind `load(path)`, which does not use `reader.read_seqfile` yet. | `read_seq.py:N`, `sequence.py:N` (`pypulseq/Sequence/`), `event_lib.py:N` (`pypulseq/`) |
 
-pulseq-analysis ("the package") reads a file with `seqfile.read_seqfile`. It
-rejects a file that breaks a rule, with the rule IDs of `seqfile.RULES`. The
-module docstring of `seqfile` gives each rule and its source.
+pulseq-analysis ("the package") reads a file with `reader.read_seqfile`. It
+rejects a file that breaks a rule, with the rule IDs of `reader.RULES`. The
+module docstring of `reader` gives each rule and its source.
 
 Each statement about a source was checked in one of two ways:
 
@@ -148,7 +148,7 @@ center is at 1000 µs and the delay is 100 µs, as the text under the example
 says (`spec:372`).
 
 Package: reads the 12 fields of the table, in its order (`_RF_15` of
-`seqfile`). A row with another number of fields is `syntax.columns`. A 1.4.x
+`reader`). A row with another number of fields is `syntax.columns`. A 1.4.x
 file has its own layout of 8 fields, with no `center`, ppm offsets or `use`
 (D38).
 
@@ -171,7 +171,7 @@ can be used" (`spec:545`).
 
 Example: the example row of section 2.8.2, `1 790127 0 -550073 6 0 980`.
 
-Package: reads the 7 fields of the table (`_GRAD_15` of `seqfile`). A row with
+Package: reads the 7 fields of the table (`_GRAD_15` of `reader`). A row with
 another number of fields is `syntax.columns`. A 1.4.x file has its own layout of
 5 fields, with no `first` and `last` (D39, D40).
 
@@ -188,7 +188,7 @@ Reason: as in D01a.
 
 Example: the example rows of section 2.8.3.
 
-Package: reads the 9 fields of the table (`_ADC_15` of `seqfile`). A row with
+Package: reads the 9 fields of the table (`_ADC_15` of `reader`). A row with
 another number of fields is `syntax.columns`. A 1.4.x file has its own layout of
 6 fields, with no ppm offsets and no phase shape.
 
@@ -249,7 +249,7 @@ Package: `version.invalid`: each line is one of the three keys with one
 integer, and each key appears once.
 
 Reason: section 2.3 of the specification gives the three lines (the docstring
-of `seqfile` gives it as the source).
+of `reader` gives it as the source).
 
 #### D05: Sections in an unusual order, such as `[VERSION]` after `[BLOCKS]` or last in the file
 
@@ -266,7 +266,7 @@ the C++ reader accept it; MATLAB rejects it ("MUST include [VERSION] section
 prior to [BLOCKS]"); pypulseq fails with `UnboundLocalError`. The same file
 with `[VERSION]` as the last section made the C++ reader crash in the run.
 
-Package: reads the sections by name in any order (`seqfile._split`).
+Package: reads the sections by name in any order (`reader._split`).
 
 #### D06: A blank or `#` line inside a section, with data after it
 
@@ -290,7 +290,7 @@ Package: a blank or `#` line ends a section, as in `read.m`. A data line after
 the end and before the next header is `syntax.line`.
 
 Reason: the specification is silent, so the package follows the reference
-implementation, `read.m` (the docstring of `seqfile` says so).
+implementation, `read.m` (the docstring of `reader` says so).
 
 #### D07: A shape whose last sample is followed by the next `shape_id` with no blank line
 
@@ -312,7 +312,7 @@ Package: `syntax.shape` for a `shape_id` line with no blank line before it (the
 shape before it is still read), and for a shape without its two header lines.
 A `#` line ends a shape like a blank line.
 
-Reason: the specification does not state this rule; the docstring of `seqfile`
+Reason: the specification does not state this rule; the docstring of `reader`
 lists `syntax.shape` as added.
 
 #### D08: A section that the format does not have
@@ -361,7 +361,7 @@ Example: `tests/seqfiles/bad_section_duplicate.seq` has a second `[TRAP]`.
 Package: `section.duplicate`, also for two `extension` sections with one
 `STRING_ID`.
 
-Reason: the specification does not state this rule; the docstring of `seqfile`
+Reason: the specification does not state this rule; the docstring of `reader`
 lists it as added.
 
 ### Definitions and the syntax of values
@@ -402,7 +402,7 @@ three accept; pypulseq: probe).
 
 Package: `definitions.duplicate`.
 
-Reason: the specification does not state this rule; the docstring of `seqfile`
+Reason: the specification does not state this rule; the docstring of `reader`
 lists it as added.
 
 #### D13: A definition or a `[SIGNATURE]` hash whose text reads as a number
@@ -444,7 +444,7 @@ Package: `syntax.integer`, `syntax.number`, `syntax.columns`,
 Reason: the tables and examples of the specification give the number of columns
 of each row for the version, and the type of each value. The package reads
 integers as integers, and floats as finite numbers. The specification does not
-state `syntax.negative` and `syntax.encoding`; the docstring of `seqfile` lists
+state `syntax.negative` and `syntax.encoding`; the docstring of `reader` lists
 them as added.
 
 #### D15: An ADC dwell time written with a decimal point, such as `2500.0`
@@ -546,7 +546,7 @@ Package: `blocks.order`: block IDs increase through the file, so the order of
 the file and the order of the IDs are one play order.
 
 Reason: as above. The specification does not state this rule; the docstring of
-`seqfile` lists it as added.
+`reader` lists it as added.
 
 #### D21: A reference to an event, shape or extension that does not exist
 
@@ -582,7 +582,7 @@ Package: `ref.unresolved`: time ID -1 is valid from 1.5.0 and for a gradient
 only.
 
 Reason: section 2.8.2 of the specification defines time ID -1 for gradients
-only (the docstring of `seqfile` gives it as the source).
+only (the docstring of `reader` gives it as the source).
 
 #### D23: A cycle in an extension list
 
@@ -654,7 +654,7 @@ Example: `tests/seqfiles/bad_raster_adc_dwell.seq` (25050 ns on 100 ns),
 
 Package: `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`,
 `raster.gradient-ramp`, `raster.gradient-flat`, with the tolerance
-`seqfile.TOLERANCE_NS` (1 ps).
+`reader.TOLERANCE_NS` (1 ps).
 
 Reason: the specification states these rules ("must"). The package compares a
 time with a raster in integer nanoseconds where the file gives integers in µs,
@@ -726,7 +726,7 @@ Reason: section 2.9 of the specification states the rule ("must").
 Example: `tests/seqfiles/bad_shape_range.seq` has a gradient sample of 1.5.
 The C++ dump has 1 for it (run): the scanner plays 1 where the file says 1.5.
 
-Package: `shape.range`, within `seqfile.RANGE_TOLERANCE` (1e-9).
+Package: `shape.range`, within `reader.RANGE_TOLERANCE` (1e-9).
 
 Reason: the specification states the rule. The tolerance is the largest error
 of decompression found on the oracle files, rounded up, so that no oracle file
@@ -803,7 +803,7 @@ magnitude of 100 samples and a phase of 8.
 
 Package: `shape.event-length`.
 
-Reason: the specification does not state this rule; the docstring of `seqfile`
+Reason: the specification does not state this rule; the docstring of `reader`
 lists it as added.
 
 ### RF decoding
@@ -836,7 +836,7 @@ samples agree, and only the end differs (D37).
 Package: decodes the event as the C++ reader plays it (`events.decode_rf`,
 `model._rf_time_step`): `t = (i + 0.5) d`, `shape_dur = N d`.
 `shape.rf-time-grid` rejects a regular shape whose times are not the centres of
-its cells, within `seqfile.RF_TIME_TOLERANCE` (1e-6 RF rasters).
+its cells, within `reader.RF_TIME_TOLERANCE` (1e-6 RF rasters).
 
 Reason: the package decodes the event as the scanner's reader plays it.
 `shape.rf-time-grid` rejects a regular shape whose times are not the centres of
@@ -953,7 +953,7 @@ value of the first sample, which is at time 0.
 
 Package: `first` and `last` are the amplitude times the first and last
 samples. `layer1.gradient-ends` also rejects a 1.4 time shape whose first time
-is not 0 (within `seqfile.FIRST_TIME_TOLERANCE`).
+is not 0 (within `reader.FIRST_TIME_TOLERANCE`).
 
 Reason: the package keeps the value that the file gives at the start of the
 event, the amplitude times the first sample. It rejects a 1.4 time shape that
@@ -1173,7 +1173,7 @@ is `9.999999999999999e-06` s. The package has both trapezoids, with amplitudes
 0.0 and -0.0, and a rise time of `1e-05` s.
 
 Package: the IDs and the values of the file; a time is the number of the file
-divided by 1e6 or 1e9 (`seqfile` docstring: no rounding, no renumbering).
+divided by 1e6 or 1e9 (`reader` docstring: no rounding, no renumbering).
 
 Reason: the block and event IDs are those of the file: the package does not
 renumber them.
@@ -1215,7 +1215,7 @@ match: the package, the C++ reader and MATLAB read it, and so does pypulseq
 (probe).
 
 Package: `Signature.matches` by the rule of the C++ reader
-(`seqfile._scanner_hash_input`). A hash that does not match is not a
+(`reader._scanner_hash_input`). A hash that does not match is not a
 violation.
 
 Reason: the package follows the C++ reader. It checks and reports the signature
@@ -1237,7 +1237,7 @@ Example: `tests/seqfiles/bad_signature_invalid.seq` has `Type md5` and no
 Package: `signature.invalid`.
 
 Reason: section 2.4 of the specification says that the section must contain
-both fields (the docstring of `seqfile` gives it as the source).
+both fields (the docstring of `reader` gives it as the source).
 
 #### D55: An `extension` header whose `STRING_ID` is a word, where the specification's table gives the type integer
 

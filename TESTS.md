@@ -179,11 +179,11 @@ defines has a parameter with "gamma" in its name. Each value is in the units of
 pypulseq and the caller divides by the magnitude of gamma (`docs/usage.md`
 section 9).
 
-**How:** The test imports each module of `pulseq_analysis` with `pkgutil` and
-`importlib`. For each module, it checks the names in `dir(module)`. It then
-takes each function and each method of each class that the module defines,
-private ones too, and checks the names of the parameters that
-`inspect.signature` gives. It skips the objects with a `__module__` outside the
+**How:** The test imports each module and subpackage of `pulseq_analysis` with
+`pkgutil.walk_packages` and `importlib`. For each module, it checks the names
+in `dir(module)`. It then takes each function and each method of each class
+that the module defines, private ones too, and checks the names of the
+parameters that `inspect.signature` gives. It skips the objects with a `__module__` outside the
 package, such as numpy and pypulseq objects, and the objects whose signature
 cannot be read. The comparison ignores the case.
 
@@ -604,8 +604,8 @@ changed. A `bin_s` of the whole duration gives one bin of `num_samples` samples.
 
 **How:** `gre_sequence(num_trs=6)` with `EXAMPLE_HW`. Each call is a `_compute` call
 (`_compute_levels`): the first has `bin_s=1e-9` and the real `MAX_BINS`. Then the test sets
-`pulseq_analysis.pns_levels.MAX_BINS` to 50 with `monkeypatch`, calls again with the same
-arguments, checks that the result is not the object of the first call, and compares. A last
+`pulseq_analysis.analyses.pns_levels.MAX_BINS` to 50 with `monkeypatch`, calls again with the
+same arguments, checks that the result is not the object of the first call, and compares. A last
 call has `bin_s = num_samples * 1e-5`.
 
 **Assumptions:** `pns_levels` reads `MAX_BINS` as a module global (`bin_samples_for` does),
@@ -620,7 +620,7 @@ equality for chunks of 1, 2 and 7 bins and one chunk larger than the whole file.
 chunk) still has more than one chunk. `reference` is a `_compute` call (`_compute_levels`,
 with the `_CHUNK_SAMPLES` of the module); then, for each size in `1`, `bin_samples + 1`,
 `7 * bin_samples - 1` and `bin_samples * (num_samples // bin_samples + 10)`,
-`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to it and
+`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.analyses.pns_levels` to it and
 `_compute` runs again; its result must not be the object of the reference. `_compute_levels`
 rounds the chunk up to a whole number of
 bins, so the sizes give chunks of 1, 2 and 7 bins and one chunk bigger than the file.
@@ -814,7 +814,7 @@ and `thresholds_hz_per_t=(_LIMIT,)`, and every call has `bin_s=10.0 / 1624`
 the `_CHUNK_SAMPLES` of the module.
 The test searches the chunks of 1 to 19 bins for the first one where the last sample of
 an interval is in a later chunk than its first sample, and fails if there is none. Then
-`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels` to 1, to that
+`monkeypatch.setattr` sets `_CHUNK_SAMPLES` of `pulseq_analysis.analyses.pns_levels` to 1, to that
 size and to a size larger than the file, each result must not be the object of the
 reference, and the whole `PnsLevels` is compared with the reference
 (`numpy.array_equal` for the arrays, `==` for the rest).
@@ -895,7 +895,7 @@ those of `0.5 * _LIMIT` have more samples in total (so the two thresholds do not
 same runs). For each chunk size (the normal one, 1,
 and for each threshold the first of 1 to 19 bins with an interval across its end, found
 as in `test_the_intervals_do_not_depend_on_chunk_samples`; `monkeypatch.setattr` sets
-`_CHUNK_SAMPLES` of `pulseq_analysis.pns_levels`), the call with both thresholds must
+`_CHUNK_SAMPLES` of `pulseq_analysis.analyses.pns_levels`), the call with both thresholds must
 have the keys `[_LIMIT, 0.5 * _LIMIT]`, the same tuple as `single` for each threshold, and
 every other field equal (`assert_levels_equal` (`tests/asserts.py`) with `ignore=("above",)`).
 The results of the chunk sizes must be different objects (each size ran the model). After
@@ -3407,7 +3407,7 @@ sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 `peak_time_s`, `axis_peaks_hz_per_t`) and the level. The SAFE model itself
 (`pns_levels._compute_levels`, the chunked SAFE recursion of `safe.py`) runs on a
 result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
-of `pulseq_analysis.pns_levels` with a wrapper that counts its calls.
+of `pulseq_analysis.analyses.pns_levels` with a wrapper that counts its calls.
 `pns_levels` keeps one `PnsLevels` for each (snapshot, hardware, thresholds, `bin_s`),
 the hardware being a pair `(struct, label)` (its key is the label and the 24 values of
 the struct without `stim_thresh`, so two pairs with the same label and values are one
@@ -3429,7 +3429,7 @@ also have the layout of a scanner file: a main file with an `ASCCONV` block,
 CRLF line ends and the name in `asCOMP[0].tName`, which includes a
 `_GSWD_SAFETY.asc` file with the PNS parameters under `GradPatSup.Phys.PNS`. The
 tests give the hardware of such a file as `hardware_from_asc(path)` of
-`pulseq_analysis.asc`.
+`pulseq_analysis.analyses.asc`.
 
 Most of the tests use the synthetic spin echo sequence
 (`tests/synthetic.py`'s `spin_echo_sequence`).
@@ -4459,7 +4459,7 @@ each byte of a damaged gzip stream, only the cases in the list.
 
 ### 2.9 Analyses (`test_analyses.py`)
 
-`test_analyses.py` tests `analyses.py`: the entry-point registry of the group
+`test_analyses.py` tests `analyses/registry.py`: the entry-point registry of the group
 `pulseq_analysis.analyses`, the specification of each of the five analyses of the package
 (`seq.index`, `gradient.peaks`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum`),
 `compute`, and `to_series` of `pns.safe.levels` and `gradient.spectrum` (design section 4.4 of
@@ -4574,7 +4574,7 @@ the other package, and the result has the analysis of this package for that ID.
 and then the installed ones.
 
 **Assumptions:** The installed entry points have a `value` that starts with
-`pulseq_analysis.analyses:`.
+`pulseq_analysis.analyses.registry:`.
 #### `test_the_spec_of_each_analysis_has_the_documented_values`
 
 **Checks:** The ID, the version 1, `params`, `necessary`, `defaults`, `rasters` and `cost` of
@@ -6364,30 +6364,32 @@ and that the index has the 6 blocks of the sequence.
 ### 2.18 The names of the interface (`test_interface.py`)
 
 The tests read the backtick spans and the code blocks of `docs/usage.md` and
-`docs/implementation.md`. A dotted name whose first part (after an optional
-`pulseq_analysis.`) is a module of the package is a name with a module, and so is each name of a
-`from pulseq_analysis.module import ...` line of a Python code block. A bare name in a span or a
-block is a name of any module.
+`docs/implementation.md`. A dotted name that starts (after an optional `pulseq_analysis.`) with
+the path of a module or subpackage of the package (the longest one, for example
+`synth.snapshot`), or with the last part of the path of a module (`snapshot`), is a name with a
+module, and so is each name of a `from pulseq_analysis.module import ...` line of a Python code
+block. A bare name in a span or a block is a name of any module.
 
 #### `test_each_name_that_the_documents_give_with_a_module_can_be_imported`
 
-**Checks:** Each module and each name that the documents give with a module (`analyses.registry`,
-`series.FrozenDict`, `pulseq_analysis.snapshot`, the names of the imports of the code blocks)
-exists in the package.
+**Checks:** Each module and each name that the documents give with a module
+(`registry.registry`, `series.FrozenDict`, `pulseq_analysis.synth.snapshot`, the names of the
+imports of the code blocks) exists in the package.
 
 **How:** The test reads the dotted names and the imports of the documents, checks that it found
-`series.FrozenDict`, `analyses` and the import of `gradient_peaks` (so the reading is not empty),
-imports each module, and collects each name that the module does not have.
+`series.FrozenDict`, the subpackage `analyses` and the import of `gradient_peaks` (so the reading
+is not empty), imports each module, and collects each name that the module does not have.
 
 **Assumptions:** A further part of a dotted name (a method, as in `Series.to_obj`) is not read.
 A name that a document gives in a private module (for example `_events._read_points`) is also
-checked.
+checked. The last parts of the paths of the modules are unique (the test asserts it), so a short
+name gives one module.
 
 #### `test_the_interface_names_of_the_review_are_in_the_documents`
 
-**Checks:** The documents give `series.SeriesKind`, `analyses.Analysis` and `series.FrozenDict`,
+**Checks:** The documents give `series.SeriesKind`, `registry.Analysis` and `series.FrozenDict`,
 and the three names are at their public paths: `series.FrozenDict` is the `FrozenDict` of
-`_equality`, and the other two are defined in `series` and `analyses`.
+`_equality`, and the other two are defined in `analyses.series` and `analyses.registry`.
 
 **How:** The test reads the dotted names of the documents, imports the three names, and compares
 the object and the `__module__` of each.
@@ -6396,8 +6398,9 @@ the object and the `__module__` of each.
 
 #### `test_each_public_name_of_a_module_is_in_the_documents_or_an_exception`
 
-**Checks:** Each name that a public module defines (a module without a `_` at the start, a name
-without a `_` at the start) is in the documents, or is in `EXCEPTIONS` of the test.
+**Checks:** Each name that a public module defines (a module without a `_` at the start of the
+last part of its path, a name without a `_` at the start) is in the documents, or is in
+`EXCEPTIONS` of the test.
 
 **How:** The test takes the names of the top level of the source of each module (def, class and
 assignment, so an imported name such as `np` does not count), and compares those that no span or
@@ -6417,7 +6420,7 @@ and has a reason.
 
 ### 2.19 The reader of Pulseq files (`test_seqfile.py`)
 
-`test_seqfile.py` tests `seqfile.read_seqfile` and the model of `model.py`. The files are in
+`test_seqfile.py` tests `reader.read_seqfile` and the model of `model.py`. The files are in
 `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule (`bad_*.seq`,
 each made from a valid fixture with one change, by hand), and `tests/seqfiles/oracle`, the copies
 of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the
@@ -6527,7 +6530,7 @@ not exist.
 #### `test_each_bad_fixture_is_listed_and_each_rule_has_a_fixture`
 
 **Checks:** The test table lists each `bad_*.seq` fixture except `bad_many.seq`, and each rule of
-`seqfile.RULES` is broken by a fixture or by an oracle file.
+`reader.RULES` is broken by a fixture or by an oracle file.
 
 **How:** The test compares the file names of the folder with the keys of the table, and the rules of
 the table and of the oracle files with `RULES`.
@@ -6586,7 +6589,7 @@ counts and path, and a `Violation` cannot be changed.
 
 #### `test_each_rule_of_the_module_docstring_is_a_rule_of_the_table`
 
-**Checks:** The rule IDs in backticks in the module docstring of `seqfile` are the keys of `RULES`,
+**Checks:** The rule IDs in backticks in the module docstring of `reader` are the keys of `RULES`,
 so the documentation of the rules and the table do not differ.
 
 **How:** The test finds the words in backticks that have the form of a rule ID (a dot between two
@@ -7150,8 +7153,8 @@ only; it does not cover a NUL byte.
 
 #### `test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files`
 
-**Checks:** For each `.seq` file under `tests/seqfiles/`, `pulseq_analysis.seqfile.read_seqfile`
-and the oracle accept the file or reject it alike. The exception: a file that `read_seqfile`
+**Checks:** For each `.seq` file under `tests/seqfiles/`,
+`pulseq_analysis.seqfile.reader.read_seqfile` and the oracle accept the file or reject it alike. The exception: a file that `read_seqfile`
 rejects, only with rules from `NOT_CHECKED_BY_THE_READER` of the test, may be accepted by the
 oracle. Each entry of that dictionary is a rule that the oracle does not check, with a fixture or
 a change of a valid file that it accepted. The files of `ORACLE_KNOWN_WRONG` (now
@@ -7162,8 +7165,8 @@ A file that `read_seqfile` accepts and that has an arbitrary gradient (a row of 
 uses) on a gradient raster other than 10 us is not compared either, because `decodeBlock` fails on
 it (`ExternalSequence.cpp:2114-2119`); the test records the skipped files with
 `record_property("skipped", ...)` (in the junit XML). Today it skips one file, the 4 us fixture.
-The test skips when `pulseq_analysis.seqfile` cannot be imported, and when `tests/seqfiles/` has
-no `.seq` file.
+The test skips when `pulseq_analysis.seqfile.reader` cannot be imported, and when
+`tests/seqfiles/` has no `.seq` file.
 
 **How:** The test calls `read_seqfile` on each file, then runs the oracle (a crash counts as a
 rejection), except for a file that the raster skip covers. It collects each file where `read_seqfile` accepts and the oracle does not,
@@ -7359,26 +7362,26 @@ function as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place.
 the default bin and bins of one sample, with `pytest.importorskip`. `_CHUNK_SAMPLES` is 1000,
 so the state passes from chunk to chunk; two thresholds make intervals (the test checks that
 some interval exists and that the peak is above 0). The first result is with the package's
-function; `monkeypatch` then sets `_safe_gwf_to_pns_chunk` of `pulseq_analysis.pns_levels` to
-the fork's, and the second result is compared with the first.
+function; `monkeypatch` then sets `_safe_gwf_to_pns_chunk` of
+`pulseq_analysis.analyses.pns_levels` to the fork's, and the second result is compared with the first.
 
 **Assumptions:** The sequences are the synthetic sequences, with the example hardware.
 
 #### `test_safe_and_asc_import_neither_pypulseq_nor_matplotlib`
 
-**Checks:** A new interpreter that imports `pulseq_analysis.safe` and `pulseq_analysis.asc`
-has no module of `pypulseq` or `matplotlib` in `sys.modules`.
+**Checks:** A new interpreter that imports `pulseq_analysis.analyses.safe` and
+`pulseq_analysis.analyses.asc` has no module of `pypulseq` or `matplotlib` in `sys.modules`.
 
 **How:** A subprocess runs the import and the check.
 
-**Assumptions:** `pulseq_analysis.pns_levels` is not tested: it imports the snapshot, which
-imports pypulseq, and `import pypulseq` imports matplotlib and
+**Assumptions:** `pulseq_analysis.analyses.pns_levels` is not tested: it imports the snapshot,
+which imports pypulseq, and `import pypulseq` imports matplotlib and
 `pypulseq.utils.safe_pns_prediction` (checked on 2026-10-08).
 
 #### `test_only_snapshot_extensions_and_seq_index_import_pypulseq`
 
-**Checks:** Of the modules of `src/pulseq_analysis`, only `snapshot`, `extensions` and
-`seq_index` have an `import` of pypulseq.
+**Checks:** Of the modules of `src/pulseq_analysis` and its subpackages, only `snapshot`,
+`extensions` and `seq_index` have an `import` of pypulseq.
 
 **How:** The test parses each file with `ast` and collects the modules that have an `import` or
 an `import from` of a name that starts with `pypulseq`, in any scope.
@@ -7627,7 +7630,7 @@ the values.
 ### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
 
 `test_cpp_oracle_decode.py` compares the model of `read_seqfile`, the events of
-`pulseq_analysis.events` and the gradient waveform of `GradientSampler` with the reader
+`pulseq_analysis.synth.events` and the gradient waveform of `GradientSampler` with the reader
 `ExternalSequence` of the scanner, through the modes `--dump` and `--sample` of `pulseq-cpp-oracle`
 (`tests/oracles/cpp.py`; `tests/cpp_oracle/README.md` has the fields and their units). It compares
 each `.seq` file under `tests/seqfiles/` that both `read_seqfile` and the oracle accept, except the

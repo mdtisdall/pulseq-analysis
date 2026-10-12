@@ -12,14 +12,14 @@ dependencies = [
     "scipy",
 ]
 
-# The analyses of this package (`pulseq_analysis.analyses`): the name of an entry point is the
-# ID of the analysis.
+# The analyses of this package (`pulseq_analysis.analyses.registry`): the name of an entry point
+# is the ID of the analysis.
 [project.entry-points."pulseq_analysis.analyses"]
-"seq.index" = "pulseq_analysis.analyses:SEQ_INDEX"
-"gradient.peaks" = "pulseq_analysis.analyses:GRADIENT_PEAKS"
-"gradient.blocks" = "pulseq_analysis.analyses:GRADIENT_BLOCKS"
-"pns.safe.levels" = "pulseq_analysis.analyses:PNS_SAFE_LEVELS"
-"gradient.spectrum" = "pulseq_analysis.analyses:GRADIENT_SPECTRUM"
+"seq.index" = "pulseq_analysis.analyses.registry:SEQ_INDEX"
+"gradient.peaks" = "pulseq_analysis.analyses.registry:GRADIENT_PEAKS"
+"gradient.blocks" = "pulseq_analysis.analyses.registry:GRADIENT_BLOCKS"
+"pns.safe.levels" = "pulseq_analysis.analyses.registry:PNS_SAFE_LEVELS"
+"gradient.spectrum" = "pulseq_analysis.analyses.registry:GRADIENT_SPECTRUM"
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +30,7 @@ packages = ["src/pulseq_analysis"]
 
 [dependency-groups]
 dev = [
+    "import-linter",
     "pytest",
     "ruff",
 ]
@@ -44,6 +45,23 @@ dev = [
 # does not.
 [tool.uv.sources]
 pypulseq = { git = "https://github.com/mdtisdall/pypulseq", rev = "3c3bd8515e591ef859399aa20db64b1bd2c3a725" }
+
+# The layers of docs/plans/parser-redesign.md, section 7.1: a layer imports only from the layers
+# below it. `scripts/check` runs `lint-imports`.
+[tool.importlinter]
+root_package = "pulseq_analysis"
+
+[[tool.importlinter.contracts]]
+name = "The analyses, the waveforms, the files and the base, in layers"
+type = "layers"
+containers = ["pulseq_analysis"]
+layers = [
+    "analyses",
+    "synth",
+    "seqfile",
+    "_equality : _validate",
+]
+exhaustive = true
 
 [tool.ruff]
 line-length = 100

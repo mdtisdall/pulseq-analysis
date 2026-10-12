@@ -24,18 +24,18 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import seq_index
 from pulseq_analysis._equality import _freeze, values_equal
-from pulseq_analysis.model import TABLE_DTYPES
-from pulseq_analysis.seq_index import (
+from pulseq_analysis.seqfile.model import TABLE_DTYPES
+from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.synth import seq_index
+from pulseq_analysis.synth.seq_index import (
     adc_events,
     grad_events,
     has_gradients,
     rf_events,
     sequence_index,
 )
-from pulseq_analysis.seqfile import SeqFileError, read_seqfile
-from pulseq_analysis.snapshot import Snapshot, load
+from pulseq_analysis.synth.snapshot import Snapshot, load
 
 _AXES = ("gx", "gy", "gz")
 

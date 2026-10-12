@@ -4,13 +4,13 @@ import re
 import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 
-from pulseq_analysis.asc import (
+from pulseq_analysis.analyses.asc import (
     hardware_from_asc,
     hardware_name,
     read_gradient_asc,
     safe_hardware,
 )
-from pulseq_analysis.safe import SAFE_FIELDS, SafeHardware
+from pulseq_analysis.analyses.safe import SAFE_FIELDS, SafeHardware
 
 # Every form of a line that `read_gradient_asc` reads, in the layout of a scanner file: a
 # comment line, blank lines, a line with no `=` (left out), strings, integers, floats (with an

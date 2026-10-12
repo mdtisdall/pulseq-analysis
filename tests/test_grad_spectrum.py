@@ -31,11 +31,12 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis import grad_spectrum, seq_index
 from pulseq_analysis._equality import FrozenDict
-from pulseq_analysis.sampling import GradientSampler, sequence_samples
-from pulseq_analysis.seq_index import sequence_index
-from pulseq_analysis.snapshot import load
+from pulseq_analysis.analyses import grad_spectrum
+from pulseq_analysis.synth import seq_index
+from pulseq_analysis.synth.sampling import GradientSampler, sequence_samples
+from pulseq_analysis.synth.seq_index import sequence_index
+from pulseq_analysis.synth.snapshot import load
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
 # A/2 * sum(w) / sqrt(fs * sum(w^2)), with 5000 samples at 100 kHz.

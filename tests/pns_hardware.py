@@ -9,9 +9,9 @@ import pytest
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import EXAMPLE_HW, GAMMA_1H
 
-from pulseq_analysis.pns_levels import pns_levels
-from pulseq_analysis.safe import SafeHardware
-from pulseq_analysis.snapshot import Snapshot
+from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.analyses.safe import SafeHardware
+from pulseq_analysis.synth.snapshot import Snapshot
 
 # Values of `hardware` that are not a pair `(struct, label)`: a struct alone (a namespace or a
 # `SafeHardware`), a list, a tuple of three items, a pair whose label is not a `str`, a path

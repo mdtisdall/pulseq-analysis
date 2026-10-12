@@ -34,16 +34,16 @@ from synthetic import (
     with_rotation_library,
 )
 
-from pulseq_analysis import extensions
-from pulseq_analysis import snapshot as snapshot_module
 from pulseq_analysis._equality import values_equal
-from pulseq_analysis._events import event_points
-from pulseq_analysis.grad_peaks import block_gradient_values, gradient_peaks
-from pulseq_analysis.grad_spectrum import gradient_spectrum
-from pulseq_analysis.pns_levels import pns_levels
-from pulseq_analysis.sampling import gradient_sampler, raster_block_lengths
-from pulseq_analysis.seq_index import adc_events, grad_events, rf_events, sequence_index
-from pulseq_analysis.snapshot import Snapshot, _check_snapshot, _kept_results, load
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
+from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
+from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.synth import extensions
+from pulseq_analysis.synth import snapshot as snapshot_module
+from pulseq_analysis.synth._events import event_points
+from pulseq_analysis.synth.sampling import gradient_sampler, raster_block_lengths
+from pulseq_analysis.synth.seq_index import adc_events, grad_events, rf_events, sequence_index
+from pulseq_analysis.synth.snapshot import Snapshot, _check_snapshot, _kept_results, load
 
 # The columns of a row of `seq.block_events` that the direct writes of the tests use.
 _GX_COLUMN, _GY_COLUMN = 2, 3
@@ -474,7 +474,14 @@ def test_load_calls_refuse_rotations_once_and_no_measurement_calls_it(build, mon
     def fail(seq):
         raise AssertionError("refuse_rotations was called by a measurement")
 
-    names = ("seq_index", "_events", "sampling", "grad_peaks", "pns_levels", "grad_spectrum")
+    names = (
+        "synth.seq_index",
+        "synth._events",
+        "synth.sampling",
+        "analyses.grad_peaks",
+        "analyses.pns_levels",
+        "analyses.grad_spectrum",
+    )
     modules = [importlib.import_module(f"pulseq_analysis.{name}") for name in names]
     for module in (extensions, snapshot_module, *modules):
         monkeypatch.setattr(module, "refuse_rotations", fail, raising=False)
