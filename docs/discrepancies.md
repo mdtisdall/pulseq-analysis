@@ -775,7 +775,7 @@ Reason: a clamped phase is a different pulse than the file says.
 | Source | What it does |
 |---|---|
 | Specification | Silent. |
-| C++ reader | Crash (matrix, `bad_shape_empty.seq`). |
+| C++ reader | Undefined behaviour: it takes `&waveform[0]` of an empty vector and copies from `samples.front()` of an empty vector (`cpp:1995`, `cpp:2203`). The macOS build crashes (matrix, `bad_shape_empty.seq`); the Linux build accepts the file. |
 | MATLAB Pulseq | Fails (matrix: "Unknown section code: Hash …"). |
 | pypulseq | Fails (probe: "could not convert string to float: '[SIGNATURE]'"). |
 
@@ -786,7 +786,8 @@ Package: `shape.empty`, for a shape that an RF event or an arbitrary gradient
 uses.
 
 Reason: this rule is stricter than the specification, which says nothing.
-MATLAB fails on such an event, and the C++ reader crashes or rejects it.
+MATLAB fails on such an event, and what the C++ reader does depends on the
+build.
 
 #### D34: The shapes of one event with different numbers of samples
 
@@ -856,8 +857,9 @@ Example: the bottom panel, an uncompressed time shape 1, 2, 4, 7, 10 µs with
 magnitudes 0.2, 0.6, 1, 0.6, 0.2. MATLAB has each sample at its time; the C++
 reader plays 10 cells of 1 µs: 0.2, 0.6, 1, 1, 0.6, 0.6, 0.6, 0.2, 0.2, 0.2
 (times 1000 Hz). The fixture `tests/seqfiles/bad_shape_rf_time_end.seq` has the
-time shape 0, 99.6: the loop reads past the 2 stored samples; matrix: the C++
-reader crashes, MATLAB reads, pypulseq reads (probe).
+time shape 0, 99.6: the loop reads past the 2 stored samples; matrix: the
+macOS build of the C++ reader crashes (the Linux build accepts the file),
+MATLAB reads, pypulseq reads (probe).
 
 Package: decodes the event as the C++ reader plays it (`model._rf_resample`).
 `shape.rf-time-end` rejects a shape for which the index of the loop reaches the
@@ -1377,7 +1379,7 @@ made for this section:
 | [D30](#d30-an-amplitude-shape-with-a-sample-outside--1-1) | C++ | The clamped value: 1 for a gradient sample of 1.5; an RF magnitude in [0, 1]. | Rejects (`shape.range`). | differs | Accept, and decode the clamped values. |
 | [D31](#d31-an-rf-magnitude-shape-with-a-sample-below-0) | C++ | The clamped value 0. | Rejects (`shape.rf-magnitude-negative`). | differs | Accept, and decode 0. |
 | [D32](#d32-an-rf-phase-shape-with-a-sample-outside-0-1) | C++ | The phase in rad clamped to [0, 2π - 1e-4]: 2π - 1e-4 for 1.5 turns. | Rejects (`shape.rf-phase-range`). | differs | Accept, and decode the clamped phase. |
-| [D33](#d33-a-shape-with-no-sample-that-an-event-uses) | none | C++ crashes; the specification is silent; MATLAB and pypulseq fail. Reject. | Rejects (`shape.empty`). | agrees | — |
+| [D33](#d33-a-shape-with-no-sample-that-an-event-uses) | none | C++ has undefined behaviour (the macOS build crashes, the Linux build accepts); the specification is silent; MATLAB and pypulseq fail. Reject. | Rejects (`shape.empty`). | agrees | — |
 | [D34](#d34-the-shapes-of-one-event-with-different-numbers-of-samples) | none for RF; not known for a gradient | RF: C++ crashes; the specification is silent; MATLAB fails; pypulseq's `get_block` fails (run). Reject. A gradient whose time shape has another length: C++ rejects (`cpp:2190`), MATLAB asserts, pypulseq not run. | Rejects (`shape.event-length`). | agrees for RF; not known for a gradient | — |
 | [D35](#d35-an-rf-time-shape-stored-compressed-in-3-or-4-values-a-regular-step) | C++ | Each sample for one dwell (the second stored value times the RF raster) from the delay; the first time is not used. This also holds where the times are not the centres of the cells. | Decodes as C++; rejects off-centre times (`shape.rf-time-grid`). | agrees on the centres; differs off them | Accept off-centre times. |
 | [D36](#d36-an-rf-time-shape-stored-in-any-other-form) | C++ for (1); the specification for (2) | (1) A shape that the loop reads within its samples: the resampled pulse. (2) A shape for which the loop reads past its samples: undefined behaviour in C++; the specification: the samples at the times of the shape, in RF rasters (`spec:349`), as MATLAB and pypulseq read them. | (1) Decodes as C++; (2) rejects (`shape.rf-time-end`). | (1) agrees; (2) differs | Accept (2) and decode it at the times of the shape. |

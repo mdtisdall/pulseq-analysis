@@ -96,10 +96,15 @@ NOT_CHECKED_BY_THE_READER = {
     "shape.length": "`bad_shape_length.seq` (it crashes or rejects a shape with `num_samples` of "
     "0, in `decodeBlock`)",
     "shape.range": "`bad_shape_range.seq`",
+    "shape.empty": "`bad_shape_empty.seq` (accepted by the Linux build; the macOS build crashes: "
+    "it indexes an empty vector, ExternalSequence.cpp:1995 and 2203)",
     "shape.rf-magnitude-negative": "`bad_shape_rf_magnitude_negative.seq` (the reader sets a "
     "negative sample to 0 in `checkRF`)",
     "shape.rf-phase-range": "`bad_shape_rf_phase_range.seq` (the reader clamps the phase to "
     "[0, 2 pi - 1e-4] in `checkRF`)",
+    "shape.rf-time-end": "`bad_shape_rf_time_end.seq` (accepted by the Linux build; the macOS "
+    "build crashes: its resampling loop reads past the stored samples, "
+    "ExternalSequence.cpp:2039-2045)",
     "shape.rf-time-grid": "`bad_shape_rf_time_grid.seq` (the reader takes the shape `1 1 98` as "
     "regular and ignores its first time)",
     "extension.per-block": "`bad_extension_per_block.seq`",
