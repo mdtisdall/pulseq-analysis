@@ -55,7 +55,8 @@ says why.
 
 The modules are in three subpackages: `pulseq_analysis.analyses` (the
 measurements), `pulseq_analysis.synth` (the snapshot, the events and the
-waveforms) and `pulseq_analysis.seqfile` (the reader of Pulseq files). This
+waveforms) and `pulseq_analysis.seqfile` (the "as written" reading and the
+reader of Pulseq files). This
 guide writes a module by the last part of its path: `snapshot.load` is
 `pulseq_analysis.synth.snapshot.load`.
 
@@ -73,6 +74,7 @@ guide writes a module by the last part of its path: `snapshot.load` is
 | `pulseq_analysis.synth.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.synth.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.synth.extensions` | The refusal of the Pulseq extensions that the measurements do not support, which `load` calls. | [2](#2-before-you-start) |
+| `pulseq_analysis.seqfile.as_written` | The "as written" reading of a Pulseq text file: its sections, rows and typed fields, with line numbers. | [8](#the-as-written-reading) |
 
 ## 2. Before you start
 
@@ -667,6 +669,101 @@ the reader. `events.decode_rf`, `events.decode_gradients` and
 `events.RfEvent`, `events.Trapezoid`, `events.ArbitraryGradient` (together
 `events.GradEvent`) and `events.AdcEvent`. `load` does not use the reader yet.
 Task 6 of `docs/plans/own-parser.md` documents these names in full.
+
+### The "as written" reading
+
+`seqfile.read_as_written(path)` (also `as_written.read_as_written`) reads a
+Pulseq text file as written: its bytes into sections and typed fields, with
+line numbers, without loss and without interpretation. It returns an
+`as_written.AsWritten`. It reads every file, whatever the version or the
+errors in it, and raises only `OSError` when the file cannot be read. It
+applies no rule of the specification and no default; `reader.read_seqfile`
+reads the file through it and applies the rules. pulseq-checks compares it with
+what an interpreter read, so its types are part of the contract between the two
+projects: a change to them is noted in `CHANGELOG.md`.
+
+```python
+from pulseq_analysis.seqfile import read_as_written
+
+written = read_as_written("sequence.seq")
+written.version  # (1, 5, 1), or None
+(blocks,) = written.named("BLOCKS")
+blocks.rows.values["duration_ticks"]  # int64, as written (units of BlockDurationRaster)
+blocks.rows.valid["duration_ticks"]  # False where the field is not an int, or missing
+blocks.rows.lines  # the line of each row
+blocks.blank, blocks.comments  # the blank and `#` lines of the section
+```
+
+**Lines and sections.** The text is split at each `\n` only; line numbers start
+at 1. A line is blank (only white space), a comment (its first character that
+is not white space is `#`), a header (`[NAME]`, or `extension STRING_ID type`)
+or data. A section runs from its header to the line before the next header: a
+blank or `#` line does not end it, and the rows after it belong to the section.
+Which rows a reader takes is the reader's choice (`read_seqfile` ends a section
+at the first blank or `#` line, as `read.m`). A byte that is not UTF-8 is kept,
+as a lone surrogate in its line, and `AsWritten.not_utf8` gives the offset of
+the first one.
+
+| `AsWritten` | Meaning |
+|---|---|
+| `path`, `raw` | The path as given, and every byte of the file. |
+| `not_utf8` | The offset of the first byte that is not UTF-8, or None. |
+| `line_count` | The number of lines. A file that ends with `\n` ends with an empty line. |
+| `preamble` | The lines before the first header, as a `Section` with no header (`line` 0). |
+| `sections` | Each `Section` in file order, as many times as the file has it. |
+| `version` | (major, minor, revision) of the first `[VERSION]` section: for each key, its first row of two fields with an int; None if a key has none. It picks the columns of `[RF]`, `[GRADIENTS]` and `[ADC]`: those of 1.4 below 1.5.0, else those of 1.5. |
+| `named(name)`, `extensions()` | The sections `[name]`, and the `extension` sections, in file order. |
+| `signed_bytes()` | The bytes that the `[SIGNATURE]` hash covers by the specification (section 2.4): every byte before the first `[SIGNATURE]` header line, without the `\n` right before it. None with no such header. The C++ reader hashes other bytes in a CRLF file (`docs/discrepancies.md`, D53). |
+
+| `Section` | Meaning |
+|---|---|
+| `line`, `header` | The line of the header, and the header with its white space stripped. |
+| `name` | For `[NAME]`, the text between the brackets as written; None for a header with no `]` at its end, an `extension` header, and the preamble. |
+| `extension`, `extension_type` | For an `extension` header, its fields after the word `extension`, and the second of them as an int (or None); None for another header. |
+| `end` | The last line of the section. |
+| `rows` | Its data lines, a `Table`. In `[SHAPES]`, the lines that are not the `shape_id` or `num_samples` line of a shape. |
+| `blank`, `comments` | Its blank lines and `#` lines, each an `as_written.Line` (`number`, `text`). |
+| `shapes` | In `[SHAPES]`, each `ShapeWritten`; empty in another section. |
+
+**Fields.** Each row is split at white space (`str.split`). A column of a
+table is an `as_written.Column` (`name`, `kind`), and a field's value is read
+by its column's kind: `int` (an optional sign and digits, in the range of a
+signed 64-bit integer: `+30` is 30), `float` (an optional sign and a decimal
+number with an optional exponent, or `nan`, `inf` or `infinity` in any case:
+`1e999` is infinite) or `text`. A field that is not of its kind, or that a row
+lacks, is not valid, and its value is 0, NaN or "". The columns have the names
+of `model.SequenceData` and the units of the file (µs, and ns for the ADC
+dwell time); `[VERSION]` has `key` and `value` (int), `[DEFINITIONS]` has
+`key` and its values as text, and `[SIGNATURE]` has `key` and `value`. A
+section that the format does not have, an unknown extension and the preamble
+have no column: each field is text. The docstring of `as_written` lists every
+column.
+
+| `Table` | Meaning |
+|---|---|
+| `columns`, `extra` | The columns, and the kind of the fields after the last column (`float` in `extension RF_SHIMS`, else `text`). |
+| `lines` | int64: the line of each row. |
+| `counts` | int64: the number of fields of each row. |
+| `values` | A structured array, one field for each column: the value of each row's field by kind (int64, float64, or str as wide as the longest text). |
+| `valid` | A structured array of bool, one field for each column: the row has the field, and it is of the column's kind. |
+| `text` | The rows as written, joined with `\n`. |
+| `row(i)`, `fields(i)`, `cells(i)` | The text of row `i`, its fields, and the value of each of its fields by kind (None where it is not of its kind), the fields after the last column included. |
+
+**Shapes.** In `[SHAPES]`, a data line whose first field is `shape_id` starts
+a `ShapeWritten`, and the line right after it is its `num_samples` line when
+the first field of that line is `num_samples`. The other data lines are the
+rows of the section, with one column `sample` (float).
+
+| `ShapeWritten` | Meaning |
+|---|---|
+| `line`, `fields` | The `shape_id` line (a `Line`) and its fields. |
+| `id` | The second field of that line as an int, or None. |
+| `num_samples_line`, `num_samples` | The `num_samples` line, and its second field as an int; None if there is none. |
+| `rows` | A `range` of row indices of `Section.rows`: the rows after these lines, up to the next `shape_id` line or the end of the section. A blank line does not end them here. |
+
+Every array of the reading is read-only. On an Apple M1 Max, a file of 21 MB
+with 916 266 blocks takes about 0.3 s to read as written, and about 0.5 s with
+`read_seqfile`.
 
 ## 9. Units and gamma
 

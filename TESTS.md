@@ -36,7 +36,8 @@ Contents:
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
-   oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle
+   oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
+   written" reading
 
 ---
 
@@ -6694,6 +6695,18 @@ first, and checks that there is one `syntax.shape` violation for each, each at a
 **Assumptions:** The specification (section 2.9) says that a blank line ends a shape. The last shape
 of a section may end at the end of the section: the test does not cover that.
 
+#### `test_sample_lines_of_two_values_are_syntax_number`
+
+**Checks:** A file whose every sample line has two values gives `syntax.number` only, with the
+message of a sample that is not one finite number.
+
+**How:** The test adds a second value, 0, to each sample line of a valid fixture.
+
+**Assumptions:** Before the reader was built on the "as written" reading, `numpy.loadtxt` read
+such lines as a table of two columns, and the error was `shape.length` with numpy's message. The
+test covers the case where every sample line has the same number of values; a file with a mix
+was `syntax.number` before too.
+
 #### `test_a_repeated_block_id_is_id_unique_and_not_blocks_order`
 
 **Checks:** A block ID that is used twice (after a larger ID, or after a smaller one) gives
@@ -7911,3 +7924,196 @@ verdict. It skips when `pulseq-cpp-oracle` is not on the PATH.
 **How:** The test writes the file to `tmp_path`, runs the sanitized oracle and checks the verdict.
 
 **Assumptions:** One case of D21; the fixtures cover the others.
+
+### 2.26 The "as written" reading (`test_as_written.py`)
+
+`test_as_written.py` tests `as_written.read_as_written`, the "as written" reading of a Pulseq text
+file: the sections, the rows and their typed fields, with line numbers, without loss. The files are
+the fixtures of `tests/seqfiles` (all of them, the subfolders included) and small files that the
+tests write. That `reader.read_seqfile`, rebuilt on this reading, reads each file as before is not a
+test of CI: the pull request that rebuilt it compared the two readers on the fixtures and on about
+9 000 edited files, byte for byte.
+
+#### `test_every_fixture_is_read_without_loss`
+
+**Checks:** For each fixture, the reading keeps every byte (`raw`), and each line of the file is in
+the reading once, with its number and its text: a header, a blank or `#` line, a `shape_id` or
+`num_samples` line of a shape, or a row of a table. `line_count` is the number of lines, and the
+`header` of each section is its line, stripped.
+
+**How:** For each file (parametrized), the test collects the lines of the preamble and of each
+section with their numbers, sorts them, and compares them with the lines of the text split at
+`\n`.
+
+**Assumptions:** The text of a header is compared stripped: its white space is not in
+`Section.header`, only in `raw`.
+
+#### `test_random_edits_are_read_without_loss_and_without_an_error`
+
+**Checks:** For 300 random edits of the valid fixtures (a line added, removed, or changed by a
+token such as `nan`, `+2`, `[BLOCKS]`, `extension`, `shape_id`, a no-break space or `\r`, some with
+CRLF line ends and some with a byte that is not UTF-8), the reading raises nothing, keeps every
+line as `test_every_fixture_is_read_without_loss` checks, and the count of fields of each row is
+that of its text.
+
+**How:** The test edits the text with a seeded random generator, writes it, reads it, and checks
+each file.
+
+**Assumptions:** The edits are those of the list in the test; the seed fixes them.
+
+#### `test_a_byte_that_is_not_utf_8_is_kept_and_its_offset_given`
+
+**Checks:** The reading of `bad_syntax_encoding.seq` gives in `not_utf8` the offset of its byte
+0xB5, and keeps that byte in the text of its comment line as the lone surrogate U+DCB5. A valid
+fixture has `not_utf8` None.
+
+**How:** The test reads both files and looks for the byte and the surrogate.
+
+**Assumptions:** None.
+
+#### `test_blank_and_comment_lines_do_not_end_a_section`
+
+**Checks:** A blank or `#` line inside a section is in its `blank` or `comments` with its number
+and text, and the rows after it are rows of the same section. A data line before the first header
+is a row of the preamble. `version` is read from rows on both sides of a blank line.
+
+**How:** The test writes a small file with such lines and compares the line numbers.
+
+**Assumptions:** None.
+
+#### `test_headers_and_their_names_as_written`
+
+**Checks:** A line whose first character that is not white space is `[` is a header, with its name
+as written between the brackets (`[ BLOCKS ]` gives " BLOCKS "), and None for a header with no `]`
+at its end. A line whose first word is `extension`, followed by a space, a tab or the end of the
+line, is an `extension` header with its fields and its type as an int (None if it is not one); a
+line that starts with `extensions` is a row.
+
+**How:** The test writes six such lines and compares `header`, `name`, `extension` and
+`extension_type`.
+
+**Assumptions:** None.
+
+#### `test_the_signed_bytes_are_those_of_the_specification`
+
+**Checks:** `signed_bytes()` is every byte before the `\n[SIGNATURE]` of the 1.5.1 fixture, and
+its md5 is the stored hash. For `valid_crlf.seq` its md5 is `e06b91d84d3fba7303a915e068320754`, the
+md5 that `docs/discrepancies.md` (D53) gives for the rule of the specification. A file with no
+`[SIGNATURE]` gives None, and a file that starts with it gives no byte.
+
+**How:** The test reads the files and compares the bytes and the md5.
+
+**Assumptions:** The md5 of the CRLF fixture was computed for D53, outside this test.
+
+#### `test_the_arrays_of_the_reading_are_read_only`
+
+**Checks:** `lines`, `counts`, `values` and `valid` of each table of the 1.5.1 fixture are
+read-only.
+
+**How:** The test reads the `writeable` flag of each array.
+
+**Assumptions:** The flag can be set back to True by a caller; the test does not cover that.
+
+#### `test_seqfile_exports_the_reading`
+
+**Checks:** `pulseq_analysis.seqfile` gives `read_as_written`, `AsWritten` and `Table`, the names of
+`as_written`.
+
+**How:** The test compares the objects.
+
+**Assumptions:** None.
+
+#### `test_the_1_5_1_fixture_has_its_values_as_written`
+
+**Checks:** The 1.5.1 fixture has the version (1, 5, 1); its `[RF]` table has the columns of 1.5,
+the values of its row as written and the line of the row; its ADC dwell times are in ns as
+written; `[DEFINITIONS]` has one text column `key`, with the values as text after it; and
+`extension RF_SHIMS` has the ID and the number of channels as int and its values as float.
+
+**How:** The test compares the tables with the numbers of the text, which it writes in the test.
+
+**Assumptions:** The expected numbers were read from the text of the fixture by hand.
+
+#### `test_a_1_4_file_has_the_columns_of_1_4`
+
+**Checks:** The reading of the 1.4.1 fixture has the version (1, 4, 1), and the columns of 1.4 for
+`[RF]`, `[GRADIENTS]` and `[ADC]`.
+
+**How:** The test compares the names of the columns.
+
+**Assumptions:** None.
+
+#### `test_a_file_with_no_version_has_the_columns_of_1_5`
+
+**Checks:** A file with no `[VERSION]` has `version` None, and its `[RF]` table has the columns of
+1.5.
+
+**How:** The test reads a file of one `[RF]` row.
+
+**Assumptions:** None.
+
+#### `test_each_field_is_read_by_the_kind_of_its_column`
+
+**Checks:** The fields of D14 as written: `30.5` in an int column is not valid and its value is 0,
+`+30` is 30, a row of 7 values has no valid eighth field, a row of 9 keeps its ninth as text, `nan`
+is a valid float, `1e999` is infinite, -2**63 is a valid int and 2**63 is not, and the text of a
+field is kept.
+
+**How:** The test writes `[BLOCKS]` and `[TRAP]` rows and compares `counts`, `values`, `valid`,
+`fields` and `cells`.
+
+**Assumptions:** None.
+
+#### `test_the_fast_and_the_slow_typing_agree`
+
+**Checks:** The typing by `numpy.loadtxt` and the typing one field at a time give the same values,
+validity, counts and dtypes, for 400 random tables of int, float and text columns whose fields are
+taken from tokens at the edges of each kind (signs, leading zeros, -2**63 and 2**63, `nan`,
+`Infinity`, `1_0`, `0x10`, a non-ASCII letter) and whose rows have other separators (tabs, a
+no-break space, a vertical tab), white space at their ends, and missing or extra fields.
+
+**How:** For each table, the test calls `as_written._fast` and, when it gives a table,
+`as_written._slow`, and compares the arrays.
+
+**Assumptions:** The tokens are those of the list in the test. A table that `_fast` leaves to
+`_slow` is not compared.
+
+#### `test_the_other_spaces_are_the_white_space_of_str_split`
+
+**Checks:** The characters that `_fast` replaces with a space are the white space of
+`str.isspace`, but `\n`, the space and the tab.
+
+**How:** The test compares the set with the characters of Unicode for which `str.isspace` is true.
+
+**Assumptions:** The Unicode database of the Python of the devShell.
+
+#### `test_the_shapes_and_their_rows`
+
+**Checks:** In `[SHAPES]`, a `shape_id` line starts a shape, with its ID as an int (None for
+`shape_id x`); the line right after it is its `num_samples` line; its rows run to the next
+`shape_id` line past a blank line; a line `shape_idX 2` is a row (a sample that is not valid);
+the rows before the first shape belong to no shape; and the blank lines are in `blank`.
+
+**How:** The test writes a section of three shapes and compares the shapes, the lines of their
+rows and the validity of the samples.
+
+**Assumptions:** None.
+
+#### `test_a_section_other_than_shapes_has_no_shapes`
+
+**Checks:** No section of the 1.5.1 fixture but `[SHAPES]` has shapes.
+
+**How:** The test reads the `shapes` of each section.
+
+**Assumptions:** None.
+
+#### `test_a_text_field_of_any_length_is_kept`
+
+**Checks:** A label name of 1, 63, 64 and 100 characters is kept whole, and the text column is as
+wide as the longest name.
+
+**How:** For each length (parametrized), the test writes an `extension LABELSET` section and
+compares the names and the dtype. `numpy.loadtxt` reads text into 64 characters, so a name of 64
+or more is read one field at a time.
+
+**Assumptions:** None.

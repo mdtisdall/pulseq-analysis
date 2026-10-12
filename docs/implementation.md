@@ -21,7 +21,7 @@ import-linter contract (`[tool.importlinter]` of `pyproject.toml`, run by
 |---|---|---|
 | The analyses | `pulseq_analysis.analyses` | `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
 | The waveforms | `pulseq_analysis.synth` | `snapshot`, `extensions`, `seq_index`, `seq_utils`, `sampling`, `events`, `_events` |
-| The files | `pulseq_analysis.seqfile` | `reader`, `model` |
+| The files | `pulseq_analysis.seqfile` | `as_written`, `reader`, `model` |
 
 The last part of the path of each module is unique, so the two documents
 write a module by it: `snapshot.load` is
@@ -842,6 +842,17 @@ the model. `reader.RANGE_TOLERANCE` and `reader.TOLERANCE_NS` are the
 tolerances of the shape range rule and of the raster rules. `load` does not use
 the reader yet. Task 6 of `docs/plans/own-parser.md` documents these names in
 full.
+
+The reader is built on the "as written" reading (`as_written.read_as_written`,
+documented in `docs/usage.md`). The reading splits the text at its headers with
+one regular expression that finds the blank, `#` and header lines, so a run of
+data lines is a slice of the text with no loop over its lines, and it types each
+table with `numpy.loadtxt` when the text is printable ASCII (after it replaces
+any other white space with a space), else one field at a time. The reader keeps
+the rows of each section up to its first blank or `#` line (`reader._sections`),
+takes the typed values of a table whose rows are clean (`reader._accept`), and
+reads a table that is not clean again one cell at a time (`reader._slow_table`),
+which gives the message of each bad cell.
 
 ## 8. `Series`: checks and the array encoding
 

@@ -64,6 +64,16 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   "undefined behaviour" (exit status 3) for a file on which the reader of the
   scanner has undefined behaviour, the same on macOS and Linux. The tests have
   this verdict for each fixture (`tests/test_cpp_oracle_sanitized.py`).
+- `seqfile.read_as_written(path)` (`as_written.read_as_written`), the "as
+  written" reading of a Pulseq text file: its sections, the rows of each and
+  the value of each field by the kind of its column, with line numbers,
+  without loss and without interpretation. A blank or `#` line does not end a
+  section, a byte that is not UTF-8 is kept (`AsWritten.not_utf8`), and
+  `AsWritten.signed_bytes()` gives the bytes that the `[SIGNATURE]` hash
+  covers by the specification. It rejects no file. Its types (`AsWritten`,
+  `Section`, `Table`, `Column`, `Line`, `ShapeWritten`) are part of the
+  contract with pulseq-checks, which compares it with what an interpreter
+  read; `docs/usage.md` documents them.
 
 ### Changed
 
@@ -116,6 +126,12 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   (the bytes before `\n[SIGNATURE]`) only for a CRLF file, a file with no
   empty line, or a file with a line of spaces or a comment before the
   section.
+- `read_seqfile` reads the file through `read_as_written` and applies its rules
+  to it. It accepts and rejects the same files, with the same model and the
+  same violations, except one case: a file whose every sample line has the
+  same number of values, more than one, now gives `syntax.number` for each
+  line, where it gave `shape.length` with a message of numpy. It reads a file
+  of 21 MB with 916 266 blocks in 0.51 s, where it took 0.56 s (Apple M1 Max).
 - The spec of each analysis is not changed: each `spec.version` stays 1.
 
 ### Removed

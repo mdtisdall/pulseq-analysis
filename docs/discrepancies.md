@@ -266,7 +266,7 @@ the C++ reader accept it; MATLAB rejects it ("MUST include [VERSION] section
 prior to [BLOCKS]"); pypulseq fails with `UnboundLocalError`. The same file
 with `[VERSION]` as the last section made the C++ reader crash in the run.
 
-Package: reads the sections by name in any order (`reader._split`).
+Package: reads the sections by name in any order (`reader._sections`).
 
 #### D06: A blank or `#` line inside a section, with data after it
 
