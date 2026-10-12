@@ -43,6 +43,7 @@ import numpy as np
 from ._equality import _freeze
 from ._events import (
     AxisEvents,
+    EventPoints,
     GapKinds,
     Ramps,
     axis_events,
@@ -81,7 +82,8 @@ class GradientSampler:
     `seq_index.sequence_index` and `_events.event_points`, which make each one time. The
     sampler does not copy them. The gaps between the events of an axis (the module docstring)
     are found one time for each snapshot and axis, from the index and the points, and kept on
-    the snapshot (the key `("gaps", axis)`). Only the sampler keeps them: `gradient_peaks`
+    the snapshot (the key `("gaps", axis)`; a sampler of `_from_parts` keeps them in the dict
+    that it is given). Only the sampler keeps them: `gradient_peaks`
     uses the same rule (`_events.gap_kinds`) for its own values. A new sampler also finds
     the events of an axis one time, in its first `sample` or gap search on that axis
     (`_axis_events`). Apart from these, a call to `sample` costs O(samples + blocks between
@@ -93,9 +95,23 @@ class GradientSampler:
 
     def __init__(self, snap: Snapshot) -> None:
         _check_snapshot(snap)
-        self._snapshot = snap
-        self._index = sequence_index(snap)
-        points = event_points(snap)
+        self._init(sequence_index(snap), event_points(snap), _kept_results(snap))
+
+    @classmethod
+    def _from_parts(
+        cls, index: SequenceIndex, points: EventPoints, kept: dict
+    ) -> "GradientSampler":
+        """A sampler of the index `index` and the points `points` of one sequence, which keeps
+        the gaps in `kept` (the key `("gaps", axis)`), not on a snapshot. It gives the values
+        of `GradientSampler(snap)` for a snapshot with the same index and points."""
+        sampler = cls.__new__(cls)
+        sampler._init(index, points, kept)
+        return sampler
+
+    def _init(self, index: SequenceIndex, points: EventPoints, kept: dict) -> None:
+        """Set the fields of a sampler of `index` and `points` that keeps its gaps in `kept`."""
+        self._kept = kept
+        self._index = index
         self._points = points
         self._grad_raster_time = points.grad_raster_time
         self._delay = points.delay
@@ -123,8 +139,9 @@ class GradientSampler:
         return found
 
     def _gaps(self, axis: str) -> _AxisGaps:
-        """The gaps of `axis`, found one time for each snapshot and kept on it."""
-        kept = _kept_results(self._snapshot)
+        """The gaps of `axis`, found one time for each snapshot and kept on it (or in the dict
+        of `_from_parts`)."""
+        kept = self._kept
         key = ("gaps", axis)
         if key not in kept:
             kept[key] = self._find_gaps(axis)

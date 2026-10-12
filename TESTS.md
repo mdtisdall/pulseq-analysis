@@ -35,7 +35,8 @@ Contents:
    gradient spectrum; value equality; the kept results; the number arguments;
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
-   the SAFE hardware and filter
+   the SAFE hardware and filter; the decoded events; the decoding against the C++
+   oracle; the decoding against MATLAB Pulseq
 
 ---
 
@@ -297,6 +298,29 @@ passes, showing the report if it does not.
   synthetic sequences are legal Pulseq.
 - The test checks the test helpers (the synthetic sequences against the timing check
   of pypulseq), not code of the package.
+
+#### `test_gradient_offsets_of_a_decoded_trapezoid`
+
+**Checks:** `gradient_offsets` accepts an `events.Trapezoid` and gives its delay, its four corner
+offsets and its amplitudes, as for a pypulseq trapezoid.
+
+**How:** The test decodes trapezoid 1 of `valid_1_5_1.seq` and compares the delay, the offsets (the
+running sum of 0, the rise, flat and fall times) and the amplitudes (0, the amplitude twice, 0)
+exactly with the numbers of the file.
+
+**Assumptions:** None.
+
+#### `test_gradient_offsets_of_a_decoded_arbitrary_gradient`
+
+**Checks:** `gradient_offsets` accepts an `events.ArbitraryGradient` with time ID 0, a time shape or
+time ID -1. It gives the event's delay, and its samples with `first` at offset 0 and `last` at
+`shape_dur`.
+
+**How:** For gradients 3, 5 and 6 of `valid_1_5_1.seq` (parametrized), the test compares the offsets
+with `tt` between 0 and `shape_dur`, and the amplitudes with `waveform` between `first` and `last`,
+exactly.
+
+**Assumptions:** The values of the decoded events are checked by `test_decoding.py`.
 
 ### 2.2 PNS levels (`test_pns_levels.py`)
 
@@ -1444,6 +1468,73 @@ must stay empty.
 
 **Assumptions:** None.
 
+#### `test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file`
+
+**Checks:** For each file of `tests/seqfiles` (`valid_*.seq` and `oracle/*.seq`) that both
+`read_seqfile` and `load` accept, `seq_index._index_from_data` of the model equals `sequence_index`
+of the snapshot, field by field. The exception is the gradient numbering of a file where pypulseq
+makes one event of two gradient events of the file: there, pypulseq's numbering is a merge of the
+model's.
+
+**How:**
+
+- The test reads each file with `read_seqfile` and skips it on `SeqFileError`. It loads it with
+  `load` and skips it on `KeyError`, `ValueError` or `NotImplementedError` (pypulseq refuses it).
+- When the two indexes have the same number of gradient events, every field must be equal
+  (`_equality.values_equal`).
+- Otherwise, every field except `gx`, `gy`, `gz`, `grad_first` and `grad_first_axis` must be
+  equal. `_assert_gradients_are_merged` checks that each dense gradient index of the model has one
+  dense index of pypulseq on all three axes, and that the file events that get one pypulseq index
+  (found with `_dense_ids`) have rows that are equal by `==`.
+- At least 10 files must have every field equal.
+
+**Assumptions:**
+
+- pypulseq's `Sequence.read` calls `remove_duplicates`, which merges library events that are equal
+  after its rounding. `pypulseq_simple_mprage150.seq` has trapezoids 39 and 40 with the amplitudes
+  0 and -0, and pypulseq gives the gy of blocks 70, 200 and 330 the ID 39.
+- A file whose merged events differ by less than pypulseq's rounding would fail the `==` check.
+- RF and ADC events are compared exactly, so a merge of these by pypulseq would fail the test.
+
+#### `test_the_index_from_the_columns_of_a_sequence_equals_its_index`
+
+**Checks:** `seq_index._index_from_columns`, called with the block IDs, the durations and the event
+columns of the sequence of a snapshot, equals `sequence_index` of the snapshot.
+
+**How:** Parametrized over the synthetic spin echo, gradient echo, empty and arbitrary-gradient
+sequences. The test reads `seq.block_events` and `seq.block_durations` itself (the IDs as uint32,
+the durations as float64, the event columns as int64, not the int32 of `_build_index`) and compares
+the result with `sequence_index(snap)` by `==` of the value dataclass.
+
+**Assumptions:** None.
+
+#### `test_dense_ids_are_the_file_ids_of_the_first_use_by_hand`
+
+**Checks:** `seq_index._dense_ids` gives, for each dense RF, gradient and ADC index, the file ID of
+its event at its first use, as int64. The dense gradient columns of `_index_from_data` share one
+index space across the three axes.
+
+**How:** The test replaces the block table of the model of `valid_1_5_1.seq` (with
+`dataclasses.replace`) with a hand table of 5 blocks, in which the event IDs are not in their order
+of first use and gradient 5 is used on gz and then on gy. It compares with hand values: RF IDs
+`[3, 1]`, gradient IDs `[5, 2, 7]`, ADC IDs `[4, 2]`, and the dense columns `gx` `[0, 2, 0, 3, 0]`,
+`gy` `[0, 1, 0, 0, 0]` and `gz` `[1, 0, 0, 2, 0]`.
+
+**Assumptions:** `_dense_ids` and `_index_from_data` read only the block table and the durations, so
+the event IDs of the hand table need not exist in the event tables of the model.
+
+#### `test_a_block_id_that_does_not_fit_in_uint32_raises_value_error_that_names_it`
+
+**Checks:** `seq_index._index_from_data` builds the index of a model with the block ID 2**32 - 1,
+as uint32. For the block ID 2**32 it raises `ValueError` that names the ID.
+
+**How:** The test copies the block table of `valid_1_5_1.seq`, sets the ID of the last block to
+2**32 - 1, makes a model with `dataclasses.replace` and a frozen copy of the table, and checks the
+dtype and the last `block_id`. It then sets the ID to 2**32 and checks that `ValueError` matches
+`4294967296`.
+
+**Assumptions:** None.
+
 ### 2.5 Raster sampler (`test_sampling.py`)
 
 `test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
@@ -2146,6 +2237,24 @@ a message that names `load` for a `pp.Sequence` and for a path.
 must raise `TypeError` with `match="load"`.
 
 **Assumptions:** The path is not read: the type check comes before any read.
+
+#### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
+
+**Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
+`block_samples` values of `GradientSampler(snap)`. It keeps its gaps in the dict that was passed,
+not on the snapshot, and these gaps equal those of the snapshot's sampler.
+
+**How:** Parametrized over the model sequences `long_gap`, `short_gap`, `zero_gap`,
+`off_raster_events`, `gre`, `spin_echo` and `random_gaps_0`. The test builds a new index with
+`seq_index._build_index(snap.sequence)` (not the kept index) and new points with
+`_events._points_from_events(grad_events(snap), grad_raster_time)`, and makes a sampler with
+`_from_parts(index, points, {})`. For each axis it compares `sample` at `_model_times(snap)` and
+`block_samples` of all blocks at the gradient raster with `numpy.array_equal`. Then it checks that
+the dict has exactly the keys `("gaps", axis)` for the three axes, that each entry is the sampler's
+`_gaps(axis)` and not the snapshot sampler's object, and that the four arrays of each entry equal
+the snapshot sampler's.
+
+**Assumptions:** None.
 
 ### 2.6 Gradient peaks (`test_grad_peaks.py`)
 
@@ -6320,7 +6429,10 @@ skip when pypulseq is not installed.
 
 **Checks:** Each valid fixture loads into a `SequenceData` of its version and with `origin` `"file"`:
 the four versions 1.4.0, 1.4.1, 1.5.0 and 1.5.1, a file with CRLF line ends, a file with comments and
-blank lines between its sections, a file with no signature, and a file with a wrong signature hash.
+blank lines between its sections, a file with no signature, a file with a wrong signature hash, and a
+file with an arbitrary gradient on a gradient raster of 4 us, and `valid_1_5_1.seq` with a
+rotation that no block plays (`valid_1_5_1_rotation_not_played.seq`: the MATLAB waveform test, which
+skips a file that plays a rotation, compares its gradients).
 
 **How:** For each file (parametrized), the test calls `read_seqfile` and compares the version.
 
@@ -6373,14 +6485,34 @@ follows it, not that the decision is right.
 
 #### `test_signature_matches_is_reported_and_is_not_a_rule`
 
-**Checks:** `signature.matches` is `True` for a hash that is the MD5 of the bytes before
-`\n[SIGNATURE]` (also in a file with CRLF line ends), `False` for another hash, and the signature is
-`None` for a file without the section. A wrong hash does not make the file fail.
+**Checks:** `signature.matches` is `True` for a hash that is the MD5 of the bytes that the scanner's
+reader hashes (all bytes before `[SIGNATURE]`, less one empty line right before it; also in a file
+with CRLF line ends), `False` for another hash, and the signature is `None` for a file without the
+section. A wrong hash does not make the file fail.
 
 **How:** The test reads four fixtures and compares the signature.
 
-**Assumptions:** The fixtures were signed by a script with the rule of the specification
-(the hash of the bytes before the newline that precedes `[SIGNATURE]`).
+**Assumptions:** The fixtures were signed with the rule of the scanner's reader. `valid_crlf.seq`
+was signed again with it; the oracle reports `signature_ok` true for it.
+
+#### `test_signature_matches_hashes_the_lines_as_the_scanner_reader_does`
+
+**Checks:** `signature.matches` is `True` when the stored md5 is that of the bytes that the scanner's
+reader hashes: every byte before the line `[SIGNATURE]`, except one empty line (`\n` or `\r\n`)
+right before it. The eleven cases: one empty line, two empty lines, no empty line, a line of spaces,
+a comment, CRLF with and without the empty line, an LF file with a CRLF empty line, a CRLF file with
+an LF empty line, a line of 255 bytes followed by its line end, and a line of 255 bytes with its
+line end. The hash of the bytes before the `\n` of `\n[SIGNATURE]` (the former rule) matches only in
+the cases where the two rules hash the same bytes.
+
+**How:** The test (parametrized) builds each file from `valid_no_signature.seq` with the line ends of
+the case, the bytes to hash stated in the test, and a `[SIGNATURE]` section with their md5. It reads
+the file; then it replaces the hash with that of the former rule and checks that `matches` is true
+only when the two digests are equal.
+
+**Assumptions:** The bytes to hash come from reading `buildFileIndex` of the reader and from the
+check against the oracle in `test_the_oracle_and_read_seqfile_check_the_same_signature_hash`. The
+test does not cover a NUL byte in a line.
 
 #### `test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file`
 
@@ -6577,6 +6709,112 @@ loads with an unknown name in it, and `required_extensions` is empty.
 **How:** The test adds `RequiredExtensions FOO` to the 1.5.0 fixture.
 
 **Assumptions:** The concept of required extensions is from 1.5.1 (the specification).
+
+#### `test_an_rf_magnitude_sample_below_minus_the_tolerance_is_rejected`
+
+**Checks:** An RF magnitude shape with a sample below `-RANGE_TOLERANCE` (-2e-9, -0.5) gives
+`shape.rf-magnitude-negative` only, once for the shape. A sample of -5e-10 (within the tolerance),
+0 and 1 load.
+
+**How:** The test (five cases) replaces the 100-sample RF magnitude shape of `valid_no_signature.seq`
+with 98 samples of 0.5 and two samples of the case, writes the file to `tmp_path` and reads it.
+
+**Assumptions:** The bound of the rule is the choice of the user (the rule is stricter than the
+specification, which allows [-1, 1]). The test does not cover a magnitude below -1, which also
+breaks `shape.range`.
+
+#### `test_an_rf_phase_sample_outside_0_to_1_is_rejected_and_a_full_turn_is_not`
+
+**Checks:** An RF phase shape with a sample below `-RANGE_TOLERANCE` (-2e-9, -0.25) or at or above
+`1 + RANGE_TOLERANCE` (1 + 2e-9, 1.5) gives `shape.rf-phase-range` only, once for the shape. A
+sample of -5e-10, 0, 0.999999, 1 and 1 + 5e-10 loads: a sample of 1 within the tolerance is a full
+turn.
+
+**How:** The test (nine cases) replaces the 100-sample RF phase shape of `valid_no_signature.seq`
+with 98 samples of 0.25 and two samples of the case, writes the file to `tmp_path` and reads it.
+
+**Assumptions:** The bound of the rule is the choice of the user. The test does not check a sample
+at exactly `1 + RANGE_TOLERANCE`.
+
+#### `test_the_rf_shape_rules_do_not_check_a_gradient_shape_or_the_phase_shape_of_an_adc`
+
+**Checks:** A gradient waveform of -0.5 (10 samples) and an ADC phase shape with the samples -2 and
+3 load: the two RF rules apply to the shapes of an RF event only, in their role.
+
+**How:** The test replaces shape 4 (a gradient) and shape 8 (the phase of an ADC) of
+`valid_no_signature.seq`, reads the file, and checks the samples of the shapes.
+
+**Assumptions:** The test does not check a shape that an RF event and a gradient share.
+
+#### `test_a_shape_with_no_sample_used_by_an_rf_or_gradient_event_is_shape_empty`
+
+**Checks:** A shape with `num_samples 0` that an RF event uses (magnitude and phase, or magnitude,
+phase and time shape) or that an arbitrary gradient uses (waveform, or waveform and time shape)
+gives `shape.empty` only, once for each empty shape that is used. The same shape as the phase shape
+of an ADC loads.
+
+**How:** The test (six cases) changes one row of `valid_no_signature.seq`, adds the shapes 10 and 11
+with `num_samples 0` at the end of `[SHAPES]`, writes the file to `tmp_path` and reads it. It checks
+the set of rules, the number of violations (1 or 2), or that shape 10 is in the model.
+
+**Assumptions:** The rule is the choice of the user: stricter than the specification, which says
+nothing about an empty shape. The test does not cover a shape that is empty with samples after it,
+which is also `shape.length`.
+
+#### `test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0`
+
+**Checks:** In a 1.4.1 file, an arbitrary gradient whose time shape starts at 0, 5e-7 or -5e-7
+gradient rasters loads. One that starts at 2e-6 or 0.5 raises `layer1.gradient-ends` once, in the
+section GRADIENTS. A 1.5.1 file with a time shape that starts at 0.5 loads.
+
+**How:** The test (five cases) changes the first sample of the time shape 4 of `valid_1_4_1.seq` and
+the time shape 6 of `valid_1_5_1.seq`, writes the files to `tmp_path` and reads them.
+
+**Assumptions:** The tolerance of 1e-6 gradient rasters (`FIRST_TIME_TOLERANCE`) is a choice of this
+package.
+
+#### `test_an_rf_time_shape_that_the_reader_takes_as_regular_has_its_times_at_the_cell_centres`
+
+**Checks:** An RF time shape stored compressed in 3 or 4 values (the shapes that the scanner's
+reader takes as regular) gives `shape.rf-time-grid` only, once, when a time is more than 1e-6 RF
+rasters from `(i + 0.5)` times the step: the first time 0.5 or 1.000002 with a step of 2, the shape
+`2 2 98`, and the shape `2 2 97 3`. The shape `1 2 2 97` (times 1, 3, 5, ...) and the same with the
+first time 1.0000005 load, and so does a time shape stored with all its 100 values, which the reader
+resamples.
+
+**How:** The test (seven cases) writes `valid_no_signature.seq` to `tmp_path` with the RF event on
+a magnitude of 1 and a phase of 0 with 100 samples, and a time shape of the case, and reads it.
+
+**Assumptions:** The tolerance of 1e-6 RF rasters (`RF_TIME_TOLERANCE`) is a choice of this package.
+The test does not cover the 3-value shape with a step so small that its first time is within the
+tolerance.
+
+#### `test_an_rf_time_shape_that_the_reader_resamples_must_not_be_read_past_its_end`
+
+**Checks:** An RF time shape of two stored values that the reader resamples, with the times 0 and
+99.6, 0 and 2.5, or -5 and -3, gives `shape.rf-time-end` only, once. The times 0 and 50.4, and 0
+and 100.4, load.
+
+**How:** The test (five cases) writes the file with 2-sample magnitude and phase shapes and the time
+shape of the case, and reads it.
+
+**Assumptions:** The rule follows the loop of the reader (`model._rf_resample`): the shape is read
+past its end when the index goes to the number of stored samples. The test does not run the oracle
+on these files; `bad_shape_rf_time_end.seq` is in the comparison of the oracle.
+
+#### `test_the_end_of_an_rf_event_with_a_time_shape_is_the_end_that_the_reader_plays`
+
+**Checks:** The end of an RF event with a time shape is the end that the reader plays. A regular
+shape with a step of 4 RF rasters and 100 samples ends at 500 us from a delay of 100 us, which is
+longer than the block of 300 us (`block.event-too-long`). A regular shape with a step of 2 ends at
+300 us and loads. A resampled shape with last time 200.4 plays 200 RF rasters and ends at 300 us
+(loads); with last time 201.4 it plays 201 and ends at 301 us (`block.event-too-long`).
+
+**How:** The test (four cases) writes the file with a time shape of the case (the resampled shapes
+as 100 values from 1 to the last time) and reads it.
+
+**Assumptions:** The last times have a fraction below 0.5, because a fraction of 0.5 or more makes
+the reader read past the shape (`shape.rf-time-end`).
 
 #### `test_random_edits_of_valid_files_give_a_model_or_a_seqfile_error`
 
@@ -6872,6 +7110,44 @@ the RF event.
 
 **Assumptions:** The test does not test that the file is valid by another reader.
 
+#### `test_the_oracle_rejects_an_arbitrary_gradient_on_a_4_us_raster_and_accepts_it_on_10_us`
+
+**Checks:** The oracle rejects `valid_arbitrary_gradient_4us_raster.seq` with the message
+"decodeBlock returned false for block 0", and accepts the same file with `GradientRasterTime`
+1e-05 and a block of 100 us. So the skip of the comparison is needed, and the raster is the cause.
+
+**How:** The test runs the oracle on the fixture, changes the text of the file (the raster and the
+block duration), writes it to `tmp_path` and runs the oracle on it.
+
+**Assumptions:** The message text is that of the driver, not of the reader (the reader prints its
+text on a debug level only). The test shows the effect on one file.
+
+#### `test_the_skip_of_the_comparison_is_for_an_arbitrary_gradient_off_the_10_us_raster_only`
+
+**Checks:** The rule of the skip of the comparison (`arbitrary_gradient_off_the_10_us_raster`) is
+true for the 4 us fixture, false for `valid_1_5_1.seq` (arbitrary gradients on 10 us), and false
+for the 4 us fixture with a trapezoid in place of the arbitrary gradient.
+
+**How:** The test reads each file with `read_seqfile` and applies the rule to the model (the rows
+of `grad` that the blocks use, and `rasters.gradient`). It writes the trapezoid file to `tmp_path`.
+
+**Assumptions:** The rule uses the 1e-3 us tolerance on the raster that `decodeBlock` uses.
+
+#### `test_the_oracle_and_read_seqfile_check_the_same_signature_hash`
+
+**Checks:** For eight signed files built from the minimal file, the oracle reports `signature_ok`
+true and `read_seqfile` gives `matches` true when the stored md5 is that of all bytes before
+`[SIGNATURE]` less one empty line right before it (cases: one empty line, no empty line, a line of
+spaces, CRLF with and without the empty line, an LF file with a CRLF empty line, a line of 255
+bytes followed by its line end, a line of 255 bytes with its end). With the md5 of other bytes,
+both report false.
+
+**How:** The test (parametrized) writes the file with the bytes to hash stated in the test, runs
+the oracle with `--dump` for `signature_ok` and calls `read_seqfile` for `matches`.
+
+**Assumptions:** The test needs an oracle with `--dump`. It checks the hashed bytes of the cases
+only; it does not cover a NUL byte.
+
 #### `test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files`
 
 **Checks:** For each `.seq` file under `tests/seqfiles/`, `pulseq_analysis.seqfile.read_seqfile`
@@ -6882,11 +7158,15 @@ a change of a valid file that it accepted. The files of `ORACLE_KNOWN_WRONG` (no
 `oracle/koma_v1.5_unknown_ext.seq`, which the oracle rejects because it cannot read the rows of
 an unknown extension that the file does not require, while section 2.8.4 of the specification
 says that the interpreter MUST detect unknown extensions and MAY ignore them) are not compared.
+A file that `read_seqfile` accepts and that has an arbitrary gradient (a row of `grad` that a block
+uses) on a gradient raster other than 10 us is not compared either, because `decodeBlock` fails on
+it (`ExternalSequence.cpp:2114-2119`); the test records the skipped files with
+`record_property("skipped", ...)` (in the junit XML). Today it skips one file, the 4 us fixture.
 The test skips when `pulseq_analysis.seqfile` cannot be imported, and when `tests/seqfiles/` has
 no `.seq` file.
 
-**How:** The test runs the oracle on each file (a crash counts as a rejection) and calls
-`read_seqfile`. It collects each file where `read_seqfile` accepts and the oracle does not,
+**How:** The test calls `read_seqfile` on each file, then runs the oracle (a crash counts as a
+rejection), except for a file that the raster skip covers. It collects each file where `read_seqfile` accepts and the oracle does not,
 and each file where `read_seqfile` rejects with a rule outside `NOT_CHECKED_BY_THE_READER` and
 the oracle accepts. It fails with the list.
 
@@ -6899,6 +7179,11 @@ the oracle accepts. It fails with the list.
   never checks the rule.
 - A file of `ORACLE_KNOWN_WRONG` is skipped whatever the verdicts are, also when the oracle
   changes.
+- The raster skip is a rule on the model, never a file name.
+- `NOT_CHECKED_BY_THE_READER` has no entry for `shape.empty` or `shape.rf-time-end`: the macOS
+  build crashes on `bad_shape_empty.seq` and on `bad_shape_rf_time_end.seq` (which makes the reader
+  read past the end of the time shape), a crash counts as a rejection, and no build was seen to
+  accept them. `shape.rf-time-grid` is there, with `bad_shape_rf_time_grid.seq`.
 
 ### 2.21 The SAFE hardware and filter (`test_safe.py`)
 
@@ -7099,3 +7384,436 @@ imports pypulseq, and `import pypulseq` imports matplotlib and
 an `import from` of a name that starts with `pypulseq`, in any scope.
 
 **Assumptions:** A name that is imported with `importlib` is not found.
+
+### 2.22 The decoded events (`test_decoding.py`)
+
+`test_decoding.py` tests `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`, and
+the helpers `model._rf_time_step` and `model._rf_resample`. It uses the fixtures of `tests/seqfiles`
+and a 1.5.1 file that a test writes to a temporary folder: an RF event with a time shape that the
+reader resamples, an RF event with a regular time shape, an ADC phase shape, and an RF event and a
+trapezoid that no block uses. The expected values are written in the test from the text of the files,
+and from the loop of the scanner's reader (`ExternalSequence.cpp`, `decodeBlock`) worked by hand. The
+tests need no pypulseq.
+
+#### `test_trapezoid_has_the_values_of_the_file`
+
+**Checks:** The trapezoid of the 1.5.1 fixture decodes to a `Trapezoid` with the amplitude, the rise,
+flat and fall times and the delay of the file in s. Its `shape_dur` is the sum of the three times,
+and its `first` and `last` are 0.0.
+
+**How:** The test decodes the gradients of `valid_1_5_1.seq` and compares gradient 1 with a
+`Trapezoid` made from the numbers of the text, and its properties with the sum and with 0.0.
+
+**Assumptions:** The model has converted the µs of the file to s (`test_seqfile.py` checks it).
+
+#### `test_arbitrary_gradient_on_the_default_raster`
+
+**Checks:** An arbitrary gradient with time ID 0 has `waveform` equal to the amplitude times the
+samples, a sample at the centre of each gradient raster cell (`tt = (i + 0.5) dt`), `shape_dur = n
+dt`, and the `first`, `last` and delay of the file.
+
+**How:** The test decodes gradient 3 of `valid_1_5_1.seq` (10 samples, raster 10 µs) and compares
+it, field by field and exactly, with an `ArbitraryGradient` whose arrays it computes from the
+numbers of the text.
+
+**Assumptions:** The expected arrays are computed with the same floating-point operations as the
+code, so the comparison is exact.
+
+#### `test_arbitrary_gradient_oversampled`
+
+**Checks:** An arbitrary gradient with time ID -1 has samples half a gradient raster apart, the
+first at half a raster (`tt = (i + 1) / 2 dt`), and `shape_dur = (n + 1) / 2 dt`.
+
+**How:** The test decodes gradient 6 of `valid_1_5_1.seq` (5 samples) and compares it exactly with
+an `ArbitraryGradient` made from the numbers of the text.
+
+**Assumptions:** As in `test_arbitrary_gradient_on_the_default_raster`.
+
+#### `test_arbitrary_gradient_with_a_time_shape`
+
+**Checks:** An arbitrary gradient with a time shape has `tt` equal to the time shape times the
+gradient raster, and `shape_dur` equal to the last time.
+
+**How:** The test decodes gradient 5 of `valid_1_5_1.seq` (time shape 0, 1, 3, 6, 10) and compares
+it exactly with an `ArbitraryGradient` made from the numbers of the text.
+
+**Assumptions:** As in `test_arbitrary_gradient_on_the_default_raster`.
+
+#### `test_arbitrary_gradient_with_a_time_shape_in_a_1_4_file`
+
+**Checks:** In a 1.4 file, an arbitrary gradient with a time shape decodes with the same time rule,
+and its `first` and `last` are those of the model: the amplitude times the first and the last
+sample.
+
+**How:** The test decodes gradient 2 of `valid_1_4_1.seq` and compares it exactly with an
+`ArbitraryGradient` made from the numbers of the text.
+
+**Assumptions:** The model's `first` and `last` of a 1.4 file are correct (`test_seqfile.py` checks
+them).
+
+#### `test_gradients_and_trapezoids_are_in_one_mapping_by_id`
+
+**Checks:** `decode_gradients` gives the arbitrary gradients and the trapezoids in one read-only
+mapping, keyed by the file ID of each event, with the right type for each.
+
+**How:** The test decodes `valid_1_5_1.seq`. It checks that the result is a `MappingProxyType`,
+that its keys are the IDs 1 to 6, that 1 is a `Trapezoid` and the others are `ArbitraryGradient`
+objects, and that each event's `id` is its key.
+
+**Assumptions:** None.
+
+#### `test_rf_event_without_a_time_shape`
+
+**Checks:** An RF event without a time shape has `magnitude` in Hz (the amplitude times the
+magnitude shape), `phase` in rad, a sample at the centre of each RF raster cell, `shape_dur = n` RF
+raster times, and the center, delay, offsets and use of the 1.5 file.
+
+**How:** The test decodes the RF event of `valid_1_5_1.seq` (100 samples of a compressed shape) and
+compares it exactly with an `RfEvent` made from the numbers of the text.
+
+**Assumptions:** The phase shape of this fixture is all zeros. The factor 2π is checked by
+`test_rf_event_with_a_time_shape`.
+
+#### `test_rf_event_of_a_1_4_file_has_no_center`
+
+**Checks:** The RF event of a 1.4 file has `center` `None`, `use` `"u"`, ppm offsets of 0.0, and the
+default time rule.
+
+**How:** The test decodes the RF event of `valid_1_4_0.seq` and checks these fields, `t` and
+`shape_dur`.
+
+**Assumptions:** None.
+
+#### `test_rf_event_with_a_time_shape`
+
+**Checks:** An RF event with a time shape that the scanner's reader does not take as regular is
+resampled to the RF raster, as the reader plays it. Its magnitude is the amplitude times the played
+magnitude samples (Hz), and its phase is 2π times the played phase samples (rad). `t` is at the
+centre of each RF raster cell, and `shape_dur` is the number of cells times the RF raster. The center,
+delay, ppm offsets, frequency and phase offsets and use are those of the file.
+
+**How:** In the written file, RF 1 has the time shape 0.5, 1, 2, 4, stored uncompressed. By the
+reader's loop this gives 4 cells, which play the stored samples 1, 2, 3 and 3. The test compares the
+decoded event exactly with an `RfEvent` made from these indices and the numbers of the text.
+
+**Assumptions:** The indices were worked out by hand from the C++ loop;
+`test_rf_resample_plays_one_stored_sample_in_each_cell` checks the same case on `_rf_resample`. The
+expected arrays are computed with the same floating-point operations as the code.
+
+#### `test_rf_event_with_a_regular_time_shape`
+
+**Checks:** An RF event whose time shape the reader takes as regular keeps its stored samples. Its
+dwell time is the step of the shape times the RF raster, `t` is at the centre of each dwell time, and
+`shape_dur` is the number of samples times the dwell time. The first time of the shape is not used.
+
+**How:** In the written file, RF 2 has the time shape `5 10 10 2`: 5 samples stored compressed in 4
+values, the times 5, 15, 25, 35, 45. The test compares the decoded event exactly with an `RfEvent`
+with a dwell time of 10 µs, made from the numbers of the text.
+
+**Assumptions:** As in `test_rf_event_with_a_time_shape`.
+
+#### `test_rf_time_step_of_a_time_shape`
+
+**Checks:** `model._rf_time_step` gives the second stored value of a time shape that is stored
+compressed in 3 or 4 values, and `None` for any other time shape.
+
+**How:** For six shapes (parametrized), the test makes a `model.Shape` and compares the result: `5 10
+10 2` (4 values, compressed) gives 10; `1 1 3` (3 values) gives 1; 3 and 4 values that are not
+compressed, 5 compressed values, and a block pulse `0, 100` give `None`.
+
+**Assumptions:** The rule is read from `ExternalSequence.cpp`, lines 2014 to 2021. The test does not
+run the C++ reader.
+
+#### `test_rf_resample_plays_one_stored_sample_in_each_cell`
+
+**Checks:** `model._rf_resample` gives `int(0.5 + times[-1])` cells, and for each cell the index of
+the stored sample that the reader plays. The index goes up by at most one in each cell.
+
+**How:** For six time shapes (parametrized), the test compares the int64 result with indices worked
+out by hand from the loop of `ExternalSequence.cpp`: a block pulse `0, 100` (100 cells of sample 1,
+so sample 0 is never played); times at the ends of the cells (0, 1, 2); a shaped pulse (1, 2, 3, 3);
+a gap (0, 1, 1, 1, 1); two times in cell 0 (0.2, 0.6, 3 gives 1, 2, 2: the second time is played one
+cell later); and a time shape that gives 0 cells (no index).
+
+**Assumptions:** The expected indices come from reading the C++ loop; the test does not run it. The
+C++ reader holds the times in 32-bit floats, and the test uses float64 times that are not near a
+cell edge.
+
+#### `test_rf_resample_raises_where_the_reader_reads_after_the_samples`
+
+**Checks:** `model._rf_resample` raises `ValueError` where the reader would read after the end of the
+stored samples, and for an empty time shape and a negative number of cells.
+
+**How:** For four time shapes (parametrized), the test checks the `ValueError`: `0, 99.6` (100 cells;
+the last cell would play sample 2 of 2), `0.5, 1, 2, 4.5` (5 cells; the last would play sample 4 of
+4), an empty shape, and `-2` (-1 cells).
+
+**Assumptions:** None.
+
+#### `test_rf_event_with_a_time_shape_in_a_1_4_file`
+
+**Checks:** The RF event with a time shape of a 1.4 file is resampled by the same rule, and has no
+center.
+
+**How:** The test decodes `oracle/koma_v1.4_rf-time-shaped.seq`: amplitude 2500 Hz, magnitude 1, 1
+at the times 0, 100. It checks 100 samples of 2500 Hz, 100 phases of 0, `t` at the centres of 100 RF
+raster cells, `shape_dur` of 100 µs, and that `center` is `None`.
+
+**Assumptions:** None.
+
+#### `test_adc_events_with_and_without_a_phase_shape`
+
+**Checks:** An ADC event has the values of its row in s, Hz and rad. Its `phase_modulation` is the
+decompressed phase shape as the file stores it, with no factor, or `None` when `phase_shape_id` is
+0. The result is a read-only mapping.
+
+**How:** The test decodes the ADC events of the file of `test_rf_event_with_a_time_shape`. It
+compares ADC 1 (phase shape 0, 0.5, 1, 1.5) exactly with an `AdcEvent` made from the numbers of the
+text, and checks that ADC 2 has `phase_modulation` `None`.
+
+**Assumptions:** None.
+
+#### `test_each_row_is_decoded_whether_a_block_uses_it_or_not`
+
+**Checks:** Each decode function gives every row of its table, in table order, including an event
+that no block uses.
+
+**How:** The file of `test_rf_event_with_a_time_shape` has RF 3 and trapezoid 7, which no block
+uses. The test checks the keys of the three mappings and the values of RF 3 and trapezoid 7.
+
+**Assumptions:** None.
+
+#### `test_a_shape_that_several_events_use_is_decompressed_once`
+
+**Checks:** In one call of `decode_rf`, a shape that several events use is decompressed once, and a
+regular time shape is not decompressed.
+
+**How:** The test wraps `model.Shape.samples` to count its calls, and decodes the RF events of the
+written file. The events use the shapes 1, 2 (twice), 3, 6, 7 and 8, and the regular time shape 4.
+The test checks 6 calls.
+
+**Assumptions:** `events` decompresses a shape only through `Shape.samples`.
+
+#### `test_events_are_read_only_equal_by_value_and_pickle`
+
+**Checks:** Each decoded event equals the same event of another call, survives `pickle`, cannot be
+changed, and has read-only arrays that cannot be made writable.
+
+**How:** For each decode function on the file of `test_rf_event_with_a_time_shape`, the test
+compares each event with the same event of a second call and with a pickled copy. For each array
+field it checks that `writeable` is false and that setting it raises `ValueError`, and that setting
+a field raises `AttributeError`.
+
+**Assumptions:** None.
+
+#### `test_every_file_that_loads_decodes`
+
+**Checks:** Every valid fixture and every oracle file that `read_seqfile` accepts decodes: each
+mapping has the IDs of its table; the scalar fields equal the model's columns; the arrays of an event
+have one value for each sample that is played (the samples of the shape, or `int(0.5 + last time)`
+cells for an RF time shape that the reader resamples); the last sample time of an RF event is before
+`shape_dur`, and that of a gradient is not after it; RF `center` is `None` exactly for a 1.4 file, and
+`phase_modulation` is `None` exactly when `phase_shape_id` is 0; an RF or gradient event ends (delay
+plus `shape_dur`) within 1 ps of the end of each block that plays it, or before.
+
+**How:** For each file (parametrized), the test reads the file, skips a file that the parser rejects
+(with the rules in the reason), decodes the three tables, and checks each statement row by row and
+block by block. It uses `model._rf_time_step` to know whether an RF time shape is resampled.
+
+**Assumptions:** The check of the ends is a consistency check with the rule `block.event-too-long`
+of the parser, not a check against an independent reader. The MATLAB and C++ oracle tests compare
+the values.
+
+### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
+
+`test_cpp_oracle_decode.py` compares the model of `read_seqfile`, the events of
+`pulseq_analysis.events` and the gradient waveform of `GradientSampler` with the reader
+`ExternalSequence` of the scanner, through the modes `--dump` and `--sample` of `pulseq-cpp-oracle`
+(`tests/oracles/cpp.py`; `tests/cpp_oracle/README.md` has the fields and their units). It compares
+each `.seq` file under `tests/seqfiles/` that both `read_seqfile` and the oracle accept, except the
+files of `ORACLE_KNOWN_WRONG` and a file with an arbitrary gradient on a gradient raster other than
+10 us (`decodeBlock` fails on it). The module skips when the binary is not on the PATH. A difference
+is not skipped: the test fails with the file, the block, the field, both values and, for a field that
+the reader computes, the reader's rule and its line in `ExternalSequence.cpp`.
+
+#### `test_the_decoded_events_equal_the_dump_of_the_cpp_reader`
+
+**Checks:** For each compared file and each block in play order, the reader's dump and the package
+agree on the block duration in block rasters; which events the block has; every field of the RF
+event, including its samples, dwell and `shape_dur`, with or without a time shape; every field of
+each gradient (trapezoid, arbitrary, or with a time shape); every field of the ADC event; and the
+trigger, soft delay, labels, rotation and RF shim of the block.
+
+**How:**
+
+- The test converts the units of the package to those of the dump (µs, ns, Hz, rad). It compares
+  integer fields, IDs and text exactly, and float values to 1e-6 times the largest magnitude of the
+  event, because the reader holds `float`.
+- RF: the magnitude is compared as the dump's fraction times the amplitude and the phase as the dump
+  holds it, both after `checkRF`. The package's dwell is `shape_dur` divided by the number of samples.
+- Gradients: the samples of an arbitrary gradient are compared as fraction times amplitude, after
+  `checkGradient`. For an oversampled gradient, the package's samples at the even indices (the
+  centres of the raster cells) are compared. For a gradient with a time shape, the package's times in
+  µs must equal the times that the reader rounds to µs.
+- Extensions: the test walks the extension list of each block in the model and keeps the object that
+  the reader keeps (a trigger of type 0, a soft delay with a negative number and an RF shim with no
+  channel count as none; otherwise the first one). It normalizes the rotation, cuts the hint to 31
+  characters, and keeps only the labels that the reader knows (a flag as 0 or 1).
+- It records the skipped files and the planned skips that it met with `record_property("skipped",
+  ...)`.
+
+**Assumptions:**
+
+- Planned skip (`docs/plans/own-parser-tasks.md` section 4.7): `first` and `last` of an arbitrary
+  gradient of a 1.4 file are not compared, because the reader sets them to `FLOAT_UNDEFINED`.
+- A file that the oracle does not accept is left out here; the accept/reject test of 2.20 reports it.
+- The ADC phase-modulation samples are not in the dump, so they are not compared.
+- The list of labels that the reader knows is a copy of `decodeLabel`.
+
+#### `test_signature_matches_equals_the_signature_check_of_the_cpp_reader`
+
+**Checks:** For each compared file with a signature of type md5 (in any case), `signature.matches` of
+the model equals `signature_ok` of the reader. This includes `valid_crlf.seq`, whose empty line
+before `[SIGNATURE]` ends with `\r\n`.
+
+**How:** The test compares the two values for each such file, and fails with the files where they
+differ and the reader's rule for the hash.
+
+**Assumptions:** A file without a signature, or with another type, is not compared. The test does
+not compute a hash itself.
+
+#### `test_the_gradient_waveform_equals_gradients_at_of_the_cpp_reader`
+
+**Checks:** Inside each block, `GradientSampler` (made with `_from_parts` from the model's index and
+gradient events) and `SeqBlock::gradientsAt` of the reader give the same value on each axis, at the
+centre of each gradient raster cell from the start of the block's first gradient event to the end of
+its last one, and at the start and the end of each gradient event when they are strictly inside the
+block.
+
+**How:** For each block with a gradient event, the test computes the times in µs from the block
+start, gets the reader's values with one `--sample` call for each file and the package's values at
+the block start plus the time, and compares each value to 1e-6 times the largest magnitude of the
+block's event on that axis. When the block has no event on that axis, the value must be exactly 0.
+It records the number of times sampled in each file with `record_property("sampled", ...)`.
+
+**Assumptions:**
+
+- Planned skip: a time at a block boundary, because `gradientsAt` works inside one block.
+- The test does not sample the cells of a block before its first gradient event or after its last
+  one, where the reader gives 0 (the corpus has about 10 M cells in all, far over the time budget).
+  So the package's value outside the events of a block is not tested here.
+- The package's step rule at an event start or end inside a block is not exercised: the parser rules
+  `gradient.nonzero-start-delay` and `gradient.nonzero-end-align` make these values 0.
+
+### 2.24 The decoding against MATLAB Pulseq (`test_matlab_oracle.py`)
+
+`test_matlab_oracle.py` compares the decoding of the package with MATLAB Pulseq (the `matlab` folder
+of pulseq/pulseq at the commit in `flake.nix`), run under GNU Octave by the command
+`pulseq-matlab-oracle` (`tests/matlab_oracle/`). The files are those of `tests/seqfiles/valid_*.seq`
+and `tests/seqfiles/oracle/*.seq` that `read_seqfile` accepts. A file that it rejects is skipped with
+its rules; MATLAB never reads it, because such a file can make MATLAB loop with no end.
+`tests/oracles/matlab.py` runs the command at most one time per test session, on all the files that
+are not in its cache (`.pytest_cache/d/matlab-oracle`). The cache key of a file is the SHA-256 of the
+store path of the command and of the bytes of the file, so a later run with the same files and the
+same command does not start Octave. The whole module skips when the command is not on the PATH: only
+the default devShell has it, not the `ci` shell. Block `b` of the model, in play order, is block
+`b + 1` of MATLAB. A value is compared to a relative 1e-12 of the largest magnitude of its event or
+axis, and a time to an absolute 1e-12 s. Each failure lists every difference with the file, the
+block, the field and the two values. Where the package decodes a file otherwise than MATLAB by a
+decision of section 12 of `docs/plans/own-parser-tasks.md`, the tests do not compare that part, and
+the test gives the reason: `shape_dur` of an RF event with a regular time shape, and the samples of
+one with another time shape (U25, U26); `first` of a 1.4 gradient with a time shape (U23); MATLAB's
+restored points of an arbitrary gradient of time ID 0 (U21); and the waveform of a file in which a
+block plays a rotation (U22).
+
+#### `test_the_events_of_each_block_are_those_of_matlab_pulseq`
+
+**Checks:** For each file, the number of blocks is MATLAB's, and each block has an RF, gx, gy, gz and
+ADC event where MATLAB's `getBlock` has one. Each event of `decode_rf`, `decode_gradients` and
+`decode_adc` has MATLAB's values:
+
+- RF: always `center` (for a 1.4 file the package's is None), `delay`, the four offsets, and `use` as
+  MATLAB's word; with no time shape, also `magnitude` against `signal_abs`, `phase` against
+  `signal_angle` modulo 2π where the magnitude is not 0, `t` and `shape_dur`; with a time shape that
+  the scanner's reader takes as regular (`model._rf_time_step`), also `magnitude`, `phase` and `t`;
+- a trapezoid: amplitude, rise, flat and fall times, delay;
+- an arbitrary gradient: `waveform`, `tt`, `shape_dur`, `first` (not for a 1.4 file with a time
+  shape), `last`, `delay`, `shape_id`, `time_id`;
+- ADC: `num_samples`, `dwell`, `delay`, the four offsets, `phase_modulation` (MATLAB's `[]` is the
+  package's None).
+
+**How:** The test (one case for each file) reads MATLAB's JSON from the oracle and compares each
+event of each block field by field. Values are compared to a relative 1e-12 of the largest magnitude
+of the event, times to 1e-12 s, and IDs, counts and words exactly. RF `use` maps `e r i s p` to
+MATLAB's words and `o` and `u` to `'undefined'`, as `rfFromLibData` of `Sequence.m` does.
+
+**Assumptions:**
+
+- The package decodes an RF event with a time shape as the scanner's reader plays it (U25, U26), and
+  MATLAB keeps the stored times. With a regular time shape the parser makes sure that the stored
+  times are the cell centres (`shape.rf-time-grid`), so the samples and `t` agree; `shape_dur` is not
+  compared (MATLAB rounds the last time up to the RF raster; the reader takes the number of samples
+  times the step). With any other time shape the reader resamples the pulse, so `magnitude`, `phase`,
+  `t` and `shape_dur` are not compared.
+- In a 1.4 file, MATLAB carries `first` of a gradient with a time shape over from the block before
+  (`read.m:339-350`), and the package takes the sample at time 0 (U23), so that field is not
+  compared.
+- MATLAB gives no event IDs, no RF amplitude or shape IDs, no arbitrary-gradient amplitude and no
+  ADC phase shape ID, so the test does not compare them. The trapezoid properties `shape_dur`,
+  `first` and `last` are not compared.
+- The test trusts MATLAB Pulseq under Octave as the reference, and its JSON as written by `dump.m`.
+
+#### `test_the_block_durations_are_those_of_matlab_pulseq`
+
+**Checks:** For each file, `SequenceData.block_durations_s` equals MATLAB's `blockDurations` to
+1e-12 s.
+
+**How:** The test (one case for each file) compares the two arrays element by element.
+
+**Assumptions:** Both are the duration in ticks times `BlockDurationRaster`. The test does not check
+a block that only MATLAB has.
+
+#### `test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq`
+
+**Checks:** For each file in which no block plays a rotation, and each axis, `GradientSampler` of the
+package's model has the values of MATLAB's polyline from `waveforms_and_times(true)`, at each time
+of the polyline and at the midpoint of each pair of consecutive points with distinct times. An axis
+where MATLAB has no point has no event in the package's model.
+
+**How:**
+
+- The test (one case for each file) skips a file in which the extension list of a block reaches a
+  `ROTATIONS` object: the measurements do not support rotations and `load` refuses such a file (U18,
+  U22), while MATLAB rotates the gradients of the block.
+- It builds the sampler from the model with `_index_from_data`, `_dense_ids`, `decode_gradients`,
+  `_points_from_events` and `GradientSampler._from_parts`, and samples it at MATLAB's times.
+- Where MATLAB has several points at one time (a step), the expected value is the first of them: the
+  value before the step, as the package gives it. At a midpoint, the expected value is MATLAB's
+  segment line at the float midpoint, so that the rounding of the time is not a difference.
+- Inside an arbitrary gradient of time ID 0, more than 1e-12 s from its ends, a MATLAB point that is
+  not at a sample centre (more than 1e-6 raster from one) is not compared, and neither are the
+  midpoints next to it: MATLAB draws such a gradient with `mr.restoreAdditionalShapeSamples`
+  (`Sequence.m:2018`), which guesses values at the raster edges, and the package keeps the straight
+  lines between the sample centres (U21). Its sample centres and its two ends are compared.
+- The tolerance is a relative 1e-12 of the largest absolute value of MATLAB's axis.
+
+**Assumptions:**
+
+- MATLAB's polyline is sampled only between its first and last points; the value before and after
+  them is not compared.
+- A file with a played rotation has no waveform comparison at all, also on its blocks without a
+  rotation. `valid_1_5_1_rotation_not_played.seq` has the gradients of `valid_1_5_1.seq` without the
+  played rotation, so they are compared.
+- A sample centre of a gradient of time ID 0 that MATLAB drops (it removes points on a straight line)
+  is not compared.
+
+#### `test_the_adc_sample_times_are_those_of_matlab_pulseq`
+
+**Checks:** For each file, the time of each ADC sample, block start + `delay` + `(k + 0.5) * dwell`
+in play order, equals MATLAB's `t_adc` to 1e-12 s.
+
+**How:** The test (one case for each file) computes the times from the index of the model (`start_s`)
+and `decode_adc`, joins them in play order and compares them with `t_adc`.
+
+**Assumptions:** The block start is the sum in play order of the block durations (`_index_from_data`).
+The test does not check the phase or frequency of the samples.

@@ -4,7 +4,8 @@
 `get_block` call for each event (`seq_index.grad_events`), and keeps the result on the
 snapshot. `sampling.GradientSampler` and `grad_peaks._event_values` both build
 their data from it, so the measurements of one snapshot read each event one time, and
-hold one copy of its points.
+hold one copy of its points. `_points_from_events` makes the same result from the events and
+the gradient raster, with no snapshot.
 
 The points of the K unique events are in two pools, event by event, in the dense order
 of `seq_index`. Event `k` (0-based) has its points at `offsets[at[k] : at[k] + count[k]]`
@@ -23,8 +24,9 @@ is, and `polyline` gives the points of a run of events with the ramp points. The
 to.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -64,11 +66,18 @@ def event_points(snap: Snapshot) -> EventPoints:
 
 def _read_points(snap: Snapshot) -> EventPoints:
     """The `EventPoints` of `snap`, read without the keep of `event_points`."""
+    return _points_from_events(grad_events(snap), float(snap.sequence.grad_raster_time))
+
+
+def _points_from_events(events: Iterable[tuple[int, Any]], grad_raster_time: float) -> EventPoints:
+    """The `EventPoints` of `events`, the `(dense index, event)` of each unique gradient event
+    in dense order, where each event is one that `seq_utils.gradient_offsets` accepts, and of
+    `grad_raster_time` (s)."""
     delays: list[float] = []
     counts: list[int] = []
     offset_chunks: list[np.ndarray] = []
     amp_chunks: list[np.ndarray] = []
-    for number, g in grad_events(snap):
+    for number, g in events:
         delay, offsets, amp = gradient_offsets(g)
         offsets = np.asarray(offsets, dtype=np.float64)
         amp = np.asarray(amp, dtype=np.float64)
@@ -88,7 +97,7 @@ def _read_points(snap: Snapshot) -> EventPoints:
         np.concatenate(offset_chunks) if offset_chunks else np.empty(0, dtype=np.float64),
         np.concatenate(amp_chunks) if amp_chunks else np.empty(0, dtype=np.float64),
     )
-    return EventPoints(*arrays, grad_raster_time=float(snap.sequence.grad_raster_time))
+    return EventPoints(*arrays, grad_raster_time=grad_raster_time)
 
 
 @dataclass(frozen=True, eq=False)

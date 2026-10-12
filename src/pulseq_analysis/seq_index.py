@@ -8,9 +8,13 @@ comes before gy and gz. The measurements use these numbers to compute a value on
 for each unique event, not one time for each block, and then give it to each block that
 plays the event.
 
-All the functions take a `snapshot.Snapshot` (`snapshot.load`) and keep their result on it.
-The sequence of a snapshot does not change, and `load` has refused a sequence with a rotation,
+All the public functions take a `snapshot.Snapshot` (`snapshot.load`) and keep their result on
+it. The sequence of a snapshot does not change, and `load` has refused a sequence with a rotation,
 so these functions do not check it.
+
+`_index_from_columns` builds the index from the block IDs, the durations and the event columns,
+and `_index_from_data` from a `model.SequenceData` with the event IDs of the file. These two keep
+nothing. `_dense_ids` gives the file ID of each dense index of the index of a `SequenceData`.
 
 `rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
 first block that uses it, as a tuple that is made on the first call and kept. Only they call
@@ -19,11 +23,13 @@ no block.
 """
 
 from types import SimpleNamespace
+from typing import NamedTuple
 
 import numpy as np
 import pypulseq as pp
 
 from ._equality import _freeze, value_dataclass
+from .model import SequenceData
 from .seq_utils import _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
@@ -49,7 +55,7 @@ class SequenceIndex:
     """
 
     num_blocks: int
-    block_id: np.ndarray  # uint32, N: the pypulseq block id
+    block_id: np.ndarray  # uint32, N: the pypulseq block id (`_index_from_data`: the file's)
     start_s: np.ndarray  # float64, N: the block start, the sequential sum of the durations
     duration_s: np.ndarray  # float64, N
     end_s: float  # the end of the last block, 0.0 without blocks
@@ -104,7 +110,7 @@ _LUT_LIMIT = 16
 
 
 def _dense(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarray]:
-    """Dense indexes for columns of pypulseq event ids (0 = none) that share one id
+    """Dense indexes for columns of event ids (0 = none) that share one id
     space, each with one id for each of the N blocks. The events are numbered 1 to K in
     the order of their first use: block by block, and in one block in the order of
     `columns`. Returns the dense columns, in the smallest dtype that holds K, and the
@@ -156,12 +162,6 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
         duration_s = np.fromiter(durations.values(), dtype=np.float64, count=n)
     else:  # the durations are not in the order of the blocks
         duration_s = np.fromiter((durations[b] for b in block_events), dtype=np.float64, count=n)
-    # The sequential sum start += duration, the same float operations as
-    # tests/oracles/blocks.py:iter_blocks: numpy's cumsum adds in order.
-    start_s = np.zeros(n, dtype=np.float64)
-    if n > 1:
-        np.cumsum(duration_s[:-1], out=start_s[1:])
-    end_s = float(start_s[-1] + duration_s[-1]) if n else 0.0
 
     try:
         rows = np.asarray(list(block_events.values()))
@@ -176,10 +176,35 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
         def column(col: int) -> np.ndarray:
             return np.fromiter((ev[col] for ev in block_events.values()), dtype=np.int32, count=n)
 
-    (rf,), rf_first = _dense([column(_RF)])
-    (adc,), adc_first = _dense([column(_ADC)])
+    return _index_from_columns(
+        block_id, duration_s, column(_RF), column(_GX), column(_GY), column(_GZ), column(_ADC)
+    )
+
+
+def _index_from_columns(
+    block_id: np.ndarray,
+    duration_s: np.ndarray,
+    rf: np.ndarray,
+    gx: np.ndarray,
+    gy: np.ndarray,
+    gz: np.ndarray,
+    adc: np.ndarray,
+) -> SequenceIndex:
+    """The `SequenceIndex` of the blocks with the IDs `block_id` (uint32), the durations
+    `duration_s` (float64, s) and the event IDs `rf`, `gx`, `gy`, `gz` and `adc` (0 = none),
+    one entry for each block in play order."""
+    n = block_id.size
+    # The sequential sum start += duration, the same float operations as
+    # tests/oracles/blocks.py:iter_blocks: numpy's cumsum adds in order.
+    start_s = np.zeros(n, dtype=np.float64)
+    if n > 1:
+        np.cumsum(duration_s[:-1], out=start_s[1:])
+    end_s = float(start_s[-1] + duration_s[-1]) if n else 0.0
+
+    (rf,), rf_first = _dense([rf])
+    (adc,), adc_first = _dense([adc])
     # One index space for the three axes: block by block, then gx, gy, gz in one block.
-    (gx, gy, gz), grad_key = _dense([column(_GX), column(_GY), column(_GZ)])
+    (gx, gy, gz), grad_key = _dense([gx, gy, gz])
 
     grad_first = grad_key // 3
     grad_first_axis = (grad_key % 3).astype(np.uint8)
@@ -205,6 +230,48 @@ def _build_index(seq: pp.Sequence) -> SequenceIndex:
         grad_first=grad_first,
         grad_first_axis=grad_first_axis,
         adc_first=adc_first,
+    )
+
+
+def _index_from_data(data: SequenceData) -> SequenceIndex:
+    """The `SequenceIndex` of `data`: the blocks of `data.blocks` with the durations
+    `data.block_durations_s`. The event IDs are those of the file. Raises ValueError that
+    names the ID when a block ID does not fit in uint32."""
+    blocks = data.blocks
+    ids = blocks["id"]
+    outside = (ids < 0) | (ids > np.iinfo(np.uint32).max)
+    if outside.any():
+        raise ValueError(f"block ID {int(ids[outside][0])} does not fit in uint32")
+    return _index_from_columns(
+        ids.astype(np.uint32),
+        data.block_durations_s,
+        blocks["rf"],
+        blocks["gx"],
+        blocks["gy"],
+        blocks["gz"],
+        blocks["adc"],
+    )
+
+
+class _DenseIds(NamedTuple):
+    """The file ID of each dense event index of a `SequenceIndex` (int64): entry `k - 1` is
+    the ID of the event with the dense index `k`."""
+
+    rf: np.ndarray
+    grad: np.ndarray  # one ID space for gx, gy and gz, as in the file
+    adc: np.ndarray
+
+
+def _dense_ids(data: SequenceData, index: SequenceIndex) -> _DenseIds:
+    """The `_DenseIds` of `index`, the index of `data` (`_index_from_data`): the ID in
+    `data.blocks` of each event at its first use (`rf_first`, `grad_first` with
+    `grad_first_axis`, and `adc_first`)."""
+    blocks = data.blocks
+    grad = np.stack([blocks[axis] for axis in _GRAD_COLUMNS], axis=1)
+    return _DenseIds(
+        blocks["rf"][index.rf_first].astype(np.int64),
+        grad[index.grad_first, index.grad_first_axis].astype(np.int64),
+        blocks["adc"][index.adc_first].astype(np.int64),
     )
 
 

@@ -654,9 +654,13 @@ with all the `seqfile.Violation` values of the rules in `seqfile.RULES`. The
 model is made of `model.Rasters`, `model.Shape`, `model.Signature` and
 `model.Extensions`; `model.TABLE_DTYPES` has the dtype of each table, and
 `model.decompress_shape` decompresses a shape. `seqfile.MAX_LOCATIONS`,
-`seqfile.RANGE_TOLERANCE` and `seqfile.TOLERANCE_NS` are the limits of the
-reader. `load` does not use the reader yet. Task 6 of
-`docs/plans/own-parser.md` documents these names in full.
+`seqfile.RANGE_TOLERANCE`, `seqfile.TOLERANCE_NS`,
+`seqfile.FIRST_TIME_TOLERANCE` and `seqfile.RF_TIME_TOLERANCE` are the limits of
+the reader. `events.decode_rf`, `events.decode_gradients` and
+`events.decode_adc` decode the events of a model, by file ID, into
+`events.RfEvent`, `events.Trapezoid`, `events.ArbitraryGradient` (together
+`events.GradEvent`) and `events.AdcEvent`. `load` does not use the reader yet.
+Task 6 of `docs/plans/own-parser.md` documents these names in full.
 
 ## 9. Units and gamma
 

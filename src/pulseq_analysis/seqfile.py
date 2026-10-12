@@ -92,14 +92,46 @@ does not state, and that the model needs to be defined.
   2.8.2).
 - `shape.length`: a shape has the number of samples that it declares after decompression (spec
   2.9). A shape that declares more than 2**27 samples is also reported under this rule. `shape.range`: an amplitude shape (RF magnitude, gradient waveform) is in [-1, 1]
-  (spec 2.9), within `RANGE_TOLERANCE`. `shape.event-length` (added): the shapes of one event
+  (spec 2.9), within `RANGE_TOLERANCE`. `shape.rf-magnitude-negative` (added): no sample of an RF
+  magnitude shape is below `-RANGE_TOLERANCE`. This rule is stricter than the specification,
+  which allows [-1, 1] for an amplitude shape. It was chosen to agree with MATLAB Pulseq, which
+  writes the magnitude as an absolute value, and with the scanner's reader
+  (`ExternalSequence::checkRF`), which sets a negative sample to 0. `shape.rf-phase-range`
+  (added): every sample of an RF phase shape is at least `-RANGE_TOLERANCE` and below
+  `1 + RANGE_TOLERANCE`; the phase is a fraction of a turn, and a sample of 1 within the
+  tolerance is a full turn, the same phase as 0. The specification says nothing about the range
+  of the phase. MATLAB Pulseq writes the phase in [0, 1), and the scanner's reader clamps the
+  radians to [0, 2 pi - 1e-4] and does not wrap them, so a phase outside the range is a
+  different pulse than the file says. `shape.empty` (added): a shape that an RF event uses (as
+  magnitude, phase or time shape) or that an arbitrary gradient uses (as waveform or time shape)
+  has at least 1 sample; the shape of an ADC phase is not covered. This rule is stricter than the
+  specification, which says nothing about an empty shape. It was chosen because MATLAB Pulseq
+  fails on such an event (`t(end)` or `tt(end)` of an empty time shape) and because the scanner's
+  reader crashes or rejects a shape with `num_samples` 0 in `decodeBlock`.
+  `shape.rf-time-grid` (added): an RF time shape that the scanner's reader takes as regular, that
+  is a shape stored compressed in 3 or 4 values (`ExternalSequence.cpp` lines 2014 to 2021, in
+  `decodeBlock`), has its times at the cell centres: time i is (i + 0.5) times the step (the second
+  stored value), within `RF_TIME_TOLERANCE` RF rasters. The reader does not decompress such a
+  shape: it ignores the first time and plays the samples at the step, so a shape that starts
+  elsewhere is played at other times than the file says. This rule is stricter than the
+  specification. MATLAB Pulseq writes the time shape of `event.t` in RF rasters and leaves out the
+  shape `0.5 1 1 N-3` (`registerRfEvent` in `Sequence.m`, lines 606 to 613); a regular shape of
+  step d and first time d/2 passes. `shape.rf-time-end` (added): an RF time shape that the reader
+  resamples (any other shape) is not read past its end. The reader (lines 2026 to 2046) plays
+  `int(0.5 + last time)` RF rasters, and in each it goes to the next stored sample when the time
+  of the sample is below the end of the cell; a shape such as the times 0 and 99.6 takes the index
+  past the last stored sample, where the reader reads beyond its memory (undefined behaviour).
+  `shape.event-length` (added): the shapes of one event
   have one number of samples (`Sequence.m` of MATLAB Pulseq asserts it for a gradient and
   multiplies the RF magnitude by the phase).
 - `extension.required-unknown`: from 1.5.1, every STRING_ID in `RequiredExtensions` is one that
   the parser knows (spec 2.8.4). `extension.per-block`: at most one ROTATIONS and one RF_SHIMS
   object for each block (spec 2.8.4; the spec says "can", the parser enforces it).
 - `layer1.gradient-ends`: a 1.4.x file has no arbitrary gradient with time ID 0, because the
-  file does not define its values at the two ends.
+  file does not define its values at the two ends. It has no arbitrary gradient with a time shape
+  whose first time is not 0 (within `FIRST_TIME_TOLERANCE` gradient rasters) either, because the
+  file then has no value at the start of the event: `first` is the amplitude times the first
+  sample, which must be at the start.
 - `signature.invalid`: `[SIGNATURE]` has not exactly one `Type` and one `Hash` (spec 2.4). A hash
   that does not match is not a violation: `SequenceData.signature.matches` reports it.
 
@@ -125,6 +157,8 @@ from .model import (
     SequenceData,
     Shape,
     Signature,
+    _rf_resample,
+    _rf_time_step,
     decompress_shape,
 )
 
@@ -141,6 +175,14 @@ TOLERANCE_NS = 1e-3
 # with 9 significant digits (`write.m`), so a sample of 1 can be off by 5e-10 in a file whose
 # writer does not quantize the shape first, and the tolerance is the next power of ten.
 RANGE_TOLERANCE = 1e-9
+
+# The first time of the time shape of a 1.4.x arbitrary gradient is 0 to within this many gradient
+# rasters (the times of a time shape are in rasters). 1e-6 of a raster is 10 ps on the default
+# raster.
+FIRST_TIME_TOLERANCE = 1e-6
+
+# The times of a regular RF time shape are at the cell centres to within this many RF rasters.
+RF_TIME_TOLERANCE = 1e-6
 
 RULES: Mapping[str, str] = MappingProxyType(
     {
@@ -177,10 +219,15 @@ RULES: Mapping[str, str] = MappingProxyType(
         "gradient.nonzero-end-align": "a gradient that ends above 0 does not end with its block",
         "shape.length": "a shape does not have the samples that it declares",
         "shape.range": "an amplitude shape is outside [-1, 1]",
+        "shape.rf-magnitude-negative": "an RF magnitude shape has a negative sample",
+        "shape.rf-phase-range": "an RF phase shape has a sample outside [0, 1)",
+        "shape.empty": "an RF or arbitrary gradient event uses a shape with no sample",
+        "shape.rf-time-grid": "an RF time shape that the reader takes as regular is off the cell centres",
+        "shape.rf-time-end": "an RF time shape that the reader resamples is read past its end",
         "shape.event-length": "the shapes of one event have different numbers of samples",
         "extension.required-unknown": "a required extension is not known",
         "extension.per-block": "a block has more than one ROTATIONS or RF_SHIMS object",
-        "layer1.gradient-ends": "a 1.4.x gradient on the default raster has no end values",
+        "layer1.gradient-ends": "a 1.4.x gradient has no value at its start or end",
         "signature.invalid": "[SIGNATURE] has not one Type and one Hash",
     }
 )
@@ -999,6 +1046,50 @@ def _read_shims(section: _Section, ext: _Ext, report: _Report) -> _Ids | None:
     return _Ids(np.array(ids, dtype=np.int64)) if ok else None
 
 
+# The most bytes of a line that the scanner's reader reads at a time (its `MAX_LINE_SIZE` is 256,
+# and one byte is for the terminator of the string): it reads a longer line in pieces.
+_READER_LINE_BYTES = 255
+
+
+def _reader_lines(raw: bytes) -> Sequence[bytes]:
+    """The lines of `raw` as the scanner's reader reads them: up to and with a `\\n` (a lone `\\r`
+    ends no line), in pieces of at most `_READER_LINE_BYTES`, and a last line with no `\\n`."""
+    lines = []
+    start = 0
+    while start < len(raw):
+        end = raw.find(b"\n", start, start + _READER_LINE_BYTES)
+        end = end + 1 if end >= 0 else min(start + _READER_LINE_BYTES, len(raw))
+        lines.append(raw[start:end])
+        start = end
+    return lines
+
+
+def _scanner_hash_input(raw: bytes) -> bytes | None:
+    """The bytes that the hash of `[SIGNATURE]` covers by the rule of the scanner's reader
+    (`ExternalSequence::buildFileIndex` of pulseq/pulseq), or None if no line starts the section.
+    The reader hashes each line with its line end, up to the first NUL byte of the line. It
+    holds back a line that is only a line end (`\\n` or `\\r\\n`): it hashes that line when the
+    next line is not `[SIGNATURE]`, and drops it otherwise. The section starts at the first line
+    that begins with `[SIGNATURE]` (text after the `]` is allowed). The hash covers every byte
+    before that line except the one empty line right before it, if there is one. It differs from
+    the bytes before the `\\n` of the first `\\n[SIGNATURE]` only for a CRLF file (those bytes end
+    with the `\\r` of the empty line) and for a file where the line before `[SIGNATURE]` is not
+    empty (those bytes leave out its line end)."""
+    hashed: list[bytes] = []
+    held = b""
+    for line in _reader_lines(raw):
+        line = line.partition(b"\0")[0]
+        if line.startswith(b"[SIGNATURE]"):
+            return b"".join(hashed)
+        hashed.append(held)
+        if line in (b"\n", b"\r\n"):
+            held = line
+        else:
+            hashed.append(line)
+            held = b""
+    return None
+
+
 def _read_signature(section: _Section | None, raw: bytes, report: _Report) -> Signature | None:
     if section is None:
         return None
@@ -1009,10 +1100,10 @@ def _read_signature(section: _Section | None, raw: bytes, report: _Report) -> Si
             return None
     sig_type, sig_hash = found["Type"][0][0], found["Hash"][0][0]
     matches = None
-    cut = raw.find(b"\n[SIGNATURE]")
-    if cut >= 0:
+    hashed = _scanner_hash_input(raw)
+    if hashed is not None:
         try:
-            digest = hashlib.new(sig_type, raw[:cut], usedforsecurity=False).hexdigest()
+            digest = hashlib.new(sig_type, hashed, usedforsecurity=False).hexdigest()
         except (ValueError, TypeError):
             digest = None
         if digest is not None:
@@ -1174,6 +1265,13 @@ def _shape_columns(f: _File) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nda
     return num, np.array([e[0] for e in ends]), np.array([e[1] for e in ends]), valid
 
 
+def _regular_step(info: _ShapeInfo) -> float:
+    """The step in RF rasters of a shape that the scanner's reader takes as a regular RF time
+    shape (`model._rf_time_step`), or NaN."""
+    step = _rf_time_step(Shape(info.num_samples, info.packed))
+    return np.nan if step is None else step
+
+
 def _event_ends(f: _File) -> _Ends | None:
     """Checks every event table against the rasters and the shapes, and gives the end of each
     event. None if a table or a raster that the checks need is missing."""
@@ -1181,6 +1279,7 @@ def _event_ends(f: _File) -> _Ends | None:
         return None
     rep = f.report
     num, first, last, valid = _shape_columns(f)
+    rf_step = np.array([_regular_step(s) for s in f.shapes.values()] + [np.nan])  # NaN: not regular
     r_grad, r_rf, r_adc = (_raster_ns(f.rasters, k) for k in ("gradient", "rf", "adc"))
 
     def shape(refs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -1212,9 +1311,15 @@ def _event_ends(f: _File) -> _Ends | None:
         delay = d["delay"] * 1e3
         default = mag_ok & (d["time_id"] == 0)
         rf_end[default] = delay[default] + n_mag[default] * r_rf
+        # The end that the scanner's reader plays (`decodeBlock`): a regular time shape has the
+        # samples of the magnitude at `step` RF rasters; any other time shape is resampled to
+        # `int(0.5 + last time)` RF rasters.
         use = shaped & (num[time] == n_mag)
-        ticks = np.ceil(last[time] - TOLERANCE_NS / r_rf)
-        rf_end[use] = delay[use] + ticks[use] * r_rf
+        cells = np.trunc(0.5 + last[time])
+        played = np.where(
+            np.isnan(rf_step[time]), np.where(cells < 0, np.nan, cells), n_mag * rf_step[time]
+        )
+        rf_end[use] = delay[use] + played[use] * r_rf
 
     # Arbitrary gradients.
     g = f.grad.data
@@ -1251,7 +1356,7 @@ def _event_ends(f: _File) -> _Ends | None:
             np.flatnonzero(~late & np.isfinite(g_end) & _off_raster(np.nan_to_num(g_end), r_grad)),
             lambda r: f"the gradient ends at {g_end[r] / 1e3:g} us, off GradientRasterTime",
         )
-    g_first, g_last = _gradient_ends(f, gshape, gshape_ok, first, last)
+    g_first, g_last = _gradient_ends(f, gshape, gshape_ok, gtime, gtime_ok, first, last)
     start = np.isfinite(g_first) & (g_first != 0) & (g["delay"] > 0)
     rep.rows(
         "gradient.nonzero-start-delay",
@@ -1303,49 +1408,138 @@ def _gradient_ends(
     f: _File,
     shape_row: np.ndarray,
     shape_ok: np.ndarray,
+    time_row: np.ndarray,
+    time_ok: np.ndarray,
     first: np.ndarray,
     last: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """The `first` and `last` of each arbitrary gradient: the columns of the file from 1.5.0.
     In a 1.4.x file, the amplitude times the first and last sample of a gradient with a time
-    shape, and NaN for a gradient on the default raster or with no sample (rule
-    `layer1.gradient-ends`)."""
+    shape that starts at time 0, and NaN for a gradient on the default raster, with no sample,
+    or with a time shape that starts later (rule `layer1.gradient-ends`)."""
     assert f.grad is not None
     g = f.grad.data
     if f.version >= (1, 5, 0):
         return g["first"], g["last"]
     use = shape_ok & (g["time_id"] != 0) & np.isfinite(first[shape_row])
+    late = use & time_ok & (np.abs(first[time_row]) > FIRST_TIME_TOLERANCE)
     f.report.rows(
         "layer1.gradient-ends",
         f.grad,
-        np.flatnonzero((g["time_id"] == 0) | (shape_ok & ~use)),
+        np.flatnonzero((g["time_id"] == 0) | (shape_ok & ~use) | late),
         lambda r: (
             "the file does not define the values at the ends of this gradient; "
             "Pulseq 1.5 stores them"
+            if not late[r]
+            else f"the time shape starts at {first[time_row[r]]:g} gradient rasters, not at 0, "
+            "so the file does not define the value at the start of this gradient"
         ),
     )
+    use &= ~late
     out_first = np.where(use, g["amplitude"] * first[shape_row], np.nan)
     out_last = np.where(use, g["amplitude"] * last[shape_row], np.nan)
     return out_first, out_last
 
 
-def _check_amplitude_shapes(f: _File) -> None:
-    """`shape.range` for the shapes that are an RF magnitude or a gradient waveform."""
-    used: set[int] = set()
-    for table, column in ((f.rf, "mag_id"), (f.grad, "shape_id")):
-        if table is not None:
-            used.update(np.unique(table.data[column]).tolist())
-    for shape_id in sorted(used & set(f.shapes)):
+def _check_rf_time_shapes(f: _File) -> None:
+    """`shape.rf-time-grid` and `shape.rf-time-end` for the shapes that an RF event uses as its
+    time shape."""
+    if f.rf is None:
+        return
+    for shape_id in sorted(set(np.unique(f.rf.data["time_id"]).tolist()) & set(f.shapes)):
         info = f.shapes[shape_id]
-        if info.samples is not None and info.samples.size:
-            peak = float(np.abs(info.samples).max())
-            if peak > 1 + RANGE_TOLERANCE:
+        if info.samples is None or not info.samples.size:
+            continue
+        step = _regular_step(info)
+        if not np.isnan(step):
+            expected = (np.arange(info.samples.size) + 0.5) * step
+            off = np.flatnonzero(np.abs(info.samples - expected) > RF_TIME_TOLERANCE)
+            if off.size:
+                i = int(off[0])
                 f.report.add(
-                    "shape.range",
+                    "shape.rf-time-grid",
                     "SHAPES",
                     info.line,
-                    f"shape {shape_id} has a sample of {peak:g}: an amplitude shape is in [-1, 1]",
+                    f"shape {shape_id} is an RF time shape that the scanner's reader takes as "
+                    f"regular with a step of {step:g} RF rasters; time {i} is "
+                    f"{info.samples[i]:g}, not {expected[i]:g}",
                 )
+            continue
+        try:
+            _rf_resample(info.samples)
+        except ValueError as error:
+            f.report.add(
+                "shape.rf-time-end",
+                "SHAPES",
+                info.line,
+                f"shape {shape_id} is an RF time shape that the scanner's reader resamples, "
+                f"and it would read past the stored samples: {error}",
+            )
+
+
+def _check_empty_shapes(f: _File) -> None:
+    """`shape.empty` for the shapes that an RF event or an arbitrary gradient uses."""
+    used: set[int] = set()
+    for table, columns in (
+        (f.rf, ("mag_id", "phase_id", "time_id")),
+        (f.grad, ("shape_id", "time_id")),
+    ):
+        if table is not None:
+            for column in columns:
+                used.update(np.unique(table.data[column]).tolist())
+    for shape_id in sorted(used & set(f.shapes)):
+        info = f.shapes[shape_id]
+        if info.num_samples == 0:
+            f.report.add(
+                "shape.empty",
+                "SHAPES",
+                info.line,
+                f"shape {shape_id} has no sample, and an RF or gradient event uses it",
+            )
+
+
+def _check_amplitude_shapes(f: _File) -> None:
+    """`shape.range` for the shapes that are an RF magnitude or a gradient waveform,
+    `shape.rf-magnitude-negative` for the shapes that are an RF magnitude, and
+    `shape.rf-phase-range` for the shapes that are an RF phase."""
+
+    def used(table: "_Table | None", column: str) -> set[int]:
+        if table is None:
+            return set()
+        return set(np.unique(table.data[column]).tolist()) & set(f.shapes)
+
+    magnitude, phase = used(f.rf, "mag_id"), used(f.rf, "phase_id")
+    amplitude = magnitude | used(f.grad, "shape_id")
+    for shape_id in sorted(amplitude | phase):
+        info = f.shapes[shape_id]
+        if info.samples is None or not info.samples.size:
+            continue
+        low, high = float(info.samples.min()), float(info.samples.max())
+        peak = max(-low, high)
+        if shape_id in amplitude and peak > 1 + RANGE_TOLERANCE:
+            f.report.add(
+                "shape.range",
+                "SHAPES",
+                info.line,
+                f"shape {shape_id} has a sample of {peak:g}: an amplitude shape is in [-1, 1]",
+            )
+        if shape_id in magnitude and low < -RANGE_TOLERANCE:
+            f.report.add(
+                "shape.rf-magnitude-negative",
+                "SHAPES",
+                info.line,
+                f"shape {shape_id} is an RF magnitude and has a sample of {low:g}: "
+                "an RF magnitude is not below 0",
+            )
+        if shape_id in phase and (low < -RANGE_TOLERANCE or high >= 1 + RANGE_TOLERANCE):
+            sample = low if low < -RANGE_TOLERANCE else high
+            f.report.add(
+                "shape.rf-phase-range",
+                "SHAPES",
+                info.line,
+                f"shape {shape_id} is an RF phase and has a sample of {sample:g}: "
+                "an RF phase is a fraction of a turn in [0, 1)",
+            )
 
 
 def _take(values: np.ndarray, row: np.ndarray, found: np.ndarray, fill: float) -> np.ndarray:
@@ -1489,6 +1683,8 @@ def _build(raw: bytes, report: _Report) -> SequenceData | None:
     _check_gradient_ids(f)
     _check_references(f)
     ends = _event_ends(f)
+    _check_empty_shapes(f)
+    _check_rf_time_shapes(f)
     _check_amplitude_shapes(f)
     _check_blocks(f, ends)
     if report:
