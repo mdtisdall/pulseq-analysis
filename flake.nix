@@ -47,6 +47,15 @@
       # The reader of the Pulseq interpreter on the scanner, ExternalSequence of pulseq/pulseq
       # (MIT), with the small driver in tests/cpp_oracle, compiled with `flags` by the compiler of
       # `stdenv`. `extra` adds attributes to the derivation.
+      #
+      # Each build has the char and the arithmetic of the reader's x86_64 build on the scanner,
+      # whatever the system:
+      # - -fsigned-char: ExternalSequence::getline compares a char with EOF. With an unsigned
+      #   char (gcc and clang on Linux aarch64) the comparison is never true, and the reader
+      #   does not end on any file.
+      # - -ffp-contract=off: the x86_64 build has no FMA instructions, so it never fuses a
+      #   multiply and an add. On arm64 the compiler fuses them by default, and gradientsAt
+      #   then rounds some values differently in the last bit.
       cpp-oracle =
         pkgs:
         {
@@ -64,7 +73,7 @@
             dontConfigure = true;
             buildPhase = ''
               runHook preBuild
-              $CXX -std=c++11 ${flags} -I src -o ${name} \
+              $CXX -std=c++11 -fsigned-char -ffp-contract=off ${flags} -I src -o ${name} \
                 $driver src/ExternalSequence.cpp src/md5.cpp
               runHook postBuild
             '';

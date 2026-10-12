@@ -9,6 +9,17 @@ derivation takes the folder `src/` of [pulseq/pulseq](https://github.com/pulseq/
 `c7469123c2f381f065986e6cc3a7d09730ed16ef`. That project is under the MIT license; its notice is
 in `LICENSE.pulseq` in this folder, which is a copy of the `LICENSE` file of that commit.
 
+Each build of `flake.nix` (also the sanitized build below) has `-fsigned-char -ffp-contract=off`,
+so that the reader has the `char` and the arithmetic of its x86_64 build on the scanner on each
+system:
+
+- `-fsigned-char`: `ExternalSequence::getline` compares a `char` with `EOF`. Where `char` is
+  unsigned (gcc and clang on Linux aarch64) the comparison is never true, and the reader does not
+  end on any file.
+- `-ffp-contract=off`: the x86_64 build has no FMA instructions, so it never fuses a multiply and
+  an add. On arm64 the compiler fuses them by default, and `gradientsAt` then gives some values
+  that differ in the last bit (`--sample`; `--dump` is the same).
+
 ## Modes and exit status
 
 | Call | What it does |
@@ -32,7 +43,7 @@ stdout. `--dump` also calls `GetAllDefinitions`, which the first mode does not.
 ## The sanitized build
 
 Nix also builds the same driver and reader as `pulseq-cpp-oracle-sanitized` (`flake.nix`; on the
-PATH of the devShell and the `ci` devShell), with clang of LLVM 22 and:
+PATH of the devShell and the `ci` devShell), with clang of LLVM 22, the two flags above, and:
 
 - AddressSanitizer and UndefinedBehaviorSanitizer (`-fsanitize=address,undefined`,
   `-fno-sanitize-recover=all`);
