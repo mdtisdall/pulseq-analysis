@@ -29,13 +29,14 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis import _events, seq_index
 from pulseq_analysis.sampling import (
     GradientSampler,
     gradient_sampler,
     raster_block_lengths,
     sequence_samples,
 )
-from pulseq_analysis.seq_index import sequence_index
+from pulseq_analysis.seq_index import grad_events, sequence_index
 from pulseq_analysis.snapshot import Snapshot, load
 
 _AXES = ("gx", "gy", "gz")
@@ -1286,3 +1287,36 @@ def test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot(b
         gradient_sampler(build())
     with pytest.raises(TypeError, match="load"):
         GradientSampler(build())
+
+
+# ---- GradientSampler._from_parts ----
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["long_gap", "short_gap", "zero_gap", "off_raster_events", "gre", "spin_echo", "random_gaps_0"],
+)
+def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(name):
+    """`GradientSampler._from_parts` with an index and points made again from the snapshot
+    (not the kept ones) and an empty dict gives, bit for bit, the `sample` and
+    `block_samples` values of `GradientSampler(snap)`. Its gaps are kept in the dict that
+    was passed, equal to those of the snapshot's sampler, and not on the snapshot."""
+    snap = load(_model_sequence(name))
+    index = seq_index._build_index(snap.sequence)
+    points = _events._points_from_events(grad_events(snap), float(snap.sequence.grad_raster_time))
+    assert index is not sequence_index(snap)
+    kept: dict = {}
+    parts = GradientSampler._from_parts(index, points, kept)
+    whole = GradientSampler(snap)
+    t = _model_times(snap)
+    for axis in _AXES:
+        assert np.array_equal(parts.sample(axis, t), whole.sample(axis, t))
+        got = parts.block_samples(axis, 0, index.num_blocks, _RASTER)
+        assert np.array_equal(got, whole.block_samples(axis, 0, index.num_blocks, _RASTER))
+    assert set(kept) == {("gaps", axis) for axis in _AXES}
+    for axis in _AXES:
+        assert kept[("gaps", axis)] is parts._gaps(axis)
+        assert kept[("gaps", axis)] is not whole._gaps(axis)
+        for field in ("start_s", "end_s", "start_hz_per_m", "end_hz_per_m"):
+            mine, theirs = getattr(kept[("gaps", axis)], field), getattr(whole._gaps(axis), field)
+            assert np.array_equal(mine, theirs)

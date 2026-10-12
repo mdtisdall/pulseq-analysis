@@ -2,11 +2,126 @@
 
 `driver.cpp` is a small program that reads one `.seq` file with `ExternalSequence::load`, the
 reader of the Pulseq interpreter on the scanner, and then decodes each block with `decodeBlock`.
-Nix builds it as `pulseq-cpp-oracle` (`flake.nix`), and `tests/test_cpp_oracle.py` runs it. The
-program exits 0 when the file loads and each block decodes, 1 when it does not (the messages of
-the reader are on stderr), and 70 when the reader crashes.
+Nix builds it as `pulseq-cpp-oracle` (`flake.nix`), and `tests/test_cpp_oracle.py` runs it.
 
 `ExternalSequence.h`, `ExternalSequence.cpp`, `md5.h` and `md5.cpp` are not in this folder. The
 derivation takes the folder `src/` of [pulseq/pulseq](https://github.com/pulseq/pulseq) at commit
 `c7469123c2f381f065986e6cc3a7d09730ed16ef`. That project is under the MIT license; its notice is
 in `LICENSE.pulseq` in this folder, which is a copy of the `LICENSE` file of that commit.
+
+## Modes and exit status
+
+| Call | What it does |
+| --- | --- |
+| `pulseq-cpp-oracle FILE` | Says only whether the file loads and each block decodes: the exit status. |
+| `pulseq-cpp-oracle --dump FILE` | Writes what the reader holds after `load` and `decodeBlock` of every block, as one JSON object on stdout. |
+| `pulseq-cpp-oracle --sample FILE` | Reads lines `block_index time_us` on stdin and writes the three gradient values of `SeqBlock::gradientsAt` for each line. |
+
+A call with one argument is always the first mode, so a file named `--dump` is read as a file.
+
+| Exit status | Meaning |
+| --- | --- |
+| 0 | The file loads and each block decodes (and the mode did its work). |
+| 1 | The file does not load, a block does not decode, or the reader throws. The messages of the reader are on stderr. |
+| 2 | A wrong call; in `--sample` also a line of stdin that is not `block_index time_us`, or a block index outside the sequence. |
+| 70 | The reader crashed (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS or SIGTRAP). |
+
+`--dump` writes its JSON only at the end, so a call that exits with 1 has written nothing on
+stdout. `--dump` also calls `GetAllDefinitions`, which the first mode does not.
+
+## `--dump`
+
+The values are those that the C++ structs hold, with no conversion of units. A `float` member is
+written with `%.9g` and a `double` member with `%.17g`, so each value reads back exactly. Integers
+are written as integers. NaN and infinity are not valid JSON: they are written as `null`. Text is
+JSON-escaped; when it is not valid UTF-8 (the reader keeps the bytes of the file), each byte from
+0x80 on is written as the code point of the same number (`\u0080` to `ÿ`).
+
+```json
+{"version": 1005001, "definitions": {"...": "..."}, "signature_ok": true, "blocks": ["..."]}
+```
+
+| Field | Value (accessor) |
+| --- | --- |
+| `version` | `GetVersion()`: the combined integer, `1005001` for 1.5.1. |
+| `definitions` | Object from each key of `GetAllDefinitions()` to `GetDefinitionStr(key)`, the text of the value. |
+| `signature_ok` | `isSignatureCheckSucceeded()`. |
+| `blocks` | One object for each block, in play order. |
+
+A block has these fields. The absent events are `null` (`grad` has always 3 entries) and the
+absent labels are `[]`.
+
+| Field | Value (accessor) |
+| --- | --- |
+| `index` | `GetIndex()`: the position in play order from 0. The reader has no accessor of the block ID. |
+| `duration_ru` | `GetStoredDuration_ru()`: the stored duration in block duration raster units. |
+| `rf` | An object when `isRF()`, else `null`. |
+| `grad` | A list of 3 (X, Y, Z): an object, or `null` when the channel has no gradient. |
+| `adc` | An object when `isADC()`, else `null`. |
+| `trigger` | An object when `isTrigger()`, else `null`. `isTrigger()` is false for a trigger of type 0. |
+| `soft_delay` | An object when `isSoftDelay()`, else `null`. |
+| `labelset`, `labelinc` | `GetLabelSetEvents()`, `GetLabelIncEvents()`: a list of `{"label", "value"}`. |
+| `rotation` | A list of the 4 numbers of `rotQuaternion` (`GetRotationEvent()`) when `isRotation()`, else `null`. The reader divides them by their norm when it loads them. |
+| `rf_shim` | An object when `hasRfShim()`, else `null`. |
+
+`rf` (`GetRFEvent()` and the accessors of the decoded RF):
+
+| Field | Unit | Source |
+| --- | --- | --- |
+| `amplitude` | Hz | `RFEvent::amplitude` |
+| `mag_shape`, `phase_shape`, `time_shape` | shape ID | `magShape`, `phaseShape`, `timeShape` |
+| `shape_dur_us` | µs | `shape_dur`: the dwell times the number of samples, set by `decodeBlock` |
+| `center_us` | µs | `center` |
+| `delay_us` | µs | `delay` |
+| `freq_ppm`, `phase_ppm` | ppm, rad/MHz | `freqPPM`, `phasePPM` |
+| `freq_offset` | Hz | `freqOffset` |
+| `phase_offset` | rad | `phaseOffset` |
+| `use` | text of 1 character | `use` |
+| `dwell_us` | µs | `GetRFDwellTime()` |
+| `magnitude` | fraction of `amplitude` | `GetRFAmplitudePtr()`, `GetRFLength()` values, after `checkRF` |
+| `phase` | rad | `GetRFPhasePtr()`, the same number of values: the phase shape times 2π, after `checkRF` |
+
+`grad[c]` (`GetGradEvent(c)`) has `kind`, `amplitude` (Hz/m, `GradEvent::amplitude`) and
+`delay_us` (`delay`), and:
+
+| `kind` | When | More fields |
+| --- | --- | --- |
+| `trap` | `isTrapGradient(c)` | `ramp_up_us`, `flat_us`, `ramp_down_us` (µs: `rampUpTime`, `flatTime`, `rampDownTime`) |
+| `ext_trap` | `isExtTrapGradient(c)` | `times_us` (µs, `GetExtTrapGradTimes(c)`), `shape` (fractions of `amplitude`, `GetExtTrapGradShape(c)`) |
+| `arbitrary` | `isArbitraryGradient(c)` | `wave_shape`, `time_shape` (shape IDs; `-1` is an oversampled gradient), `first`, `last` (Hz/m: `first`, `last`), `oversampled` (`isArbGradWithOversampling(c)`), `samples` (fractions of `amplitude`, `GetArbGradShapePtr(c)`, `GetArbGradNumSamples(c)` values, after `checkGradient`) |
+
+The driver keeps the default sampling of the reader for an oversampled arbitrary gradient: only
+the samples at the centres of the rasters (every second stored sample, from the first). The
+reader sets `first` and `last` of a file of version 1.4 to `FLOAT_UNDEFINED` (`1.18e-38f`,
+written as `1.17999995e-38`).
+
+`adc` (`GetADCEvent()`): `num_samples`, `dwell_ns` (ns), `delay_us` (µs), `freq_ppm`, `phase_ppm`,
+`freq_offset` (Hz), `phase_offset` (rad), `phase_shape` (shape ID of the phase modulation).
+
+`trigger` (`GetTriggerEvent()`): `type`, `channel`, `delay_us` (µs), `duration_us` (µs).
+
+`soft_delay` (`GetSoftDelayEvent()`): `num_id`, `offset_us` (µs), `factor`, `hint` (text). The
+reader keeps the first 31 characters of the hint.
+
+A label of `labelset` or `labelinc` is `{"label": NAME, "value": N}`. `NAME` is the name that the
+reader gives the label (`getCounterIdAsString`, for example `LIN`) or the flag
+(`getFlagIdAsString`, for example `NAV`); a flag has the value 0 or 1.
+
+`rf_shim` (`GetRfShim()`): `id`, `nchan`, `amplitudes` and `phases` (lists of `float`).
+
+## `--sample`
+
+After `load`, the driver reads stdin line by line. A line is `block_index time_us`: the index of a
+block in play order from 0, and a time in µs from the start of the block (a number that `strtod`
+reads; not NaN or infinity). For each line it writes one line `gx gy gz` on stdout: the three
+values of `SeqBlock::gradientsAt`, each with `%.17g` (Hz/m, as the reader holds them: the
+amplitude is a `float`). A value that is not finite would be written as `printf` writes it.
+
+The driver decodes each block once, when a line first asks for it. A line that does not read as
+`block_index time_us`, or a block index that is not in `0` to the number of blocks minus 1, makes
+it exit with 2 and a message on stderr; the lines before it are already written. A block that does
+not decode gives exit status 1.
+
+`gradientsAt` gives 0 for a time before the start or after the end of the block. It looks only
+inside one block, so it does not join the blocks. The driver does not pass on the messages that
+`gradientsAt` prints (one for each call on a ramp down, and one for a time outside the block).

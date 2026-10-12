@@ -9,6 +9,7 @@ lists hold play indexes, as `SequenceIndex` does (the old loop kept block ids).
 import copy
 import dataclasses
 import tracemalloc
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,6 +25,8 @@ from synthetic import (
 )
 
 from pulseq_analysis import seq_index
+from pulseq_analysis._equality import _freeze, values_equal
+from pulseq_analysis.model import TABLE_DTYPES
 from pulseq_analysis.seq_index import (
     adc_events,
     grad_events,
@@ -31,6 +34,7 @@ from pulseq_analysis.seq_index import (
     rf_events,
     sequence_index,
 )
+from pulseq_analysis.seqfile import SeqFileError, read_seqfile
 from pulseq_analysis.snapshot import Snapshot, load
 
 _AXES = ("gx", "gy", "gz")
@@ -526,3 +530,143 @@ def test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_sna
     names `load` for a `pp.Sequence` and for a path: they take a `Snapshot`."""
     with pytest.raises(TypeError, match="load"):
         function(build())
+
+
+# ---- The index from parts: `_index_from_columns`, `_index_from_data` and `_dense_ids` ----
+
+SEQFILES = Path(__file__).resolve().parent / "seqfiles"
+
+
+def _seqfiles() -> list[Path]:
+    """The valid fixtures and the oracle files of `tests/seqfiles`."""
+    return sorted(SEQFILES.glob("valid_*.seq")) + sorted((SEQFILES / "oracle").glob("*.seq"))
+
+
+# The fields of the gradient numbering. pypulseq's `Sequence.read` (in `load`) calls
+# `remove_duplicates`, which makes one event of the gradient events of the file that are equal
+# after its rounding: `pypulseq_simple_mprage150.seq` has the trapezoids 39 and 40, with the
+# amplitudes 0 and -0 and the same times, and pypulseq gives the gy of its blocks 70, 200 and
+# 330 the ID 39, not 40. The model keeps the IDs of the file, so the index of the model can
+# have more gradient events.
+_GRAD_FIELDS = ("gx", "gy", "gz", "grad_first", "grad_first_axis")
+
+
+def _gradient_row(data, file_id: int) -> tuple:
+    """The gradient event `file_id` of `data`: its table, and its row without the ID."""
+    for name in ("trap", "grad"):
+        table = getattr(data, name)
+        row = table[table["id"] == file_id]
+        if row.size:
+            return (name, *row[0].tolist()[1:])
+    raise AssertionError(f"no gradient event {file_id}")
+
+
+def _assert_gradients_are_merged(data, got, expected) -> None:
+    """The gradient columns of `expected` (pypulseq) number the events of `got` (the model)
+    with the events that are equal by value as one: each dense index of `got` has one dense
+    index of `expected` on every axis, and the events of the file that get one index of
+    `expected` are equal by value (`==`, so 0 equals -0). pypulseq merges events that are
+    equal after its rounding, so a file with two events that differ by less than that rounding
+    fails here, and shows it."""
+    mine = np.concatenate([got.gx, got.gy, got.gz]).astype(np.int64)
+    theirs = np.concatenate([expected.gx, expected.gy, expected.gz]).astype(np.int64)
+    to = np.zeros(got.grad_first.size + 1, dtype=np.int64)
+    to[mine] = theirs
+    assert np.array_equal(to[mine], theirs)
+    ids = seq_index._dense_ids(data, got).grad
+    for j in range(1, expected.grad_first.size + 1):
+        rows = {_gradient_row(data, int(i)) for i in ids[to[1:] == j]}
+        assert len(rows) == 1, (j, rows)
+
+
+def test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file():
+    """For each file of `tests/seqfiles` that both `read_seqfile` and `load` accept,
+    `_index_from_data` of the model equals `sequence_index` of the snapshot, field by field,
+    except the gradient numbering where pypulseq makes one event of two that are equal by
+    value (`_GRAD_FIELDS`): there the numbering of pypulseq is a merging of the numbering of
+    the model."""
+    compared = merged = 0
+    for path in _seqfiles():
+        try:
+            data = read_seqfile(path)
+        except SeqFileError:
+            continue
+        try:
+            snap = load(path)
+        except (KeyError, ValueError, NotImplementedError):  # pypulseq refuses the file
+            continue
+        got, expected = seq_index._index_from_data(data), sequence_index(snap)
+        if got.grad_first.size == expected.grad_first.size:
+            names = [f.name for f in dataclasses.fields(got)]
+        else:
+            _assert_gradients_are_merged(data, got, expected)
+            names = [f.name for f in dataclasses.fields(got) if f.name not in _GRAD_FIELDS]
+            merged += 1
+        different = [
+            name for name in names if not values_equal(getattr(got, name), getattr(expected, name))
+        ]
+        assert not different, (path.name, different)
+        compared += 1
+    assert compared - merged >= 10
+
+
+@pytest.mark.parametrize(
+    "build",
+    [spin_echo_sequence, gre_sequence, empty_sequence, arbitrary_gradient_sequence],
+    ids=["spin_echo", "gre", "empty", "arbitrary_gradient"],
+)
+def test_the_index_from_the_columns_of_a_sequence_equals_its_index(build):
+    """`_index_from_columns` with the block IDs, the durations and the event columns of the
+    sequence of a snapshot (int64, read here) equals `sequence_index` of the snapshot."""
+    snap = load(build())
+    seq = snap.sequence
+    rows = list(seq.block_events.items())
+    block_id = np.array([b for b, _ in rows], dtype=np.uint32)
+    duration_s = np.array([seq.block_durations[b] for b, _ in rows], dtype=np.float64)
+    columns = [np.array([ev[c] for _, ev in rows], dtype=np.int64) for c in range(1, 6)]
+    index = seq_index._index_from_columns(block_id, duration_s, *columns)
+    assert index == sequence_index(snap)
+
+
+def _hand_blocks() -> np.ndarray:
+    """A block table by hand (`id`, `duration_ticks`, `rf`, `gx`, `gy`, `gz`, `adc`, `ext`) whose
+    event IDs are not in the order of their first use."""
+    rows = [
+        (1, 10, 3, 0, 0, 5, 0, 0),
+        (2, 10, 0, 2, 5, 0, 4, 0),
+        (3, 10, 3, 0, 0, 0, 0, 0),
+        (4, 10, 1, 7, 0, 2, 4, 0),
+        (5, 10, 0, 0, 0, 0, 2, 0),
+    ]
+    return np.array(rows, dtype=TABLE_DTYPES["blocks"])
+
+
+def test_dense_ids_are_the_file_ids_of_the_first_use_by_hand():
+    """`_dense_ids` of a model of `valid_1_5_1.seq` with the block table of `_hand_blocks`:
+    RF 3 then 1 (blocks 1 and 4), gradients 5 (gz of block 1), 2 (gx of block 2; its gy 5 is
+    used already) and 7 (gx of block 4), ADC 4 then 2 (blocks 2 and 5)."""
+    data = dataclasses.replace(read_seqfile(SEQFILES / "valid_1_5_1.seq"), blocks=_hand_blocks())
+    index = seq_index._index_from_data(data)
+    ids = seq_index._dense_ids(data, index)
+    assert ids.rf.tolist() == [3, 1]
+    assert ids.grad.tolist() == [5, 2, 7]
+    assert ids.adc.tolist() == [4, 2]
+    for array in ids:
+        assert array.dtype == np.int64
+    assert index.gx.tolist() == [0, 2, 0, 3, 0]
+    assert index.gy.tolist() == [0, 1, 0, 0, 0]
+    assert index.gz.tolist() == [1, 0, 0, 2, 0]
+
+
+def test_a_block_id_that_does_not_fit_in_uint32_raises_value_error_that_names_it():
+    """A model with the block ID 2**32 raises ValueError that names the ID. The ID 2**32 - 1
+    builds the index, as uint32."""
+    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    blocks = np.array(data.blocks)
+    blocks["id"][-1] = 2**32 - 1
+    index = seq_index._index_from_data(dataclasses.replace(data, blocks=_freeze(blocks)[0]))
+    assert index.block_id.dtype == np.uint32
+    assert int(index.block_id[-1]) == 2**32 - 1
+    blocks["id"][-1] = 2**32
+    with pytest.raises(ValueError, match=str(2**32)):
+        seq_index._index_from_data(dataclasses.replace(data, blocks=_freeze(blocks)[0]))

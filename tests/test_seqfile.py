@@ -1,5 +1,6 @@
 import copy
 import dataclasses
+import hashlib
 import pickle
 import re
 import warnings
@@ -72,7 +73,12 @@ FIXTURE_RULES = {
     "bad_gradient_nonzero_end_align.seq": "gradient.nonzero-end-align",
     "bad_shape_length.seq": "shape.length",
     "bad_shape_range.seq": "shape.range",
+    "bad_shape_rf_magnitude_negative.seq": "shape.rf-magnitude-negative",
+    "bad_shape_rf_phase_range.seq": "shape.rf-phase-range",
     "bad_shape_event_length.seq": "shape.event-length",
+    "bad_shape_empty.seq": "shape.empty",
+    "bad_shape_rf_time_grid.seq": "shape.rf-time-grid",
+    "bad_shape_rf_time_end.seq": "shape.rf-time-end",
     "bad_extension_required_unknown.seq": "extension.required-unknown",
     "bad_extension_per_block.seq": "extension.per-block",
     "bad_layer1_gradient_ends.seq": "layer1.gradient-ends",
@@ -130,6 +136,8 @@ def violations_of(path):
         ("valid_comments_between_sections.seq", (1, 5, 1)),
         ("valid_no_signature.seq", (1, 5, 1)),
         ("valid_signature_mismatch.seq", (1, 5, 1)),
+        ("valid_arbitrary_gradient_4us_raster.seq", (1, 5, 1)),
+        ("valid_1_5_1_rotation_not_played.seq", (1, 5, 1)),
     ],
 )
 def test_valid_fixture_loads_with_its_version(name, version):
@@ -236,6 +244,61 @@ def test_signature_matches_is_reported_and_is_not_a_rule():
     assert read_seqfile(SEQFILES / "valid_no_signature.seq").signature is None
 
 
+def _signature_variants():
+    """(name, the bytes of a file up to the line `[SIGNATURE]`, the bytes that the scanner's reader
+    hashes, the line end of the signature section). The reader hashes each line with its line
+    end, holds back a line that is only a line end, and drops it when the next line is
+    `[SIGNATURE]`."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text().rstrip("\n")
+    lf, crlf = text.encode(), text.replace("\n", "\r\n").encode()
+    return [
+        ("lf-one-empty-line", lf + b"\n\n", lf + b"\n", b"\n"),
+        ("lf-two-empty-lines", lf + b"\n\n\n", lf + b"\n\n", b"\n"),
+        ("lf-no-empty-line", lf + b"\n", lf + b"\n", b"\n"),
+        ("lf-spaces-on-the-line", lf + b"\n  \n", lf + b"\n  \n", b"\n"),
+        ("lf-comment-before", lf + b"\n# a comment\n", lf + b"\n# a comment\n", b"\n"),
+        ("crlf-one-empty-line", crlf + b"\r\n\r\n", crlf + b"\r\n", b"\r\n"),
+        ("crlf-no-empty-line", crlf + b"\r\n", crlf + b"\r\n", b"\r\n"),
+        ("lf-file-with-a-crlf-empty-line", lf + b"\n\r\n", lf + b"\n", b"\n"),
+        ("crlf-file-with-an-lf-empty-line", crlf + b"\r\n\n", crlf + b"\r\n", b"\r\n"),
+        # A line of 255 bytes without its line end: the reader reads at most 255 bytes of a line
+        # at a time, so the line end comes alone as the next line.
+        (
+            "long-line-then-its-line-end",
+            lf + b"\n#" + b"x" * 254 + b"\n",
+            lf + b"\n#" + b"x" * 254,
+            b"\n",
+        ),
+        (
+            "line-of-255-bytes-with-its-end",
+            lf + b"\n#" + b"x" * 253 + b"\n",
+            lf + b"\n#" + b"x" * 253 + b"\n",
+            b"\n",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("before", "hashed", "newline"),
+    [v[1:] for v in _signature_variants()],
+    ids=[v[0] for v in _signature_variants()],
+)
+def test_signature_matches_hashes_the_lines_as_the_scanner_reader_does(
+    tmp_path, before, hashed, newline
+):
+    digest = hashlib.md5(hashed).hexdigest().encode()
+    signature = b"[SIGNATURE]" + newline + b"Type md5" + newline + b"Hash " + digest + newline
+    path = tmp_path / "signed.seq"
+    path.write_bytes(before + signature)
+    assert read_seqfile(path).signature.matches is True
+    # The same file with a hash of the bytes before the line end that precedes `[SIGNATURE]`
+    # does not match, unless the two rules hash the same bytes.
+    cut = (before + signature).find(b"\n[SIGNATURE]")
+    old = hashlib.md5((before + signature)[:cut]).hexdigest().encode()
+    path.write_bytes(before + signature.replace(digest, old))
+    assert read_seqfile(path).signature.matches is (old == digest)
+
+
 def test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file(tmp_path):
     path = SEQFILES / "valid_1_4_0.seq"
     assert read_seqfile(str(path)) == read_seqfile(path)
@@ -284,6 +347,11 @@ def test_bad_fixture_breaks_its_rule_and_no_other(name, rule):
         ("bad_raster_adc_dwell.seq", "ADC", 57),
         ("bad_raster_gradient_ramp.seq", "TRAP", 51),
         ("bad_shape_length.seq", "SHAPES", 178),
+        ("bad_shape_rf_magnitude_negative.seq", "SHAPES", 109),
+        ("bad_shape_rf_phase_range.seq", "SHAPES", 116),
+        ("bad_shape_empty.seq", "SHAPES", 192),
+        ("bad_shape_rf_time_grid.seq", "SHAPES", 192),
+        ("bad_shape_rf_time_end.seq", "SHAPES", 202),
         ("bad_extension_required_unknown.seq", "DEFINITIONS", 16),
         ("bad_block_event_too_long_trigger.seq", "BLOCKS", 27),
         ("bad_layer1_gradient_ends.seq", "GRADIENTS", 30),
@@ -507,6 +575,239 @@ def test_required_extensions_is_an_extension_rule_from_1_5_1_only(tmp_path):
     data = read_seqfile(path)
     assert data.definitions["RequiredExtensions"] == ("FOO",)
     assert data.required_extensions == ()
+
+
+def _with_shape(directory, shape_id, samples):
+    """`valid_no_signature.seq` with the shape `shape_id` replaced by `samples`, a list of
+    numbers written uncompressed. The number of samples must be the one that the events of the
+    file have."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    start = text.index(f"shape_id {shape_id}\n")
+    end = text.index("\n\n", start)
+    body = "\n".join(str(s) for s in samples)
+    text = text[:start] + f"shape_id {shape_id}\nnum_samples {len(samples)}\n{body}" + text[end:]
+    return _write(directory, text, "shape.seq")
+
+
+@pytest.mark.parametrize(
+    ("sample", "rule"),
+    [
+        (-0.5 * RANGE_TOLERANCE, None),
+        (-2 * RANGE_TOLERANCE, "shape.rf-magnitude-negative"),
+        (-0.5, "shape.rf-magnitude-negative"),
+        (0.0, None),
+        (1.0, None),
+    ],
+)
+def test_an_rf_magnitude_sample_below_minus_the_tolerance_is_rejected(tmp_path, sample, rule):
+    path = _with_shape(tmp_path, 1, [0.5] * 98 + [sample, sample])
+    if rule is None:
+        read_seqfile(path)
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {rule}
+    assert len(error.violations) == 1  # one report for the shape, not one for each sample
+
+
+@pytest.mark.parametrize(
+    ("sample", "rule"),
+    [
+        (-0.5 * RANGE_TOLERANCE, None),
+        (-2 * RANGE_TOLERANCE, "shape.rf-phase-range"),
+        (0.0, None),
+        (0.999999, None),
+        (1.0, None),
+        (1 + 0.5 * RANGE_TOLERANCE, None),
+        (1 + 2 * RANGE_TOLERANCE, "shape.rf-phase-range"),
+        (1.5, "shape.rf-phase-range"),
+        (-0.25, "shape.rf-phase-range"),
+    ],
+)
+def test_an_rf_phase_sample_outside_0_to_1_is_rejected_and_a_full_turn_is_not(
+    tmp_path, sample, rule
+):
+    path = _with_shape(tmp_path, 2, [0.25] * 98 + [sample, sample])
+    if rule is None:
+        read_seqfile(path)
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {rule}
+    assert len(error.violations) == 1
+
+
+def test_the_rf_shape_rules_do_not_check_a_gradient_shape_or_the_phase_shape_of_an_adc(tmp_path):
+    """A negative gradient waveform, and a shape of the ADC phase beyond [0, 1), are valid."""
+    gradient = read_seqfile(_with_shape(tmp_path, 4, [-0.5] * 10))
+    assert gradient.shapes[4].samples().tolist() == [-0.5] * 10
+    adc = read_seqfile(_with_shape(tmp_path, 8, [-2] + [3] * 7))
+    assert adc.adc["phase_shape_id"].tolist() == [0, 8]
+    assert adc.shapes[8].samples().tolist() == [-2] + [3] * 7
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "empty"),
+    [
+        ("1 1000 1 2 0 50 100 0 0 0 0 e", "1 1000 10 10 0 50 100 0 0 0 0 e", 1),
+        ("1 1000 1 2 0 50 100 0 0 0 0 e", "1 1000 10 11 0 50 100 0 0 0 0 e", 2),
+        ("1 1000 1 2 0 50 100 0 0 0 0 e", "1 1000 10 10 11 50 100 0 0 0 0 e", 2),
+        ("2 500000 0 0 3 0 100", "2 500000 0 0 10 0 100", 1),
+        ("2 500000 0 0 3 0 100", "2 500000 0 0 10 11 100", 2),
+        ("2 8 25000 100 0 0 0 0 8", "2 8 25000 100 0 0 0 0 10", None),
+    ],
+    ids=[
+        "rf-magnitude-and-phase",
+        "rf-two-empty-shapes",
+        "rf-time-shape",
+        "gradient-waveform",
+        "gradient-waveform-and-time-shape",
+        "adc-phase-shape",
+    ],
+)
+def test_a_shape_with_no_sample_used_by_an_rf_or_gradient_event_is_shape_empty(
+    tmp_path, old, new, empty
+):
+    """`empty` is the number of violations (one for each empty shape that is used), or None if
+    the file loads."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    assert old in text
+    text = text.replace(old, new).rstrip("\n")
+    text += "\n\nshape_id 10\nnum_samples 0\n\nshape_id 11\nnum_samples 0\n"
+    path = _write(tmp_path, text, "empty.seq")
+    if empty is None:
+        assert read_seqfile(path).shapes[10].num_samples == 0
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {"shape.empty"}
+    assert len(error.violations) == empty
+
+
+@pytest.mark.parametrize(
+    ("first_time", "rule"),
+    [
+        (0, None),
+        (5e-7, None),
+        (-5e-7, None),
+        (2e-6, "layer1.gradient-ends"),
+        (0.5, "layer1.gradient-ends"),
+    ],
+)
+def test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0(tmp_path, first_time, rule):
+    """The first time is in gradient rasters, within 1e-6 of 0. A 1.5 file has the `first`
+    column, so it has no such rule."""
+    old = "shape_id 4\nnum_samples 5\n0\n1\n3\n6\n10\n"
+    new = f"shape_id 4\nnum_samples 5\n{first_time}\n1\n3\n6\n10\n"
+    text = (SEQFILES / "valid_1_4_1.seq").read_text()
+    assert old in text
+    path = _write(tmp_path, text.replace(old, new), "start.seq")
+    if rule is None:
+        assert read_seqfile(path).grad["time_id"].tolist() == [4]
+    else:
+        error = violations_of(path)
+        assert {v.rule for v in error.violations} == {rule}
+        assert len(error.violations) == 1
+        assert error.violations[0].section == "GRADIENTS"
+    text15 = (SEQFILES / "valid_1_5_1.seq").read_text()
+    old15 = "shape_id 6\nnum_samples 5\n0\n1\n3\n6\n10\n"
+    assert old15 in text15
+    late = text15.replace(old15, old15.replace("\n0\n1\n", "\n0.5\n1\n"))
+    assert read_seqfile(_write(tmp_path, late, "late.seq")).grad["time_id"].max() > 0
+
+
+def _with_rf_time_shape(directory, time_samples, packed=None, n=100):
+    """`valid_no_signature.seq` with the RF event on new shapes: a magnitude of 1 and a phase of 0
+    with `n` samples (10 and 11), and a time shape (12) that declares `n` samples (`time_samples`
+    if given) and stores `packed`, a list of numbers or strings. The RF event has delay 100 us in
+    a block of 300 us, with the RF raster of 1 us."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    old = "1 1000 1 2 0 50 100 0 0 0 0 e"
+    assert old in text
+    text = text.replace(old, "1 1000 10 11 12 50 100 0 0 0 0 e").rstrip("\n")
+    for shape_id, value in ((10, 1), (11, 0)):
+        text += f"\n\nshape_id {shape_id}\nnum_samples {n}\n" + "\n".join([str(value)] * n)
+    num = time_samples if time_samples is not None else n
+    text += f"\n\nshape_id 12\nnum_samples {num}\n" + "\n".join(str(s) for s in packed) + "\n"
+    return _write(directory, text, "rf_time.seq")
+
+
+@pytest.mark.parametrize(
+    ("packed", "rule"),
+    [
+        (["1", "2", "2", "97"], None),  # the cells of 2 RF rasters, centred: 1, 3, 5, ...
+        (["1.0000005", "2", "2", "97"], None),  # within 1e-6 RF rasters
+        (["1.000002", "2", "2", "97"], "shape.rf-time-grid"),
+        (["0.5", "2", "2", "97"], "shape.rf-time-grid"),  # the reader ignores the first time
+        (["2", "2", "98"], "shape.rf-time-grid"),  # `d d N-2`: 2, 4, 6, ..., not 1, 3, 5, ...
+        (
+            ["2", "2", "97", "3"],
+            "shape.rf-time-grid",
+        ),  # `a a k x`: starts at 2 and ends with a step 3
+        ([str(2 * i + 1) for i in range(100)], None),  # not compressed: resampled, not regular
+    ],
+    ids=[
+        "centred",
+        "tolerance",
+        "beyond-tolerance",
+        "first-half-raster",
+        "three-values",
+        "a-a-k-x",
+        "not-regular",
+    ],
+)
+def test_an_rf_time_shape_that_the_reader_takes_as_regular_has_its_times_at_the_cell_centres(
+    tmp_path, packed, rule
+):
+    path = _with_rf_time_shape(tmp_path, None, packed)
+    if rule is None:
+        assert read_seqfile(path).rf["time_id"].tolist() == [12]
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {rule}
+    assert len(error.violations) == 1
+
+
+@pytest.mark.parametrize(
+    ("packed", "rule"),
+    [
+        (["0", "99.6"], "shape.rf-time-end"),  # 100 cells: the cell 99 plays sample 2 of 2
+        (["0", "2.5"], "shape.rf-time-end"),
+        (["-5", "-3"], "shape.rf-time-end"),  # int(0.5 - 3) is -2 cells
+        (["0", "50.4"], None),  # 50 cells; the time 50.4 is not below the time 50
+        (["0", "100.4"], None),
+    ],
+)
+def test_an_rf_time_shape_that_the_reader_resamples_must_not_be_read_past_its_end(
+    tmp_path, packed, rule
+):
+    path = _with_rf_time_shape(tmp_path, 2, packed, n=2)
+    if rule is None:
+        assert read_seqfile(path).rf["time_id"].tolist() == [12]
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {rule}
+    assert len(error.violations) == 1
+
+
+@pytest.mark.parametrize(
+    ("packed", "last", "rule"),
+    [
+        (["2", "4", "4", "97"], None, "block.event-too-long"),  # 100 samples of 4 us from 100 us
+        (["1", "2", "2", "97"], None, None),  # 100 samples of 2 us end at 300 us, the block end
+        (None, 200.4, None),  # 200 cells: int(0.5 + 200.4), not 201, from a delay of 100 us
+        (None, 201.4, "block.event-too-long"),  # 201 cells end at 301 us
+    ],
+)
+def test_the_end_of_an_rf_event_with_a_time_shape_is_the_end_that_the_reader_plays(
+    tmp_path, packed, last, rule
+):
+    if packed is None:
+        times = np.linspace(1.0, last, 100)
+        packed = [f"{x:.9g}" for x in times]
+    path = _with_rf_time_shape(tmp_path, None, packed)
+    if rule is None:
+        read_seqfile(path)
+        return
+    error = violations_of(path)
+    assert {v.rule for v in error.violations} == {rule}
 
 
 def test_random_edits_of_valid_files_give_a_model_or_a_seqfile_error(tmp_path):

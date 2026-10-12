@@ -39,6 +39,25 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `safe_example_hw()`. `pns_levels` takes a `SafeHardware` or such a
   namespace as the struct of `hardware=(struct, label)`.
 - `asc.safe_hardware(asc)`, in place of pypulseq's `asc_to_hw`.
+- `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`:
+  the events of a `SequenceData`, by file ID, as `events.RfEvent`,
+  `events.Trapezoid`, `events.ArbitraryGradient` (together `events.GradEvent`)
+  and `events.AdcEvent`, in seconds, Hz, Hz/m and rad. An RF event with a time
+  shape is decoded as the scanner's reader (`ExternalSequence` of
+  pulseq/pulseq) plays it. `load` does not use them yet.
+- New rules of `read_seqfile`: `shape.rf-magnitude-negative`,
+  `shape.rf-phase-range`, `shape.empty`, `shape.rf-time-grid` and
+  `shape.rf-time-end`. `layer1.gradient-ends` also rejects a 1.4.x gradient
+  whose time shape does not start at 0, and `block.event-too-long` uses the
+  end of an RF event as the scanner's reader plays it.
+  `seqfile.FIRST_TIME_TOLERANCE` and `seqfile.RF_TIME_TOLERANCE` are the
+  tolerances of the new checks.
+- The tests compare the parser and the decoding with two oracles: the C++
+  reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`) and MATLAB
+  Pulseq run under GNU Octave (`pulseq-matlab-oracle`, in the default
+  devShell only). `docs/discrepancies.md` records where the specification, the
+  C++ reader, MATLAB Pulseq and pypulseq disagree, and which one the package
+  follows.
 
 ### Changed
 
@@ -66,6 +85,12 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   source (`''` for a sequence built in memory). `load` still refuses the
   rotation extension (`NotImplementedError`), also for an unsigned sequence,
   which gave `ValueError` before.
+- `Signature.matches` of `read_seqfile` hashes the bytes that the scanner's
+  reader hashes: every byte before the line `[SIGNATURE]`, except one empty
+  line (`\n` or `\r\n`) right before it. It differs from the former rule
+  (the bytes before `\n[SIGNATURE]`) only for a CRLF file, a file with no
+  empty line, or a file with a line of spaces or a comment before the
+  section.
 - The spec of each analysis is not changed: each `spec.version` stays 1.
 
 ### Removed

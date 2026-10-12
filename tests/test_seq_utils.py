@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import numpy.testing as npt
 import pypulseq as pp
@@ -12,6 +14,10 @@ from synthetic import (
 )
 
 from pulseq_analysis import seq_utils
+from pulseq_analysis.events import decode_gradients
+from pulseq_analysis.seqfile import read_seqfile
+
+SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 
 
 def test_time_tolerance():
@@ -51,6 +57,24 @@ def test_gradient_offsets_arbitrary():
     # The interior points are the waveform's own sample offsets and values, unchanged.
     assert offsets[1:-1] == pytest.approx(np.asarray(g.tt, dtype=float))
     assert amp[1:-1] == pytest.approx(waveform)
+
+
+def test_gradient_offsets_of_a_decoded_trapezoid():
+    g = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))[1]
+    delay, offsets, amp = seq_utils.gradient_offsets(g)
+    assert delay == 1e-4
+    npt.assert_array_equal(offsets, np.cumsum([0.0, 1e-4, 2e-4, 1e-4]))
+    npt.assert_array_equal(amp, [0.0, 1e6, 1e6, 0.0])
+
+
+@pytest.mark.parametrize("gradient_id", [3, 5, 6], ids=["time_id_0", "time_shape", "time_id_-1"])
+def test_gradient_offsets_of_a_decoded_arbitrary_gradient(gradient_id):
+    """The samples of the event, with `first` at offset 0 and `last` at `shape_dur`."""
+    g = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))[gradient_id]
+    delay, offsets, amp = seq_utils.gradient_offsets(g)
+    assert delay == g.delay
+    npt.assert_array_equal(offsets, np.concatenate([[0.0], g.tt, [g.shape_dur]]))
+    npt.assert_array_equal(amp, np.concatenate([[g.first], g.waveform, [g.last]]))
 
 
 @pytest.mark.parametrize(

@@ -218,7 +218,7 @@ of a block, some row syntax, and unknown required extensions from 1.5.1. It
 does not check versions 1.6 and 2.0, events longer than their block, values
 off a raster, shapes out of range, duplicate IDs, unknown sections, `[DELAYS]`,
 the order of block IDs, or where a shape ends. It loops with no end on a cycle
-in an extension list, and rejects the rows of a valid unknown extension
+in an extension list, and rejects a file whose last `[`-section is `[EXTENSIONS]` (corrected on 2026-10-09; first written as "the rows of a valid unknown extension"; `docs/discrepancies.md` D46)
 (`ORACLE_KNOWN_WRONG`). Its crashes on bad input depend on the build (macOS
 clang and Linux gcc differ).
 
@@ -496,7 +496,9 @@ Each task: start the branch with the `start-task` skill; run
 1. `pulseq_analysis.seqfile` and `pulseq_analysis.model` (sections 3.2 to 3.4).
    The parser reads the file as bytes (for the signature) and as text; it
    splits sections at header lines; it skips blank and `#` lines inside a
-   section, except in `[SHAPES]`, where a blank line ends a shape; it parses
+   section, except in `[SHAPES]`, where a blank line ends a shape (task 1
+   changed this: a blank or `#` line ends a section, as in MATLAB's `read.m`,
+   and data after it is `syntax.line`; `docs/discrepancies.md` D06); it parses
    each table with `np.loadtxt` and a structured dtype after the character
    check (section 2.3); it collects violations and raises `SeqFileError` with
    all of them at the end (D6).

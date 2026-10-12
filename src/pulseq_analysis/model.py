@@ -34,12 +34,14 @@ had no center, and a caller that needs it computes it from the pulse). ADC `freq
 `phase_ppm` and `phase_shape_id` are 0. The `first` and `last` of a gradient with a time shape
 (`time_id` above 0) are the amplitude times the first and the last sample of its waveform,
 which are at the two ends of the event. A 1.4.x file with a gradient on the default raster
-(`time_id` 0) does not define these values, so the parser does not read it
-(`seqfile`, rule `layer1.gradient-ends`).
+(`time_id` 0) does not define these values, so the parser does not read it, and neither does a
+1.4.x gradient whose time shape starts after time 0 (by more than 1e-6 gradient rasters): the
+file has no value at the start of the event (`seqfile`, rule `layer1.gradient-ends`).
 
 `Extensions` holds the list table of `[EXTENSIONS]` and one table for each extension that the
 parser knows. `Shape` holds a shape as the file stores it, and `Shape.samples()` decompresses
-it (`decompress_shape`).
+it (`decompress_shape`). `_rf_time_step` and `_rf_resample` give how the scanner's reader plays an
+RF time shape.
 """
 
 import dataclasses
@@ -291,12 +293,64 @@ class Shape:
         return decompress_shape(self.packed, self.num_samples)
 
 
+def _rf_time_step(shape: Shape) -> float | None:
+    """The step, in RF raster times, of an RF time shape that the scanner's reader takes as
+    regular, or `None` when it does not.
+
+    The reader (`ExternalSequence.cpp` of the C++ oracle, `decodeBlock`, lines 2014 to 2021)
+    takes a time shape as regular when it is stored compressed (`packed` has not `num_samples`
+    values) and `packed` has 3 or 4 values. Its dwell time is then `packed[1]` RF raster times,
+    and the reader does not decompress the shape. The parser rejects a regular shape whose times
+    are not the centres of its cells (rule `shape.rf-time-grid`), so for a file that
+    `read_seqfile` loads the reader plays the samples at the times of the file.
+    """
+    packed = shape.packed
+    if packed.size != shape.num_samples and packed.size in (3, 4):
+        return float(packed[1])
+    return None
+
+
+def _rf_resample(times: np.ndarray) -> np.ndarray:
+    """For an RF time shape that is not regular (`_rf_time_step` is `None`), the index of the
+    stored sample that the scanner's reader plays in each RF raster cell.
+
+    `times` is the decompressed time shape, in RF raster times. This is the loop of
+    `ExternalSequence.cpp` of the C++ oracle (`decodeBlock`, lines 2031 to 2046): the pulse has
+    `int(0.5 + times[-1])` cells. The index starts at 0, and in cell `c` it goes up by one when
+    `times[index] < c + 1`, at most one step for each cell. The cell plays the sample at the
+    index.
+
+    Returns a new int64 array of one index for each cell. Raises `ValueError` when the index
+    reaches `times.size` (there the reader reads after the end of the stored samples), when
+    `times` is empty, or when the number of cells is negative.
+    """
+    values = np.asarray(times, dtype=np.float64).tolist()
+    if not values:
+        raise ValueError("the time shape has no samples")
+    cells = int(0.5 + values[-1])
+    if cells < 0:
+        raise ValueError(f"the time shape gives {cells} RF raster cells")
+    played = []
+    index = 0
+    for c in range(cells):
+        if values[index] < c + 1:
+            index += 1
+            if index == len(values):
+                raise ValueError(
+                    f"RF raster cell {c} plays sample {index} of a time shape of {len(values)} "
+                    "samples, after its end"
+                )
+        played.append(index)
+    return np.array(played, dtype=np.int64)
+
+
 @_model
 class Signature:
     """The `[SIGNATURE]` section: `type` (for example `md5`) and `hash` as in the file.
 
-    `matches` is whether the hash of the bytes of the file before `\\n[SIGNATURE]` is `hash`, or
-    `None` when it cannot be known (an algorithm that `hashlib` does not have). The parser
+    `matches` is whether `hash` is the hash of the file as the scanner's reader (`ExternalSequence`)
+    computes it: every byte before the line that starts `[SIGNATURE]`, except one empty line (`\\n`
+    or `\\r\\n`) right before it. It is `None` when it cannot be known (an algorithm that `hashlib` does not have). The parser
     reports it and does not reject a file for a mismatch.
     """
 

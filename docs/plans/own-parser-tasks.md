@@ -87,7 +87,7 @@ So their generator and its version are not ours to fix (U14).
   `t = ((1:n) - 0.5) * rf_raster` and `shape_dur = n * rf_raster`.
 - The ADC phase modulation is the decompressed shape (`Sequence.m:1440-1453`).
   The specification gives it no unit. The C++ reader uses it as radians: its
-  multiplication by 2π is commented out (`ExternalSequence.cpp:3058-3059`).
+  multiplication by 2π is commented out (`ExternalSequence.cpp:3059-3060`).
 
 ### 3.4 The C++ reader (`ExternalSequence.cpp` at `c746912`)
 
@@ -643,3 +643,27 @@ K and G start after step 2.
 - `convert.precision` may reject many of the test builders (task 4 step 5).
 - Octave is not in CI (U19): a change that breaks MATLAB parity is caught only
   by the local `scripts/check`.
+
+## 12. Decisions during task 2 (2026-10-08 and 2026-10-09)
+
+The oracle tests of task 2 found differences between the package, MATLAB Pulseq and the C++
+reader. The user decided each one.
+
+| ID | Question | Decision |
+|---|---|---|
+| U20 | A shape with no sample that an RF event or an arbitrary gradient uses: the parser accepted it, and decoding failed. | A new rule `shape.empty`, stricter than the specification (which says nothing). MATLAB fails on such an event, and the C++ reader crashes or rejects it. |
+| U21 | MATLAB draws an arbitrary gradient of time ID 0 with `restoreAdditionalShapeSamples`: it guesses values at the raster edges. | Keep the package's straight lines between the sample centres, as `gradientsAt` of the C++ reader and `docs/implementation.md` section 1. Layer 1 does not guess. The MATLAB test compares such a gradient at its sample centres and its ends. |
+| U22 | MATLAB rotates the gradients of a block that plays a rotation. | No change: the measurements do not support rotations, and `load` refuses a file in which a block plays one (U18). The MATLAB waveform test skips such a file by that rule. |
+| U23 | `first` of a 1.4 gradient with a time shape: MATLAB carries it over from the block before. | Keep the package's value (the amplitude times the first sample). `layer1.gradient-ends` also rejects a 1.4 time shape that does not start at 0, since then the file has no value at the start of the event. The MATLAB test does not compare `first` of a 1.4 time-shaped gradient. |
+| U24 | MATLAB and the C++ reader decode a file differently. | In general, follow the C++ reader: MATLAB is a writer, not an ideal reader. Each such difference still goes to the user. |
+| U25 | An RF time shape that the C++ reader takes as regular (3 or 4 stored values): it plays N samples in cells of the step d from the delay, and ignores the first time. | Decode it as the reader plays it: `t = (i + 0.5) d`, `shape_dur = N d`. A new rule `shape.rf-time-grid` rejects such a shape whose times are not the centres of its cells: the reader would play its samples at other times than the file says. |
+| U26 | Any other RF time shape: the C++ reader resamples it to the RF raster (`decodeBlock`, `ExternalSequence.cpp:2026-2046`). | Decode it as the reader plays it: `int(0.5 + t_last)` samples on the RF raster, each the stored value that the reader's loop picks. |
+| U27 | The signature of a CRLF file: the C++ reader drops the whole empty line (`\r\n`) before `[SIGNATURE]`; the specification strips only the `\n`. | Follow the C++ reader. The discrepancy is issue 14 of pypulseq-issues. |
+
+Decisions with no question:
+
+| ID | Decision | Reason |
+|---|---|---|
+| D16 | A new rule `shape.rf-time-end` rejects an RF time shape that the reader's resampling reads past the end of (its loop, `ExternalSequence.cpp:2026-2046`, moves to an index equal to the number of stored samples; `model._rf_resample` raises there). | That is undefined behaviour in the scanner. As `shape.empty` for its crash. (Corrected on 2026-10-09: the first text said "whose last time rounds up", which is not the same condition.) |
+| D17 | The helpers `model._rf_time_step` and `model._rf_resample` are private. | `events` and `seqfile` share them; they are not part of the interface. |
+| D18 | `block.event-too-long` uses the end of an RF event as the reader plays it (U25, U26). | The parser checks the event that the scanner plays. |
