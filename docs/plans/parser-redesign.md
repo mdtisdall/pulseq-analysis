@@ -279,7 +279,7 @@ One library, in three layers and a base. A layer imports only from the layers be
   imports it for the reading, and `synth` reaches its decoding through the `SequenceData` of
   `cpp-siemens`, which holds the reader's object.
 - **R3 named the modules** `seqfile/reader.py` (the former `seqfile.py`) and
-  `analyses/registry.py` (the former `analyses.py`). The subpackages export nothing yet; R6
+  `analyses/registry.py` (the former `analyses.py`). The subpackages export nothing yet; R6b
   exports the entry points of 7.3 from them.
 - **`snapshot` and `extensions`** hold today's `load`, which is built on pypulseq, and
   `seq_index` and `_events` import `snapshot`. They sit in the waveform layer until task 5a
@@ -319,7 +319,7 @@ analyses.load(path, interpreter="cpp-siemens") -> ...  # the measurements
 seqfile.read_seqfile(path, interpreter=CppSiemens(oversampling="edge"))  # D43
 ```
 
-R6 exports these names from the subpackages (R3 left them empty). `"cpp-siemens"` and
+R6b exports these names from the subpackages (R3 left them empty). `"cpp-siemens"` and
 `"spec"` name the objects with their defaults. A setting of `cpp-siemens` follows a setting of
 the scanner's interpreter (for example its oversampling mode, D43); a result records the
 interpreter and its settings. `SeqFileError` is the rejection of one interpreter, with its
@@ -562,7 +562,7 @@ outside 1.4.0–1.5.x (Q1; the driver reads `bad_version_unsupported_1_6.seq`).
    worker process.
 2. **Files older than 1.4.** For these, `load` itself calls `GetBlock` (cpp:1663), so a cycle
    in an extension list does not end inside `load`, before any check. The prototype has no gate
-   on the version before `load`. R6 needs one, from the "as written" reading (R5).
+   on the version before `load`. R6b needs one, from the "as written" reading (R5).
 3. **The scanner's build is not known.** The wrapper matches a build on x86_64 with a signed
    `char` and no FMA; MSVC's `/fp:precise` gives the same bits on the fixtures. `long` is 32
    bits on Windows (it holds the trapezoid times), which matters only past 2^31 µs.
@@ -604,7 +604,7 @@ in its own task, R13.
   Windows (x86_64), stable ABI `cp312-abi3`; the sdist carries the reader's files. It is
   released only when the pinned commit or a check changes.
 - **pulseq-analysis** stays pure Python and depends on it. Whether the dependency is required,
-  or an extra so that `spec` works without it, is settled in R6.
+  or an extra so that `spec` works without it, is settled in R6b.
 
 ## 8. D46: `[EXTENSIONS]` as the last section
 
@@ -639,7 +639,7 @@ blocks of labels only, with no shape and no signature.
   Files generated from the grammar of `.seq` (with values at the edges and the shapes of 5.3),
   seeded, each run through R4's sanitized oracle; the test fails on a file that the oracle
   flags and the checks pass. A seeded set runs in CI; a longer run comes before each release
-  of `pulseq-cpp-siemens`. R6 sets the sizes.
+  of `pulseq-cpp-siemens`. R6a sets the sizes.
 - **A sanitizer build of the C++ oracle.** `pulseq-cpp-oracle-sanitized`, built with ASan,
   UBSan and `_GLIBCXX_ASSERTIONS`, in the CI devShell. Its verdict "undefined behaviour" makes
   section 5.3 reproducible, whatever an ordinary build does.
@@ -659,7 +659,8 @@ blocks of labels only, with no shape and no signature.
 | R3 | `refactor/layers` | The modules moved into the subpackages of 7.1, and the import-linter contract. Done (#102). |
 | R4 | `chore/sanitized-oracle` | The sanitizer build of the C++ oracle, and its verdict on each fixture. Done (#103). |
 | R5 | `refactor/as-written` | The "as written" reading (7.2, stage 1; P13), and today's parser rebuilt on it. No change of behaviour: a baseline compares the two. |
-| R6 | `feature/cpp-siemens` | `pulseq-cpp-siemens` from the prototype (7.7), with its wheels; the `cpp-siemens` interpreter: the version gate, `SequenceData` from the reader's libraries (P14), the rejection codes (5.2, 5.3), the `interpreter` argument and the exports and the contract (7.3); the fuzzing of the checks (section 9). Each rule of today becomes a rejection of `cpp-siemens`, moves to `spec` (R11), or is removed. The record's "Package" text for `cpp-siemens`, and the new D56, follow; pulseq-checks adapts. |
+| R6a | `chore/pulseq-cpp-siemens-package` | `pulseq-cpp-siemens` from the prototype (7.7): `packages/pulseq-cpp-siemens/` with its own `pyproject.toml`, the checks of 5.3, the lock and the locale handling; its wheels for the five platforms; its build in the devShell and its tests in `scripts/check`; the fuzzing of the checks against R4's sanitized oracle (section 9). It needs only R2 and R4, so it runs in parallel with R5. |
+| R6b | `feature/cpp-siemens` | The `cpp-siemens` interpreter in pulseq-analysis, on R6a: the version gate on the "as written" reading, `SequenceData` from the reader's libraries (P14), the rejection codes (5.2, 5.3), the `interpreter` argument, the exports and the contract (7.3). Each rule of today becomes a rejection of `cpp-siemens`, moves to `spec` (R11), or is removed. The record's "Package" text for `cpp-siemens`, and the new D56, follow; pulseq-checks adapts. |
 | R7 | — | Moved to pulseq-checks (P17): the findings of D18, D30–D32, D34, D35–D37. |
 | R8 | — | Moved to pulseq-checks (P17): the findings of D28, D29, D39–D43. |
 | R9 | `feature/rotations` | D49: the gradients rotated by the normalized quaternion (Q3), for both interpreters; `load` no longer refuses the rotation extension. |
@@ -671,7 +672,9 @@ blocks of labels only, with no shape and no signature.
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 
-R5 needs R3; R6 needs R5 and R2. R9 needs R6. R11 needs R5 and R6 (the `interpreter`
+R6 is split in two (2026-10-12): R6a, the package, needs only R2 and R4 and runs in parallel
+with R5; R6b, the interpreter, needs R5 and R6a. Elsewhere in this plan, "R6" means both, and
+a part of it names R6a or R6b. R5 needs R3. R9 needs R6. R11 needs R5 and R6 (the `interpreter`
 argument). R6, R9 and R11 share `docs/discrepancies.md` and `TESTS.md`, so they merge in turn.
 R14 needs R6 and R9; the `spec` interpreter joins `load` when R11 is done. R15 needs R6. C1
 needs R5; R6 and R11 update its document.
