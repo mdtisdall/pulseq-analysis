@@ -36,7 +36,7 @@ Contents:
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
-   oracle; the decoding against MATLAB Pulseq
+   oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle
 
 ---
 
@@ -7157,10 +7157,12 @@ only; it does not cover a NUL byte.
 `pulseq_analysis.seqfile.reader.read_seqfile` and the oracle accept the file or reject it alike. The exception: a file that `read_seqfile`
 rejects, only with rules from `NOT_CHECKED_BY_THE_READER` of the test, may be accepted by the
 oracle. Each entry of that dictionary is a rule that the oracle does not check, with a fixture or
-a change of a valid file that it accepted. The files of `ORACLE_KNOWN_WRONG` (now
+a change of a valid file that it accepted. The files of `ORACLE_KNOWN_WRONG` are not compared:
 `oracle/koma_v1.5_unknown_ext.seq`, which the oracle rejects because it cannot read the rows of
 an unknown extension that the file does not require, while section 2.8.4 of the specification
-says that the interpreter MUST detect unknown extensions and MAY ignore them) are not compared.
+says that the interpreter MUST detect unknown extensions and MAY ignore them; and
+`undefined/version_last.seq`, a valid file with `[VERSION]` as the last section, on which the
+reader has undefined behaviour (section 2.25).
 A file that `read_seqfile` accepts and that has an arbitrary gradient (a row of `grad` that a block
 uses) on a gradient raster other than 10 us is not compared either, because `decodeBlock` fails on
 it (`ExternalSequence.cpp:2114-2119`); the test records the skipped files with
@@ -7820,3 +7822,92 @@ and `decode_adc`, joins them in play order and compares them with `t_adc`.
 
 **Assumptions:** The block start is the sum in play order of the block durations (`_index_from_data`).
 The test does not check the phase or frequency of the samples.
+
+### 2.25 The sanitized C++ oracle (`test_cpp_oracle_sanitized.py`)
+
+`test_cpp_oracle_sanitized.py` tests `pulseq-cpp-oracle-sanitized`: the driver of
+`tests/cpp_oracle/` and the reader `ExternalSequence`, built by `flake.nix` with clang (LLVM 22),
+AddressSanitizer, UndefinedBehaviorSanitizer and the assertions of the C++ standard library
+(`_GLIBCXX_ASSERTIONS` for libstdc++ on Linux, the debug hardening mode of libc++ on macOS). It
+exits with 3 when one of them fires, so "undefined behaviour" is a verdict of its own, the same on
+each platform, while an ordinary build of the reader crashes, accepts or rejects such a file by
+platform (section 5.3 of `docs/plans/parser-redesign.md`). The devShell and the `ci` devShell have
+the program on the PATH; the whole module skips when it is not. The verdicts of the test helper
+are "accept" (exit 0), "reject" (1), "undefined" (3), "no end" (no end in 10 s, `TIMEOUT` of
+`test_cpp_oracle.py`) and "crash" (another exit status or a signal). The fixtures of
+`tests/seqfiles/undefined/` are the cases of section 5.3 that had no fixture: `version_last.seq`
+(D05), `rf_time_id_minus_1.seq` (D22) and `shape_decompress_longer.seq` (D29), each a change of
+`valid_no_signature.seq` that its comment states.
+
+#### `test_the_tables_name_only_fixtures_that_exist`
+
+**Checks:** Each file that `UNDEFINED`, `NO_END` and `REJECTED` name is a fixture under
+`tests/seqfiles/`, and no file is in two of them.
+
+**How:** The test compares the names with the `.seq` files under `tests/seqfiles/`.
+
+**Assumptions:** None beyond the names.
+
+#### `test_the_sanitized_oracle_accepts_a_minimal_valid_file`
+
+**Checks:** The sanitized oracle accepts the minimal Pulseq 1.5.0 file of `test_cpp_oracle.py`.
+
+**How:** The test writes the file to `tmp_path`, runs the oracle and checks the verdict "accept".
+
+**Assumptions:** The test shows that the program starts (AddressSanitizer of LLVM 21 hangs at the
+start of each process on macOS 26) and that it accepts one file.
+
+#### `test_the_sanitized_verdict_of_each_fixture`
+
+**Checks:** For each `.seq` file under `tests/seqfiles/`, the verdict of the sanitized oracle is
+the one of the tables: "undefined" for the files of `UNDEFINED`, "no end" for those of `NO_END`,
+"reject" for those of `REJECTED`, and "accept" for each other file. A verdict "undefined" comes
+with the report of a sanitizer or of the driver (`undefined behaviour`) on stderr.
+
+**How:** The test (one case for each file) runs the oracle on the file once and compares the
+verdict.
+
+**Assumptions:**
+
+- `UNDEFINED` gives each file its entry of section 5.3 and the line of `ExternalSequence.cpp`
+  where the build stops. The lines come from a build of the same flags at `-O0` with debug
+  information and a symbolizer, which the test does not have; the test checks the verdict only,
+  not the line.
+- `bad_ref_extension_cycle.seq` (D23) is "no end", not "undefined": the loop over a cycle in an
+  extension list appends a label to a vector in each turn, so no sanitizer fires, and the memory
+  grows with no end (about 3 GB in the 10 s of the sanitized build). A machine with less memory
+  could end it earlier.
+- `bad_syntax_shape_no_blank_line.seq` is "undefined" by D21: the reader does not read the shapes
+  after the shape with no blank line (D07), and a gradient names one of them.
+- A sanitizer finds undefined behaviour only on the paths that a file takes. The test covers the
+  first mode of the driver (load and decode each block), not `--dump` or `--sample`.
+
+#### `test_each_case_of_undefined_behaviour_of_the_plan_has_a_fixture`
+
+**Checks:** The entries of `UNDEFINED` are D05, D21, D22, D29, D33, D34 and D36 (2), and the entry
+of `NO_END` is D23: each case of section 5.3 of the plan has a fixture.
+
+**How:** The test compares the sets of entries.
+
+**Assumptions:** The entries are the labels that the tables give; the test does not read the plan.
+
+#### `test_the_ordinary_oracle_gives_the_same_verdict_where_the_reader_has_no_undefined_behaviour`
+
+**Checks:** For each fixture where the sanitized oracle accepts or rejects, `pulseq-cpp-oracle`
+(the build of `test_cpp_oracle.py`) gives the same verdict: the sanitized build does not change
+what the reader does with such a file.
+
+**How:** The test runs the ordinary oracle on each such fixture and lists each file with another
+verdict. It skips when `pulseq-cpp-oracle` is not on the PATH.
+
+**Assumptions:** It compares the exit status only, not the dump.
+
+#### `test_the_sanitized_oracle_reports_a_missing_shape_built_in_the_test`
+
+**Checks:** The minimal file with an RF event whose phase shape is not in `[SHAPES]` (D21) is
+"undefined", where `test_the_oracle_does_not_accept_a_file_that_it_cannot_decode` of
+`test_cpp_oracle.py` can only say "reject or crash".
+
+**How:** The test writes the file to `tmp_path`, runs the sanitized oracle and checks the verdict.
+
+**Assumptions:** One case of D21; the fixtures cover the others.

@@ -29,6 +29,60 @@ A call with one argument is always the first mode, so a file named `--dump` is r
 `--dump` writes its JSON only at the end, so a call that exits with 1 has written nothing on
 stdout. `--dump` also calls `GetAllDefinitions`, which the first mode does not.
 
+## The sanitized build
+
+Nix also builds the same driver and reader as `pulseq-cpp-oracle-sanitized` (`flake.nix`; on the
+PATH of the devShell and the `ci` devShell), with clang of LLVM 22 and:
+
+- AddressSanitizer and UndefinedBehaviorSanitizer (`-fsanitize=address,undefined`,
+  `-fno-sanitize-recover=all`);
+- the assertions of the C++ standard library: `_GLIBCXX_ASSERTIONS` for libstdc++ (Linux) and
+  `_LIBCPP_HARDENING_MODE_DEBUG` for libc++ (macOS). They check, for example, the index of
+  `std::vector::operator[]`, which the reader takes past the end without a read that
+  AddressSanitizer would see (`&shape[0]` of an empty shape).
+
+It has the same modes. Its exit status 3 says that a sanitizer or an assertion of the standard
+library fired: the reader has undefined behaviour on the file. An ordinary build then crashes,
+accepts or rejects the file by platform and compiler; the verdict of this build is the same on
+each. The report is on stderr. The driver sets the options of the sanitizers
+(`__asan_default_options`, `__ubsan_default_options`: `exitcode=3`, `abort_on_error=0`, no leak
+check, as the reader leaks when it rejects a file); `ASAN_OPTIONS` and `UBSAN_OPTIONS` can change
+them.
+
+| Exit status | Meaning in the sanitized build |
+| --- | --- |
+| 0, 1, 2 | As in the table above. |
+| 3 | Undefined behaviour: a report of AddressSanitizer (also for SIGSEGV, SIGBUS and SIGFPE, which it handles) or UndefinedBehaviorSanitizer, or a failed assertion of the standard library. |
+| 70 | SIGABRT, SIGILL or SIGTRAP that is none of these, for example a failed `assert` of the reader. |
+
+LLVM 22, not the default LLVM 21 of the stdenv on macOS: the AddressSanitizer of LLVM 21 hangs at
+the start of each process on macOS 26. Clang on Linux too, so that both systems have the same
+sanitizers.
+
+The build has no debug information, so a report names the functions but not the lines. To find
+the line, compile the three files with the clang of LLVM 22 and the same flags with `-O0 -g` in
+place of `-O1`, run `dsymutil` on the program (macOS), and set `ASAN_SYMBOLIZER_PATH` to
+`llvm-symbolizer` of LLVM 22.
+
+`tests/test_cpp_oracle_sanitized.py` has the verdict for each fixture of `tests/seqfiles/`.
+The files where the reader has undefined behaviour, with the entry of section 5.3 of
+`docs/plans/parser-redesign.md` and the line of `ExternalSequence.cpp` where the build stops:
+
+| Fixture | Entry | Line | What the reader does |
+| --- | --- | --- | --- |
+| `undefined/version_last.seq` | D05 | 1995 | With `[VERSION]` as the last section, the stream stays failed after `[VERSION]` is read to the end of the file; the seek to `[SHAPES]` fails, so no shape is read, and the RF event names shape 1. |
+| `bad_ref_shape.seq` | D21 | 1995 | The RF magnitude shape does not exist. |
+| `bad_ref_time_shape.seq` | D21 | 2177 | The time shape of a gradient does not exist. |
+| `bad_syntax_shape_no_blank_line.seq` | D21 | 2177 | The shapes after a shape with no blank line are not read (D07), and a gradient names one. |
+| `undefined/rf_time_id_minus_1.seq` | D22 | 2026 | An RF event with time ID -1. |
+| `undefined/shape_decompress_longer.seq` | D29 | 2231 | The RF shapes decompress to 100 samples into a buffer of `num_samples` 99 (heap-buffer-overflow). |
+| `bad_shape_empty.seq` | D33 | 1995 | Element 0 of an empty shape. |
+| `bad_shape_event_length.seq` | D34 | 2288 | The phase shape is shorter than the magnitude shape. |
+| `bad_shape_rf_time_end.seq` | D36 (2) | 2044 | The resampling reads one sample past the end of the shape. |
+
+`bad_ref_extension_cycle.seq` (D23) has no end in either build, and no sanitizer fires: the loop
+over the cycle appends a label to a vector in each turn, so the memory grows with no end.
+
 ## `--dump`
 
 The values are those that the C++ structs hold, with no conversion of units. A `float` member is
