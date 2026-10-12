@@ -10,9 +10,18 @@
 // Exit status: 0 when the file loads and each block decodes (and the mode did its work); 1 when
 // it does not load, when a block does not decode, or when the reader throws; 2 for a wrong call
 // (also a bad line on stdin in --sample); 70 when the process receives SIGSEGV, SIGABRT, SIGFPE,
-// SIGILL, SIGBUS or SIGTRAP. The messages of the reader go to stderr, so a caller gets the
+// SIGILL, SIGBUS or SIGTRAP. The messages of the reader go to stderr, so stdout has only the
+// output of the mode.
+//
+// Built with PULSEQ_CPP_ORACLE_SANITIZED (pulseq-cpp-oracle-sanitized, with AddressSanitizer,
+// UndefinedBehaviorSanitizer and the assertions of the C++ standard library), the exit status is 3
+// when a sanitizer or an assertion of the standard library fires: the reader has undefined
+// behaviour on the file. The sanitizers handle SIGSEGV, SIGBUS and SIGFPE themselves (a report and
+// the exit status 3), so 70 is then only for SIGABRT, SIGILL and SIGTRAP, for example a failed
+// assert of the reader.
 #include <cctype>
 #include <cmath>
+#include <cstdarg>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -44,6 +53,56 @@ static void on_crash(int) {
     }
     _exit(70);
 }
+
+#ifdef PULSEQ_CPP_ORACLE_SANITIZED
+// From the runtime of the sanitizers (sanitizer/common_interface_defs.h).
+extern "C" void __sanitizer_print_stack_trace();
+
+static const int UNDEFINED_BEHAVIOUR = 3;
+
+[[noreturn]] static void on_assertion(const char* message) {
+    fprintf(stderr, "pulseq-cpp-oracle: undefined behaviour: assertion of the standard library: %s\n",
+            message);
+    __sanitizer_print_stack_trace();
+    _exit(UNDEFINED_BEHAVIOUR);
+}
+
+// The default options of the sanitizers; ASAN_OPTIONS and UBSAN_OPTIONS can still change them.
+// abort_on_error=0: macOS would otherwise abort after a report, and SIGABRT gives 70. Leaks are
+// not undefined behaviour, and the reader leaks when it rejects a file.
+extern "C" const char* __asan_default_options() {
+    return "exitcode=3:abort_on_error=0:detect_leaks=0";
+}
+
+extern "C" const char* __ubsan_default_options() {
+    return "exitcode=3:abort_on_error=0:halt_on_error=1:print_stacktrace=1";
+}
+
+#if defined(_LIBCPP_VERSION)
+// libc++ (macOS): with _LIBCPP_HARDENING_MODE_DEBUG a failed check calls this function, which a
+// program may replace. It is in the inline namespace of libc++ (std::__1).
+_LIBCPP_BEGIN_NAMESPACE_STD
+void __libcpp_verbose_abort(const char* format, ...) _NOEXCEPT {
+    va_list arguments;
+    va_start(arguments, format);
+    char message[1024];
+    vsnprintf(message, sizeof message, format, arguments);
+    va_end(arguments);
+    on_assertion(message);
+}
+_LIBCPP_END_NAMESPACE_STD
+#elif defined(__GLIBCXX__) && defined(_GLIBCXX_ASSERTIONS)
+// libstdc++ (Linux, GCC 14 and later): with _GLIBCXX_ASSERTIONS a failed check calls this
+// function of libstdc++.so; the definition in the program takes its place.
+namespace std {
+void __glibcxx_assert_fail(const char* file, int line, const char* function,
+                           const char* condition) _GLIBCXX_NOEXCEPT {
+    fprintf(stderr, "%s:%d: %s\n", file, line, function);
+    on_assertion(condition);
+}
+}  // namespace std
+#endif
+#endif
 
 // ---- JSON, with the standard library only. Each function returns the text of one value. ----
 
@@ -447,7 +506,11 @@ int main(int argc, char** argv) {
                 argv[0], argv[0], argv[0]);
         return 2;
     }
+#ifdef PULSEQ_CPP_ORACLE_SANITIZED
+    for (int signal_number : {SIGABRT, SIGILL, SIGTRAP}) {
+#else
     for (int signal_number : {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGTRAP}) {
+#endif
         signal(signal_number, on_crash);
     }
     ExternalSequence::SetPrintFunction(&print_to_stderr);

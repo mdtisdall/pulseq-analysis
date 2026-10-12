@@ -113,14 +113,20 @@ NOT_CHECKED_BY_THE_READER = {
 }
 
 
-# Files under tests/seqfiles that the oracle rejects and `read_seqfile` accepts, where the oracle
-# is wrong against the specification. The comparison test skips them. Each entry has the reason.
+# Files under tests/seqfiles that the oracle does not accept and `read_seqfile` accepts, where the
+# oracle is wrong against the specification. The comparison test skips them. Each entry has the
+# reason.
 ORACLE_KNOWN_WRONG = {
     "oracle/koma_v1.5_unknown_ext.seq": 'the oracle fails with "failed find the end of the '
     'section while reading EXTENSIONS" because `[EXTENSIONS]` is the last section that starts '
     "with `[` (its index of sections has only those lines, ExternalSequence.cpp:1762-1769, "
     "1202-1211); the same file with a `[SIGNATURE]` section at the end is accepted. The "
     "specification does not fix the order of the sections (docs/discrepancies.md, D46)",
+    "undefined/version_last.seq": "with `[VERSION]` as the last section, the oracle reads no "
+    "shape (the stream stays failed after it reads `[VERSION]` to the end of the file), and the "
+    "RF event names shape 1: undefined behaviour (ExternalSequence.cpp:1995, "
+    "`tests/test_cpp_oracle_sanitized.py`). The specification does not fix the order of the "
+    "sections (docs/discrepancies.md, D05)",
 }
 
 

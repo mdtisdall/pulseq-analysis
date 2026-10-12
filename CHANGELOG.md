@@ -58,6 +58,12 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   devShell only). `docs/discrepancies.md` records where the specification, the
   C++ reader, MATLAB Pulseq and pypulseq disagree, and which one the package
   follows.
+- A build of the C++ oracle with AddressSanitizer, UndefinedBehaviorSanitizer
+  and the assertions of the C++ standard library
+  (`pulseq-cpp-oracle-sanitized`, in both devShells) gives the verdict
+  "undefined behaviour" (exit status 3) for a file on which the reader of the
+  scanner has undefined behaviour, the same on macOS and Linux. The tests have
+  this verdict for each fixture (`tests/test_cpp_oracle_sanitized.py`).
 
 ### Changed
 

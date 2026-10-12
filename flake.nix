@@ -45,28 +45,73 @@
         };
 
       # The reader of the Pulseq interpreter on the scanner, ExternalSequence of pulseq/pulseq
-      # (MIT), with the small driver in tests/cpp_oracle. tests/test_cpp_oracle.py compares it
-      # with the parser of this package.
+      # (MIT), with the small driver in tests/cpp_oracle, compiled with `flags` by the compiler of
+      # `stdenv`. `extra` adds attributes to the derivation.
+      cpp-oracle =
+        pkgs:
+        {
+          name,
+          flags,
+          stdenv ? pkgs.stdenv,
+          extra ? { },
+        }:
+        stdenv.mkDerivation (
+          {
+            pname = name;
+            version = "c7469123";
+            src = pulseq-source pkgs;
+            driver = ./tests/cpp_oracle/driver.cpp;
+            dontConfigure = true;
+            buildPhase = ''
+              runHook preBuild
+              $CXX -std=c++11 ${flags} -I src -o ${name} \
+                $driver src/ExternalSequence.cpp src/md5.cpp
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              install -D ${name} $out/bin/${name}
+              runHook postInstall
+            '';
+            meta.mainProgram = name;
+          }
+          // extra
+        );
+
+      # tests/test_cpp_oracle.py compares this build with the parser of this package.
       pulseq-cpp-oracle =
         pkgs:
-        pkgs.stdenv.mkDerivation {
-          pname = "pulseq-cpp-oracle";
-          version = "c7469123";
-          src = pulseq-source pkgs;
-          driver = ./tests/cpp_oracle/driver.cpp;
-          dontConfigure = true;
-          buildPhase = ''
-            runHook preBuild
-            $CXX -std=c++11 -O2 -I src -o pulseq-cpp-oracle \
-              $driver src/ExternalSequence.cpp src/md5.cpp
-            runHook postBuild
-          '';
-          installPhase = ''
-            runHook preInstall
-            install -D pulseq-cpp-oracle $out/bin/pulseq-cpp-oracle
-            runHook postInstall
-          '';
-          meta.mainProgram = "pulseq-cpp-oracle";
+        cpp-oracle pkgs {
+          name = "pulseq-cpp-oracle";
+          flags = "-O2";
+        };
+
+      # The same reader and driver with AddressSanitizer, UndefinedBehaviorSanitizer and the
+      # assertions of the C++ standard library (libstdc++ on Linux, libc++ on macOS). The exit
+      # status 3 says that one of them fired: the reader has undefined behaviour on the file,
+      # whatever an ordinary build does with it (docs/plans/parser-redesign.md, section 5.3).
+      # tests/test_cpp_oracle_sanitized.py runs it.
+      pulseq-cpp-oracle-sanitized =
+        pkgs:
+        cpp-oracle pkgs {
+          name = "pulseq-cpp-oracle-sanitized";
+          # Clang on each system, so that macOS and Linux have the same sanitizers. Not the
+          # default LLVM 21: its AddressSanitizer hangs at the start of each process on macOS 26
+          # (a recursion of malloc in the start of the runtime). LLVM 22 starts.
+          stdenv = pkgs.llvmPackages_22.stdenv;
+          flags = pkgs.lib.concatStringsSep " " [
+            "-O1"
+            "-fno-omit-frame-pointer"
+            "-fsanitize=address,undefined"
+            "-fno-sanitize-recover=all"
+            "-D_GLIBCXX_ASSERTIONS"
+            "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG"
+            "-DPULSEQ_CPP_ORACLE_SANITIZED"
+          ];
+          extra = {
+            # _FORTIFY_SOURCE of the Nix wrapper does not work with AddressSanitizer.
+            hardeningDisable = [ "fortify" ];
+          };
         };
 
       # MATLAB Pulseq of the same commit, run under GNU Octave by tests/matlab_oracle/dump.m.
@@ -121,6 +166,7 @@
     {
       packages = forAllSystems (pkgs: {
         pulseq-cpp-oracle = pulseq-cpp-oracle pkgs;
+        pulseq-cpp-oracle-sanitized = pulseq-cpp-oracle-sanitized pkgs;
         pulseq-matlab-oracle = pulseq-matlab-oracle pkgs;
       });
       devShells = forAllSystems (pkgs: {
@@ -132,6 +178,7 @@
           pkgs.jq
           pkgs.shellcheck
           (pulseq-cpp-oracle pkgs)
+          (pulseq-cpp-oracle-sanitized pkgs)
           (pulseq-matlab-oracle pkgs)
         ];
         # A smaller shell for CI: only the tools that scripts/check needs.
@@ -140,6 +187,7 @@
           pkgs.uv
           pkgs.shellcheck
           (pulseq-cpp-oracle pkgs)
+          (pulseq-cpp-oracle-sanitized pkgs)
         ];
       });
     };
