@@ -7244,7 +7244,9 @@ golden values, the outputs of the fork's functions for the same inputs, in
 `tests/golden/safe_fork.npz`: `tests/golden/make_golden.py` wrote them with the fork pinned,
 and `tests/golden/README.md` gives the fork commit. The comparisons (`_assert_golden`) require
 the dtype and the shape, the integer and bool values exactly, and the float values within
-`_GOLDEN_RTOL`: a relative 1e-14 for float64 and two float32 ulp for float32. The port does the
+`_GOLDEN_RTOL` of the value or of the largest magnitude of its array: 1e-14 for float64 and two
+float32 ulp for float32. (A value that comes out of a cancellation, as a filter state can,
+carries the rounding of the large terms of its array.) The port does the
 same float operations as the fork, but the golden values come from one platform (macOS), and
 numpy and scipy on another (Linux in CI) round some of them differently in the last bit (1 to 2
 ulp of a float64, measured on 2026-10-13); a float32 level, the outward cast of a float64 total,

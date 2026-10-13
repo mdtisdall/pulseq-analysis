@@ -330,7 +330,10 @@ def levels_arrays(levels: PnsLevels) -> dict[str, np.ndarray]:
 # were written on one platform; another platform's numpy and scipy can round the same float
 # operations differently in the last bit (1 to 2 ulp of a float64 on Linux against macOS). A float32
 # level is the outward cast of a float64 total, so a float64 difference of one ulp can move it by
-# one float32 ulp. A change of the filter itself is far above these.
+# one float32 ulp. The tolerance is of the largest magnitude of the array as well as of each value:
+# a value that comes out of a cancellation (a state `zi` of -4.9e4 in an array whose largest value
+# is 3.5e8) carries the rounding of the large terms (on Linux, 1e-8 absolute there: 2e-13 of the
+# value, 3e-17 of the array). A change of the filter itself is far above these.
 _GOLDEN_RTOL = {
     np.dtype(np.float64): 1e-14,
     np.dtype(np.float32): 2 * float(np.finfo(np.float32).eps),
@@ -344,8 +347,9 @@ def golden():
 
 
 def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
-    """`value` has the dtype and the shape of `expected`, and its values: within
-    `_GOLDEN_RTOL` for floats, exactly for the others."""
+    """`value` has the dtype and the shape of `expected`, and its values: for floats, within
+    `_GOLDEN_RTOL` of each value or of the largest magnitude of `expected`, and exactly for the
+    others."""
     value = np.asarray(value)
     assert value.dtype == expected.dtype, name
     assert value.shape == expected.shape, name
@@ -353,7 +357,8 @@ def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
     if rtol is None:
         np.testing.assert_array_equal(value, expected, err_msg=name)
     else:
-        np.testing.assert_allclose(value, expected, rtol=rtol, atol=0, err_msg=name)
+        scale = float(np.max(np.abs(expected), initial=0.0, where=np.isfinite(expected)))
+        np.testing.assert_allclose(value, expected, rtol=rtol, atol=rtol * scale, err_msg=name)
 
 
 @pytest.mark.pypulseq
