@@ -4,22 +4,19 @@ import numpy as np
 import pypulseq as pp
 import pytest
 from gap_sequences import (
-    DELAYED_RAMP_CASES,
-    ULP_EDGE_CASES,
-    delayed_ramp_sequence,
     delayed_sequence,
     early_end_sequence,
     gap_of_1_5_raster_times_sequence,
     long_gap_sequence,
     negated,
     non_zero_ends_sequence,
-    short_arbitrary_sequence,
     short_gap_from_0_sequence,
     short_gap_sequence,
     short_gap_to_0_sequence,
     zero_gap_sequence,
 )
 from oracles import waveform as oracle
+from oracles.blocks import sequence_of
 from random_gaps import random_gap_sequence
 from synthetic import (
     SYSTEM,
@@ -29,15 +26,17 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.synth import _events, seq_index
+from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.sampling import (
     GradientSampler,
     gradient_sampler,
     raster_block_lengths,
     sequence_samples,
 )
-from pulseq_analysis.synth.seq_index import grad_events, sequence_index
-from pulseq_analysis.synth.snapshot import Snapshot, load
+from pulseq_analysis.synth.seq_index import sequence_index
+from pulseq_analysis.synth.snapshot import Snapshot
 
 _AXES = ("gx", "gy", "gz")
 _RASTER = SYSTEM.grad_raster_time
@@ -52,23 +51,23 @@ def _raster_centers(duration_s: float, raster: float = SYSTEM.grad_raster_time) 
     return (np.arange(n) + 0.5) * raster
 
 
-def _assert_matches_pypulseq(snap: Snapshot, t: np.ndarray) -> None:
-    """`GradientSampler.sample(axis, t)` equals `snap.sequence.get_gradients()[axis](t)` within
-    a relative 1e-12 and an absolute 1e-12 times the largest |value| of that axis's
-    reference at `t`.
+def _assert_matches_pypulseq(seq: pp.Sequence, snap: Snapshot, t: np.ndarray) -> None:
+    """`GradientSampler.sample(axis, t)` for `snap`, the snapshot of `seq`, equals
+    `seq.get_gradients()[axis](t)` within a relative 1e-5 and an absolute 1e-5 times the
+    largest |value| of that axis's reference at `t`.
 
-    Not bit-exact: `seq_utils.gradient_offsets` adds a trapezoid's corner times in a
-    different order than pypulseq's `waveforms()` (`start + (rise + flat)` against
-    `(start + rise) + flat`), and scipy's `PPoly` evaluates a line segment with its own
-    formula (`c[0] * (t - x[i]) + c[1]`), not `numpy.interp`'s. Both differ by float
-    rounding only.
+    The tolerance covers the rounding of pypulseq's writer: `snap` holds the values of the
+    written file, 6 significant digits of an amplitude (a relative error up to 5e-6), and
+    `seq` the values in memory. It is not a tolerance for the float rounding of the two
+    formulas (about 1e-12), which is checked by `_assert_matches_oracle`, where both read the
+    snapshot.
 
     pypulseq draws a line across each gap and does not step at a junction, so this holds
     only for a sequence with no end that is not 0 next to a gap of more than one raster
     time, and with no step at a junction. `_assert_matches_oracle` is for the others.
     """
     sampler = gradient_sampler(snap)
-    pp_gradients = snap.sequence.get_gradients()
+    pp_gradients = seq.get_gradients()
     for axis_index, axis in enumerate(_AXES):
         ppoly = pp_gradients[axis_index]
         ref = np.zeros(t.shape, dtype=np.float64) if ppoly is None else ppoly(t)
@@ -76,17 +75,17 @@ def _assert_matches_pypulseq(snap: Snapshot, t: np.ndarray) -> None:
         assert got.dtype == np.float64
         assert got.shape == t.shape
         peak = float(np.max(np.abs(ref))) if ref.size else 0.0
-        np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-12 * peak)
+        np.testing.assert_allclose(got, ref, rtol=1e-5, atol=1e-5 * peak)
 
 
 def _assert_matches_oracle(snap: Snapshot, t: np.ndarray) -> None:
-    """`GradientSampler.sample(axis, t)` equals `oracle.sample(snap.sequence, axis, t)` (the model of
+    """`GradientSampler.sample(axis, t)` equals `oracle.sample(sequence_of(snap), axis, t)` (the model of
     MATLAB Pulseq, `tests/oracles/waveform.py`) within a relative 1e-12 and an absolute
     1e-12 times the largest |value| of that axis's reference at `t`. The two build the same
     points and differ by the float rounding of the interpolation formula only."""
     sampler = gradient_sampler(snap)
     for axis in "xyz":
-        ref = oracle.sample(snap.sequence, axis, t)
+        ref = oracle.sample(sequence_of(snap), axis, t)
         got = sampler.sample(f"g{axis}", t)
         assert got.dtype == np.float64
         assert got.shape == t.shape
@@ -236,7 +235,7 @@ def test_whole_file_matches_pypulseq_for_synthetic_sequences(seq):
     snap = load(seq)
     index = sequence_index(snap)
     t = _raster_centers(index.end_s)
-    _assert_matches_pypulseq(snap, t)
+    _assert_matches_pypulseq(seq, snap, t)
 
 
 def test_subrange_that_cuts_blocks_matches_pypulseq():
@@ -245,12 +244,13 @@ def test_subrange_that_cuts_blocks_matches_pypulseq():
     # through the gx event, includes the whole gz event, and leaves the gy event (block
     # 1) entirely before the range, so this also checks that gy is correctly 0 after
     # its one and only event.
-    snap = load(gre_sequence(num_trs=1))
+    seq = gre_sequence(num_trs=1)
+    snap = load(seq)
     index = sequence_index(snap)
     t0 = index.start_s[2] + index.duration_s[2] / 2
     t1 = index.start_s[4] + index.duration_s[4] / 2
     t = np.linspace(t0, t1, 500)
-    _assert_matches_pypulseq(snap, t)
+    _assert_matches_pypulseq(seq, snap, t)
 
 
 def test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_oracle():
@@ -339,16 +339,17 @@ def test_times_before_an_event_that_starts_at_a_value_that_is_not_0_have_the_ram
 
 
 def test_single_sample_matches_pypulseq():
-    snap = load(gre_sequence(num_trs=1))
+    seq = gre_sequence(num_trs=1)
+    snap = load(seq)
     index = sequence_index(snap)
     t = np.array([index.start_s[2] + index.duration_s[2] / 2])
-    _assert_matches_pypulseq(snap, t)
+    _assert_matches_pypulseq(seq, snap, t)
 
 
 def test_amplitude_continues_across_a_block_junction():
     seq, junction_s = _junction_sequence(step_hz_per_m=0.0)
     t = np.sort(junction_s + np.linspace(-20, 20, 41) * SYSTEM.grad_raster_time)
-    _assert_matches_pypulseq(load(seq), t)
+    _assert_matches_pypulseq(seq, load(seq), t)
 
 
 def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
@@ -368,19 +369,21 @@ def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
     got = sampler.sample(
         "gx", np.array([junction_s - 10 * raster, junction_s, junction_s + 10 * raster])
     )
+    # The values are those of the written file: 6 significant digits (relative 5e-6 at most).
     np.testing.assert_allclose(
-        got, [base.amplitude, base.amplitude, base.amplitude - step], rtol=1e-12
+        got, [base.amplitude, base.amplitude, base.amplitude - step], rtol=1e-5
     )
 
 
 def test_triangle_trapezoid_matches_pypulseq():
-    snap = load(_triangle_sequence())
+    seq = _triangle_sequence()
+    snap = load(seq)
     index = sequence_index(snap)
     t = _raster_centers(index.end_s)
-    _assert_matches_pypulseq(snap, t)
+    _assert_matches_pypulseq(seq, snap, t)
 
 
-def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient():
+def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient(tmp_path):
     """`sample` for a file with an oversampled arbitrary gradient against a reference built
     from the added events (the objects that `make_*` returns, before `add_block`), not
     from `get_block` and not from `seq.get_gradients()`: `get_gradients()` itself leaves
@@ -437,9 +440,14 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient()
     truth = np.interp(grid, tt, vv)
     peak = np.abs(truth).max()
 
-    sampler = gradient_sampler(load(seq))
+    # `load(seq)` fails here: `seq.remove_duplicates()` of pypulseq raises `KeyError` for the
+    # time shape -1 of an oversampled gradient. The file is written without it, as `load` writes it.
+    path = tmp_path / "oversampled.seq"
+    seq.write(str(path), create_signature=True, remove_duplicates=False, check_timing=False)
+    sampler = gradient_sampler(load(path))
     got = sampler.sample("gx", grid)
-    np.testing.assert_allclose(got, truth, rtol=0, atol=1e-12 * peak)
+    # The values are those of the written file: 6 significant digits of the amplitudes.
+    np.testing.assert_allclose(got, truth, rtol=0, atol=1e-5 * peak)
 
 
 def test_zero_before_the_first_event_and_after_the_last():
@@ -547,6 +555,41 @@ def _model_sequence(name: str) -> pp.Sequence:
     return _MODEL_SEQUENCES[name]()
 
 
+# The sequences of the model that the interpreter `spec` rejects: a gradient that ends above 0
+# before its block ends (`gradient.nonzero-end-align`), a gradient that starts above 0 after a
+# delay (`gradient.nonzero-start-delay`) or a delay off the gradient raster
+# (`raster.gradient-delay`). The tests are about the waveform model, not about the specification,
+# so the tests of these sequences are in `test_measurements_in_pulseq_analysis.py` of
+# `pulseq-cpp-siemens`, which loads them with `cpp-siemens`, which plays them.
+_REJECTED_BY_SPEC = {
+    "short_gap",
+    "issue_12_delayed",
+    "issue_12_early_end",
+    "off_raster_events",
+    "gap_of_1_5_raster_times",
+    "short_gap_to_0",
+    "negated_short_gap",
+    "negated_issue_12_delayed",
+    "negated_issue_12_early_end",
+} | {f"random_gaps_{seed}" for seed in range(8)}
+
+
+def _name_of(case):
+    """The name of a case of a test: the case, or the first item of the case."""
+    return case if isinstance(case, str) else case[0]
+
+
+def _read_by_spec(cases: list) -> list:
+    """The cases of `cases` whose sequence `spec` reads (not `_REJECTED_BY_SPEC`)."""
+    return [case for case in cases if _name_of(case) not in _REJECTED_BY_SPEC]
+
+
+def _load_model(name: str) -> Snapshot:
+    """The snapshot of the sequence `name` of `_MODEL_SEQUENCES`, read by `spec`."""
+    assert name not in _REJECTED_BY_SPEC
+    return load(_model_sequence(name))
+
+
 def _model_times(snap: Snapshot) -> np.ndarray:
     """A sorted grid of times (s) of `snap`: the raster centres, an even grid across the
     sequence (a little before and after), and the points of the polyline of the oracle on
@@ -555,44 +598,43 @@ def _model_times(snap: Snapshot) -> np.ndarray:
     end = sequence_index(snap).end_s
     times = [_raster_centers(end), np.linspace(-_RASTER, end + _RASTER, 2001)]
     for axis in "xyz":
-        t = oracle.axis_polyline(snap.sequence, axis).t
+        t = oracle.axis_polyline(sequence_of(snap), axis).t
         times += [t, t - 1e-7, t + 1e-7]
     return np.unique(np.concatenate(times))
 
 
-@pytest.mark.parametrize("name", _MODEL_SEQUENCES)
+@pytest.mark.parametrize("name", _read_by_spec(list(_MODEL_SEQUENCES)))
 def test_sample_equals_the_oracle_for_the_whole_sequence(name):
     """`sample` equals the oracle (the model of MATLAB Pulseq) on a grid across each
-    sequence of the model, with times at the points, the steps and the ramps."""
-    snap = load(_model_sequence(name))
+    sequence of the model that `spec` reads, with times at the points, the steps and the
+    ramps."""
+    snap = _load_model(name)
     _assert_matches_oracle(snap, _model_times(snap))
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "long_gap",
-        "short_gap",
-        "zero_gap",
-        "issue_12_delayed",
-        "off_raster_events",
-        "gap_of_1_5_raster_times",
-        "short_gap_from_0",
-        "negated_long_gap",
-    ],
-)
-def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(name):
-    """Each time range `t[i:j]` of a grid of times at the ends of the events, inside the
+_TIME_RANGE_NAMES = [
+    "long_gap",
+    "short_gap",
+    "zero_gap",
+    "issue_12_delayed",
+    "off_raster_events",
+    "gap_of_1_5_raster_times",
+    "short_gap_from_0",
+    "negated_long_gap",
+]
+
+
+def check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(snap: Snapshot) -> None:
+    """Each time range `t[i:j]` of a grid of times of `snap` at the ends of the events, inside the
     gap, at the ramps and at the steps: `sample` equals the oracle, and the same slice of
     the whole grid exactly (a range that starts or ends inside a gap or a ramp has the
     events around it)."""
-    snap = load(_model_sequence(name))
     full = _model_times(snap)
     t = full[:: max(1, full.size // 40)]
     sampler = gradient_sampler(snap)
     for axis in "xyz":
         whole = sampler.sample(f"g{axis}", t)
-        ref = oracle.sample(snap.sequence, axis, t)
+        ref = oracle.sample(sequence_of(snap), axis, t)
         peak = float(np.max(np.abs(ref)))
         np.testing.assert_allclose(whole, ref, rtol=1e-12, atol=1e-12 * peak)
         for i in range(t.size):
@@ -600,17 +642,11 @@ def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_gri
                 assert np.array_equal(sampler.sample(f"g{axis}", t[i:j]), whole[i:j]), (axis, i, j)
 
 
-def test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand():
-    """`_off_raster_events_sequence` at times in the two ramps (half a raster time long, at 3.3
-    to 3.8 and 8.2 to 8.7 raster times), with hand values, and 0 between the ramps and after
-    the last point."""
-    snap = load(_off_raster_events_sequence())
-    t = _RASTER * np.array([3.3, 3.5, 3.8, 5.0, 8.2, 8.5, 8.7, 11.7, 12.0])
-    expected = _A * np.array([1.0, 0.6, 0.0, 0.0, 0.0, 0.3, 0.5, 0.0, 0.0])
-    got = gradient_sampler(snap).sample("gx", t)
-    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-9 * _A)
-    # A line across the gap, which pypulseq draws, would give about 0.8 A at 5.
-    assert abs(snap.sequence.get_gradients()[0](t[3]) - 0.0) > 0.5 * _A
+@pytest.mark.parametrize("name", _read_by_spec(_TIME_RANGE_NAMES))
+def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(name):
+    """Each time range of a grid of times, for the sequences of the model that `spec` reads
+    (`check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`)."""
+    check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(_load_model(name))
 
 
 def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
@@ -673,55 +709,6 @@ def test_block_samples_matches_sample_at_file_raster_times(seq):
         np.testing.assert_allclose(got, ref, atol=1e-9 * peak, rtol=0.0)
 
 
-def test_hand_made_ramp_and_no_event_block():
-    """A hand-made sequence, not one of the `synthetic.py` builders: block 0 has a
-    gradient on x that ramps from 0 to a nonzero value and stops there (unlike an
-    ordinary trapezoid, whose amplitude is 0 at both ends of the event, this event's
-    own last point is not zero), inside a block made longer than the ramp by a second
-    gradient on z that fills the rest of the block; block 1 is a delay, with no
-    gradient event on any axis. The expected values are computed by hand from the
-    linear-interpolation rule of the docstring, not read from `sample` or `pns_lanes.js`.
-    """
-    dt = SYSTEM.grad_raster_time
-    n_ramp = 4
-    n_block = 7
-    amp = 1000.0  # Hz/m
-    rise = n_ramp * dt
-    gx = pp.make_extended_trapezoid(
-        channel="x",
-        amplitudes=np.array([0.0, amp]),
-        times=np.array([0.0, rise]),
-        system=SYSTEM,
-    )
-    # A trapezoid on z occupying the whole block, so the block is longer than gx's own
-    # event: the samples after gx's last point (at `rise`) must be 0, even though that
-    # last point's own value (amp) is not 0.
-    gz = pp.make_trapezoid(channel="z", duration=n_block * dt, area=1.0, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx, gz)
-    seq.add_block(pp.make_delay(n_block * dt))
-    sampler = gradient_sampler(load(seq))
-
-    j = np.arange(n_block, dtype=np.float64)
-    t = (j + 0.5) * dt
-    expected_gx_block0 = np.where(t < rise, amp * t / rise, 0.0)
-    expected_gx = np.concatenate([expected_gx_block0, np.zeros(n_block)])
-    got_gx = sampler.block_samples("gx", 0, 2, dt)
-    # A division (the linear-interpolation formula) makes exact equality unlikely: the
-    # implementation and this test compute the ramp fraction with a different order of
-    # floating-point operations.
-    np.testing.assert_allclose(got_gx, expected_gx, rtol=1e-12, atol=1e-12 * amp)
-
-    # gy has no event anywhere in the file: 0 for every sample of both blocks.
-    got_gy = sampler.block_samples("gy", 0, 2, dt)
-    np.testing.assert_array_equal(got_gy, np.zeros(2 * n_block, dtype=np.float64))
-
-    # Block 1 (the delay) has no event on any axis: 0 for gx and gz too.
-    np.testing.assert_array_equal(got_gx[n_block:], np.zeros(n_block, dtype=np.float64))
-    got_gz = sampler.block_samples("gz", 0, 2, dt)
-    np.testing.assert_array_equal(got_gz[n_block:], np.zeros(n_block, dtype=np.float64))
-
-
 def test_range_inside_the_file_equals_the_same_slice_of_the_whole_file():
     snap = load(gre_sequence(num_trs=3))
     dt = SYSTEM.grad_raster_time
@@ -737,29 +724,6 @@ def test_range_inside_the_file_equals_the_same_slice_of_the_whole_file():
         whole = sampler.block_samples(axis, 0, index.num_blocks, dt)
         part = sampler.block_samples(axis, first, stop, dt)
         assert np.array_equal(part, whole[offset : offset + length])
-
-
-def _blocks_with_long_events_sequence() -> pp.Sequence:
-    """Five blocks. Block 0: a trapezoid on x and a longer one on z. Block 1: a delay, with no
-    event on any axis. Block 2: an arbitrary gradient on x that starts 20 raster steps after
-    the block start, and a delay event that holds the block for 120 steps, so the gradient's
-    last point is 60 steps before the block end. Block 3: a triangle on y (two points at one
-    time). Block 4: the block 2 again (the same event in a block of the same length)."""
-    dt = SYSTEM.grad_raster_time
-    n_arb = 40
-    t = (np.arange(n_arb) + 0.5) * dt
-    waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * t / (n_arb * dt))
-    arbitrary = pp.make_arbitrary_grad(channel="x", waveform=waveform, delay=20 * dt, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(
-        pp.make_trapezoid(channel="x", area=1000.0, system=SYSTEM),
-        pp.make_trapezoid(channel="z", area=3000.0, system=SYSTEM),
-    )
-    seq.add_block(pp.make_delay(300 * dt))
-    seq.add_block(arbitrary, pp.make_delay(120 * dt))
-    seq.add_block(pp.make_trapezoid(channel="y", area=10.0, system=SYSTEM))
-    seq.add_block(arbitrary, pp.make_delay(120 * dt))
-    return seq
 
 
 def _sample_ranges(n: np.ndarray) -> list[tuple[int, int]]:
@@ -778,45 +742,6 @@ def _sample_ranges(n: np.ndarray) -> list[tuple[int, int]]:
         for fifth in range(5):
             ranges.add((start + fifth * length // 5, length // 5 + 3))
     return sorted((skip, count) for skip, count in ranges if skip >= 0 and skip + count <= total)
-
-
-def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
-    """`block_samples(axis, first, stop, dt, skip=s, count=c)` equals `block_samples(axis, first,
-    stop, dt)[s : s + c]` exactly, for each axis, for block ranges of the whole file and of
-    its inner blocks, and for sample ranges that start and end inside a block, at the edge
-    of a block, inside a block with no event, and after the last point of the event of a
-    block (the samples that are 0 and that the sampler does not keep). `count=None` gives all
-    the samples after `skip`. The sampler that made the whole range first (with samples kept)
-    and a new one give the same part."""
-    snap = load(_blocks_with_long_events_sequence())
-    dt = SYSTEM.grad_raster_time
-    index = sequence_index(snap)
-    n_all, on_raster = raster_block_lengths(index, dt)
-    assert on_raster
-    assert n_all[2] == n_all[4] == 120  # the event of block 2 stops 60 samples before its end
-    sampler = gradient_sampler(snap)
-    checked = 0
-    for first, stop in [(0, 5), (1, 5), (2, 5), (1, 4), (2, 3), (3, 5), (0, 2), (4, 5)]:
-        n = n_all[first:stop]
-        for axis in _AXES:
-            whole = sampler.block_samples(axis, first, stop, dt)
-            for skip, count in _sample_ranges(n):
-                expected = whole[skip : skip + count]
-                got = sampler.block_samples(axis, first, stop, dt, skip=skip, count=count)
-                assert got.dtype == np.float64
-                assert np.array_equal(got, expected), (axis, first, stop, skip, count)
-                fresh = gradient_sampler(snap)
-                got = fresh.block_samples(axis, first, stop, dt, skip=skip, count=count)
-                assert np.array_equal(got, expected), (axis, first, stop, skip, count)
-                checked += 1
-            for skip in (0, 1, whole.size // 2, whole.size):
-                got = sampler.block_samples(axis, first, stop, dt, skip=skip)
-                assert np.array_equal(got, whole[skip:]), (axis, first, stop, skip)
-    assert checked > 300
-    # The range has samples that are not 0 after the first sample of block 2 and 0 at its end.
-    part = sampler.block_samples("gx", 2, 3, dt, skip=60, count=60)
-    assert not np.any(part)
-    assert np.any(sampler.block_samples("gx", 2, 3, dt, skip=20, count=40))
 
 
 def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
@@ -853,57 +778,6 @@ def test_a_range_inside_a_block_longer_than_the_range_is_the_same_slice():
     ]:
         got = sampler.block_samples("gx", 0, 2, dt, skip=skip, count=count)
         assert np.array_equal(got, whole[skip : skip + count]), (skip, count)
-
-
-def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
-    """With `dt` of two raster steps, the first sample of a block is at the raster time
-    `dt / 2`, which is exactly the time of the last point of a ramp that ends there with a
-    value that is not 0. That sample is the value of the last point, and the next sample (after
-    the last point, in the same block) is 0, also when the range cuts the block to one
-    sample."""
-    raster = SYSTEM.grad_raster_time
-    amp = 1000.0  # Hz/m
-    ramp = pp.make_extended_trapezoid(
-        channel="x",
-        amplitudes=np.array([0.0, amp]),
-        times=np.array([0.0, raster]),
-        system=SYSTEM,
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(ramp, pp.make_delay(4 * raster))
-    sampler = gradient_sampler(load(seq))
-    dt = 2 * raster
-    assert 0.5 * dt == raster
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt), [amp, 0.0])
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=0, count=1), [amp])
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=1, count=1), [0.0])
-
-
-def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point():
-    """With `dt` of two raster steps, a ramp from 0 to 1000 Hz/m over 27 raster steps ends
-    exactly at the time of sample 13, `(13 + 0.5) * dt`, which the test asserts with the same
-    float product that the sampler uses. The sample is the value of the last point, the
-    sample after it is 0, and no sample before it is above it."""
-    raster = SYSTEM.grad_raster_time
-    amp = 1000.0  # Hz/m
-    n_ramp = 27
-    dt = 2 * raster
-    last = (n_ramp - 1) // 2
-    assert (last + 0.5) * dt == n_ramp * raster
-    ramp = pp.make_extended_trapezoid(
-        channel="x",
-        amplitudes=np.array([0.0, amp]),
-        times=np.array([0.0, n_ramp * raster]),
-        system=SYSTEM,
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(ramp, pp.make_delay((n_ramp + 3) * raster))
-    sampler = gradient_sampler(load(seq))
-    got = sampler.block_samples("gx", 0, 1, dt)
-    assert got.shape == (last + 2,)
-    assert got[last] == amp
-    assert got[last + 1] == 0.0
-    assert np.all(got[:last] < amp)
 
 
 @pytest.mark.parametrize(
@@ -961,14 +835,15 @@ def test_block_samples_bad_range_raises_value_error(first, stop):
 
 
 def test_block_samples_off_raster_block_raises_value_error():
-    # pypulseq's make_delay accepts a duration that is not a whole number of raster
-    # steps (1.5 here); block_samples must still refuse to sample it.
-    dt = SYSTEM.grad_raster_time
+    # A file holds a block duration in whole block raster times, which is the gradient raster
+    # time here, so a block is off the raster of the samples when that raster is 2 gradient
+    # raster times and the block is 3 (1.5 samples); block_samples must refuse to sample it.
+    raster = SYSTEM.grad_raster_time
     seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_delay(1.5 * dt))
+    seq.add_block(pp.make_delay(3 * raster))
     sampler = gradient_sampler(load(seq))
     with pytest.raises(ValueError):
-        sampler.block_samples("gx", 0, 1, dt)
+        sampler.block_samples("gx", 0, 1, 2 * raster)
 
 
 def test_raster_block_lengths_with_different_block_lengths():
@@ -985,10 +860,12 @@ def test_raster_block_lengths_with_different_block_lengths():
 
 
 def test_raster_block_lengths_detects_a_block_off_the_raster():
-    dt = SYSTEM.grad_raster_time
+    # Blocks of 4 and 3 gradient raster times, with a sample raster of 2: 2 and 1.5 samples.
+    raster = SYSTEM.grad_raster_time
+    dt = 2 * raster
     seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_delay(2 * dt))
-    seq.add_block(pp.make_delay(1.5 * dt))
+    seq.add_block(pp.make_delay(4 * raster))
+    seq.add_block(pp.make_delay(3 * raster))
     index = sequence_index(load(seq))
     n, on_raster = raster_block_lengths(index, dt)
     assert not on_raster
@@ -1013,16 +890,26 @@ def test_sequence_samples_on_the_raster_is_the_sum_of_the_block_lengths():
 
 
 @pytest.mark.parametrize(
-    ("durations_s", "expected"),
+    ("durations_s", "dt", "expected"),
     [
-        # 2.8 samples. The rounded block lengths sum to 2.
-        pytest.param([1.4e-5, 1.4e-5], 3, id="more_than_the_rounded_lengths"),
-        # 3.000005 samples less 1e-10 s is 3.000000 samples.
-        pytest.param([1.5e-5, 1.500005e-5], 3, id="end_within_1e-10_s_above_a_sample"),
+        # Blocks of 7 gradient raster times with a sample raster of 5: 2.8 samples. The rounded
+        # block lengths sum to 2.
+        pytest.param(
+            [7 * _RASTER, 7 * _RASTER], 5 * _RASTER, 3, id="more_than_the_rounded_lengths"
+        ),
+        # Blocks of 1 and 2 gradient raster times with a sample raster that is 3 gradient
+        # raster times over 3.000005: 3.000005 samples less 1e-10 s is 3.000000 samples.
+        pytest.param(
+            [_RASTER, 2 * _RASTER],
+            3 * _RASTER / 3.000005,
+            3,
+            id="end_within_1e-10_s_above_a_sample",
+        ),
     ],
 )
-def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, expected):
-    dt = SYSTEM.grad_raster_time
+def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, dt, expected):
+    """A file holds a block duration in whole block raster times (the gradient raster time
+    here), so the blocks are off the raster of the samples through `dt`."""
     index = sequence_index(load(_delay_sequence(durations_s)))
     assert not raster_block_lengths(index, dt)[1]
     assert sequence_samples(index, dt) == expected
@@ -1041,10 +928,11 @@ def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, exp
 def test_raster_block_lengths_tolerance_is_a_millionth_of_a_sample(ratio, on_raster):
     """A block of `ratio` samples, with `ratio` within 5e-7 of a whole number, is on the
     raster, and one of 2e-6 away is not. The number of samples is the whole number in each
-    case."""
-    dt = SYSTEM.grad_raster_time
+    case. A file holds a block duration in whole block raster times, so the block is one
+    gradient raster time and the sample raster is `1 / ratio` of it."""
+    dt = SYSTEM.grad_raster_time / ratio
     seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_delay(ratio * dt))
+    seq.add_block(pp.make_delay(SYSTEM.grad_raster_time))
     index = sequence_index(load(seq))
     assert index.duration_s[0] / dt == pytest.approx(ratio, rel=0, abs=1e-12)
     n, got = raster_block_lengths(index, dt)
@@ -1086,50 +974,55 @@ _WHOLE_CASES = [(name, 1) for name in _MODEL_SEQUENCES] + [
 ]
 
 
-@pytest.mark.parametrize(("name", "divisor"), _WHOLE_CASES)
-def test_block_samples_equals_the_oracle_for_the_whole_sequence(name, divisor):
-    """`block_samples` of the whole sequence equals `oracle.block_samples` (the values of the
-    polyline of the model of MATLAB Pulseq at the block-local times) for each axis, at the
-    gradient raster and at finer rasters."""
-    snap = load(_model_sequence(name))
+def check_block_samples_equal_the_oracle_for_the_whole_sequence(snap: Snapshot, divisor: int):
+    """`block_samples` of the whole sequence of `snap` equals `oracle.block_samples` (the values
+    of the polyline of the model of MATLAB Pulseq at the block-local times) for each axis, at
+    the sample raster of the gradient raster divided by `divisor`."""
     index = sequence_index(snap)
     dt = _RASTER / divisor
     assert raster_block_lengths(index, dt)[1]
     sampler = gradient_sampler(snap)
     for axis in "xyz":
         got = sampler.block_samples(f"g{axis}", 0, index.num_blocks, dt)
-        _assert_samples_match(got, oracle.block_samples(snap.sequence, axis, dt))
+        _assert_samples_match(got, oracle.block_samples(sequence_of(snap), axis, dt))
 
 
-@pytest.mark.parametrize(
-    ("name", "divisor"),
-    [
-        ("long_gap", 2),
-        ("short_gap", 1),
-        ("zero_gap", 1),
-        ("issue_12_delayed", 5),
-        ("step_then_gap", 1),
-        ("off_raster_events", 1),
-        ("off_raster_events", 5),
-        ("gap_of_1_5_raster_times", 1),
-        ("negated_long_gap", 2),
-    ],
-)
-def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole_range(
-    name, divisor
-):
+@pytest.mark.parametrize(("name", "divisor"), _read_by_spec(_WHOLE_CASES))
+def test_block_samples_equals_the_oracle_for_the_whole_sequence(name, divisor):
+    """`block_samples` of the whole sequence equals `oracle.block_samples` for each axis, at the
+    gradient raster and at finer rasters, for the sequences of the model that `spec` reads
+    (`check_block_samples_equal_the_oracle_for_the_whole_sequence`)."""
+    check_block_samples_equal_the_oracle_for_the_whole_sequence(_load_model(name), divisor)
+
+
+_ANY_RANGE_CASES = [
+    ("long_gap", 2),
+    ("short_gap", 1),
+    ("zero_gap", 1),
+    ("issue_12_delayed", 5),
+    ("step_then_gap", 1),
+    ("off_raster_events", 1),
+    ("off_raster_events", 5),
+    ("gap_of_1_5_raster_times", 1),
+    ("negated_long_gap", 2),
+]
+
+
+def check_block_samples_of_any_range_equal_the_oracle_and_the_slice_of_the_whole_range(
+    snap: Snapshot, divisor: int
+) -> None:
     """Each range of blocks, and each range of samples (`skip` and `count`, with ranges that
-    start or end inside a gap or a ramp), of `block_samples` equals the same samples of the
-    oracle, and the same slice of the whole range exactly (a sampler that made the whole range
-    first, and a new one)."""
-    snap = load(_model_sequence(name))
+    start or end inside a gap or a ramp), of `block_samples` of `snap` at the sample raster of the
+    gradient raster divided by `divisor` equals the same samples of the oracle, and the same
+    slice of the whole range exactly (a sampler that made the whole range first, and a new
+    one)."""
     index = sequence_index(snap)
     dt = _RASTER / divisor
     n_all, on_raster = raster_block_lengths(index, dt)
     assert on_raster
     sampler = gradient_sampler(snap)
     for axis in "xyz":
-        reference = oracle.block_samples(snap.sequence, axis, dt)
+        reference = oracle.block_samples(sequence_of(snap), axis, dt)
         whole = sampler.block_samples(f"g{axis}", 0, index.num_blocks, dt)
         for first in range(index.num_blocks):
             for stop in range(first + 1, index.num_blocks + 1):
@@ -1154,6 +1047,19 @@ def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole
                         skip,
                         count,
                     )
+
+
+@pytest.mark.parametrize(("name", "divisor"), _read_by_spec(_ANY_RANGE_CASES))
+def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole_range(
+    name, divisor
+):
+    """Each range of blocks, and each range of samples, of `block_samples` equals the same
+    samples of the oracle, and the same slice of the whole range exactly, for the sequences of
+    the model that `spec` reads
+    (`check_block_samples_of_any_range_equal_the_oracle_and_the_slice_of_the_whole_range`)."""
+    check_block_samples_of_any_range_equal_the_oracle_and_the_slice_of_the_whole_range(
+        _load_model(name), divisor
+    )
 
 
 @pytest.mark.parametrize("long_first", [False, True])
@@ -1185,98 +1091,18 @@ def test_one_event_in_blocks_of_two_lengths_gives_the_samples_of_each_length(lon
             assert np.array_equal(got, fresh), (calls, first, stop)
 
 
-def test_the_samples_in_a_short_gap_are_the_line_by_hand():
-    """`short_gap_sequence`: the first gradient ends at 3 U at 100 us, its block ends at 110
-    us, and the second block starts at 2 U. The gap is one raster time, so the sample at 105
-    us (the last of block 0) is on the line from 3 U to 2 U: 2.5 U. It is 0 in the own event
-    of block 0, after its last point. The other samples are those of the own events. The
-    first sample of block 1 (5 us) is on the ramp down of block 1."""
-    snap = load(_model_sequence("short_gap"))
-    sampler = gradient_sampler(snap)
-    got = sampler.block_samples("gx", 0, 2, _RASTER)
-    assert got.shape == (21,)
-    unit = 1e4
-    # Block 0: the ramp 0 to 3 U over 100 us at 5, 15, ..., 95 us, then the line at 105 us.
-    np.testing.assert_allclose(
-        got[:11],
-        unit * np.array([0.15, 0.45, 0.75, 1.05, 1.35, 1.65, 1.95, 2.25, 2.55, 2.85, 2.5]),
-        rtol=1e-9,
-    )
-    # Block 1: 2 U down to 0 over 100 us at 5, ..., 95 us, then nothing.
-    np.testing.assert_allclose(
-        got[11:20], unit * np.array([1.9, 1.7, 1.5, 1.3, 1.1, 0.9, 0.7, 0.5, 0.3]), rtol=1e-9
-    )
-
-
-def test_the_samples_in_a_ramp_of_a_long_gap_that_are_not_at_its_ends_are_the_ramp_by_hand():
-    """`_off_raster_events_sequence` at the gradient raster, where the ramp to 0 (3.3 to 3.8
-    raster times) has the sample at 3.5, and the ramp from 0 (8.2 to 8.7) the sample at 8.5,
-    a sample of the first block and the first sample of the second block. The hand values are
-    in `test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand`. The other samples are
-    those of the own events."""
-    snap = load(_off_raster_events_sequence())
-    sampler = gradient_sampler(snap)
-    got = sampler.block_samples("gx", 0, 2, _RASTER)
-    expected = _A * np.array(
-        [
-            0.2 / 3,
-            1.2 / 3,
-            2.2 / 3,
-            0.6,
-            0,
-            0,
-            0,
-            0,
-            0.3,
-            0.5 * (1 - 0.8 / 3),
-            0.5 * (1 - 1.8 / 3),
-            0.5 * (1 - 2.8 / 3),
-            0,
-            0,
-            0,
-            0,
-        ]
-    )
-    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-9 * _A)
-
-
 def test_a_ramp_from_a_raster_edge_changes_no_sample_at_the_gradient_raster():
     """`long_gap_sequence` has events on the raster edges and ends that are not 0 next to a
     long gap. Its ramps of half a raster time end at the raster centres, where they are 0, so
     `block_samples` at the gradient raster has the samples of the own events, 0 in the gap
     (D7 of `docs/plans/third-review-fixes.md`)."""
-    snap = load(_model_sequence("long_gap"))
+    snap = _load_model("long_gap")
     sampler = gradient_sampler(snap)
     got = sampler.block_samples("gx", 0, 3, _RASTER)
     assert got.shape == (40,)
     np.testing.assert_allclose(got[10:30], 0.0, rtol=0, atol=1e-9 * 3e4)
     assert got[9] == pytest.approx(2.85e4)
     assert got[30] == pytest.approx(1.9e4, rel=1e-9)
-
-
-_EDGE_SEQUENCES = {
-    "delayed_ramp_" + "_".join(map(str, case)): (lambda case=case: delayed_ramp_sequence(*case))
-    for case in DELAYED_RAMP_CASES + ULP_EDGE_CASES
-} | {"short_arbitrary": lambda: short_arbitrary_sequence()}
-
-
-@pytest.mark.parametrize("name", _EDGE_SEQUENCES)
-def test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle(name):
-    """`block_samples` of the whole sequence equals `oracle.block_samples` at the gradient
-    raster. The `delayed_ramp_sequence` cases of `DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` have a
-    ramp after a delay of half a raster time (and whole raster times) behind filler blocks: the
-    sample at the last point has the value of that point, also where the sum `delay + offset`
-    is one ulp before the sample time (review 1.3). The oracle has the same tolerance after the
-    last point, which the `ULP_EDGE_CASES` need. `short_arbitrary_sequence` has a step inside
-    one event at a sample time: the sample has the value before the step (review 1.4, the rule
-    of `sample`)."""
-    snap = load(_EDGE_SEQUENCES[name]())
-    index = sequence_index(snap)
-    assert raster_block_lengths(index, _RASTER)[1]
-    sampler = gradient_sampler(snap)
-    for axis in "xyz":
-        got = sampler.block_samples(f"g{axis}", 0, index.num_blocks, _RASTER)
-        _assert_samples_match(got, oracle.block_samples(snap.sequence, axis, _RASTER))
 
 
 @pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
@@ -1292,18 +1118,27 @@ def test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot(b
 # ---- GradientSampler._from_parts ----
 
 
-@pytest.mark.parametrize(
-    "name",
-    ["long_gap", "short_gap", "zero_gap", "off_raster_events", "gre", "spin_echo", "random_gaps_0"],
-)
-def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(name):
-    """`GradientSampler._from_parts` with an index and points made again from the snapshot
+_FROM_PARTS_NAMES = [
+    "long_gap",
+    "short_gap",
+    "zero_gap",
+    "off_raster_events",
+    "gre",
+    "spin_echo",
+    "random_gaps_0",
+]
+
+
+def check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(
+    snap: Snapshot,
+) -> None:
+    """`GradientSampler._from_parts` with an index and points made again from `snap`
     (not the kept ones) and an empty dict gives, bit for bit, the `sample` and
     `block_samples` values of `GradientSampler(snap)`. Its gaps are kept in the dict that
     was passed, equal to those of the snapshot's sampler, and not on the snapshot."""
-    snap = load(_model_sequence(name))
-    index = seq_index._build_index(snap.sequence)
-    points = _events._points_from_events(grad_events(snap), float(snap.sequence.grad_raster_time))
+    played = played_gradients(snap)
+    index = seq_index._index_from_data(snap.data, (played.gx, played.gy, played.gz))
+    points = _events._read_points(snap)
     assert index is not sequence_index(snap)
     kept: dict = {}
     parts = GradientSampler._from_parts(index, points, kept)
@@ -1320,3 +1155,11 @@ def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(n
         for field in ("start_s", "end_s", "start_hz_per_m", "end_hz_per_m"):
             mine, theirs = getattr(kept[("gaps", axis)], field), getattr(whole._gaps(axis), field)
             assert np.array_equal(mine, theirs)
+
+
+@pytest.mark.parametrize("name", _read_by_spec(_FROM_PARTS_NAMES))
+def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(name):
+    """`GradientSampler._from_parts` gives, bit for bit, the values of `GradientSampler(snap)`,
+    for the sequences that `spec` reads
+    (`check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`)."""
+    check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(_load_model(name))

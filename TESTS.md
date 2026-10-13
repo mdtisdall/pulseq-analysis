@@ -30,7 +30,7 @@ Contents:
 
 1. [Static checks](#1-static-checks)
 2. [Tests](#2-tests): the package; the shared sequence helpers; the PNS levels;
-   the sequence extensions; the sequence index; the raster sampler; the gradient
+   the played gradients; the sequence index; the raster sampler; the gradient
    peaks; the kept PNS levels; the series; the analyses and their registry; the
    gradient spectrum; value equality; the kept results; the number arguments;
    the kept event points; the oracle of the gradient waveform; the `.asc` files; the
@@ -212,7 +212,7 @@ cannot be read. The comparison ignores the case.
 ### 2.1 Shared sequence helpers (`test_seq_utils.py`)
 
 `test_seq_utils.py` tests the shared helpers in `seq_utils.py` that the
-measurements use to read a pypulseq sequence: `gradient_offsets` and
+measurements use to read the decoded gradient events: `gradient_offsets` and
 `gradient_points`, the gradient corner/sample helpers. It also checks that the synthetic
 sequences in `tests/synthetic.py` are legal Pulseq.
 
@@ -240,42 +240,6 @@ limits with the gamma of `SYSTEM`, so the two must be equal.
 - The test checks the test helpers (the gamma constant against `SYSTEM`), not code of
   the package.
 
-#### `test_gradient_offsets_trapezoid`
-
-**Checks:** `gradient_offsets` gives the delay and the four corner offsets and
-amplitudes of a trapezoid gradient, with the offsets relative to the delay
-(not including it).
-
-**How:** The test makes an x trapezoid and calls `gradient_offsets`. It
-compares the returned delay with the gradient's own `delay`, the returned
-offsets with the running sum of the rise time, the flat time and the fall
-time (starting at zero), and the returned amplitudes with zero, the plateau
-amplitude twice, and zero.
-
-**Assumptions:** None.
-
-#### `test_gradient_offsets_arbitrary`
-
-**Checks:** `gradient_offsets` gives the delay and the sample offsets and
-amplitudes of an arbitrary gradient, with one added point at each end, at
-offset 0.0 and at the shape duration, for the shape's `first` and `last`
-values.
-
-**How:** The test makes an x arbitrary gradient from a 10-point waveform and
-calls `gradient_offsets`. It checks
-that the first and last returned amplitudes are the gradient's `first` and
-`last` values, and that the first and last returned offsets are 0.0 and the
-shape duration. It checks that the interior offsets and amplitudes are the
-gradient's own sample times (`g.tt`) and waveform, unchanged.
-
-**Assumptions:**
-
-- pypulseq's `make_arbitrary_grad` gives the shape both `first` and
-  `shape_dur` by default. The test does not check that. It takes `g.first` and
-  `g.shape_dur` as the expected values of the helper, so the case without
-  them (used only for a shape that already has points at
-  its own ends) is not covered here.
-
 #### `test_gradient_points_matches_gradient_offsets_exactly`
 
 **Checks:** `gradient_points(g, t0)` gives exactly `(t0 + delay) + offsets`
@@ -283,8 +247,9 @@ for the `delay` and `offsets` that `gradient_offsets(g)` returns, for both a
 trapezoid and an arbitrary gradient. This is the relationship a later phase
 depends on to rebuild point times from the stored offset tables.
 
-**How:** The test is parametrized over a trapezoid and an arbitrary
-gradient. For each, it calls `gradient_points` with a non-zero `t0` and
+**How:** The test is parametrized over a trapezoid and an arbitrary gradient: the decoded events 1
+(trapezoid) and 3 (arbitrary) of `tests/seqfiles/valid_1_5_1.seq`, decoded with
+`decode_gradients(seqfile.read_seqfile(...))`, not pypulseq events. For each, it calls `gradient_points` with a non-zero `t0` and
 `gradient_offsets` on the same event, then compares the two with
 `numpy.testing.assert_array_equal` — exact equality, not a tolerance.
 
@@ -316,7 +281,7 @@ passes, showing the report if it does not.
 #### `test_gradient_offsets_of_a_decoded_trapezoid`
 
 **Checks:** `gradient_offsets` accepts an `events.Trapezoid` and gives its delay, its four corner
-offsets and its amplitudes, as for a pypulseq trapezoid.
+offsets and its amplitudes.
 
 **How:** The test decodes trapezoid 1 of `valid_1_5_1.seq` and compares the delay, the offsets (the
 running sum of 0, the rise, flat and fall times) and the amplitudes (0, the amplitude twice, 0)
@@ -361,9 +326,9 @@ drift off the ideal raster grid by float rounding of the block start time sums;
 `pns_levels` samples each block at its own local
 raster times, with no such drift. Both then run the same SAFE model (the chunk function of
 `safe.py` is the fork's, to the last bit: section 2.21), so a
-relative 1e-6-of-peak tolerance covers the whole
-difference, except for a file with a block off the gradient raster, where both
-sample at file times and a relative 1e-9 suffices. `calc_pns` divides the gradients by
+relative 1e-5-of-peak tolerance covers the whole
+difference and the rounding of the file that pypulseq writes from the builder's sequence (`calc_pns`
+reads the builder's `pp.Sequence`, `pns_levels` reads the file). `calc_pns` divides the gradients by
 `seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
 `seq.system.gamma` before they compare it with `calc_pns`.
 
@@ -374,11 +339,16 @@ is not 0 next to a gap of more than one raster time, and no step at a block junc
 sequences of those comparisons are such sequences: the spin echo, the GRE, the arbitrary
 gradient, the border sequence and the off-raster trapezoid. The sequences with an end that is
 not 0 next to a gap are compared with the SAFE model of the fork on the samples of the oracle
-waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`).
+waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`,
+section 3.10).
 
 A second call of `pns_levels` with the same snapshot and the same arguments gives the
-kept object. Each test makes its snapshot with `snapshot.load`, and the oracles get the
-`pp.Sequence`. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
+kept object. Each test makes its snapshot with `analyses.load`, which reads the written text of a
+pypulseq sequence through an interpreter (`spec`; the test of a sequence that `spec` rejects is in
+section 3.10 and loads it with `cpp-siemens`). The oracles read `sequence_of(snap)` (`tests/oracles/blocks.py`), the gradients as the
+snapshot plays them, and `calc_pns` reads the `pp.Sequence` of the builder. A sequence with a block
+of 1.5 raster times has a block duration raster of 1 µs (`_add_a_delay`), because pypulseq's writer
+refuses a block duration that is not a whole number of block raster times; `spec` reads that file. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
 the change), or that compares two calculations of one sequence, calls `_compute_levels` through
 the helper `_compute` of the test file. It checks the hardware, the thresholds and `bin_s` as
 `pns_levels` does and gives `_compute_levels` the checked values, so each call runs the model
@@ -402,11 +372,12 @@ section 2.7.
 **Checks:** For a spin echo, a gradient echo, an arbitrary gradient, and a
 hand-made "border" sequence (two extended-trapezoid blocks whose gradient is not
 zero at the block border between them), `pns_levels`'s peak, peak time and axis
-peaks equal `seq.calculate_pns`'s (example hardware) within a relative 1e-6 of the
+peaks equal `seq.calculate_pns`'s (example hardware) within a relative 1e-5 of the
 peak, after the peak and the axis peaks are divided by `seq.system.gamma`. Also checks
 `reason`, `hardware`, `dt_s` and `on_raster` for the example-hardware,
 on-raster case. The division is the conversion of `docs/usage.md` section 9, so this
-test also tests it.
+test also tests it. The reference reads the `pp.Sequence` of the builder, and `pns_levels` reads the
+file that pypulseq writes from it (amplitudes of about 6 significant digits).
 
 **How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
 `arbitrary_gradient_sequence()` and `synthetic.border_sequence()` (two
@@ -417,19 +388,23 @@ peak time (the first sample at or above `peak * (1 - PEAK_TOLERANCE)`, as
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(snap)`'s fields
 are compared with `pytest.approx`: the
 peak and axis peaks (`peak_hz_per_t` and `axis_peaks_hz_per_t`, each divided by
-`seq.system.gamma`) with `abs = 1e-6 * ref_peak`, the peak time (not divided) with
+`seq.system.gamma`) with `abs = 1e-5 * ref_peak`, the peak time (not divided) with
 `abs = 1e-9` (both use the same `(k + 0.5) * dt` formula, so the same sample index gives
-the same float).
+the same float). The test keeps the `pp.Sequence` that the builder makes, loads it, and calls
+`calculate_pns` on the kept object. The `seq.system.gamma` and `grid_raster_time` are those of the
+builder's sequence.
 
-**Assumptions:** None of these sequences has two samples close enough together, in
+**Assumptions:** The tolerance of 1e-5 covers the drift of the file times and the rounding of the
+written file; the rounding gave a difference of 1.7e-6 of the peak for `spin_echo_sequence`. None of these sequences has two samples close enough together, in
 value, to flip which one the tolerance-based peak-time search finds first.
 
 #### `test_stored_bins_match_calculate_pns_totals`
 
 **Checks:** Each stored bin's minimum and maximum equal the minimum and the maximum
-of `seq.calculate_pns`'s totals over the same samples, within the same 1e-6-of-peak
+of `seq.calculate_pns`'s totals over the same samples, within the same 1e-5-of-peak
 tolerance, for the same four sequences, after each value of `pns_levels` is divided by
-`seq.system.gamma`.
+`seq.system.gamma`. The reference is `calculate_pns` of the builder's own `pp.Sequence`, and
+`pns_levels` reads the written file.
 
 **How:** Same parametrization and reference call as
 `test_summary_matches_calculate_pns_within_the_fork_tolerance`. For each bin `i` of
@@ -441,42 +416,11 @@ padding: `pns_levels` keeps sampling into the filters' own decay past where
 `calc_pns` stopped, so a bin that straddles that point is not comparable). Each
 compared bin's `level_min_hz_per_t[i]`/`level_max_hz_per_t[i]` (each divided by
 `seq.system.gamma`) are checked against `norm[s0:s1].min()`/`.max()` with
-`pytest.approx(abs = 1e-6 * levels.peak_hz_per_t / gamma)`. Asserts at least one bin was
-compared.
+`pytest.approx(abs = 1e-5 * levels.peak_hz_per_t / gamma)`. Asserts at least one bin was
+compared. The test keeps the `pp.Sequence` that the builder makes, loads it, and calls
+`calculate_pns` on the kept object.
 
 **Assumptions:** None.
-
-#### `test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`
-
-**Checks:** For a sequence with a short gap or a long gap and ends that are not 0 next to it,
-`pns_levels` equals the SAFE model of the fork on the samples of the oracle. This includes a
-first value and a last value of an axis that are not 0. It also covers a sequence with a block
-that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`.
-
-**How:** Parametrized over 51 sequences. Six are a two-axis short gap with a first value and a
-last value that are not 0, `long_gap_sequence`, the two sequences of pypulseq-issues 12,
-`non_zero_ends_sequence`, and `long_gap_sequence` with a last block of 1.5 raster times. On the
-raster, 17 more are `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Off the raster, 13 more are
-`gap_of_1_5_raster_times`, `short_gap_from_0`, `short_gap_to_0`, the negated long and short
-gaps and the 8 random sequences, each with a last block of 1.5 raster times (the names end in
-`_off_raster`), so `pns_levels` samples them with `GradientSampler.sample`. The new inputs have
-negative end values, a gap between one and two raster times, and a short gap with an end of 0,
-which the six sequences do not have. Fifteen more, on the raster, have the last sample of an event
-at a sample time: the 14 ramps of `gap_sequences.DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` after a
-delay of a whole number of raster times and a half (`delayed_ramp_sequence`, behind filler blocks),
-and `short_arbitrary_sequence`, an arbitrary
-gradient of 3 samples with a step at 25 us (the values and the cases are in
-`test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`). The
-reference stacks the samples of the oracle into `(N, 3)`. They are `oracle.block_samples` at the
-gradient raster, and `oracle.sample` at `(k + 0.5) * dt` for the sequence that is not on the
-raster. It runs `_safe_gwf_to_pns_chunk` of the fork in one chunk with the example hardware. The
-axis values are 0.01 times the percent, and the total is the root of the sum of squares.
-`pns_levels` runs with `bin_s=dt`, so each bin is one sample. The test checks the number of
-samples, `on_raster` (false only for the names that end in `_off_raster`), the peak and the axis peaks (relative 1e-9), the peak time, and the minimum
-and maximum of each bin against the total (relative 1e-6, because of the float32 cast).
-
-**Assumptions:** `calculate_pns` is not the reference, because it draws a line across each gap
-(pypulseq-issues 12).
 
 #### `test_cast_outward_bounds_every_input_value`
 
@@ -715,20 +659,20 @@ Checks `reason`, `list(levels.above) == [_LIMIT, 0.5 * _LIMIT]` and
 
 **Checks:** A file with a block that is not on the gradient raster is reported as
 `on_raster=False`, and its peak, peak time and axis peaks equal `seq.calculate_pns`
-within a relative 1e-9 of the peak, after the peak and the axis peaks are divided by
-`seq.system.gamma` (the conversion of `docs/usage.md` section 9; tighter than the drift-based 1e-6 elsewhere in
-this section, because both now sample with `GradientSampler.sample`/
-`seq.get_gradients()` at the same file times; `test_sampling.py` established that
-those two agree to about float rounding). The trapezoid has no end that is not 0 next to a gap,
+within a relative 1e-5 of the peak, after the peak and the axis peaks are divided by
+`seq.system.gamma` (the conversion of `docs/usage.md` section 9; both sample at the same file
+times, and `test_sampling.py` established that `GradientSampler.sample` and `seq.get_gradients()`
+agree to about float rounding; the tolerance is the rounding of the file that pypulseq writes,
+which `calculate_pns` of the builder's own sequence does not read). The trapezoid has no end that is not 0 next to a gap,
 so pypulseq's line across a gap is 0 there, as in the model of MATLAB Pulseq.
 
-**How:** A trapezoid on x followed by `pp.make_delay(1.5 * dt)` (pypulseq's
-`add_block` accepts this duration, though it is not a whole number of raster
-steps). Compares `pns_levels(snap)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
+**How:** A trapezoid on x followed by a delay block of 1.5 raster
+times (pypulseq's `add_block` accepts this duration, though it is not a whole number of raster
+steps; the sequence has a block duration raster of 1 µs so that the writer accepts it). Compares `pns_levels(snap)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
 (each divided by `seq.system.gamma`) and `peak_time_s` with the values from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
 `test_summary_matches_calculate_pns_within_the_fork_tolerance` but with
-`abs = 1e-9 * ref_peak` (and `abs = 1e-9` for the peak time). It also checks
+`abs = 1e-5 * ref_peak` (and `abs = 1e-9` for the peak time). It also checks
 that `num_samples` is at least the length of `calculate_pns`'s result: `pns_levels`
 covers the whole sequence, and `calc_pns` stops at the last gradient point.
 
@@ -742,7 +686,7 @@ chunk (`==`, each field and each interval), and its `num_samples` is
 that reads the samples of the first chunk again, or a `num_samples` that rounds down,
 gives another result.
 
-**How:** `gre_sequence(num_trs=3)` and then `pp.make_delay(1.5 * dt)`, so that the
+**How:** `gre_sequence(num_trs=3)` and then a delay block of 1.5 raster times (block duration raster of 1 µs), so that the
 sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
 (`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. Both
 calls are `_compute` calls (`_compute_levels`). `monkeypatch` sets
@@ -761,7 +705,7 @@ within the tolerances of `test_off_raster_block_falls_back_to_sampling` (each va
 divided by `seq.system.gamma`). The peak is in the second chunk.
 
 **How:** A trapezoid on x (area 200), `pp.make_delay(0.35)`, a trapezoid on y (area
-1000) and `pp.make_delay(1.5 * dt)`. The reference is
+1000) and a delay block of 1.5 raster times (block duration raster of 1 µs). The reference is
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`. The test checks
 `on_raster is False`, `num_samples` more than one chunk
 (`bin_samples * ceil(_CHUNK_SAMPLES / bin_samples)`), a peak time after the first chunk,
@@ -806,13 +750,15 @@ the largest `peak_hz_per_t` of the intervals equals `peak`.
 rounding only has that whole number of samples. A `num_samples` with no `- 1e-10` would be
 one more.
 
-**How:** A trapezoid on x (area 1000) and two `pp.make_delay(1.5 * dt)` blocks (3 steps
-together). `whole` is the duration of the trapezoid in steps plus 3. The test checks
+**How:** A trapezoid on x (area 500) and four delay blocks of 1.5 raster times (6 steps
+together; block duration raster of 1 µs). `whole` is the duration of the trapezoid in steps plus 6. The test checks
 `round(end_s / dt) == whole`, `end_s / dt > whole` and `(end_s - 1e-10) / dt <= whole`,
 with `end_s` of `sequence_index(snap)`. Then it calls `pns_levels` with `EXAMPLE_HW` and
 checks `on_raster is False` and `num_samples == whole`.
 
-**Assumptions:** `end_s / dt` is 106.00000000000001 for this sequence. The test fails at
+**Assumptions:** `end_s / dt` is 67.00000000000001 for this sequence (the sum of the block durations of the
+written file, which are whole numbers of µs; the first version of the test, with a trapezoid of area 1000
+and two delays, has 105.99999999999999 for the file and is not above the whole number). The test fails at
 its own checks of `end_s / dt` where float rounding gives another value.
 
 #### `test_the_intervals_do_not_depend_on_chunk_samples`
@@ -1078,14 +1024,14 @@ gammas differ, that there is no reason and that `above[_LIMIT]` is not empty. Th
 
 **Checks:** For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and
 the axis peaks of `pns_levels`, divided by `seq.system.gamma`, and its peak time equal
-`seq.calculate_pns` within a relative 1e-6 of the peak. The peak divided by the gamma of
+`seq.calculate_pns` within a relative 1e-5 of the peak. The peak divided by the gamma of
 1H does not equal it. Thus the conversion of `docs/usage.md` section 9 uses the gamma of
 the caller.
 
 **How:** The sequence of `waveform_sequence` (`tests/synthetic.py`) with a copy of `SYSTEM` with
 `gamma = 0.9 * SYSTEM.gamma`. The reference peak, peak time and axis peaks come from
 `seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
-`test_summary_matches_calculate_pns_within_the_fork_tolerance`, with the same tolerances.
+`test_summary_matches_calculate_pns_within_the_fork_tolerance`, with the same tolerances. The reference is `calculate_pns` of the builder's own `pp.Sequence`.
 The test also checks that `peak_hz_per_t / GAMMA_1H` is not within that tolerance of the
 reference peak.
 
@@ -1166,76 +1112,52 @@ snapshot and would raise the `TypeError` that names `load`, so the error is stil
 **Assumptions:** The check of `bin_s` comes before the check of the type of the first
 argument.
 
-### 2.3 Sequence extensions (`test_extensions.py`)
+### 2.3 The played gradients (`test_played.py`)
 
-`test_extensions.py` tests the guard of `extensions.py`, `refuse_rotations`, which refuses a
-sequence with a rotation. `snapshot.load` calls it, so the measurements, which take a snapshot, do
-not (the refusal through `load` is tested in `test_snapshot.py`, section 2.17). Its tests call the
-guard on a sequence. Task 6.1 of
-`docs/plans/diagram-event-table.md` found that pypulseq 1.5.0.post1 cannot
-make a rotation and that its `Sequence.read` raises `ValueError` for a
-`.seq` file with a rotation section. This file therefore makes its own
-rotation sequences by hand, the way pypulseq draft PR #372 stores a
-rotation: a `rotation_library` event library on the `pp.Sequence`, or a
-`"ROTATIONS"` entry in `seq.extension_string_idx`.
+`test_played.py` tests `synth/_played.py`: the gradient event of each block and axis that the
+measurements take from the decoding of a snapshot (`docs/implementation.md`, section 1.2). The
+measurements join the points with straight lines, and the decoding's `gradients_at` is the
+waveform of each interpreter. The fixtures are every file of `tests/seqfiles`. The interpreters
+are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the same checks through
+`cpp-siemens` and its settings are in the plugin's tests (section 3.11), which import
+`check_the_points_are_the_gradients` and `load_or_none` from this module.
 
-#### `test_refuse_rotations_accepts_synthetic_sequences`
+#### `test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`
 
-**Checks:** `refuse_rotations` raises nothing for each synthetic sequence
-builder in `tests/synthetic.py`: none of them uses the rotation extension.
+**Checks:** On each fixture that the interpreter reads, the straight lines between the points of
+each block's played events equal `gradients_at` of the decoding, at the middle of each segment
+and at each point that is not a step, to 1e-7 of the largest value of the file
+(`check_the_points_are_the_gradients`).
 
-**How:** The test is parametrized over `spin_echo_sequence`, `gre_sequence`,
-`arbitrary_gradient_sequence` and `empty_sequence`. For each, it builds the
-sequence and calls `refuse_rotations` on it.
+**How:** Parametrized over every fixture and two interpreters: `spec` and the fake plugin
+`Unrotated` (its decoding gives `spec`'s events through the protocol `Decoding`, with the
+rotations left unapplied). A fixture that the interpreter rejects is skipped. For each block and
+axis with an event, the check takes the middle of each segment of positive length (the mean of
+its two values) and each inner point whose neighbours are at other times, and reads
+`gradients_at` of the decoding at the same blocks and times (µs). A NaN of the file must be NaN in
+both. The rest must agree to 1e-7 times the largest value (at least 1).
 
-**Assumptions:** None.
+**Assumptions:**
 
-#### `test_refuse_rotations_raises_for_a_rotation_library`
-
-**Checks:** `refuse_rotations` raises `NotImplementedError`, with "rotation
-extension" in the message, for a sequence with a non-empty
-`rotation_library`.
-
-**How:** The test builds a `gre_sequence`, sets its `rotation_library` to a
-new `EventLibrary` holding one scalar-first unit quaternion (the format PR
-#372 uses), and calls `refuse_rotations` inside `pytest.raises`.
-
-**Assumptions:** None.
-
-#### `test_refuse_rotations_raises_for_a_rotations_extension_type`
-
-**Checks:** `refuse_rotations` raises `NotImplementedError`, with "rotation
-extension" in the message, for a sequence that has registered the
-`"ROTATIONS"` extension type.
-
-**How:** The test builds a `gre_sequence`, calls
-`seq.set_extension_string_ID("ROTATIONS", 1)` (as PR #372's `Sequence.read`
-does while reading a file with a rotation section), and calls
-`refuse_rotations` inside `pytest.raises`.
-
-**Assumptions:** None.
-
-#### `test_refuse_rotations_ignores_an_empty_rotation_library`
-
-**Checks:** A `rotation_library` attribute that exists but holds no data is
-not a rotation: `refuse_rotations` raises nothing.
-
-**How:** The test builds a `gre_sequence`, sets its `rotation_library` to a
-new, empty `EventLibrary`, and calls `refuse_rotations` on it.
-
-**Assumptions:** None.
+- The tolerance covers the float32 rounding of a plugin that holds float32 values (`cpp-siemens`,
+  D7.2): there the points hold the float32 product of the amplitude and a sample, and
+  `gradients_at` interpolates the samples before the product, in double.
+- The rotated blocks of `spec` (from 1.5.1) are made from `gradients_at` itself, so for them the
+  test checks the step and the end handling of `_played`, not an independent decoding.
+- The points of a step (two points at one time) and the ends of an event are not probed: there
+  the value of `gradients_at` depends on the side.
 
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
-`sequence_index`, its block times, its dtypes and its keep for a snapshot; and
-`rf_events`, `grad_events` and `adc_events`, which read each unique event one time and keep
-the tuple on the snapshot. The
+`sequence_index`, its block times, its dtypes and its keep for a snapshot. The
 reference numbering, `_reference_index`, is a plain loop over the blocks with one dict
 for each event kind: the loop that `diagram_data.diagram_tables` had before it used the
 index. Its `*_first` arrays hold play indexes, as `SequenceIndex` does (the old loop
 kept block ids). The tests load `build_repeating` and `build_worst` from
-`tests/scale_sequences.py`. The functions take a `Snapshot`, which `snapshot.load` makes.
+`tests/scale_sequences.py`. The functions take a `Snapshot`, which `analyses.load` makes. The
+reference reads the stand-in of the oracles (`oracles.blocks.sequence_of(snap)`), whose rows
+are the played gradient events of the snapshot.
 
 #### `test_dense_columns_and_first_arrays_match_the_reference_numbering`
 
@@ -1261,16 +1183,17 @@ use in play order, also when the events were registered in the libraries in anot
 **How:** The test registers two RF events, three gradient events and two ADC events in the
 libraries with `register_rf_event`, `register_grad_event` and `register_adc_event`, in the
 reverse of their first use. Then it adds three blocks: (RF e1, gz g1, ADC a1), (RF e2, gx
-g2, gy g3, ADC a2) and (e1, g1 on gx, a1). It checks the library ids in `seq.block_events`
+g2, gy g3, ADC a2) and (e1, g1 on gx, a1). It checks the IDs of the file in the block table
+of the snapshot (`snap.data.blocks`), and that the file has three trapezoids,
 first (RF 2, 1, 2, gx 0, 2, 3, gy 0, 1, 0, gz 3, 0, 0, ADC 2, 1, 2), so the order differs
 from the first use. Then it checks the dense columns against the hand-worked values (`rf`
 1, 2, 1, `gx` 0, 2, 1, `gy` 0, 3, 0, `gz` 1, 0, 0, `adc` 1, 2, 1), the `*_first` arrays,
-`_assert_index_matches_reference`, and the amplitudes that `grad_events` yields (1e5, 2e5,
-3e5).
+`_assert_index_matches_reference`, and the amplitudes of the decoded events of `spec` at the
+file IDs of the dense numbers (`_dense_ids`): 1e5, 2e5, 3e5.
 
 **Assumptions:** The registration of an event before `add_block` gives the event its
-library id, and `add_block` finds the same event again. This was checked against
-`seq.block_events` while writing the test.
+library id, and `add_block` finds the same event again; pypulseq's writer keeps the IDs
+(the test checks them in the file).
 
 #### `test_the_dtype_of_the_dense_columns_changes_at_255_and_at_65_535_unique_events`
 
@@ -1296,25 +1219,25 @@ x. The test checks the dtype of `gx`, `gy` and `gz`.
 
 #### `test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb`
 
-**Checks:** A sequence with an event ID of 10^8 builds its index with a `tracemalloc` peak below
-100 MB, and its dense numbers are as for small IDs.
+**Checks:** A file with an event ID of 10^8 builds its index (with the played gradients) with a
+`tracemalloc` peak below 100 MB, and its dense numbers are as for small IDs.
 
 **How:** A sequence of three blocks with a trapezoid on x (the first and the third are the same
-event). The test sets the gx ID of the second block in `seq.block_events` to 10^8 after `add_block`,
-because pypulseq only gives the IDs 1, 2, ...; `sequence_index` reads only `seq.block_events` and
-`seq.block_durations`, not the libraries. It measures `sequence_index` with `tracemalloc`, and checks
-`gx` (1, 2, 1) and `grad_first` (0, 1). A lookup table over the IDs would take 800 MB.
+event) is written with no signature, and the second trapezoid gets the ID 10^8 in `[BLOCKS]` and
+`[TRAP]` of the text. The test loads the file with `spec`, checks the gx IDs (1, 10^8, 1), measures
+`sequence_index` with `tracemalloc`, and checks `gx` (1, 2, 1) and `grad_first` (0, 1). A lookup
+table over the IDs would take 800 MB.
 
 **Assumptions:** `tracemalloc` sees the numpy allocations.
 
 #### `test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value`
 
 **Checks:** `index.start_s` is the sequential sum of the block durations from 0.0,
-`index.end_s` is that sum's final value, and `index.duration_s` is
-`seq.block_durations` in play order.
+`index.end_s` is that sum's final value, and `index.duration_s` is the block durations
+of the file in play order.
 
 **How:** The test builds `build_repeating(50)`, computes `sequence_index(snap)`, and
-independently walks `seq.block_events.keys()` with a running total `t` (starting at
+independently walks `seq.block_events.keys()` of `sequence_of(snap)` with a running total `t` (starting at
 0.0, recording `t` before adding each block's own duration from
 `seq.block_durations`). It compares `index.start_s` to that running list with
 `numpy.array_equal`, `index.end_s` to the final `t` with `==`, and `index.duration_s`
@@ -1383,33 +1306,41 @@ echo are `!=` to the first. `hash(index)` is in `pytest.raises(TypeError)`.
 **Checks:** `has_gradients(index)` is True for an index with a gradient event on any axis, and
 False for an index with none.
 
-**How:** Parametrized over six sequences: the synthetic spin echo; one `make_trapezoid` block
-on x, on y and on z; one delay block; and a sequence with no blocks. The test checks
-`has_gradients(sequence_index(snap)) is expected`: True for the first four, False for the last
-two.
+**How:** Parametrized over five sequences: the synthetic spin echo; one `make_trapezoid` block
+on x, on y and on z; and one delay block. The test checks
+`has_gradients(sequence_index(snap)) is expected`: True for the first four, False for the last.
+
+**Assumptions:** None.
+
+#### `test_has_gradients_is_false_for_a_file_with_no_blocks`
+
+**Checks:** `has_gradients` is False for the index of a model with no block.
+
+**How:** The snapshot of the model of `valid_no_signature.seq` through `spec`, with its block
+table replaced by an empty one (`spec` rejects a file with no block, `blocks.empty`, and
+pypulseq's writer cannot write a sequence with no block; the plugin's tests read
+`bad_blocks_empty.seq` through `cpp-siemens`, section 3.11).
 
 **Assumptions:** None.
 
 #### `test_sequence_index_of_a_sequence_with_no_blocks`
 
-**Checks:** `sequence_index` of a `pp.Sequence` with no blocks added has `num_blocks`
-0, `end_s` 0.0, and every array (`block_id`, `start_s`, `duration_s`, `rf`, `gx`,
-`gy`, `gz`, `adc`, `rf_first`, `grad_first`, `grad_first_axis`, `adc_first`) empty.
+**Checks:** `sequence_index` of a model with no block has `num_blocks` 0, `end_s` 0.0, and every
+array (`block_id`, `start_s`, `duration_s`, `rf`, `gx`, `gy`, `gz`, `adc`, `rf_first`,
+`grad_first`, `grad_first_axis`, `adc_first`) empty.
 
-**How:** The test builds `pp.Sequence(SYSTEM)` with no `add_block` call, computes
-`sequence_index(snap)`, and checks `num_blocks`, `end_s`, and the size of each of the
-twelve arrays.
+**How:** The snapshot with an empty block table (as above); the test checks `num_blocks`,
+`end_s`, and the size of each of the twelve arrays.
 
 **Assumptions:** None.
 
 #### `test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot`
 
-**Checks:** The function raises `TypeError` with a message that names `load` when its first
+**Checks:** `sequence_index` raises `TypeError` with a message that names `load` when its first
 argument is a `pp.Sequence` or a path, and not a `Snapshot`.
 
-**How:** Parametrized over `sequence_index`, `rf_events`, `grad_events` and `adc_events`, and over
-a `gre_sequence()` and the path string `"sequence.seq"`. The call must raise `TypeError`
-with `match="load"`.
+**How:** Parametrized over a `gre_sequence()` and the path string `"sequence.seq"`. The call
+must raise `TypeError` with `match="load"`.
 
 **Assumptions:** The path `"sequence.seq"` is not read: the type check comes before any read.
 
@@ -1425,91 +1356,20 @@ same sequence must be another object (`is not`) and equal (`==`) to the first.
 **Assumptions:** `SequenceIndex` compares by value (tested by
 `test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable`).
 
-#### `test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple`
+#### `test_the_index_of_a_snapshot_is_the_index_of_its_model_for_each_file`
 
-**Checks:** `rf_events` calls `get_block` exactly once for each unique RF event of the
-snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
-indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
-no block. Each event equals the event of the same block read separately.
+**Checks:** For each file of `tests/seqfiles` (`valid_*.seq` and `oracle/*.seq`) that `spec`
+reads, and whose blocks all play the events of the file (no block whose gradients come from
+`gradients_at`: a rotation applied, or an event after its block's end), `sequence_index` of the
+snapshot equals `seq_index._index_from_data` of its model
+(`check_the_index_of_a_snapshot_is_the_index_of_its_model`, which the plugin's tests run for
+`cpp-siemens`).
 
-**How:** The snapshot is of `spin_echo_sequence()`, which has two distinct RF events (excitation and refocusing). The test replaces `get_block` of the snapshot's sequence (the instance)
-with a counting wrapper that records `use_block_cache` at each call. It calls `rf_events(snap)`
-and checks that the result is a `tuple`, that the call count is the number of unique
-first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
-flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
-indexes and that `delay`, `type` and `signal` of each event equal those of the event of
-`original(block_id).rf`, read again through the saved `get_block`. It clears the call
-list and calls `rf_events(snap)` again: the result must be the same object (`is`) and the list
-must stay empty.
+**How:** A file that `spec` rejects is skipped; so is a file whose played gradient columns have a
+key above the largest file ID (`test_played.py` covers those). The two indexes are compared by
+`==`; at least 15 files are compared.
 
 **Assumptions:** None.
-
-#### `test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple`
-
-**Checks:** `grad_events` calls `get_block` exactly once for each unique gradient event of the
-snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
-indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
-no block. Each event equals the event of the same block read separately.
-
-**How:** The snapshot is of a sequence with a z trapezoid in block 0, and an x trapezoid and a y trapezoid in block 1, so `grad_first` is `[0, 1, 1]`: gx and gy are first used in one block, which is read one time, not two. The test replaces `get_block` of the snapshot's sequence (the instance)
-with a counting wrapper that records `use_block_cache` at each call. It calls `grad_events(snap)`
-and checks that the result is a `tuple`, that the call count is the number of unique
-first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
-flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
-indexes and that `delay`, `type` and `amplitude` of each event equal those of the event of
-`original(block_id).<axis>`, read again through the saved `get_block`. It clears the call
-list and calls `grad_events(snap)` again: the result must be the same object (`is`) and the list
-must stay empty.
-
-**Assumptions:** The axis of each event is `grad_first_axis`, so the attribute is `gz`, `gx` and `gy` of the block.
-
-#### `test_adc_events_reads_each_unique_event_once_and_keeps_the_tuple`
-
-**Checks:** `adc_events` calls `get_block` exactly once for each unique ADC event of the
-snapshot, with the block cache off, gives a tuple of `(dense index, event)` with the dense
-indexes 1 to K in order, and keeps the tuple: a second call gives the same tuple and reads
-no block. Each event equals the event of the same block read separately.
-
-**How:** The snapshot is of `gre_sequence(num_trs=5)`, where one ADC event is reused every TR. The test replaces `get_block` of the snapshot's sequence (the instance)
-with a counting wrapper that records `use_block_cache` at each call. It calls `adc_events(snap)`
-and checks that the result is a `tuple`, that the call count is the number of unique
-first-use blocks (`numpy.unique` of the `*_first` array of the index), that every recorded
-flag is `False` and that `snap.sequence.use_block_cache` is `False`. It checks the dense
-indexes and that `delay`, `num_samples` and `dwell` of each event equal those of the event of
-`original(block_id).adc`, read again through the saved `get_block`. It clears the call
-list and calls `adc_events(snap)` again: the result must be the same object (`is`) and the list
-must stay empty.
-
-**Assumptions:** None.
-
-#### `test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file`
-
-**Checks:** For each file of `tests/seqfiles` (`valid_*.seq` and `oracle/*.seq`) that both
-`seqfile.read_seqfile` (the `spec` interpreter) and `load` accept, `seq_index._index_from_data` of the model equals `sequence_index`
-of the snapshot, field by field. The exception is the gradient numbering of a file where pypulseq
-makes one event of two gradient events of the file: there, pypulseq's numbering is a merge of the
-model's.
-
-**How:**
-
-- The test reads each file with `seqfile.read_seqfile` and skips it on `SeqFileError` or `NotSupported`.
-  It loads it with `load` and skips it on `KeyError`, `ValueError` or `NotImplementedError` (pypulseq
-  refuses it).
-- When the two indexes have the same number of gradient events, every field must be equal
-  (`_equality.values_equal`).
-- Otherwise, every field except `gx`, `gy`, `gz`, `grad_first` and `grad_first_axis` must be
-  equal. `_assert_gradients_are_merged` checks that each dense gradient index of the model has one
-  dense index of pypulseq on all three axes, and that the file events that get one pypulseq index
-  (found with `_dense_ids`) have rows that are equal by `==`.
-- At least 10 files must have every field equal.
-
-**Assumptions:**
-
-- pypulseq's `Sequence.read` calls `remove_duplicates`, which merges library events that are equal
-  after its rounding. `pypulseq_simple_mprage150.seq` has trapezoids 39 and 40 with the amplitudes
-  0 and -0, and pypulseq gives the gy of blocks 70, 200 and 330 the ID 39.
-- A file whose merged events differ by less than pypulseq's rounding would fail the `==` check.
-- RF and ADC events are compared exactly, so a merge of these by pypulseq would fail the test.
 
 #### `test_the_index_from_the_columns_of_a_sequence_equals_its_index`
 
@@ -1517,8 +1377,8 @@ model's.
 columns of the sequence of a snapshot, equals `sequence_index` of the snapshot.
 
 **How:** Parametrized over the synthetic spin echo, gradient echo, empty and arbitrary-gradient
-sequences. The test reads `seq.block_events` and `seq.block_durations` itself (the IDs as uint32,
-the durations as float64, the event columns as int64, not the int32 of `_build_index`) and compares
+sequences. The test reads `block_events` and `block_durations` of `sequence_of(snap)` itself
+(the IDs as uint32, the durations as float64, the event columns as int64) and compares
 the result with `sequence_index(snap)` by `==` of the value dataclass.
 
 **Assumptions:** None.
@@ -1552,22 +1412,31 @@ dtype and the last `block_id`. It then sets the ID to 2**32 and checks that `Val
 
 ### 2.5 Raster sampler (`test_sampling.py`)
 
-`test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient
-waveform of one axis at sorted times, from
-the sequence index and the kept points of the unique gradient events
-(`_events.event_points`), made with `gradient_sampler(snap)`. The waveform is the gradient
-waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the oracle waveform of
-`tests/oracles/waveform.py` (section 2.15) for every sequence with an end that is not 0 next to
-a long gap, or with a step at a block junction. For the other sequences it is also pypulseq's
-`seq.get_gradients()`, because pypulseq draws a line across each gap and has no step at a
-junction (pypulseq-issues 12). `_assert_matches_oracle` compares `sample(axis, t)` with
-`oracle.sample`. `_assert_matches_pypulseq` compares it with the `PPoly` of each axis. Both use
-a relative 1e-12 and an absolute 1e-12 times the largest |value| of the reference. They are not
-bit-exact. `seq_utils.gradient_offsets` adds a trapezoid's corner times in a different order than
-pypulseq's `waveforms()`, and `PPoly` evaluates a line segment with a different formula than
-`numpy.interp`. The oracle makes its points with the same sums as the sampler, so the
-difference to the oracle is the rounding of the interpolation formula only. The comparisons
-check `GradientSampler`, not pypulseq.
+`test_sampling.py` tests `sampling.py`: `GradientSampler`, which gives the gradient waveform of one axis
+at sorted times, from the sequence index and the kept points of the unique gradient events
+(`_events._read_points`), made with `gradient_sampler(snap)`. `snap` is made by
+`analyses.load(seq)`: `spec` for the sequences that it accepts. The sequences of the model that `spec`
+rejects (a gradient that ends above 0 before its block ends, `gradient.nonzero-end-align`, a gradient
+that starts above 0 after a delay, `gradient.nonzero-start-delay`, or a delay off the gradient raster,
+`raster.gradient-delay`) are the sequences in `_REJECTED_BY_SPEC`; their tests are in section 3.10, and
+load them with `cpp-siemens`. `load` writes the sequence with pypulseq's writer and reads the
+file, so the values are those of the file: about 6 significant digits of an amplitude, times in whole
+microseconds, and float32 for `cpp-siemens` (D7.2). A block duration in a file is a whole number of block
+raster times (10 µs here, the gradient raster time), so a block cannot be off the gradient raster. The
+tests of blocks off the raster use a sample raster `dt` that is not a divisor of the block. The waveform
+is the gradient waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the
+oracle waveform of `tests/oracles/waveform.py` (section 2.15), read from `sequence_of(snap)`
+(`tests/oracles/blocks.py`), for every sequence with an end that is not 0 next to a long gap, or with a
+step at a block junction. For the other sequences it is also pypulseq's `seq.get_gradients()` of the
+sequence that the test built, because pypulseq draws a line across each gap and has no step at a
+junction (pypulseq-issues 12). The snapshot has no pypulseq object. `_assert_matches_oracle` compares
+`sample(axis, t)` with `oracle.sample`, with a relative 1e-12 and an absolute 1e-12 times the largest
+|value| of the reference. The oracle makes its points with the same sums as the sampler, so the
+difference is the rounding of the interpolation formula only. `_assert_matches_pypulseq` compares it
+with the `PPoly` of each axis of the built sequence, with a relative 1e-5 and an absolute 1e-5 times
+the largest |value|: the snapshot holds the values of the written file (6 significant digits of an
+amplitude, a relative error up to 5e-6) and pypulseq the values in memory. The comparisons check
+`GradientSampler`, not pypulseq.
 
 #### `test_whole_file_matches_pypulseq_for_synthetic_sequences`
 
@@ -1577,10 +1446,11 @@ the same three-axis waveform as `seq.get_gradients()`, sampled at the raster cen
 of the whole file.
 
 **How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
-`arbitrary_gradient_sequence()` and `empty_sequence()`. For each, `t` is
-`(k + 0.5) * grad_raster_time` for `k` in `range(ceil(duration / raster))`, with
-`duration` the sequence index's `end_s`; the test compares all three axes against
-`seq.get_gradients()` with `_assert_matches_pypulseq`.
+`arbitrary_gradient_sequence()` and `empty_sequence()`. For each, the snapshot is `load(seq)` and `t` is
+`(k + 0.5) * grad_raster_time` for `k` in `range(ceil(duration / raster))`, with `duration` the
+sequence index's `end_s`; the test compares all three axes against `seq.get_gradients()` of the built
+sequence with `_assert_matches_pypulseq` (relative and absolute 1e-5 of the peak, the rounding of the
+writer).
 
 **Assumptions:**
 
@@ -1698,7 +1568,8 @@ compare with pypulseq.
 points over 40 gradient-raster periods around the junction. The test compares them with the
 oracle. It also checks the hand values at 10 raster times before the junction, at the junction,
 and 10 raster times after it. They are the amplitude, the amplitude, and the amplitude less the
-step. The test does not check that `add_block` accepts the step. That is pypulseq's own check,
+step, within a relative 1e-5 (the file holds the amplitude to 6 significant digits: 1190480 Hz/m for
+1190476.19). The test does not check that `add_block` accepts the step. That is pypulseq's own check,
 exercised here only because building the sequence requires it to pass.
 
 **Assumptions:** None.
@@ -1741,14 +1612,20 @@ corners for the trapezoid), offset by each block's start (`numpy.cumsum` of
 `seq.block_durations`) and the event's own delay, with a point dropped when it is not
 more than 1e-9 s after the point before it (the join rule of pypulseq's `waveforms()`).
 `GradientSampler.sample("gx", t)` is compared with `numpy.interp` on that polyline at
-3999 points evenly spaced over the file, within an absolute 1e-12 times the peak of the
-reference (`rtol=0`). Before the pin's fix, this test's own error is about 40 % of the
+3999 points evenly spaced over the file, within an absolute 1e-5 times the peak of the
+reference (`rtol=0`; the file holds the amplitudes to 6 significant digits). The test cannot call
+`load(seq)`: `read_pypulseq` calls pypulseq's `seq.remove_duplicates()`, which raises `KeyError: -1`
+for the time shape -1 of an oversampled gradient. The test writes the file with
+`seq.write(path, create_signature=True, remove_duplicates=False, check_timing=False)`, as
+`read_pypulseq` does after the removal, and loads the path (`spec` accepts it). Before the pin's fix, this test's own error is about 40 % of the
 peak (checked against a pypulseq checkout at the old pin, `20b9e5e`).
 
 **Assumptions:**
 
 - The pin (`pulseq-reports-pin-2`) has the fix of pypulseq PR #424. A pypulseq without
   it fails this test: checked against a checkout of the old pin (`20b9e5e`).
+- pypulseq's writer writes `remove_duplicates=False` for this sequence (the time shape id -1 of an
+  oversampled gradient is in the file as `-1`).
 
 #### `test_zero_before_the_first_event_and_after_the_last`
 
@@ -1807,8 +1684,19 @@ that is not on a raster edge, and the synthetic spin echo, GRE and arbitrary-gra
 They also cover negative end values, a gap between one and two raster times, and a short gap
 with an end of 0.
 
-**How:** Parametrized over 29 sequences (`_MODEL_SEQUENCES`): 12 hand and synthetic sequences,
-and 17 more, `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). `t` is the raster centres, 2001
+**How:** Parametrized over the 12 sequences of the model (`_MODEL_SEQUENCES`) that `spec` accepts
+(`zero_gap`, `long_gap`, `non_zero_ends`, `gap_between_extended_trapezoids`, `step_then_gap`,
+`spin_echo`, `gre`, `arbitrary_gradient`, `short_gap_from_0`, `negated_zero_gap`,
+`negated_long_gap`, `negated_non_zero_ends`), loaded by `_load_model(name)` with `spec`. The 17
+that `spec` rejects (`_REJECTED_BY_SPEC`: `short_gap`, `issue_12_delayed`, `issue_12_early_end`,
+`off_raster_events`, `gap_of_1_5_raster_times`, `short_gap_to_0`, their negated copies that exist,
+and the 8 `random_gaps` sequences) are in the test of the same name of section 3.10, which loads
+them with `cpp-siemens`. `gap_of_1_5_raster_times_sequence` is a long gap of 1.5 raster times between two values that
+are not 0, `short_gap_from_0_sequence` and `short_gap_to_0_sequence` have a short gap from 0 to a value
+and from a value to 0, `gap_sequences.negated` gives a copy of each sequence of `tests/gap_sequences.py`
+with each amplitude negated, and the 8 sequences of `random_gaps.random_gap_sequence` have the seeds 0 to
+7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). The oracle reads
+`sequence_of(snap)`. `t` is the raster centres, 2001
 evenly spaced times from one raster time before the start to one after the end, and the times of
 the points of the polyline of the oracle on each axis, each also 0.1 µs before and after. So the
 ramp points, the steps and the ends are in the grid. The test compares all three axes with a
@@ -1823,29 +1711,15 @@ is the rounding of the interpolation formula only.
 slice of `sample` of the whole grid exactly. The ranges start or end at an end of an event,
 inside a gap, inside a ramp, and at a step.
 
-**How:** Parametrized over `long_gap`, `short_gap`, `zero_gap`, `issue_12_delayed`,
-`off_raster_events`, `gap_of_1_5_raster_times`, `short_gap_from_0` and `negated_long_gap`. The grid is about 40 times, every n-th time of the grid of the test above.
-For each axis, the test compares the whole grid with the oracle. It then compares
-`sample(t[i:j])` with `whole[i:j]` (`numpy.array_equal`) for each pair `i < j`.
+**How:** Parametrized over `long_gap`, `zero_gap`, `short_gap_from_0` and `negated_long_gap`, the
+cases of `_TIME_RANGE_NAMES` that `spec` accepts (`short_gap`, `issue_12_delayed`,
+`off_raster_events` and `gap_of_1_5_raster_times` are in the test of the same name of section
+3.10). The body is `check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`, which
+that test calls too. The grid is about 40 times, every n-th time of the grid of the test above.
+For each axis, the check compares the whole grid with the oracle. It then compares
+`sample(t[i:j])` with `whole[i:j]` (`numpy.array_equal`) for each pair `i < j`. The sequences load through `_load_model`, and the oracle reads `sequence_of(snap)`.
 
 **Assumptions:** None.
-
-#### `test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand`
-
-**Checks:** `sample` has the hand values at the two ramps of a long gap between events that do
-not start or end on a raster edge. It has 0 between the ramps and after the last point. A line
-across the gap, as pypulseq draws it, would not be 0 between them.
-
-**How:** `_off_raster_events_sequence` has two blocks of 8 raster times on x. Block 0 has a ramp
-from 0 to `A = max_slew * grad_raster_time / 2` over 3 raster times, from 0.3 to 3.3. Block 1
-has a ramp from `A / 2` to 0 over 3 raster times, from 8.7 to 11.7, after a delay of 0.7 raster
-times. The ramp to 0 is from 3.3 to 3.8 raster times. The ramp from 0 is from 8.2 to 8.7. The
-test samples 3.3, 3.5, 3.8, 5, 8.2, 8.5, 8.7, 11.7 and 12 raster times. It compares with the
-values `A * [1, 0.6, 0, 0, 0, 0.3, 0.5, 0, 0]` (absolute 1e-9 of `A`). It also checks that
-`seq.get_gradients()` at 5 raster times is not 0.
-
-**Assumptions:** `add_block` accepts the delays that are not on the raster and the start value
-that is not 0 after a delay, because the value is below `max_slew * grad_raster_time`.
 
 #### `test_the_gaps_are_found_one_time_for_each_sequence_and_axis`
 
@@ -1882,27 +1756,6 @@ off the ideal raster grid by float rounding. The difference is that drift only.
 
 **Assumptions:** None.
 
-#### `test_hand_made_ramp_and_no_event_block`
-
-**Checks:** `block_samples` gives the exact values of a hand-made sequence: a gradient
-that ramps to a nonzero value and stops there (unlike an ordinary trapezoid, whose
-event is 0 at both ends), inside a block longer than the ramp, and a later block with
-no gradient event on any axis.
-
-**How:** Builds a two-block sequence: block 0 has `pp.make_extended_trapezoid` on x,
-ramping from 0 to `amp = 1000.0` Hz/m over `n_ramp = 4` raster steps, and
-`pp.make_trapezoid` on z with an explicit `duration` of `n_block = 7` raster steps (so
-the block is longer than the x ramp); block 1 is `pp.make_delay(n_block * dt)`, with no
-gradient event at all. The expected x samples of block 0 are computed by hand from the
-linear-interpolation rule (`amp * t / rise` while `t` is before the ramp's own last
-point, 0 after it) and compared with `numpy.testing.assert_allclose` (`rtol = atol =
-1e-12`): a division (the same rule, computed by a different sequence of floating-point
-operations) makes exact equality unlikely. gy, which has no event anywhere in the file,
-and block 1's gx and gz, which have no event in that block, are checked against exact
-zero with `numpy.testing.assert_array_equal`.
-
-**Assumptions:** None.
-
 #### `test_range_inside_the_file_equals_the_same_slice_of_the_whole_file`
 
 **Checks:** `block_samples` for a range that starts and ends inside the file gives
@@ -1913,33 +1766,6 @@ sample count, used to find the sample offset and length of a block range `[2, nu
 - 1)`. For each axis, `block_samples(axis, 0, num_blocks, dt)` and `block_samples(axis,
 2, num_blocks - 1, dt)` are compared with `numpy.array_equal` after slicing the whole-file
 result to the same sample offset and length.
-
-**Assumptions:** None.
-
-#### `test_skip_and_count_equal_the_same_slice_of_the_whole_range`
-
-**Checks:** `block_samples(axis, first, stop, dt, skip=s, count=c)` equals
-`block_samples(axis, first, stop, dt)[s : s + c]` exactly (`numpy.array_equal`), for
-each axis, for block ranges of the whole file and of its inner blocks, and for sample
-ranges that start and end inside a block, at the edge of a block, inside a block with
-no event, and after the last point of a block's event (the samples that are 0 and
-that the sampler does not keep). `count=None` gives all the samples after `skip`.
-
-**How:** `_blocks_with_long_events_sequence()` has five blocks: a trapezoid on x and
-a longer one on z; a delay of 300 samples; an arbitrary gradient on x that starts 20
-samples after the block start, in a block of 120 samples held by a delay event (its
-last point is 60 samples before the block end); a triangle on y; and the arbitrary
-block again. The test checks that blocks 2 and 4 have 120 samples. For each block
-range in `(0, 5)`, `(1, 5)`, `(2, 5)`, `(1, 4)`, `(2, 3)`, `(3, 5)`, `(0, 2)` and `(4,
-5)` and each axis, `whole` is the result with no `skip` and `count`. `_sample_ranges`
-makes the `(skip, count)` pairs of the blocks of that range: the whole range, an empty
-range at each end, one sample at each end, and for each block its own samples, a range
-across each edge, and five ranges that cover the block in fifths. For each pair, the
-result with `skip` and `count` is compared with `whole[skip : skip + count]`, for the
-sampler that made `whole` (with samples kept) and for a new `GradientSampler`. For
-four values of `skip` (0, 1, half the range and the end), the result with `count`
-left out is compared with `whole[skip:]`. At the end, the test checks that samples 60
-to 119 of block 2 are all 0 and that samples 20 to 59 are not.
 
 **Assumptions:** None.
 
@@ -1961,37 +1787,6 @@ with `skip` and `count` is compared with the slice of the whole result with
 `numpy.array_equal`.
 
 **Assumptions:** None.
-
-#### `test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point`
-
-**Checks:** A sample at exactly the time of the last point of a block's event has the
-value of that point, which is not 0, and the next sample is 0, with no `skip`/`count`
-and when the range cuts the block to one sample.
-
-**How:** `dt` is two raster steps, so the time of sample 0, `dt / 2`, is exactly one
-raster step (the test asserts this). A block with `pp.make_extended_trapezoid` that
-ramps from 0 to 1000.0 Hz/m over one raster step, and a delay event that makes the
-block four raster steps (two samples). `block_samples("gx", 0, 1, dt)` must be `[1000.0,
-0.0]`; with `skip=0, count=1` it must be `[1000.0]`, and with `skip=1, count=1` it
-must be `[0.0]`, with `numpy.testing.assert_array_equal`.
-
-**Assumptions:** The ramp's last point is at exactly `raster` (the event stores the
-times that it is given).
-
-#### `test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point`
-
-**Checks:** A sample at exactly the time of the last point of an event, many steps into
-the block, has the value of that point (not 0). The sample after it is 0, and each earlier
-sample is below that value.
-
-**How:** `dt` is two raster steps. A ramp from 0 to 1000.0 Hz/m over 27 raster steps
-(`pp.make_extended_trapezoid`) in a block of 30 raster steps (a delay event). The test
-asserts `(13 + 0.5) * dt == 27 * raster` in floats. `block_samples("gx", 0, 1, dt)` has 15
-samples. Sample 13 equals 1000.0, sample 14 equals 0.0, and samples 0 to 12 are below
-1000.0.
-
-**Assumptions:** The float product `(13 + 0.5) * dt` equals `27 * raster`. This is why the
-test uses 27 steps, and the test asserts it.
 
 #### `test_block_samples_bad_skip_or_count_raises_value_error`
 
@@ -2042,11 +1837,12 @@ first <= stop <= num_blocks`: a negative `first`, a `first` greater than `stop`,
 
 #### `test_block_samples_off_raster_block_raises_value_error`
 
-**Checks:** `block_samples` raises `ValueError` for a block whose duration is not a
-whole number of raster steps.
+**Checks:** `block_samples` raises `ValueError` for a block whose duration is not a whole number of
+sample raster steps.
 
-**How:** `pp.make_delay(1.5 * dt)` (pypulseq accepts this duration), the block's own
-sequence, and `block_samples("gx", 0, 1, dt)` inside `pytest.raises(ValueError)`.
+**How:** A file holds a block duration in whole block raster times, which is the gradient raster time
+here, so the block is made off the sample raster by `dt`. `pp.make_delay(3 * raster)` is one block of 3
+gradient raster times, and `block_samples("gx", 0, 1, 2 * raster)` (1.5 samples) must raise `ValueError`.
 
 **Assumptions:** None.
 
@@ -2070,8 +1866,8 @@ is `True`.
 duration is not within `ON_RASTER_TOLERANCE` samples of a whole number, while still
 giving a sample count (the nearest whole number) for every block.
 
-**How:** A two-block sequence: `pp.make_delay(2 * dt)`, then `pp.make_delay(1.5 *
-dt)`. `raster_block_lengths(index, dt)` must give `on_raster = False` and `n =
+**How:** A two-block sequence: `pp.make_delay(4 * raster)`, then `pp.make_delay(3 * raster)`, with the
+sample raster `dt = 2 * raster` (2 and 1.5 samples). `raster_block_lengths(index, dt)` must give `on_raster = False` and `n =
 [2, 2]` (`numpy.rint` rounds 1.5 to 2, ties-to-even).
 
 **Assumptions:** None.
@@ -2097,11 +1893,12 @@ the rule is for.
 **Checks:** For a sequence with a block off the raster, `sequence_samples` gives
 `ceil((index.end_s - 1e-10) / dt)`.
 
-**How:** Two sequences of two delay blocks. For 1.4 and 1.4 samples, the end is
-2.8 samples and the result must be 3 (the sum of the rounded block lengths is 2).
-For 1.5 and 1.500005 samples, the end is 3.000005 samples, which is less than
-1e-10 s above 3 samples, and the result must be 3 (a `ceil` of the end without
-the 1e-10 s gives 4). Each sequence must be off the raster in
+**How:** Two sequences of delay blocks, with a sample raster `dt` that the blocks are off (a file holds
+whole gradient raster times). Blocks of 7 and 7 gradient raster times with `dt` of 5: 1.4 and 1.4
+samples, the end is 2.8 samples and the result must be 3 (the sum of the rounded block lengths is 2).
+Blocks of 1 and 2 gradient raster times with `dt = 3 * raster / 3.000005`: 1.0000017 and 2.0000033
+samples, the end is 3.000005 samples, which is less than 1e-10 s above 3 samples, and the result must be
+3 (a `ceil` of the end without the 1e-10 s gives 4). Each sequence must be off the raster in
 `raster_block_lengths`, and the result must equal `ceil((index.end_s - 1e-10) /
 dt)`.
 
@@ -2112,7 +1909,8 @@ raster, and one that is 2e-6 samples away is not (`ON_RASTER_TOLERANCE` is 1e-6)
 number of samples is the whole number in each case.
 
 **How:** Parametrized on the ratio `1 + 5e-7`, `1 - 5e-7`, `1 + 2e-6` and `1 - 2e-6`. A
-one-block sequence with `pp.make_delay(ratio * dt)`. The test checks that `duration_s /
+one-block sequence with `pp.make_delay(raster)` (the file holds the block as one gradient raster time)
+and the sample raster `dt = raster / ratio`. The test checks that `duration_s /
 dt` equals the ratio within 1e-12, then that `raster_block_lengths(index, dt)` gives the
 expected `on_raster` and `n == [1]`.
 
@@ -2124,12 +1922,14 @@ expected `on_raster` and `n == [1]`.
 at the gradient raster and, for the sequences with a gap, at finer rasters (one half and one
 fifth of it). At the finer rasters, a ramp of half a raster time has samples in it.
 
-**How:** Parametrized over `_WHOLE_CASES`: the 29 sequences of the model (see
-`test_sample_equals_the_oracle_for_the_whole_sequence`) at the gradient raster, and `short_gap`,
-`long_gap`, `issue_12_delayed`, `step_then_gap`, `off_raster_events`, `gap_of_1_5_raster_times`,
-`short_gap_from_0`, `short_gap_to_0`, `negated_long_gap` and `negated_short_gap` at one half and
-one fifth of it (49 cases). The test compares each axis with an absolute 1e-9 of the
-largest value.
+**How:** Parametrized over the cases of `_WHOLE_CASES` that `spec` accepts (20 of the 49): the 12
+sequences of the model that `spec` accepts (see `test_sample_equals_the_oracle_for_the_whole_sequence`)
+at the gradient raster, and `long_gap`, `step_then_gap`, `short_gap_from_0` and `negated_long_gap`
+at one half and one fifth of it. The cases with a sequence that `spec` rejects (29) are in the test
+of the same name of section 3.10. The body is
+`check_block_samples_equal_the_oracle_for_the_whole_sequence`, which that test calls too. The check
+compares each axis with an absolute 1e-9 of the largest value. The sequences load through
+`_load_model`, and the oracle reads `sequence_of(snap)`.
 
 **Assumptions:** The two are not bit-equal. `block_samples` takes the sample time from the block
 start, and the oracle from the sum of the block durations before it. The sum drifts by float
@@ -2142,14 +1942,16 @@ rounding. The difference is that drift only.
 range exactly. The ranges start or end inside a gap, inside a ramp, and at a block edge. A new
 sampler gives the same values as one that made the whole range first.
 
-**How:** Parametrized over nine cases of a sequence and a sample raster: `long_gap` at one half
-of the gradient raster, `short_gap` and `zero_gap` at the gradient raster, `issue_12_delayed` at
-one fifth, `step_then_gap` at the gradient raster, `off_raster_events` at the gradient
-raster and at one fifth, `gap_of_1_5_raster_times` at the gradient raster, and `negated_long_gap`
-at one half. Each gap kind and each raster is in at least one case. For each axis and
-each block range, the test compares the samples with the oracle and with the slice of the whole
+**How:** Parametrized over the four cases of `_ANY_RANGE_CASES` (a sequence and a sample raster)
+that `spec` accepts: `long_gap` at one half of the gradient raster, `zero_gap` and `step_then_gap`
+at the gradient raster, and `negated_long_gap` at one half. The other five (`short_gap` at the
+gradient raster, `issue_12_delayed` at one fifth, `off_raster_events` at the gradient raster and
+at one fifth, and `gap_of_1_5_raster_times` at the gradient raster) are in the test of the same
+name of section 3.10. The body is
+`check_block_samples_of_any_range_equal_the_oracle_and_the_slice_of_the_whole_range`, which that
+test calls too. For each axis and each block range, the check compares the samples with the oracle and with the slice of the whole
 range (`numpy.array_equal`). It does the same for each `(skip, count)` of `_sample_ranges`, on the
-sampler of the test and on a new one.
+sampler of the test and on a new one. The sequences load through `_load_model`, and the oracle reads `sequence_of(snap)`.
 
 **Assumptions:** The tolerance to the oracle is the one of the test above.
 
@@ -2173,34 +1975,6 @@ a new sampler (`numpy.array_equal`).
 event: the number of samples of an event is at most the number of samples of each block that has
 it.
 
-#### `test_the_samples_in_a_short_gap_are_the_line_by_hand`
-
-**Checks:** A sample in a short gap (one raster time) is on the line from the last value of the
-earlier event to the first value of the later event. It is 0 in the own event after its last
-point.
-
-**How:** `short_gap_sequence` has a gradient that ends at 3 U at 100 µs in a block of 110 µs, and
-a second block that starts at 2 U. U is 1e4 Hz/m. The test checks the first 20 of the 21 samples
-at the gradient raster with the hand values. The 11 samples of block 0 are 0.15, 0.45, ...,
-2.85 U on the ramp, then 2.5 U at 105 µs on the line. The first 9 samples of block 1 are 1.9,
-1.7, ..., 0.3 U.
-
-**Assumptions:** The sample at 105 µs is not 0, so this test fails for a rule that gives 0 in
-every gap.
-
-#### `test_the_samples_in_a_ramp_of_a_long_gap_that_are_not_at_its_ends_are_the_ramp_by_hand`
-
-**Checks:** A sample inside the ramp to 0 or the ramp from 0 of a long gap has the value of the
-ramp, in the block of the event and in the next block.
-
-**How:** `_off_raster_events_sequence` at the gradient raster. The ramp to 0 is from 3.3 to 3.8
-raster times and has the sample at 3.5. The ramp from 0 is from 8.2 to 8.7 and has the first
-sample of block 1 at 8.5. The test compares the 16 samples with the hand values (absolute 1e-9
-of `A`). The values at 3.5 and 8.5 are 0.6 A and 0.3 A. The other samples are those of the own
-events.
-
-**Assumptions:** None.
-
 #### `test_a_ramp_from_a_raster_edge_changes_no_sample_at_the_gradient_raster`
 
 **Checks:** `block_samples` at the gradient raster for events on the raster edges has the
@@ -2213,35 +1987,6 @@ samples 10 to 29 are 0 (absolute 1e-9 of 3e4), that sample 9 is 2.85e4 and that 
 
 **Assumptions:** A sample at the end of a ramp can be a rounding error from 0 (below 1e-9 of the
 peak), because the ramp end and the sample time are each a sum of floats.
-
-#### `test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`
-
-**Checks:** `block_samples` of the whole sequence equals `oracle.block_samples` at the gradient
-raster where a sample falls at the last point of an event, and where it falls at a step inside
-one event. The sample at the last point has the value of that point, also when the sum of the
-delay and the offset of the point is one ulp before the sample time (review 1.3 of
-`docs/reviews/2026-10-07-code-review.md`). The sample at a step has the value before the step,
-the rule of `sample` (review 1.4).
-
-**How:** Parametrized over 15 sequences. Fourteen are `gap_sequences.delayed_ramp_sequence`:
-filler blocks of no gradient, and a ramp on x from 0 to A, after a delay of 0.5 to 4.5 raster
-times, that ends at a sample time. Eight are the cases of `DELAYED_RAMP_CASES`: the sum
-`delay + offset` of the last point is one ulp before the sample time, and `block_samples` gave 0
-at that sample before the fix. Six are the cases of `ULP_EDGE_CASES`, chosen from a scan of 6960
-cases: the sum `(start + delay) + offset` is before the sample time `start + (j + 0.5) * dt`, so
-an oracle with no tolerance after the last point gives 0 there. In three of them `block_samples`
-gave the end value before the fix too, and in three it gave 0. The test fails without the
-tolerance in `block_samples`, and without the same tolerance in `oracle.block_samples`. The
-fifteenth is `gap_sequences.short_arbitrary_sequence`, an arbitrary gradient of 3 samples whose
-points `(tt[-1], wf[-1])` and `(shape_dur, last)` are at 25 us, a sample time. The test checks
-the three axes against the oracle within 1e-9 of the largest absolute value. The same sequences
-are in the parameters of the PNS test
-`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`.
-
-**Assumptions:** The oracle takes the time of a point from the sum of the block durations
-(`(start + delay) + offset`), and `block_samples` from the block start and the local time. The
-oracle gives the value of the last point to a sample time within `TIME_TOLERANCE` after it, so
-that the two agree on the value at the last point.
 
 #### `test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot`
 
@@ -2259,10 +2004,14 @@ must raise `TypeError` with `match="load"`.
 `block_samples` values of `GradientSampler(snap)`. It keeps its gaps in the dict that was passed,
 not on the snapshot, and these gaps equal those of the snapshot's sampler.
 
-**How:** Parametrized over the model sequences `long_gap`, `short_gap`, `zero_gap`,
-`off_raster_events`, `gre`, `spin_echo` and `random_gaps_0`. The test builds a new index with
-`seq_index._build_index(snap.sequence)` (not the kept index) and new points with
-`_events._points_from_events(grad_events(snap), grad_raster_time)`, and makes a sampler with
+**How:** Parametrized over the model sequences `long_gap`, `zero_gap`, `gre` and `spin_echo`, the
+cases of `_FROM_PARTS_NAMES` that `spec` accepts (`short_gap`, `off_raster_events` and
+`random_gaps_0` are in the test of the same name of section 3.10). The body is
+`check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`, which that test
+calls too. The check builds a new index with
+`seq_index._index_from_data(snap.data, (played.gx, played.gy, played.gz))` (`played =
+_played.played_gradients(snap)`; not the kept index) and new points with `_events._read_points(snap)`,
+and makes a sampler with
 `_from_parts(index, points, {})`. For each axis it compares `sample` at `_model_times(snap)` and
 `block_samples` of all blocks at the gradient raster with `numpy.array_equal`. Then it checks that
 the dict has exactly the keys `("gaps", axis)` for the three axes, that each entry is the sampler's
@@ -2284,8 +2033,8 @@ oracle converts the values: the oracle gives Hz/m and Hz/m/s. `GAMMA_1H` from
 `tests/synthetic.py` only converts the mT/m values of the sequences with a 4 µs
 raster.
 
-`grad_peaks.py` computes its values from the per-event values of `seq_index.grad_events` and
-the columns of `seq_index.sequence_index`, instead of reading every block with `get_block`. It
+`grad_peaks.py` computes its values from the per-event values of the decoding
+(`_played.played_gradients`) and the columns of `seq_index.sequence_index`, not from every block. It
 uses the gradient waveform of MATLAB Pulseq: a step across a zero gap, a line across a short gap,
 and a ramp to 0 and a ramp from 0 across a long gap (`docs/implementation.md`, section 1). The slew
 includes the steps, the lines and the ramps. The tests below the first group add: the largest
@@ -2298,6 +2047,19 @@ values, the refusal of a bad window before the sequence is read, the range of a 
 end of the sequence, and comparisons with the oracle of the gradient waveform
 (`tests/oracles/waveform.py`, section 2.15). The oracle builds the polyline of each axis one
 time and reads every value from it, so it shares no code with the package.
+
+Every test reads a pypulseq sequence with `load(seq)` (`spec`; `pulseq_analysis.analyses.load`):
+the sequence is written by pypulseq's writer and read as a file. The
+values are those of the file: the writer rounds amplitudes (and the values of a shape) to 6 significant
+digits. The module constants `_WRITER_REL` (1e-5) and `_WRITER_STEP_REL` (1e-4, for a step, which is a
+difference of two written values) are the relative tolerances for a value or a slope that is compared
+with the value of the builder. `spec` rejects a gradient that starts at a value that is not 0 after a
+delay (`gradient.nonzero-start-delay`), a gradient that ends at a value that is not 0 before the end
+of its block (`gradient.nonzero-end-align`), and a gradient raster of 4 µs with a block duration
+raster of 10 µs (`definitions.raster-commensurate`). Tests of the waveform model with such a
+sequence are in section 3.10, and use `cpp-siemens`, which plays it. The oracle reads `sequence_of(snap)`
+(`tests/oracles/blocks.py`), the gradients as the snapshot plays them, where the test compares exactly or
+the sequence is rejected as a `pp.Sequence`.
 
 The last group tests `block_gradient_values`: the values of each block, in play order. Its
 main test compares the maxima over the blocks with the whole-file result of `gradient_peaks`.
@@ -2456,7 +2218,8 @@ expected slew by hand from the times and amplitudes of the segment the window
 keeps. It checks that the x axis slew matches, not the whole event's own
 largest segment slope, and that `slew_time_s` is the window start (100 µs).
 
-**Assumptions:** None.
+**Assumptions:** The file holds the amplitudes of the event with 6 significant digits, so the slew
+has a relative tolerance of 1e-5.
 
 #### `test_slew_time_is_the_start_of_the_steepest_segment`
 
@@ -2466,7 +2229,8 @@ largest segment slope, and that `slew_time_s` is the window start (100 µs).
 1100 µs) is its steepest. It checks that the x slew is that segment's slope,
 computed by hand, and that `slew_time_s` is 900 µs.
 
-**Assumptions:** None.
+**Assumptions:** The file holds the amplitudes of the event with 6 significant digits, so the slew
+has a relative tolerance of 1e-5.
 
 #### `test_junction_step_equal_to_a_segment_slope_of_its_block_takes_the_credit`
 
@@ -2531,40 +2295,8 @@ smaller than that step. It computes the expected slew by hand as the step
 divided by `grad_raster_time`. It checks that the x axis slew matches, is
 credited to the second block, and that `slew_time_s` is the junction (0.2 ms).
 
-**Assumptions:** None.
-
-#### `test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system`
-
-**Checks:** The step at a block junction is divided by the gradient raster of the
-sequence, `seq.grad_raster_time` (the `GradientRasterTime` that the file declares),
-not by `seq.system.grad_raster_time`. A sequence read from a file gives the same value
-as the sequence object that wrote it.
-
-**How:** `raster_4us_sequence` builds two y extended trapezoids with a 4 µs gradient
-raster: the slopes are 40 and 39.4 T/m/s and the junction step is 0.24 mT/m, so the
-junction is 60 T/m/s with 4 µs (24 T/m/s with 10 µs). The test writes the sequence to
-a file in `tmp_path` and reads it with `pp.Sequence()`, whose `system` has 10 µs. For
-the sequence that was read and for the sequence object, it checks that the y slew is
-60 T/m/s times `GAMMA_1H` (Hz/m/s), credited to the second block, at the junction (0.8 ms).
-
-**Assumptions:** The file stores the amplitudes with fewer digits than the sequence
-object, so the comparison has a relative tolerance of 1e-4.
-
-#### `test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system`
-
-**Checks:** The `junction_hz_per_m_per_s` of `block_gradient_values` is divided by
-`seq.grad_raster_time` (the `GradientRasterTime` that the file declares), not by
-`seq.system.grad_raster_time`. A sequence read from a file gives the same values as the
-sequence object that wrote it.
-
-**How:** `raster_4us_sequence` has a junction of 60 T/m/s with 4 µs (24 T/m/s with 10 µs).
-The test writes the sequence to a file in `tmp_path` and reads it with `pp.Sequence()`,
-whose `system` has 10 µs. For the sequence that was read and for the sequence object, it
-checks that the y junction step of block 2 is 60 T/m/s times `GAMMA_1H` (Hz/m/s), that the
-step of block 1 is 0, and that the x and z steps are 0 everywhere.
-
-**Assumptions:** The file stores the amplitudes with fewer digits than the sequence
-object, so the comparison has a relative tolerance of 1e-4.
+**Assumptions:** The step is the difference of two amplitudes that the file holds with 6
+significant digits, so the slew has a relative tolerance of 1e-4.
 
 #### `test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_its_own_block`
 
@@ -2606,32 +2338,6 @@ to `end_s`. The slew of 1e9 Hz/m/s and the values of `A` hold for the system of
 `tests/synthetic.py`, and the compare has a relative tolerance of 1e-6 because the file keeps
 the amplitudes with fewer digits.
 
-#### `test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`
-
-**Checks:** The step to 0 after the last point of an axis, at the end of the sequence, is counted
-when the last point is more than `TIME_TOLERANCE` before the end, and is in no range when the
-last point is within `TIME_TOLERANCE` of the end, also in a window that ends a little before the
-end of the sequence (decision D1 of `docs/plans/fourth-review-fixes.md`: a step is in `[lo, hi]`
-when `lo <= t < hi` and `t < end_s - TIME_TOLERANCE`).
-
-**How:** The test is run for four values of `early`, the time from the last point of the
-extended trapezoid to the end of the sequence: 0, half of `TIME_TOLERANCE`, 0.9 of
-`TIME_TOLERANCE`, and one raster time. The sequence is an x trapezoid (slope 1e9 Hz/m/s), then a
-block of 0.6 ms with an x extended trapezoid that ends at `A` at `0.6 ms - early`. The step is
-`A / DT` (3.19e9 Hz/m/s). Only the one raster time counts it. Then the oracle, the whole file
-and the window `(0.0, end_s)` of `gradient_peaks` give `A / DT` credited to block 2 at
-`end_s - early`. For the other values they give 1e9 Hz/m/s in block 1. The window
-`(0.0, end_s - 0.5 * TIME_TOLERANCE)`, in the oracle and in `gradient_peaks`, gives the same
-slew and block: for an `early` of 0.9 of `TIME_TOLERANCE` the step is before the end of this
-window, so only the rule `t < end_s - TIME_TOLERANCE` leaves it out. In every case the slew of
-block 2 in `block_gradient_values` is `A / DT` (counted) or `A / 100 µs` (not counted).
-
-**Assumptions:** pypulseq accepts a last time off the gradient raster by 1e-9 s or less, and no
-more, so a value of `early` between `TIME_TOLERANCE` and one raster time cannot be built with
-`make_extended_trapezoid`. The test does not cover a value between them. The window ends at
-`end_s` of the index of the package, and the oracle uses the end of its last block: the two are
-the same number for this sequence.
-
 #### `test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_block`
 
 **Checks:** A first block whose gradient starts at a non-zero value within
@@ -2659,37 +2365,6 @@ window from 0 to 0.2 ms must have the slope of the rise (the value divided by 10
 block 1.
 
 **Assumptions:** None.
-
-#### `test_a_first_value_that_is_not_zero_after_a_delay_has_a_ramp_from_zero_in_its_block`
-
-**Checks:** An x extended trapezoid with a delay and a first value that is not 0, after a block
-that ends at 0, has a ramp from 0 in the last half raster time before its first point. It does
-not have a step. The ramp is the slew of the whole file, and it is credited to the block of the
-event. The junction of that block is 0.
-
-**How:** Block 1 is an x trapezoid with ramps of 100 µs. Block 2 is an x extended trapezoid with
-the amplitudes `[step, step, 0]` and `delay = 100 µs`, where `step` is 90% of the largest step
-that `add_block` accepts. The gap is 100 µs, so it is a long gap. The slope of the ramp is twice
-`step` divided by `grad_raster_time`, which is more than each other slope of the sequence. The
-test checks the slew, `slew_block` (block 2), and `slew_time_s` (the start of block 2, plus the
-delay, minus half a raster time, to 1e-12 s). It checks that the junction of block 2 is 0.
-
-**Assumptions:** `add_block` accepts a delayed extended trapezoid with a first value that is
-not 0, after a block that ends at 0. The ramp is the rule of MATLAB Pulseq (pypulseq-issues 12).
-
-#### `test_window_that_cuts_the_ramp_from_zero_of_a_delayed_event_has_the_part_inside_it`
-
-**Checks:** For the sequence of the test above, a window that starts in the middle of the ramp
-from 0 has the second half of it. A window that ends where the ramp starts does not have the
-ramp.
-
-**How:** The ramp is from 395 µs to 400 µs. The window from 397.5 µs to the end must have the
-same slew, `slew_block` equal to block 2, and `slew_time_s` equal to the window start (the
-start of the cut). The window from 0 to 395 µs must have the slope of the ramps of block 1 (0.3
-of the largest amplitude in 100 µs) and block 1.
-
-**Assumptions:** The ramp is steeper than the slope of the ramps of block 1, which the test
-checks.
 
 #### `test_window_that_cuts_a_block_credits_it_on_a_tie_with_a_later_block`
 
@@ -2744,92 +2419,20 @@ the amplitude 0 (`pp.scale_grad(trapezoid, 0)`). The slew of x is `[2U/DT, 0, 0]
 
 **Assumptions:** None.
 
-#### `test_a_vector_peak_tie_goes_to_the_earlier_time_when_the_later_block_has_it`
-
-**Checks:** When two blocks have the same largest vector peak and the later block in play order has
-the earlier time, the credit goes to the earlier time and its block, on the whole file and in a
-window.
-
-**How:** Parametrized over the whole file and the window from 50 to 450 µs. Two blocks have the
-vector peak `hypot(A, A/2)`. Block 3 has it at 300 µs, and block 2 at 300 µs plus 1 fs (a block
-whose last point is 1 fs after the end of the block). The test checks this order with
-`block_gradient_values`, then checks that `gradient_peaks` credits block 3 at 300 µs, and that the
-oracle gives the same.
-
-**Assumptions:** pypulseq does not make a block longer for a point 1 fs after its end (it does for
-1e-14 s). If that changes, the check of the order with `block_gradient_values` fails first.
-
-#### `test_matches_oracle_on_synthetic_sequences`
-
-**Checks:** `gradient_peaks` matches the oracle of the gradient waveform
-(`tests/oracles/waveform.py`, section 2.15) on the whole file and on windows, for each of
-`tests/synthetic.py`'s sequences (parametrized: `spin_echo_sequence`, `gre_sequence`,
-`empty_sequence`, `arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`).
-`border_sequence` and `raster_4us_sequence` have a gradient that is not 0 at a block junction.
-
-**How:** The windows are up to 12 windows from `_oracle_windows` (seed 20261007) and one window
-from 0 to half of the total duration. For each window, `_assert_matches_oracle` compares every
-field with `oracle.peaks(seq, window)`: the peak, the slew and the RMS of each axis within
-`_rounding_tol`, the peak time and the vector peak time to 1e-12 s, the blocks (below) and the
-vector peak. `_rounding_tol` is `1e-12 + 4 * eps * duration / shortest segment`, relative to
-the value or to the limit of the same kind. The block of the peak of each axis is the oracle's,
-with one exception (`_assert_same_credit`). `gre_sequence` repeats its readout, phase-encode and
-spoiler events every TR, and the oracle adds the absolute block start to the corner times, so
-its rounding can make it credit a later block that plays the same event. This package credits
-the first block in play order. The test accepts a different block only when both blocks play
-the same gradient event on that axis and the block of this package is the earlier one. The
-block and the time of the slew are the oracle's, or those of another item of the polyline of
-the oracle with the same slope (`_assert_slew_item`). The block of the vector peak is the
-oracle's.
-
-**Assumptions:**
-
-- The user chose this tolerance on 2026-09-28. The oracle adds each block's absolute start time
-  to an event's corner points before it takes a slope, so each corner time is rounded to about
-  eps times the start time, and a slope divides the difference of two such times by the
-  segment's duration. The package computes each event one time from its own offsets.
-- The oracle gives Hz/m and Hz/m/s, so no value is converted.
-
-#### `test_matches_oracle_on_the_sequences_of_the_oracle_tests`
-
-**Checks:** `gradient_peaks` matches the oracle of the gradient waveform on the whole file and
-on up to 40 windows, for each sequence of `tests/gap_sequences.py` (parametrized): the two
-sequences of pypulseq-issues 12 (a first value after a delay, and an end before the end of its
-block), a zero gap with a step, a short gap, a long gap, a first value and a last value that
-are not 0, and one block with two axes.
-
-**How:** The test loads each sequence (`load`). The windows come from `_oracle_windows`
-(seed 20261007). Their ends are on the starts and the ends of the blocks, on the points of the
-polylines of the oracle, half a raster time before and after those points, on multiples of
-2.5 µs, at random, and within 1.5 ns of the start or the end of a block. A window shorter than
-`TIME_TOLERANCE` is not made. For each window, `_assert_matches_oracle` compares each field with
-`oracle.peaks(seq, window)`: the peak, the slew and the RMS of each axis within `_rounding_tol`,
-the peak time and the vector peak time to 1e-12 s, the block of the peak of each axis, and the
-block of the vector peak. The time and the block of the slew are those of the oracle, or those
-of another item of the polyline with the same slope (`_assert_slew_item`).
-
-**Assumptions:**
-
-- The slope of the rise and the slope of the fall of a symmetric trapezoid are equal. The
-  rounding of the times decides which one the oracle or the package finds first. The test
-  accepts both. An item of the polyline of the oracle that has the largest slope is an accepted
-  result.
-- The test makes no window shorter than `TIME_TOLERANCE` (1 ns). The values of such a window
-  are of a part of a segment that is shorter than the tolerance of a time.
-
 #### `test_matches_oracle_on_random_gradient_sequences`
 
 **Checks:** 50 random sequences of trapezoids, extended trapezoids and arbitrary gradients on
 random axes, each event built so that it starts and ends at 0 (so no gap has a step, a line or
 a ramp, and the values come from the events alone): `gradient_peaks` matches the oracle on the
-whole file and on up to 6 windows.
+whole file and on up to 6 windows. The oracle reads the gradients that the
+snapshot plays (`sequence_of(snap)`).
 
 **How:** For each of 50 seeds, the test builds a sequence of 2 to 6 blocks, each with 0 to 3
 random axes, each a trapezoid, an extended trapezoid or an arbitrary gradient built with
 pypulseq's `make_*` functions (so pypulseq's own limit checks apply) and an explicit `first`
 and `last` of 0 where the function does not default to that. It compares the whole-file result
 and the results of up to 6 windows from `_oracle_windows` with the oracle, as
-`test_matches_oracle_on_synthetic_sequences` does.
+`test_matches_oracle_on_synthetic_sequences` (section 3.10) does.
 
 **Assumptions:**
 
@@ -2837,64 +2440,6 @@ and the results of up to 6 windows from `_oracle_windows` with the oracle, as
   waveform's own edge samples, not to 0, so the random arbitrary-gradient builder passes
   `first=0.0, last=0.0` explicitly to keep every event zero-ended. This is a fact about
   pypulseq, not about the function under test, and is not itself checked here.
-
-#### `test_matches_oracle_on_random_sequences_with_ends_that_are_not_zero_next_to_gaps`
-
-**Checks:** 40 random sequences with events that start and end at values that are not 0 give
-the values of the oracle, on the whole file and on up to 8 windows. This covers a step across a
-zero gap, a line across a short gap, the ramps across a long gap, and a first value and a last
-value of an axis that are not 0.
-
-**How:** `random_gap_sequence` (`tests/random_gaps.py`) makes 2 to 8 blocks. Each of the three axes has an event for 55%
-of the blocks. Each event is a trapezoid, an extended trapezoid or an arbitrary gradient, with a
-delay of 0 to 7 raster times. The first value and the last value of an extended trapezoid and of
-an arbitrary gradient are 0, or a random value of at most 0.9 of the largest step that
-`add_block` accepts (at most 0.2 of it for an arbitrary gradient). A first value is also the
-last value of the event before it for part of the calls, and it is within 0.9 of that step of
-that value. A block has a delay event for 60% of the calls, which makes the block 1, 2 or 5
-raster times longer than its events. A block with no event is a delay of 100 µs, 300 µs or 1 ms.
-12% of the blocks are labels (a block of zero duration). A block that `add_block` refuses is not
-added. The windows and the comparison are those of
-`test_matches_oracle_on_the_sequences_of_the_oracle_tests`.
-
-**Assumptions:** The seeds are fixed, so the sequences are the same in each run. The sequences
-have gaps of each kind, but the test does not count them.
-
-#### `test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`
-
-**Checks:** For each of 32 sequences (parametrized), the maxima of `block_gradient_values` over
-the blocks are the whole-file values of `gradient_peaks`, with the same block and the same time.
-For each axis, the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis, and the first
-block in play order with that maximum has the `peak_block` and the `peak_time_s`. The maximum
-over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_per_m_per_s` is
-`max_slew_hz_per_m_per_s`, and the first block with that maximum has the `slew_block`. Its time
-is the time of the junction (`_junction_time`) when its junction has the maximum (the junction is
-before every other item of its block), and otherwise the `slew_time_s` of the block. The maximum
-of `vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result. The block with the earliest
-`vector_peak_time_s` among the blocks with that maximum has the `vector_peak_block` and the
-time. When the maximum is 0, `gradient_peaks` has no block (None).
-
-**How:** The sequences are `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
-`arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`, `build_repeating(50)`
-and `build_worst(50)` of `tests/scale_sequences.py`, five sequences of this file (a step between
-two extended trapezoids, the same with a segment of the second block that has the same slew as
-the step, a gradient that ends non-zero before a delay, a first block that starts non-zero, and
-an x extended trapezoid with a delay and a first value that is not 0 after a trapezoid), the
-seven sequences of `tests/gap_sequences.py`, 4 random sequences of `_random_gradient_sequence`
-(seeds 0 to 3) and 8 random sequences of `random_gap_sequence` (seeds 0 to 7). For each
-sequence the test calls `block_gradient_values` and `gradient_peaks` and compares them with
-`==`, not `pytest.approx`. `_junction_time` reads the first point of the event of the credited
-block with `get_block`. For a line across a short gap, it reads the last point of the event
-before it, with `gradient_offsets`.
-
-**Assumptions:**
-
-- Exact equality holds because both functions use the same arithmetic on the same values of
-  each block: the columns of `_BlockData`.
-- The 4 random sequences of `_random_gradient_sequence` have no gap with a value that is not 0
-  (every event starts and ends at 0), so their junctions are 0. The 8 sequences of
-  `random_gap_sequence` have steps, lines and ramps.
-- The test does not compare a window: `block_gradient_values` has no window.
 
 #### `test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time`
 
@@ -2916,7 +2461,7 @@ equality for the zeros and the start times.
 #### `test_first_block_junction_step_uses_zero_before_the_block`
 
 **Checks:** For a first block whose gradient starts at a non-zero value, the junction step of
-its axis is that value divided by `seq.grad_raster_time`, and the junction step of the other
+its axis is that value divided by the gradient raster that the file declares, and the junction step of the other
 axes is 0.
 
 **How:** One extended trapezoid on x that starts at 0.9 of the largest step that `add_block`
@@ -3022,9 +2567,9 @@ item and `clear` on `axes` raise `TypeError`.
 **Checks:** The `reason` of a sequence with no gradient is `seq_index.NO_GRADIENTS`, and its `axes`
 is a `FrozenDict`.
 
-**How:** The test loads a `pp.Sequence(SYSTEM)` with no blocks and checks
-`gradient_peaks(snap).reason == NO_GRADIENTS`. A sequence with one delay block is in
-`test_no_gradients_sets_reason`.
+**How:** The test loads `empty_sequence()` (one delay block) and checks
+`gradient_peaks(snap).reason == NO_GRADIENTS`. A sequence with no block cannot be loaded: pypulseq's
+writer fails on it.
 
 **Assumptions:** None.
 
@@ -3135,36 +2680,6 @@ the `reason`, the vector peak and its block, and each `AxisResult` against all z
 
 **Assumptions:** `TIME_TOLERANCE` is 1e-9, so both windows pass the check of the range.
 
-#### `test_a_window_gives_the_same_result_with_and_without_the_kept_data`
-
-**Checks:** For a window, `gradient_peaks` of a snapshot that has its kept data (the per-event
-values and the values over the blocks: the end of each block, the junction and its time, the
-ramps, the extent in time of each block, and the RMS of the whole file) gives a result equal
-(`==`) to the result of the same call on a snapshot whose kept data is empty. The kept values
-over the blocks and the search of the block range (`np.searchsorted`) do not change a result,
-also for a window edge on a block edge, and for a block of zero duration at a window edge or
-inside the window.
-
-**How:** For six sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
-duration before, between and after them, the junction sequence, the delayed junction sequence,
-one random gradient sequence and one random sequence of `random_gap_sequence`), 30 windows
-with the seed 20261006: the ends of every other window are each the start or the end of a block
-(or 0 or the end of the sequence), and the ends of the others are random. The test makes a
-snapshot `snap` of one build. It never empties the kept data of `snap`, so each window uses the
-kept data that the windows before it built. For each window, it makes a new snapshot of the same
-sequence, so that the call on it builds its own kept data, and checks that the result for `snap`
-equals the result for the new snapshot. It also checks that the kept values over the blocks
-(`_kept_results(snap)["block_data"]`) are one object for all the windows, so the kept data is
-really reused.
-
-**Assumptions:** The test does not compare with a second implementation of the window: the
-values themselves are checked by the hand-computed tests and by the comparisons with the oracle
-above. A window with an end that is not within the sequence is not used. The test reads the
-private kept dict of the snapshot (`snapshot._kept_results`). The two snapshots are of one
-sequence, so they have equal events and blocks. A result that uses the kept data of another
-window, for example a range that the first window kept, is not equal to the result of a call with
-empty kept data.
-
 #### `test_a_window_does_not_calculate_the_values_over_all_the_blocks_again`
 
 **Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept
@@ -3181,42 +2696,6 @@ calls `gradient_peaks` with the window and checks that the result has gradients.
 **Assumptions:** The test cannot measure the time: a loop over all the blocks in numpy is fast.
 The failing functions are the ones that calculate a value over all the blocks. The test needs the
 two names. It does not check the values of the result.
-
-#### `test_a_window_of_gradient_peaks_calls_no_get_block`
-
-**Checks:** In `build_repeating(1000)` (5000 blocks), after a first call has built the kept data,
-`gradient_peaks` with a window of four TRs calls `Sequence.get_block` for no block. This holds for
-a window with its ends inside blocks (two blocks are cut, one for each end) and for a window with
-its ends on block edges (no block is cut).
-
-**How:** After a first call with another window, the test finds from the index the blocks with a
-start before a window end and an end after it, and checks that there are two of them for the first
-window and none for the second. It then wraps `pp.Sequence.get_block` to record the block ID of
-each call, calls `gradient_peaks` with the window, and checks that the result has gradients and
-that no block was read.
-
-**Assumptions:** The window is from play index 2503 to 2507, with its start a third of the way into
-block 2503 and its end half way into block 2507, or from the start of block 2500 to the start of
-block 2510. The wrap sees only the calls of `Sequence.get_block` on the class. The test does not
-check the values of the result: the other tests of `gradient_peaks` compare them with the oracle.
-
-#### `test_the_values_of_each_sequence_of_pypulseq_issue_12_are_those_of_matlab_pulseq`
-
-**Checks:** The two sequences of pypulseq-issues 12 (parametrized) have the gradient of MATLAB
-Pulseq, with the values by hand. The gradient is at 0, 100, 200, 205, 295, 300 and 400 µs the
-values 0, A, A, 0, 0, A and 0, where A is half of `max_slew * grad_raster_time`.
-
-**How:** For the whole file, the test checks the peak A at 100 µs in block 1, the slew
-`max_slew` (a ramp of A in half a raster time), the RMS (A times sqrt(170 / 400)), and the
-vector peak A at 100 µs in block 1. The slew is at 200 µs in block 1 or at 295 µs in block 2. y
-and z have no block. For the values of each block, it checks the peak A, the slew `max_slew`,
-the junction 0 (a long gap has ramps and no junction), and the vector peak A of both blocks. The
-time of the vector peak of block 2 is 200 µs for the first sequence and 300 µs for the second.
-
-**Assumptions:** The two ramps have one slope up to the rounding of the times, so the test
-accepts the ramp to 0 or the ramp from 0 as the slew. The vector peak of block 2 is the value at
-the first time on the side of block 2. Block 2 starts at 200 µs in the first sequence, where the
-ramp to 0 starts. In the second sequence, the value after 300 µs is in block 2.
 
 #### `test_a_zero_gap_with_two_different_values_gives_a_step_credited_to_the_later_block`
 
@@ -3274,22 +2753,6 @@ and the peak U at 20 µs in block 2.
 between the two keys is the step itself, which has no slope. This test fails for `- 1.5`, which
 puts the step before the last segment of the earlier event.
 
-#### `test_a_short_gap_gives_a_line_credited_to_the_later_block`
-
-**Checks:** A gap of one raster time with ends that are not 0 is a line, not two ramps. The line
-is credited to the later block.
-
-**How:** The first gradient goes from 0 to 3 U in 100 µs. Its block lasts 110 µs. The second
-block goes from 2 U to 0 in 100 µs. The line goes from 3 U at 100 µs to 2 U at 110 µs. Its slope
-is U / DT. For the whole file, the test checks the peak 3 U at 100 µs in block 1, the slew
-U / DT at 100 µs in block 2, and the RMS (U sqrt(149 / 63)). It checks the junction of each
-block (0 and U / DT), the slew of each block (3 U / 100 µs and 2 U / 100 µs), and the peak and
-its time of each block. The window from 105 µs to 150 µs has half of the line and 40 µs of
-block 2. The peak is 2.5 U at 105 µs in block 2, and the slew is U / DT at 105 µs in block 2.
-The vector peak has the same value and time, in block 1, the block that has 105 µs.
-
-**Assumptions:** None.
-
 #### `test_a_long_gap_gives_the_ramps_of_its_ends_credited_to_the_blocks_of_their_events`
 
 **Checks:** A gap of more than one raster time with ends that are not 0 has a ramp to 0 after
@@ -3335,61 +2798,6 @@ hypot(3 U, 3.84 U) at 160 µs.
 
 **Assumptions:** None.
 
-#### `test_a_window_edge_next_to_a_block_edge_credits_the_vector_peak_by_time`
-
-**Checks:** The vector peak is credited to the block that has its time within `TIME_TOLERANCE`,
-seen from the side where the value is. The peak of an axis is credited to the block of its
-segment. These can be two blocks.
-
-**How:** In `raster_4us_sequence`, block 1 has the y gradient at its top (16 mT/m) until 800 µs,
-and block 2 starts with a step down to 15.76 mT/m. The window that starts 1 ps before the start
-of block 2 has the top at its start. The y peak is in block 1 (the segment that the window cuts),
-and the vector peak is in block 2 (it starts 1 ps after the window start), at the window start.
-The window that starts 1 ps after the start of block 2 has 15.76 mT/m for the y peak and the
-vector peak, in block 2.
-
-**Assumptions:** 1 ps is less than `TIME_TOLERANCE`, so the start of the window and the start of
-block 2 are one time for the credit of the vector peak.
-
-#### `test_the_gap_rule_uses_the_gradient_raster_of_the_file_not_of_seq_system`
-
-**Checks:** The gap rule (zero, short, long) and the ramps use `seq.grad_raster_time` (the
-`GradientRasterTime` of the file), not the raster of `seq.system`.
-
-**How:** With a 4 µs gradient raster, the test builds an x gradient from 0 to V in 400 µs in a
-block of 410 µs, and an x gradient from W to 0 in 400 µs in the second block. The gap is 10 µs,
-which is more than one raster time of 4 µs. It is a long gap: the slope of the ramp to 0 is
-V / 2 µs, the slope of the ramp from 0 is W / 2 µs, and the junction of block 2 is 0. (With
-10 µs, it would be a short gap, with a line and a junction.) The test writes the sequence to a
-file in `tmp_path` and reads it with `pp.Sequence()`, which has 10 µs in `seq.system`. For the
-sequence that was read and for the sequence object, it checks the junction, the slews and their
-times, and `gradient_peaks` on two windows against the oracle.
-
-**Assumptions:** The file stores the amplitudes with fewer digits, so the slews have a relative
-tolerance of 1e-4.
-
-#### `test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has`
-
-**Checks:** For each axis and each block, the peak, the junction and the slew of
-`block_gradient_values` are the values of the items that the credit of the model gives to the
-block, found in the polyline of the oracle.
-
-**How:** For 25 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`,
-`border_sequence`, `raster_4us_sequence`, the seven sequences of `tests/gap_sequences.py`, and
-14 sequences of `random_gap_sequence`), `_block_values_of_the_polyline` reads the polyline of
-the oracle and gives each item to its play index. A point gives the peak. A segment from a point
-of one block to a point of another block, and a step that is not after the last point, give the
-junction. The other segments, and the step after the last point (when its time is before the end
-of the sequence), give the slew. The test compares the peak (and its time where it is above 0),
-the junction and the slew of each block with the values of the package
-(`numpy.testing.assert_allclose`, 1e-12 for the peak and 1e-9 for the junction and the slew).
-The time of the slew of a block must be the time of one of its items that have the largest
-slope.
-
-**Assumptions:** The slopes of two items of one block can be equal up to the rounding of the
-times, so the test accepts the time of each item that has the largest slope. The test does not
-compare the time of a slew of 0.
-
 #### `test_a_measurement_raises_type_error_that_names_load_for_a_non_snapshot`
 
 **Checks:** `gradient_peaks` and `block_gradient_values` raise `TypeError` with a message
@@ -3428,7 +2836,7 @@ the hardware being a pair `(struct, label)` (its key is the label and the 24 val
 the struct without `stim_thresh`, so two pairs with the same label and values are one
 hardware, whatever their structs are or where they came from), so that a caller that needs
 the PNS of one sequence more than once runs the SAFE model once. A snapshot never changes, so a kept result is
-never old (section 2.12). Each test makes its snapshot with `snapshot.load`. The thresholds of the key are the tuple of
+never old (section 2.12). Each test makes its snapshot with `analyses.load`. The thresholds of the key are the tuple of
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
@@ -3484,21 +2892,21 @@ and checks the reason.
   `seq.block_events`. This test and `test_no_gradients` check that other
   events do not count as gradients.
 
-#### `test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence`
+#### `test_prediction_does_not_sample_at_the_file_times_for_an_on_raster_sequence`
 
-**Checks:** `pns_levels` never calls `seq.get_gradients()` for an on-raster sequence.
+**Checks:** `pns_levels` never calls `GradientSampler.sample` (the samples at the file times of a
+sequence that is not on the raster) for an on-raster sequence, and it calls
+`GradientSampler.block_samples`.
 
-**How:** The test replaces `get_gradients` of a synthetic spin echo sequence with a
-wrapper that counts the calls, and calls `pns_levels`. There must be no calls.
+**How:** The test replaces `GradientSampler.sample` and `GradientSampler.block_samples` with
+wrappers that count the calls, and calls `pns_levels` on a synthetic spin echo sequence. There
+must be no call of `sample` and at least one call of `block_samples`.
 
 **Assumptions:**
 
-- `_compute_levels` samples an on-raster sequence with
-  `GradientSampler.block_samples`, not `seq.get_gradients()`/`seq.calculate_pns` (that
-  was the old, now-removed, implementation, which is why the old test expected exactly
-  one call). `test_pns_levels.py` and `test_sampling.py` test `block_samples` and its
-  agreement with `sample` and the oracle directly; this test only checks that the
-  fast path is actually taken from `pns_levels`.
+- `_compute_levels` samples an on-raster sequence with `GradientSampler.block_samples`.
+  `test_pns_levels.py` and `test_sampling.py` test `block_samples` and its agreement with `sample`
+  and the oracle directly; this test only checks that the fast path is taken from `pns_levels`.
 
 #### `test_pns_levels_keeps_one_result_for_equal_hardware_pairs`
 
@@ -3707,31 +3115,13 @@ not a snapshot and would raise the `TypeError` that names `load`.
 
 **Assumptions:** None.
 
-#### `test_prediction_keeps_no_blocks`
+#### `test_prediction_propagates_an_error`
 
-**Checks:** `pns_levels` does not fill pypulseq's block cache: the cache of the private
-sequence of a snapshot is off and empty after the call.
-
-**How:** The test makes a snapshot of a synthetic spin echo sequence and calls `pns_levels`.
-Afterward `snap.sequence.use_block_cache` must be False and `snap.sequence.block_cache` must
-be empty.
-
-**Assumptions:**
-
-- `calculate_pns` reads every block with `get_block`, which keeps each block in
-  `block_cache` when `use_block_cache` is True. `load` turns the cache off, so an empty cache
-  after the call shows that the cache stayed off. That `load` turns it off is tested in
-  `test_snapshot.py`.
-
-#### `test_prediction_propagates_an_error_and_keeps_the_cache_off`
-
-**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`, and the block
-cache of the snapshot's sequence stays off and empty.
+**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`.
 
 **How:** The test makes a snapshot of a synthetic spin echo sequence and replaces
 `pns_levels._safe_gwf_to_pns_chunk` (the pinned fork's chunk function) with a function that
-raises `RuntimeError`. The call must raise the error, `use_block_cache` must be False and
-`block_cache` must be empty afterward.
+raises `RuntimeError`. The call must raise the error.
 
 **Assumptions:** None.
 
@@ -3943,22 +3333,26 @@ when `coord_start` is NaN.
 **Checks:** Each series of `pns.safe.levels` (`pns_total` and `pns_above_<k>`) is a valid
 `Series`, and equals its round trip through `to_obj`, the strict JSON text
 (`json.dumps(..., allow_nan=False)` and `json.loads`) and `from_obj`. This holds for each
-sequence of `tests/synthetic.py` that has a builder without arguments (the spin echo with
-the prephaser before and after, the GRE, the empty sequence, the arbitrary gradient, the
-border, the 4 µs raster sequence) and for `build_repeating(10)`; with no threshold, with
+sequence of `tests/synthetic.py` that has a builder without arguments and that `spec` reads (the
+spin echo with the prephaser before and after, the GRE, the empty sequence, the arbitrary
+gradient, the border) and for `build_repeating(10)`; the 4 µs raster sequence is in the test of
+the same name of section 3.10; with no threshold, with
 one, and with two; with the default bin and with bins of 3.7 ms and 0.1 ms. The `coord_end`
 of `pns_total` is `num_samples * dt_s` and its `coord_step` is `bin_samples * dt_s`, so the
 test checks that the tolerance of the `coord_end` check holds for these float products. The
 empty sequence gives no series.
 
-**How:** Parametrized over the sequence and the case of thresholds and bin. The test runs
+**How:** Parametrized over the sequence and the case of thresholds and bin. The body is
+`check_the_series_of_pns_safe_levels_are_valid`, which the test of section 3.10 calls too: it runs
 the analysis with `synthetic.EXAMPLE_HW`, calls `to_series`, checks the names, and checks
 that each series equals its round trip through the strict JSON text. Constructing a
 series that is not valid would raise.
 
 **Assumptions:** The bin of 3.7 ms (370 samples) is not a divisor of the number of samples of
 most sequences, so their last bin is short. The sequences with a rotation library and the
-one of `waveform_sequence` are not in the list.
+one of `waveform_sequence` are not in the list. `raster_4us_sequence` is not in the list: `spec`
+rejects a gradient raster of 4 µs with a block duration raster of 10 µs
+(`definitions.raster-commensurate`), so the test of section 3.10 loads it with `cpp-siemens`.
 
 #### `test_the_series_of_gradient_spectrum_is_valid`
 
@@ -3966,11 +3360,15 @@ one of `waveform_sequence` are not in the list.
 `Series` that equals the series that `from_obj` reads from its `to_obj`. The empty sequence
 gives no series, and the other sequences give one.
 
-**How:** Parametrized over the sequences. The test runs the analysis with the default
-arguments, calls `to_series`, and checks the round trip and the number of series.
+**How:** Parametrized over the sequences. The body is
+`check_the_series_of_gradient_spectrum_is_valid`, which the test of section 3.10 calls too: it
+runs the analysis with the default arguments, calls `to_series`, and checks the round trip and the
+number of series.
 
 **Assumptions:** No sequence is too short for the default window: the spectrum pads a short
-sequence to one window.
+sequence to one window. `raster_4us_sequence` is not in the list: `spec` rejects a gradient raster
+of 4 µs with a block duration raster of 10 µs (`definitions.raster-commensurate`), so the test of
+section 3.10 loads it with `cpp-siemens`.
 
 #### `test_series_refuses_bad_arrays`
 
@@ -5029,7 +4427,9 @@ sequences.
 module and with the oracle. The reasons must be equal. When there is a
 spectrum, the frequencies must be equal. The axis spectra and the RSS of this
 module, multiplied by `1e3 / seq.system.gamma`, must agree with the oracle
-within a relative 1e-12 or an absolute 1e-12 times the array's own peak.
+within a relative 1e-12 or an absolute 1e-12 times the array's own peak. The oracle reads
+`sequence_of(snap)`, the gradients as the snapshot plays them (the written file's values), not the
+builder's `pp.Sequence`, so the 1e-12 holds. `seq.system.gamma` is that of the stand-in (1H).
 
 **Assumptions:**
 
@@ -5051,7 +4451,8 @@ and a shorter last chunk, as in `test_matches_scipy_spectrogram`.
 **How:** The test sets `grad_spectrum._CHUNK_WINDOWS` to 4 (`monkeypatch`), builds each sequence
 with `1000 / TR_BLOCKS` TRs, and compares this module's spectrum (times `1e3 / gamma`) with the
 oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in s)` instead of
-1e-12.
+1e-12. The oracle reads `sequence_of(snap)`. The tolerance uses `seq.duration()` of the builder's
+`pp.Sequence`.
 
 **Assumptions:**
 
@@ -5065,22 +4466,6 @@ oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in
 - The test no longer runs the sequences of 10^4 blocks and 5000 blocks (14 s and 7 s) that it
   ran before 2026-10-07, so that it is faster. It does not test the rounding of an absolute
   time above 1.4 s.
-
-#### `test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform`
-
-**Checks:** The spectrum of a sequence with a short gap, a long gap or a step at a junction, and
-ends that are not 0 next to it, equals the spectrum that the oracle calculates from the oracle
-waveform (`tests/oracles/waveform.py`, the model of MATLAB Pulseq). The sequences also have a
-first value and a last value that are not 0.
-
-**How:** Parametrized over 23 sequences: `zero_gap_sequence`, `short_gap_sequence`,
-`long_gap_sequence`, `non_zero_ends_sequence`, the two sequences of pypulseq-issues 12, and 17
-more, `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). `_assert_matches_oracle`
-compares the axis spectra and the RSS (times `1e3 / gamma`) with `tests/oracles/grad_spectrum.py`
-within 1e-12.
-
-**Assumptions:** pypulseq's `calculate_gradient_spectrum` draws a line across a long gap and has
-no step at a junction (pypulseq-issues 12), so it is not the reference.
 
 #### `test_spectrum_does_not_depend_on_the_gamma_of_the_system`
 
@@ -5507,28 +4892,30 @@ gradient events of a snapshot one time and keeps them on it, and the two
 users of its result, `sampling.GradientSampler` and `grad_peaks._event_values`. The values of
 `_event_values` are tested with hand-computed values. The tests
 use the synthetic spin echo, gradient echo and arbitrary gradient sequences (and, for the
-types of the arrays, the empty sequence). Each test makes its snapshot with `snapshot.load`.
+types of the arrays, the empty sequence). Each test makes its snapshot with `analyses.load`.
 The tests of the kept results are here too: a measurement gives one object for one snapshot, a
 windowed `gradient_peaks` uses the kept values of the events, and a kept result does not keep its
 snapshot alive. A snapshot never changes, so a kept result is never old (section 2.12).
 
 #### `test_the_measurements_of_one_sequence_read_each_unique_gradient_event_once`
 
-**Checks:** `gradient_peaks`, `block_gradient_values`, `pns_levels` and
-`gradient_spectrum` of one sequence read each unique gradient event one time in total, not
+**Checks:** `gradient_peaks`, `block_gradient_values`, `pns_levels` and `gradient_spectrum` of one
+snapshot take the points of each unique gradient event from the decoding one time in total, not
 one time for each measurement.
 
-**How:** Parametrized over the three sequences. The test takes the number K of unique
-gradient events from the sequence index (`grad_first.size`), replaces `pp.Sequence.get_block`
-with a wrapper that counts its calls, and calls the four functions on one new sequence
-(`pns_levels` with pypulseq's example hardware). The count must be K.
+**How:** Parametrized over the three sequences. The test replaces `SpecDecoding.gradient_points`
+(the method of the protocol `Decoding` that `played_gradients` calls for each unique decoded
+event) with a wrapper that counts
+its calls, takes the number K of unique gradient events from the sequence index
+(`grad_first.size`, which is the first call that makes the played gradients), and calls the four
+functions on the snapshot (`pns_levels` with pypulseq's example hardware). The count must be K.
 
 **Assumptions:**
 
-- The measurements call `get_block` only for the unique gradient events and for the
-  blocks that a window cuts. `gradient_peaks` is called without a window, so no block is
-  cut.
-- The wrapper counts the calls of the class, so a call from inside pypulseq counts too.
+- The measurements take the points of an event only from `played_gradients`, which the snapshot
+  keeps. `spec` is the interpreter; `cpp-siemens` does not call `gradient_offsets`.
+- The wrapper counts the calls of the module `_played`, so a call from another module (for
+  example `_events` for an event that is not a tuple) does not count.
 
 #### `test_event_points_arrays_are_read_only_and_have_the_documented_types`
 
@@ -5562,10 +4949,11 @@ the `make_*` functions.
 
 **How:** The trapezoid has A = 1e5 Hz/m, delay 100 µs, rise 200 µs, flat 400 µs and fall
 300 µs. Expected: peak A at delay + rise, slew A / rise from the delay, integral A²
-(rise/3 + flat + fall/3). The arbitrary gradient has the waveform `[1, 2, -3, -1, 2] u`
+(rise/3 + flat + fall/3). The arbitrary gradient has the waveform `[1, 2, -4, -1, 2] u`
 with u = 1e4 Hz/m, first and last 0, and raster r. Its points are at 0, 0.5 r, 1.5 r, 2.5
-r, 3.5 r, 4.5 r and 5 r. Expected: peak 3 u at 2.5 r, slew 5 u / r from 1.5 r, integral
-65/6 r u² (the sum of dt (a² + ab + b²) / 3 over the six segments). The test compares with
+r, 3.5 r, 4.5 r and 5 r. Expected: peak 4 u at 2.5 r, slew 6 u / r from 1.5 r, integral
+91/6 r u² (the sum of dt (a² + ab + b²) / 3 over the six segments). The slopes are 2 u / r, 1 u / r,
+6 u / r, 3 u / r, 3 u / r and 4 u / r; the integral is (1/6 + 7/3 + 4 + 7 + 1 + 2/3) r u². The test compares with
 `pytest.approx` (relative 1e-12, and absolute 1e-12 s for the times). The test above
 compares `_event_values` with `_polyline_values`, so a wrong `_polyline_values` does not
 fail it. This test does.
@@ -5573,7 +4961,10 @@ fail it. This test does.
 **Assumptions:** The trapezoid has a fall longer than its rise, so the rise is the
 steepest segment without a tie. The arbitrary gradient has 5 samples, because pypulseq
 reads back an arbitrary gradient of 4 samples or fewer with a shape that ends at the last
-sample, not half a raster after it.
+sample, not half a raster after it. The largest value of the waveform is 4 u, so that the shape in the
+file (the waveform divided by the largest value: 0.25, 0.5, -1, -0.25, 0.5) is exact in the 6 digits that
+pypulseq's writer keeps. With 3 u the shape has thirds, the writer rounds them, and the slew differs by
+2e-10 of its value.
 
 #### `test_a_measurement_gives_the_same_object_for_one_snapshot_and_an_equal_one_for_another`
 
@@ -6154,225 +5545,212 @@ message must name `a1 + SafeAxis.a2 + SafeAxis.a3 must be 1`.
 
 ### 2.17 The snapshot (`test_snapshot.py`)
 
-`test_snapshot.py` tests `snapshot.py`: `load`, which makes a `Snapshot` of a `.seq` file or
-of a `pp.Sequence`, and the four guards of the design (`docs/plans/fourth-review-fixes.md`,
-section 5.1). The sequences are the synthetic sequences, a sequence with each kind of event
-that `add_block` takes (a sinc pulse with its slice gradients, a trapezoid with an ADC and two
-labels, an arbitrary gradient, an extended trapezoid, a digital output, a trigger, a soft
-delay, a delay and definitions), and a sequence with a soft delay between two trapezoids.
-The results that the tests compare are the index, the events, the event points, the samples
-of the sampler and the four measurements of the gradients (`gradient_peaks`,
-`block_gradient_values`, `pns_levels` with pypulseq's example hardware and
-`gradient_spectrum`), each with its default arguments.
+`test_snapshot.py` tests `analyses.load` and `synth/snapshot.py` (task R14): `load` reads a file
+or a pypulseq sequence through an interpreter, and the `Snapshot` holds the interpreter's
+`SequenceData` and its decoding. The files are `tests/seqfiles/oracle/pulseq_seq4.seq` (a
+gradient echo of pypulseq), the two radial files with rotations
+(`oracle/pulseq_make_radial.seq`, `oracle/koma_v1.5_rotation_radial_tiny.seq`) and other
+fixtures named below; the sequences are the synthetic spin echo, gradient echo, arbitrary
+gradient, border and empty (one delay block) sequences. The results that the tests compare are
+the index, the event points, the samples of the sampler on the raster, and the four
+measurements of the gradients (`gradient_peaks`, `block_gradient_values`, `pns_levels` with
+pypulseq's example hardware and `gradient_spectrum`), each with its default arguments, compared
+with `values_equal`.
 
-#### `test_a_snapshot_of_a_sequence_shares_no_mutable_object_with_it`
+The tests run without any plugin interpreter installed. A fake plugin of the module, `Unrotated`,
+stands for one: it reads with `spec`, under its own name, and its decoding (`UnrotatedDecoding`)
+gives `spec`'s decoding through the methods of the protocol `synth.Decoding`, with the rotations
+left unapplied (setting `"unrotated"`, a hint, no block rotated), as `cpp-siemens`'s default
+leaves them. The `check_*` helpers of the module take the interpreter; the plugin's tests run
+them for `cpp-siemens` (section 3.11).
 
-**Checks:** The object graph of a sequence and the object graph of `load(seq).sequence` have no
-mutable object in common, so no change of the sequence in place can reach the snapshot. With a
-warm block cache in the source, the snapshot has an empty block cache that is turned off, and
-the source keeps its own cache object with the same blocks.
+#### `test_load_of_a_file_is_the_reading_of_the_interpreter`
 
-**How:** Parametrized over the seven sequences and over a cold and a warm block cache (each
-block of the source read with `get_block` before `load`). A walk collects each object that can
-be reached from a root and that can change: through attributes, `__slots__`, dicts, lists,
-tuples, sets, and the items and the base of arrays. It leaves out numbers, strings, `None`,
-numpy scalars and dtypes, tuples and frozensets (their items are walked), and read-only arrays
-(an array and each array that it views are read-only, and the data is `bytes`). A list, dict,
-set, writable array, object with attributes, or an object of a type that the walk does not
-know counts as mutable. The test first checks that the walk finds shared objects between the
-sequence and `copy.copy(seq)`, so that the walk can fail. It then checks that the two graphs of
-the sequence and of the snapshot share none, that `snapshot.source` is `None`, that
-`use_block_cache` of the snapshot's sequence is False and its `block_cache` is `{}`, and, with
-the warm cache, that `seq.block_cache` is the same dict object with the same blocks and
-`seq.use_block_cache` is still True.
+**Checks:** `load(path, interpreter)` holds `read_seqfile(path, interpreter)`: equal data, the same
+interpreter, the path as `source`, and a decoding of the protocol `Decoding`, of the class of that
+interpreter (`check_load_of_a_file`).
 
-**Assumptions:**
+**How:** Parametrized over `"spec"` (a `SpecDecoding`) and `Unrotated()` (an
+`UnrotatedDecoding`), on the gradient echo file.
 
-- The walk finds an object only through the ways above. An object that is held in a way that
-  the walk does not follow (for example in a closure) is not found.
-- This test is the proof for every way to change the source. The tests of
-  `test_a_change_of_the_source_changes_no_result_of_the_snapshot` are examples.
+**Assumptions:** `SequenceData` equality compares every field but the reader's object.
 
-#### `test_a_snapshot_of_a_sequence_read_from_a_file_shares_no_mutable_object_with_it`
+#### `test_the_default_interpreter_of_load_is_spec`
 
-**Checks:** A sequence that `read` made from a file with definitions, labels, extensions and
-soft delays shares no mutable object with `load(seq).sequence`.
+**Checks:** `load` with no interpreter reads through `spec` (P19).
 
-**How:** Parametrized over the sequence with each kind of event, the sequence with a soft
-delay and the gradient echo. The test writes each one to a file, reads the file into a new
-`Sequence`, and checks by the walk of the test above that the sequence and the snapshot's
-sequence share no mutable object, and that they are two objects.
-
-**Assumptions:** The walk is the one of the first test of this section.
-
-#### `test_a_snapshot_writes_the_bytes_of_its_source`
-
-**Checks:** `load(seq).sequence.write(path)` gives a file with the same bytes as
-`seq.write(path)`.
-
-**How:** Parametrized over the seven sequences. The test makes the snapshot first, then writes
-the source and the snapshot's sequence to two files and compares the bytes. The snapshot is made
-before the writes because `write` sets the definition `TotalDuration` and the signature of the
-sequence that it writes.
-
-**Assumptions:** The bytes are those of pypulseq's `write`, which removes duplicate events and
-rounds the values. Two sequences with the same bytes can differ in a value that `write` does
-not write.
-
-#### `test_load_of_a_sequence_and_of_its_file_give_equal_results`
-
-**Checks:** For a file that `write` made from a sequence, `load(seq)` of the sequence that `read`
-makes from that file (a copy) and `load(path)` (no copy) have equal results, and
-`snapshot.source` is the path.
-
-**How:** Parametrized over the seven sequences. The test writes the sequence, reads the file
-into a `Sequence`, and compares `_results` of `load(that sequence)` and `load(path)` with
-`values_equal` (arrays: same dtype, shape and values). `_results` is the index, the events
-(each as the dict of its attributes), the event points, `sample` of each axis at 501 times
-from 0 to the end, `block_samples` of each axis for the whole sequence when every block is on
-the raster, and the four measurements of the gradients.
-
-**Assumptions:** The sequence is read from the file, not the sequence that was built in memory,
-because `write` rounds the values of the file, so the results of the built sequence and of
-the file can differ in the last digits. The next test compares the built sequence.
-
-#### `test_a_snapshot_of_a_sequence_has_the_results_of_the_same_sequence_with_no_copy`
-
-**Checks:** The copy that `load(seq)` makes does not change a result.
-
-**How:** Parametrized over the seven sequences. The test builds the sequence two times and
-compares `_results` (see above) of `load(first)` with `_results` of `Snapshot(second)`, which holds
-the second sequence with no copy and no check.
-
-**Assumptions:** Two builds of one builder give the same sequence. `Snapshot(sequence)` makes a
-snapshot with no check, which the package does not use.
-
-#### `test_a_change_of_the_source_changes_no_result_of_the_snapshot`
-
-**Checks:** After `load(seq)`, a change of `seq` in place changes no result of the snapshot. A
-new `load(seq)` gives the new results.
-
-**How:** Parametrized over six changes (`mod_grad_axis("x", 0.5)` of the gradient echo,
-`set_block` on the existing block 3 of the spin echo, `apply_soft_delay(TE=5e-3)` of the soft delay
-sequence, a write into a row of `seq.block_events`, a write into `seq.block_durations`, and a
-write into `seq.grad_raster_time`) and over two cases: the snapshot made its results before the
-change, and it makes them after it. The reference is `_results` of `load` of a second sequence
-of the same builder that does not change. After the change of `seq`, `_results` of the snapshot
-must equal the reference. Then the test makes the same change to a third sequence, and checks
-that `_results` of a new `load(seq)` equals `_results` of `load` of the third sequence and
-differs from the reference.
-
-**Assumptions:** The six changes are examples of the calls of pypulseq that change a sequence in
-place; the first test of this section is the proof for every way. Each change changes at least
-one result, which the last check shows.
-
-#### `test_load_accepts_an_unsigned_sequence_and_an_unsigned_file`
-
-**Checks:** `load` gives a snapshot of a sequence with no `[SIGNATURE]` hash and of a file with
-no `[SIGNATURE]` section, adds no hash (`signature_value` stays `''`), and the hash changes no
-result.
-
-**How:** The test loads a sequence that `add_block` built, and compares `_results` with those of
-the same sequence with the three signature attributes set by hand, as `write` sets them. Then it
-writes the spin echo to a file, cuts a copy of the file at its `[SIGNATURE]` section, and compares
-`_results` of `load` of the two files.
-
-**Assumptions:** `write` rounds the values, so the unsigned file is compared with the signed
-file, not with the sequence in memory.
-
-#### `test_load_refuses_a_sequence_with_a_rotation`
-
-**Checks:** `load` raises `NotImplementedError` for a sequence with the rotation extension.
-
-**How:** Parametrized over a sequence with a `rotation_library` and a sequence with the
-`"ROTATIONS"` extension type. The test calls `load` and checks the error message.
-
-**Assumptions:** The two ways to find a rotation are those of `extensions.refuse_rotations`;
-pypulseq 1.5.0.post1 cannot make a rotation.
-
-#### `test_load_refuses_an_unsigned_sequence_with_a_rotation`
-
-**Checks:** The rotation check of `load` does not depend on a hash: a sequence with a rotation
-and no hash raises `NotImplementedError`.
-
-**How:** A sequence with a rotation library and `signature_value` set to `''` is loaded inside
-`pytest.raises(NotImplementedError)`.
+**How:** `load(path).interpreter == Spec()`.
 
 **Assumptions:** None.
 
-#### `test_load_calls_refuse_rotations_once_and_no_measurement_calls_it`
+#### `test_load_of_a_sequence_is_read_pypulseq_of_it`
 
-**Checks:** `load` calls `refuse_rotations` one time, and no measurement of the snapshot calls
-it again.
+**Checks:** `load(seq, interpreter)` holds `read_pypulseq(seq, interpreter)`, with `origin`
+`"pypulseq"` and `source` None, and a second `load` of the same sequence gives equal data
+(`check_load_of_a_sequence`).
 
-**How:** Parametrized over the seven sequences. The test replaces `refuse_rotations` in
-`snapshot` with a wrapper that counts the calls and calls the original, loads the sequence, and
-checks one call. Then it replaces `refuse_rotations`, in `extensions`, in `snapshot` and in
-`seq_index`, `_events`, `sampling`, `grad_peaks`, `pns_levels` and `grad_spectrum` (also where
-the module has no such name), with a function that raises, and runs `_results` (the index, the
-events, the event points, the sampler and the four measurements). No call is made, and the count
-stays at one.
+**How:** Parametrized over the five synthetic sequences and `spec` and `Unrotated()`.
 
-**Assumptions:** A module that reaches the check in another way than by this name is not found.
+**Assumptions:** `test_from_pypulseq.py` tests `read_pypulseq` itself.
+
+#### `test_load_of_a_sequence_and_of_its_file_give_equal_results`
+
+**Checks:** The results of `load(seq)` equal those of `load(path)` of the file of `seq.write(path)`.
+
+**How:** Parametrized over the five synthetic sequences, with `spec`.
+
+**Assumptions:** `seq.write` with its defaults writes the bytes that `read_pypulseq` reads.
+
+#### `test_load_raises_the_rejection_of_the_interpreter`
+
+**Checks:** A file that `spec` rejects raises its `SeqFileError` from `load`, with the code of the
+reason.
+
+**How:** `bad_gradient_nonzero_end_align.seq` (`gradient.nonzero-end-align`) and
+`bad_raster_gradient_delay.seq` (`raster.gradient-delay`). The plugin's tests load both through
+`cpp-siemens`, which plays them.
+
+**Assumptions:** None.
+
+#### `test_load_raises_not_supported_for_a_version_outside_the_package`
+
+**Checks:** A file of version 1.3 raises `NotSupported` from `load` (Q1).
+
+**How:** `bad_version_unsupported_1_3.seq` through `spec`.
+
+**Assumptions:** None.
+
+#### `test_load_accepts_a_file_with_no_signature`
+
+**Checks:** A file with no `[SIGNATURE]` section loads, and its data has no signature.
+
+**How:** `valid_no_signature.seq` through `spec`; the index has blocks.
+
+**Assumptions:** None.
+
+#### `test_the_snapshot_records_the_interpreter_with_its_settings_and_the_records`
+
+**Checks:** `snap.interpreter` is the interpreter object given, and `snap.records` is the records
+of the reading (P20, rule 4).
+
+**How:** `Unrotated()` on the gradient echo file: the same object. `valid_1_5_1.seq` through
+`spec`: the records equal those of `read_seqfile`, one unknown extension `UNKNOWN` (D2.17).
+
+**Assumptions:** None.
+
+#### `test_load_warns_for_a_rotation_that_a_plugin_leaves_unapplied`
+
+**Checks:** With a plugin whose decoding leaves the rotations unapplied, `load` of a file whose
+blocks play rotations emits one `ScannerSettingWarning`, which ends with the plugin's hint, and
+keeps the decoding's rotation record, with no block rotated and some blocks left unapplied
+(`check_load_warns_for_an_unapplied_rotation`).
+
+**How:** Parametrized over the two radial files, with `Unrotated()`, in `pytest.warns`.
+
+**Assumptions:** None.
+
+#### `test_load_does_not_refuse_rotations_and_does_not_warn_when_they_are_applied`
+
+**Checks:** `load` reads a file with played rotations through `spec` (from 1.5.1) with no
+`ScannerSettingWarning`; the record has the setting `"apply"`, every block with a rotation
+rotated and none unapplied, and `gradient_peaks` gives values
+(`check_load_applies_rotations_without_a_warning`).
+
+**How:** Parametrized over the two radial files, with the warning made an error.
+
+**Assumptions:** Both radial files are of version 1.5.1 or later.
+
+#### `test_load_does_not_warn_for_a_rotation_that_no_block_plays`
+
+**Checks:** A file that defines a rotation that no block uses loads through a plugin that leaves
+the rotations unapplied with no warning, and the record has no block with a rotation
+(`check_load_does_not_warn_for_a_rotation_that_no_block_plays`).
+
+**How:** `valid_1_5_1_rotation_not_played.seq` with `Unrotated()`, with the warning made an error.
+
+**Assumptions:** None.
+
+#### `test_the_rotation_changes_the_measured_gradients_only_where_it_is_applied`
+
+**Checks:** On a radial file, the peaks of `spec`, which rotates, differ from those of a plugin
+that leaves the rotations unapplied: the measurements take the gradients of the decoding.
+
+**How:** `pulseq_make_radial.seq`; `gradient_peaks` of the two snapshots.
+
+**Assumptions:** None.
+
+#### `test_a_change_of_the_sequence_changes_no_result_of_its_snapshot`
+
+**Checks:** After `load(seq)`, scaling a trapezoid of `seq` in its library changes no result of
+the snapshot, made after the change or kept before it, and a new `load(seq)` gives other results.
+
+**How:** The spin echo; the reference is a snapshot of a new spin echo. Parametrized over the
+results made after the change and kept before it.
+
+**Assumptions:** One kind of change; the snapshot holds no object of the sequence, which is what
+makes every kind of change safe.
+
+#### `test_a_copy_of_a_snapshot_is_a_new_snapshot_with_no_kept_results`
+
+**Checks:** A copy from `pickle` or `copy.deepcopy` is a new `Snapshot` with equal data, the same
+interpreter and `source`, no kept results, and equal results, made again
+(`check_a_copy_of_a_snapshot`).
+
+**How:** Parametrized over the two copies, through `spec`, on the gradient echo file.
+
+**Assumptions:** None.
 
 #### `test_load_refuses_another_type_and_a_snapshot`
 
-**Checks:** `load` raises `TypeError` that names `load` for `None`, an `int`, `bytes`, a list,
-and a `Snapshot`.
+**Checks:** `load` raises `TypeError` that names `load` for `None`, an `int`, `bytes`, a list and a
+`Snapshot`.
 
-**How:** Parametrized over the five arguments. The test calls `load` and checks the type of the
-error and that its message has `load`.
+**How:** Parametrized over the five values.
+
+**Assumptions:** None.
+
+#### `test_load_raises_for_an_interpreter_that_does_not_exist`
+
+**Checks:** An interpreter name that does not exist (`"strict"`, removed in R11) raises the
+`ValueError` of `seqfile.interpreter`.
+
+**How:** `load(path, "strict")` in `pytest.raises`.
 
 **Assumptions:** None.
 
 #### `test_check_snapshot_raises_a_type_error_that_names_load`
 
-**Checks:** `_check_snapshot` (the check that each public function makes of its first argument)
-raises `TypeError` that names `load` for a `pp.Sequence`, `None` and a path, and nothing for a
-`Snapshot`.
+**Checks:** `_check_snapshot` raises `TypeError` that names `load` for a `pp.Sequence`, `None`
+and a path, and nothing for a `Snapshot`.
 
-**How:** Parametrized over the three bad arguments. The test calls `_check_snapshot` with a
-snapshot (no error), then with the argument (`TypeError`, message with `load`).
+**How:** Parametrized over the three values.
 
-**Assumptions:** The test calls a private function; each public function calls it for its first
-argument, and the tests of each public function check that.
+**Assumptions:** None.
 
-#### `test_a_copy_of_a_snapshot_is_a_new_snapshot_with_no_kept_results`
+#### `test_a_snapshot_takes_only_a_sequence_data`
 
-**Checks:** A copy of a `Snapshot` from `pickle` or `copy.deepcopy` is a new snapshot with a new
-sequence, the same `source`, no kept results, and the same results when it makes them again.
+**Checks:** `Snapshot(x)` raises `TypeError` that names `SequenceData` when `x` is not one.
 
-**How:** Parametrized over `pickle.loads(pickle.dumps(s))` and `copy.deepcopy`. The test writes
-the gradient echo to a file, loads the file (so `source` is the path, not `None`) and makes its
-index and event points, so the kept dict is not empty. It checks
-that the copy is a `Snapshot`, is not the same object, has a sequence that is not the same
-object, has the same `source`, and has an empty kept dict (`_kept_results`). It then checks
-that `sequence_index` and `event_points` of the copy equal those of the original
-(`values_equal`).
+**How:** With a `pp.Sequence`.
 
-**Assumptions:** The test reads the kept dict through the private `_kept_results`. `source` is
-`None` here, as the snapshot is of a sequence.
+**Assumptions:** None.
 
 #### `test_a_snapshot_has_read_only_properties_no_new_attribute_and_the_hash_of_its_identity`
 
-**Checks:** The properties `sequence` and `source` cannot be set, a new attribute cannot be
-added, two snapshots of one sequence are not equal, and a snapshot is a key of a dict by
-identity.
+**Checks:** The properties (`data`, `decoding`, `interpreter`, `records`, `rotation_record`,
+`source`) cannot be set, a new attribute cannot be added, two snapshots of one file are not
+equal, and a snapshot is a key of a dict by identity.
 
-**How:** The test makes two snapshots of one sequence. Setting `sequence`, `source` or a new
-attribute raises `AttributeError`. A snapshot equals itself and not the other one, its hash is
-stable, and a dict with both snapshots as keys gives each one its own value.
+**How:** `setattr` of each name raises `AttributeError`; equality, hash and a dict lookup.
 
-**Assumptions:** The test does not check that the kept dict, which is private, cannot be set.
+**Assumptions:** None.
 
 #### `test_load_accepts_a_path_like_and_source_is_its_str`
 
-**Checks:** `load` takes the path of a file as a `str` or as an `os.PathLike`, and
-`snapshot.source` is the `str` of the path.
+**Checks:** `load` takes a `str` and a `pathlib.Path`, and `snapshot.source` is the `str` of the
+path.
 
-**How:** Parametrized over `str` and `pathlib.Path`. The test writes the spin echo, loads the
-path in each form, and checks that `source` equals the path as a `str`, that its type is `str`,
-and that the index has the 6 blocks of the sequence.
+**How:** Parametrized over the two; the spin echo written to a file has 6 blocks.
 
 **Assumptions:** None.
 
@@ -7987,15 +7365,15 @@ function; `monkeypatch` then sets `_safe_gwf_to_pns_chunk` of
 which imports pypulseq, and `import pypulseq` imports matplotlib and
 `pypulseq.utils.safe_pns_prediction` (checked on 2026-10-08).
 
-#### `test_only_snapshot_extensions_and_seq_index_import_pypulseq`
+#### `test_no_module_imports_pypulseq`
 
-**Checks:** Of the modules of `src/pulseq_analysis` and its subpackages, only `snapshot`,
-`extensions` and `seq_index` have an `import` of pypulseq.
+**Checks:** No module of `src/pulseq_analysis` or its subpackages has an `import` of pypulseq.
 
-**How:** The test parses each file with `ast` and collects the modules that have an `import` or
-an `import from` of a name that starts with `pypulseq`, in any scope.
+**How:** The test parses each file with `ast` and collects the modules that have an `import` or an
+`import from` of a name that starts with `pypulseq`, in any scope. The set must be empty.
 
-**Assumptions:** A name that is imported with `importlib` is not found.
+**Assumptions:** A name that is imported with `importlib` is not found. `read_pypulseq` calls the
+`write` method of the sequence that the caller gives, so the package needs no import.
 
 ### 2.22 The decoded events (`test_decoding.py`)
 
@@ -10236,3 +9614,879 @@ message for the three functions.
 float64. A file that `cpp-siemens` rejects (`valid_last_section_no_blank.seq`,
 `definitions.skipped`, and `valid_rf_time_shapes.seq`, `ub.rf-time-overrun`) or that MATLAB cannot
 read is skipped.
+
+### 3.10 The measurements through `cpp-siemens` (`test_measurements_in_pulseq_analysis.py`)
+
+`test_measurements_in_pulseq_analysis.py` has the tests of the measurements of pulseq-analysis
+(`gradient_peaks`, `block_gradient_values`, `gradient_spectrum`, `pns_levels` and
+`GradientSampler`) for the sequences that `spec` rejects, which the root tests loaded with
+`cpp-siemens`: a gradient that ends above 0 before its block ends
+(`gradient.nonzero-end-align`), a gradient that starts above 0 after a delay
+(`gradient.nonzero-start-delay`), a delay off the gradient raster (`raster.gradient-delay`), and a
+gradient raster of 4 µs with a block duration raster of 10 µs
+(`definitions.raster-commensurate`). The root suite runs without the plugin, so these tests are
+here. A test that was whole in sections 2.2, 2.5, 2.6, 2.8 and 2.10 moved with its entry, and keeps
+its name and its values. A test that had cases for both interpreters is two tests of one name: the
+root test keeps the cases that `spec` reads, and the test here has the others, with the same body
+(a helper `check_*` of the root module, imported here). The module imports the helpers and the
+cases of the root modules, as `test_interpreter_in_pulseq_analysis.py` does. Like
+`test_interpreter.py`, it needs pulseq-analysis and is not collected without it.
+
+#### `test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system`
+
+**Checks:** The step at a block junction is divided by the gradient raster that the file declares
+(`GradientRasterTime`, `snap.data.rasters.gradient`), not by the 10 µs of the pypulseq `Opts` default.
+`load` of the file and `load` of the sequence object that wrote it give the same value.
+
+**How:** `raster_4us_sequence` builds two y extended trapezoids with a 4 µs gradient
+raster: the slopes are 40 and 39.4 T/m/s and the junction step is 0.24 mT/m, so the
+junction is 60 T/m/s with 4 µs (24 T/m/s with 10 µs). The test writes the sequence to
+a file in `tmp_path`. For `load(path, "cpp-siemens")` and `load(seq, "cpp-siemens")`, it checks that
+the gradient raster of the data is 4 µs and that the y slew is 60 T/m/s times `GAMMA_1H` (Hz/m/s),
+credited to the second block, at the junction (0.8 ms).
+
+**Assumptions:** `spec` rejects a gradient raster of 4 µs with a block duration raster of 10 µs (it is
+neither a multiple nor a divisor of it), so the test uses `cpp-siemens`. The file stores the amplitudes
+with fewer digits than the sequence object, so the comparison has a relative tolerance of 1e-4.
+
+#### `test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`
+
+**Checks:** The step to 0 after the last point of an axis, at the end of the sequence, is counted
+when the last point is more than `TIME_TOLERANCE` before the end, and is in no range when the
+last point is within `TIME_TOLERANCE` of the end, also in a window that ends a little before the
+end of the sequence (decision D1 of `docs/plans/fourth-review-fixes.md`: a step is in `[lo, hi]`
+when `lo <= t < hi` and `t < end_s - TIME_TOLERANCE`).
+
+**How:** The test is run for four values of `early`, the time from the last point of the
+extended trapezoid to the end of the sequence: 0, half of `TIME_TOLERANCE`, 0.9 of
+`TIME_TOLERANCE`, and one raster time. The sequence is an x trapezoid (slope 1e9 Hz/m/s), then a
+block of 0.6 ms with an x extended trapezoid that ends at `A` at `0.6 ms - early`. The step is
+`A / DT` (3.19e9 Hz/m/s). Only the one raster time counts it. The snapshot is `load(seq, "cpp-siemens")`. Then the oracle (on
+the sequence object), the whole file and the window `(0.0, end_s)` of `gradient_peaks` give `A / DT` credited to block 2 at
+`end_s - early`. For the other values they give 1e9 Hz/m/s in block 1. The window
+`(0.0, end_s - 0.5 * TIME_TOLERANCE)`, in the oracle and in `gradient_peaks`, gives the same
+slew and block: for an `early` of 0.9 of `TIME_TOLERANCE` the step is before the end of this
+window, so only the rule `t < end_s - TIME_TOLERANCE` leaves it out. In every case the slew of
+block 2 in `block_gradient_values` is `A / DT` (counted) or `A / 100 µs` (not counted).
+
+**Assumptions:** `spec` rejects an extended trapezoid that ends at `A` before the end of its block (`gradient.nonzero-end-align`),
+and a last point that is off the raster, so the test uses `cpp-siemens`. pypulseq accepts a last time off
+the gradient raster by 1e-9 s or less, and no more, so a value of `early` between `TIME_TOLERANCE` and one raster time cannot be built with
+`make_extended_trapezoid`. The test does not cover a value between them. The window ends at
+`end_s` of the index of the package, and the oracle uses the end of its last block: the two are
+the same number for this sequence. The 1e-6 relative tolerance of the comparison with the oracle on the
+sequence object covers the rounding of the writer.
+
+#### `test_a_first_value_that_is_not_zero_after_a_delay_has_a_ramp_from_zero_in_its_block`
+
+**Checks:** An x extended trapezoid with a delay and a first value that is not 0, after a block
+that ends at 0, has a ramp from 0 in the last half raster time before its first point. It does
+not have a step. The ramp is the slew of the whole file, and it is credited to the block of the
+event. The junction of that block is 0.
+
+**How:** Block 1 is an x trapezoid with ramps of 100 µs. Block 2 is an x extended trapezoid with
+the amplitudes `[step, step, 0]` and `delay = 100 µs`, where `step` is 90% of the largest step
+that `add_block` accepts. The gap is 100 µs, so it is a long gap. The slope of the ramp is twice
+`step` divided by `grad_raster_time`, which is more than each other slope of the sequence. The
+test checks the slew, `slew_block` (block 2), and `slew_time_s` (the start of block 2, plus the
+delay, minus half a raster time, to 1e-12 s). It checks that the junction of block 2 is 0.
+
+**Assumptions:** `add_block` accepts a delayed extended trapezoid with a first value that is
+not 0, after a block that ends at 0. The ramp is the rule of MATLAB Pulseq (pypulseq-issues 12).
+`spec` rejects the first value that is not 0 after a delay (`gradient.nonzero-start-delay`), so the test uses `cpp-siemens`, which
+plays it.
+
+#### `test_window_that_cuts_the_ramp_from_zero_of_a_delayed_event_has_the_part_inside_it`
+
+**Checks:** For the sequence of the test above, a window that starts in the middle of the ramp
+from 0 has the second half of it. A window that ends where the ramp starts does not have the
+ramp.
+
+**How:** The ramp is from 395 µs to 400 µs. The window from 397.5 µs to the end must have the
+same slew, `slew_block` equal to block 2, and `slew_time_s` equal to the window start (the
+start of the cut). The window from 0 to 395 µs must have the slope of the ramps of block 1 (0.3
+of the largest amplitude in 100 µs) and block 1.
+
+**Assumptions:** The ramp is steeper than the slope of the ramps of block 1, which the test
+checks. `spec` rejects the sequence (`gradient.nonzero-start-delay`), so the test uses `cpp-siemens`. The slope of the ramps of
+block 1 has a relative tolerance of 1e-5 (the writer's rounding of the amplitude).
+
+#### `test_matches_oracle_on_synthetic_sequences`
+
+**Checks:** `gradient_peaks` matches the oracle of the gradient waveform
+(`tests/oracles/waveform.py`, section 2.15) on the whole file and on windows, for each of
+`tests/synthetic.py`'s sequences (parametrized: `spin_echo_sequence`, `gre_sequence`,
+`empty_sequence`, `arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`).
+`border_sequence` and `raster_4us_sequence` have a gradient that is not 0 at a block junction.
+
+**How:** The sequences are read with `load(seq, "cpp-siemens")`, and the oracle reads the gradients that
+the snapshot plays (`sequence_of(snap)`). The windows are up to 12 windows from `_oracle_windows` (seed 20261007) and one window
+from 0 to half of the total duration. For each window, `_assert_matches_oracle` compares every
+field with `oracle.peaks(seq, window)`: the peak, the slew and the RMS of each axis within
+`_rounding_tol`, the peak time and the vector peak time to 1e-12 s, the blocks (below) and the
+vector peak. `_rounding_tol` is `1e-12 + 4 * eps * duration / shortest segment`, relative to
+the value or to the limit of the same kind. The block of the peak of each axis is the oracle's,
+with one exception (`_assert_same_credit`). `gre_sequence` repeats its readout, phase-encode and
+spoiler events every TR, and the oracle adds the absolute block start to the corner times, so
+its rounding can make it credit a later block that plays the same event. This package credits
+the first block in play order. The test accepts a different block only when both blocks play
+the same gradient event on that axis and the block of this package is the earlier one. The
+block and the time of the slew are the oracle's, or those of another item of the polyline of
+the oracle with the same slope (`_assert_slew_item`). The block of the vector peak is the
+oracle's.
+
+**Assumptions:**
+
+- The user chose this tolerance on 2026-09-28. The oracle adds each block's absolute start time
+  to an event's corner points before it takes a slope, so each corner time is rounded to about
+  eps times the start time, and a slope divides the difference of two such times by the
+  segment's duration. The package computes each event one time from its own offsets.
+- The oracle gives Hz/m and Hz/m/s, so no value is converted.
+- `spec` rejects `raster_4us_sequence` (a gradient raster of 4 µs with a block duration raster of 10 µs),
+  so the test reads all the sequences with `cpp-siemens`. The oracle reads the same played gradients
+  as the package (`sequence_of(snap)`), so the comparison has no rounding of the writer. The scale of
+  the tolerance is the `SYSTEM.max_grad` and `SYSTEM.max_slew` of `tests/synthetic.py`.
+
+#### `test_matches_oracle_on_the_sequences_of_the_oracle_tests`
+
+**Checks:** `gradient_peaks` matches the oracle of the gradient waveform on the whole file and
+on up to 40 windows, for each sequence of `tests/gap_sequences.py` (parametrized): the two
+sequences of pypulseq-issues 12 (a first value after a delay, and an end before the end of its
+block), a zero gap with a step, a short gap, a long gap, a first value and a last value that
+are not 0, and one block with two axes.
+
+**How:** The test loads each sequence with `load(seq, "cpp-siemens")`. The windows come from `_oracle_windows`
+(seed 20261007). Their ends are on the starts and the ends of the blocks, on the points of the
+polylines of the oracle, half a raster time before and after those points, on multiples of
+2.5 µs, at random, and within 1.5 ns of the start or the end of a block. A window shorter than
+`TIME_TOLERANCE` is not made. For each window, `_assert_matches_oracle` compares each field with
+`oracle.peaks(seq, window)`: the peak, the slew and the RMS of each axis within `_rounding_tol`,
+the peak time and the vector peak time to 1e-12 s, the block of the peak of each axis, and the
+block of the vector peak. The time and the block of the slew are those of the oracle, or those
+of another item of the polyline with the same slope (`_assert_slew_item`).
+
+**Assumptions:**
+
+- The slope of the rise and the slope of the fall of a symmetric trapezoid are equal. The
+  rounding of the times decides which one the oracle or the package finds first. The test
+  accepts both. An item of the polyline of the oracle that has the largest slope is an accepted
+  result.
+- `spec` rejects most of these sequences (a first value that is not 0 after a delay, `gradient.nonzero-start-delay`, or an end
+  that is not 0 before the end of the block, `gradient.nonzero-end-align`), so the test uses `cpp-siemens`, which plays them.
+  The oracle reads the gradients that the snapshot plays (`sequence_of(snap)`).
+- The test makes no window shorter than `TIME_TOLERANCE` (1 ns). The values of such a window
+  are of a part of a segment that is shorter than the tolerance of a time.
+
+#### `test_matches_oracle_on_random_sequences_with_ends_that_are_not_zero_next_to_gaps`
+
+**Checks:** 40 random sequences with events that start and end at values that are not 0 give
+the values of the oracle, on the whole file and on up to 8 windows. This covers a step across a
+zero gap, a line across a short gap, the ramps across a long gap, and a first value and a last
+value of an axis that are not 0.
+
+**How:** `random_gap_sequence` (`tests/random_gaps.py`) makes 2 to 8 blocks. Each of the three axes has an event for 55%
+of the blocks. Each event is a trapezoid, an extended trapezoid or an arbitrary gradient, with a
+delay of 0 to 7 raster times. The first value and the last value of an extended trapezoid and of
+an arbitrary gradient are 0, or a random value of at most 0.9 of the largest step that
+`add_block` accepts (at most 0.2 of it for an arbitrary gradient). A first value is also the
+last value of the event before it for part of the calls, and it is within 0.9 of that step of
+that value. A block has a delay event for 60% of the calls, which makes the block 1, 2 or 5
+raster times longer than its events. A block with no event is a delay of 100 µs, 300 µs or 1 ms.
+12% of the blocks are labels (a block of zero duration). A block that `add_block` refuses is not
+added. The test reads each sequence with `load(seq, "cpp-siemens")`: `spec` rejects
+a first value that is not 0 after a delay (`gradient.nonzero-start-delay`) and an end that is not 0 before the end of its block
+(`gradient.nonzero-end-align`). The oracle reads `sequence_of(snap)`. The windows and the comparison are those of
+`test_matches_oracle_on_the_sequences_of_the_oracle_tests`.
+
+**Assumptions:** The seeds are fixed, so the sequences are the same in each run. The sequences
+have gaps of each kind, but the test does not count them.
+
+#### `test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`
+
+**Checks:** For each of 32 sequences (parametrized), the maxima of `block_gradient_values` over
+the blocks are the whole-file values of `gradient_peaks`, with the same block and the same time.
+For each axis, the maximum of `peak_hz_per_m` is `peak_hz_per_m` of the axis, and the first
+block in play order with that maximum has the `peak_block` and the `peak_time_s`. The maximum
+over the blocks of the larger of `slew_hz_per_m_per_s` and `junction_hz_per_m_per_s` is
+`max_slew_hz_per_m_per_s`, and the first block with that maximum has the `slew_block`. Its time
+is the time of the junction (`_junction_time`) when its junction has the maximum (the junction is
+before every other item of its block), and otherwise the `slew_time_s` of the block. The maximum
+of `vector_peak_hz_per_m` is `vector_peak_hz_per_m` of the result. The block with the earliest
+`vector_peak_time_s` among the blocks with that maximum has the `vector_peak_block` and the
+time. When the maximum is 0, `gradient_peaks` has no block (None).
+
+**How:** The sequences are `spin_echo_sequence`, `gre_sequence`, `empty_sequence`,
+`arbitrary_gradient_sequence`, `border_sequence`, `raster_4us_sequence`, `build_repeating(50)`
+and `build_worst(50)` of `tests/scale_sequences.py`, five sequences of this file (a step between
+two extended trapezoids, the same with a segment of the second block that has the same slew as
+the step, a gradient that ends non-zero before a delay, a first block that starts non-zero, and
+an x extended trapezoid with a delay and a first value that is not 0 after a trapezoid), the
+seven sequences of `tests/gap_sequences.py`, 4 random sequences of `_random_gradient_sequence`
+(seeds 0 to 3) and 8 random sequences of `random_gap_sequence` (seeds 0 to 7). For each
+sequence the test makes the snapshot `load(make_seq(), "cpp-siemens")` (`spec` rejects some of the
+sequences: `gradient.nonzero-start-delay`, `gradient.nonzero-end-align`, and the 4 µs raster of `raster_4us_sequence`), calls `block_gradient_values` and `gradient_peaks` and compares them with
+`==`, not `pytest.approx`. `_junction_time` reads the first point of the event of the credited
+block with `get_block` of
+`sequence_of(snap)`, the gradients that the snapshot plays. For a line across a short gap, it reads the last point of the event
+before it, with `gradient_offsets`.
+
+**Assumptions:**
+
+- Exact equality holds because both functions use the same arithmetic on the same values of
+  each block: the columns of `_BlockData`.
+- The 4 random sequences of `_random_gradient_sequence` have no gap with a value that is not 0
+  (every event starts and ends at 0), so their junctions are 0. The 8 sequences of
+  `random_gap_sequence` have steps, lines and ramps.
+- The test does not compare a window: `block_gradient_values` has no window.
+
+#### `test_block_gradient_values_use_the_gradient_raster_of_the_file_not_of_seq_system`
+
+**Checks:** The `junction_hz_per_m_per_s` of `block_gradient_values` is divided by the gradient
+raster that the file declares, not by 10 µs. `load` of the file and `load` of the sequence object that
+wrote it give the same values.
+
+**How:** `raster_4us_sequence` has a junction of 60 T/m/s with 4 µs (24 T/m/s with 10 µs).
+The test writes the sequence to a file in `tmp_path`. For `load(path, "cpp-siemens")` and
+`load(seq, "cpp-siemens")`, it checks that the y junction step of block 2 is 60 T/m/s times `GAMMA_1H`
+(Hz/m/s), that the step of block 1 is 0, and that the x and z steps are 0 everywhere.
+
+**Assumptions:** `spec` rejects this raster (see the test above), so the test uses `cpp-siemens`. The
+file stores the amplitudes with fewer digits than the sequence object, so the comparison has a relative
+tolerance of 1e-4.
+
+#### `test_a_window_gives_the_same_result_with_and_without_the_kept_data`
+
+**Checks:** For a window, `gradient_peaks` of a snapshot that has its kept data (the per-event
+values and the values over the blocks: the end of each block, the junction and its time, the
+ramps, the extent in time of each block, and the RMS of the whole file) gives a result equal
+(`==`) to the result of the same call on a snapshot whose kept data is empty. The kept values
+over the blocks and the search of the block range (`np.searchsorted`) do not change a result,
+also for a window edge on a block edge, and for a block of zero duration at a window edge or
+inside the window.
+
+**How:** Both snapshots are `load(seq, "cpp-siemens")`: `spec` rejects the delayed junction sequence
+(`gradient.nonzero-start-delay`). For six sequences (`build_repeating(30)`, a sequence of trapezoids with blocks of zero
+duration before, between and after them, the junction sequence, the delayed junction sequence,
+one random gradient sequence and one random sequence of `random_gap_sequence`), 30 windows
+with the seed 20261006: the ends of every other window are each the start or the end of a block
+(or 0 or the end of the sequence), and the ends of the others are random. The test makes a
+snapshot `snap` of one build. It never empties the kept data of `snap`, so each window uses the
+kept data that the windows before it built. For each window, it makes a new snapshot of the same
+sequence, so that the call on it builds its own kept data, and checks that the result for `snap`
+equals the result for the new snapshot. It also checks that the kept values over the blocks
+(`_kept_results(snap)["block_data"]`) are one object for all the windows, so the kept data is
+really reused.
+
+**Assumptions:** The test does not compare with a second implementation of the window: the
+values themselves are checked by the hand-computed tests and by the comparisons with the oracle
+above. A window with an end that is not within the sequence is not used. The test reads the
+private kept dict of the snapshot (`snapshot._kept_results`). The two snapshots are of one
+sequence, so they have equal events and blocks. A result that uses the kept data of another
+window, for example a range that the first window kept, is not equal to the result of a call with
+empty kept data.
+
+#### `test_the_values_of_each_sequence_of_pypulseq_issue_12_are_those_of_matlab_pulseq`
+
+**Checks:** The two sequences of pypulseq-issues 12 (parametrized) have the gradient of MATLAB
+Pulseq, with the values by hand. The gradient is at 0, 100, 200, 205, 295, 300 and 400 µs the
+values 0, A, A, 0, 0, A and 0, where A is half of `max_slew * grad_raster_time`.
+
+**How:** For the whole file, the test checks the peak A at 100 µs in block 1, the slew
+`max_slew` (a ramp of A in half a raster time), the RMS (A times sqrt(170 / 400)), and the
+vector peak A at 100 µs in block 1. The slew is at 200 µs in block 1 or at 295 µs in block 2. y
+and z have no block. For the values of each block, it checks the peak A, the slew `max_slew`,
+the junction 0 (a long gap has ramps and no junction), and the vector peak A of both blocks. The
+time of the vector peak of block 2 is 200 µs for the first sequence and 300 µs for the second.
+
+**Assumptions:** The two ramps have one slope up to the rounding of the times, so the test
+accepts the ramp to 0 or the ramp from 0 as the slew. The vector peak of block 2 is the value at
+the first time on the side of block 2. Block 2 starts at 200 µs in the first sequence, where the
+ramp to 0 starts. In the second sequence, the value after 300 µs is in block 2. `spec` rejects both
+sequences (`gradient.nonzero-start-delay` for the first, `gradient.nonzero-end-align` for the second), so the test reads them with `cpp-siemens`. A is
+31932 Hz/m, which the file holds exactly.
+
+#### `test_a_short_gap_gives_a_line_credited_to_the_later_block`
+
+**Checks:** A gap of one raster time with ends that are not 0 is a line, not two ramps. The line
+is credited to the later block.
+
+**How:** The first gradient goes from 0 to 3 U in 100 µs. Its block lasts 110 µs. The second
+block goes from 2 U to 0 in 100 µs. The line goes from 3 U at 100 µs to 2 U at 110 µs. Its slope
+is U / DT. For the whole file, the test checks the peak 3 U at 100 µs in block 1, the slew
+U / DT at 100 µs in block 2, and the RMS (U sqrt(149 / 63)). It checks the junction of each
+block (0 and U / DT), the slew of each block (3 U / 100 µs and 2 U / 100 µs), and the peak and
+its time of each block. The window from 105 µs to 150 µs has half of the line and 40 µs of
+block 2. The peak is 2.5 U at 105 µs in block 2, and the slew is U / DT at 105 µs in block 2.
+The vector peak has the same value and time, in block 1, the block that has 105 µs.
+
+**Assumptions:** `spec` rejects the first gradient, which ends at 3 U before its block ends (`gradient.nonzero-end-align`), so the
+test reads the sequence with `cpp-siemens`. U (1e4 Hz/m) and the multiples of it that the test uses are
+held exactly by the file.
+
+#### `test_a_window_edge_next_to_a_block_edge_credits_the_vector_peak_by_time`
+
+**Checks:** The vector peak is credited to the block that has its time within `TIME_TOLERANCE`,
+seen from the side where the value is. The peak of an axis is credited to the block of its
+segment. These can be two blocks.
+
+**How:** In `raster_4us_sequence`, block 1 has the y gradient at its top (16 mT/m) until 800 µs,
+and block 2 starts with a step down to 15.76 mT/m. The window that starts 1 ps before the start
+of block 2 has the top at its start. The y peak is in block 1 (the segment that the window cuts),
+and the vector peak is in block 2 (it starts 1 ps after the window start), at the window start.
+The window that starts 1 ps after the start of block 2 has 15.76 mT/m for the y peak and the
+vector peak, in block 2.
+
+**Assumptions:** 1 ps is less than `TIME_TOLERANCE`, so the start of the window and the start of
+block 2 are one time for the credit of the vector peak. The sequence is read with `cpp-siemens` (`spec`
+rejects the 4 µs raster). The file holds 16 mT/m and 15.76 mT/m in Hz/m with 6 significant digits, so the
+peaks have a relative tolerance of 1e-5.
+
+#### `test_the_gap_rule_uses_the_gradient_raster_of_the_file_not_of_seq_system`
+
+**Checks:** The gap rule (zero, short, long) and the ramps use the gradient raster that the file declares
+(`snap.data.rasters.gradient`), not the 10 µs of the pypulseq `Opts` default.
+
+**How:** With a 4 µs gradient raster, the test builds an x gradient from 0 to V in 400 µs in a
+block of 410 µs, and an x gradient from W to 0 in 400 µs in the second block. The gap is 10 µs,
+which is more than one raster time of 4 µs. It is a long gap: the slope of the ramp to 0 is
+V / 2 µs, the slope of the ramp from 0 is W / 2 µs, and the junction of block 2 is 0. (With
+10 µs, it would be a short gap, with a line and a junction.) The test writes the sequence to a file in
+`tmp_path`. For `load(path, "cpp-siemens")` and `load(seq, "cpp-siemens")`, it checks that the gradient
+raster is 4 µs, the junction, the slews and their times, and `gradient_peaks` on two windows against the
+oracle.
+
+**Assumptions:** `spec` rejects this sequence (the 4 µs raster with a block duration raster of 10 µs, and
+a gradient that ends at V before its block ends, `gradient.nonzero-end-align`), so the test uses `cpp-siemens`. The file stores
+the amplitudes with fewer digits, so the slews have a relative tolerance of 1e-4.
+
+#### `test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has`
+
+**Checks:** For each axis and each block, the peak, the junction and the slew of
+`block_gradient_values` are the values of the items that the credit of the model gives to the
+block, found in the polyline of the oracle.
+
+**How:** For 25 sequences (parametrized: `spin_echo_sequence`, `gre_sequence`,
+`border_sequence`, `raster_4us_sequence`, the seven sequences of `tests/gap_sequences.py`, and
+14 sequences of `random_gap_sequence`), `_block_values_of_the_polyline` reads the polyline of
+the oracle and gives each item to its play index. A point gives the peak. A segment from a point
+of one block to a point of another block, and a step that is not after the last point, give the
+junction. The other segments, and the step after the last point (when its time is before the end
+of the sequence), give the slew. The snapshot is `load(make_seq(), "cpp-siemens")`
+(`spec` rejects some of the sequences: `gradient.nonzero-start-delay`, `gradient.nonzero-end-align`, and the 4 µs raster), and the polyline is that of
+`sequence_of(snap)`, the gradients that the snapshot plays, so that the peak agrees to 1e-12 with
+the value in the file and not with the value of the builder (the writer rounds it). The test compares the peak (and its time where it is above 0),
+the junction and the slew of each block with the values of the package
+(`numpy.testing.assert_allclose`, 1e-12 for the peak and 1e-9 for the junction and the slew).
+The time of the slew of a block must be the time of one of its items that have the largest
+slope.
+
+**Assumptions:** The slopes of two items of one block can be equal up to the rounding of the
+times, so the test accepts the time of each item that has the largest slope. The test does not
+compare the time of a slew of 0.
+
+#### `test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform`
+
+**Checks:** The spectrum of a sequence with a short gap, a long gap or a step at a junction, and
+ends that are not 0 next to it, equals the spectrum that the oracle calculates from the oracle
+waveform (`tests/oracles/waveform.py`, the model of MATLAB Pulseq). The sequences also have a
+first value and a last value that are not 0.
+
+**How:** Parametrized over 23 sequences: `zero_gap_sequence`, `short_gap_sequence`,
+`long_gap_sequence`, `non_zero_ends_sequence`, the two sequences of pypulseq-issues 12, and 17
+more, `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Each sequence is loaded with `cpp-siemens`, because `spec` rejects a gradient that ends above 0
+before its block ends (`gradient.nonzero-end-align`), one that starts above 0 after a delay (`gradient.nonzero-start-delay`), and a delay off the
+gradient raster (`raster.gradient-delay`) in these sequences. The oracle reads `sequence_of(snap)`. `_assert_matches_oracle`
+compares the axis spectra and the RSS (times `1e3 / gamma`) with `tests/oracles/grad_spectrum.py`
+within 1e-12.
+
+**Assumptions:** pypulseq's `calculate_gradient_spectrum` draws a line across a long gap and has
+no step at a junction (pypulseq-issues 12), so it is not the reference.
+
+#### `test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`
+
+**Checks:** For a sequence with a short gap or a long gap and ends that are not 0 next to it,
+`pns_levels` equals the SAFE model of the fork on the samples of the oracle. This includes a
+first value and a last value of an axis that are not 0. It also covers a sequence with a block
+that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`. The sequence is loaded with `cpp-siemens`,
+because `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`), a gradient that
+starts above 0 after a delay (`gradient.nonzero-start-delay`) and a delay off the gradient raster (`raster.gradient-delay`), and the oracle reads the
+gradients as the snapshot plays them (`tests/oracles/blocks.sequence_of`), so the rounding of the
+written file is not in the difference.
+
+**How:** Parametrized over 51 sequences. Six are a two-axis short gap with a first value and a
+last value that are not 0, `long_gap_sequence`, the two sequences of pypulseq-issues 12,
+`non_zero_ends_sequence`, and `long_gap_sequence` with a last block of 1.5 raster times (a block raster of 1 µs, `_add_a_delay`). On the
+raster, 17 more are `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are not 0), `short_gap_from_0_sequence` and `short_gap_to_0_sequence` (a short gap from 0 to a value, and from a value to 0), a copy of each sequence of `tests/gap_sequences.py` with each amplitude negated (`gap_sequences.negated`), and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Off the raster, 13 more are
+`gap_of_1_5_raster_times`, `short_gap_from_0`, `short_gap_to_0`, the negated long and short
+gaps and the 8 random sequences, each with a last block of 1.5 raster times (the names end in
+`_off_raster`), so `pns_levels` samples them with `GradientSampler.sample`. The new inputs have
+negative end values, a gap between one and two raster times, and a short gap with an end of 0,
+which the six sequences do not have. Fifteen more, on the raster, have the last sample of an event
+at a sample time: the 14 ramps of `gap_sequences.DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` after a
+delay of a whole number of raster times and a half (`delayed_ramp_sequence`, behind filler blocks),
+and `short_arbitrary_sequence`, an arbitrary
+gradient of 3 samples with a step at 25 us (the values and the cases are in
+`test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`). The
+reference stacks the samples of the oracle, which reads `sequence_of(snap)` and not the builder's
+`pp.Sequence`, into `(N, 3)`. They are `oracle.block_samples` at the
+gradient raster, and `oracle.sample` at `(k + 0.5) * dt` for the sequence that is not on the
+raster. It runs `_safe_gwf_to_pns_chunk` of the fork in one chunk with the example hardware. The
+axis values are 0.01 times the percent, and the total is the root of the sum of squares.
+`pns_levels` runs with `bin_s=dt`, so each bin is one sample. The test checks the number of
+samples, `on_raster` (false only for the names that end in `_off_raster`), the peak and the axis peaks (relative 1e-9), the peak time, and the minimum
+and maximum of each bin against the total (relative 1e-6, because of the float32 cast, and absolute 1e-12 of the largest total,
+because the total of a sample at 0 can be a rounding residue of about 1e-16 of the peak where one of the
+two paths holds the last point of a ramp as a value that is not exactly 0).
+
+**Assumptions:** `calculate_pns` is not the reference, because it draws a line across each gap
+(pypulseq-issues 12).
+
+#### `test_sample_equals_the_oracle_for_the_whole_sequence`
+
+**Checks:** `GradientSampler.sample` equals `oracle.sample` on a grid across each sequence of the
+model that `spec` rejects, as the test of the same name of section 2.5 does for the sequences that
+`spec` reads: the same grid and the same tolerance.
+
+**How:** Parametrized over the 17 sequences of `_MODEL_SEQUENCES` in `_REJECTED_BY_SPEC`
+(`short_gap`, `issue_12_delayed`, `issue_12_early_end`, `off_raster_events`,
+`gap_of_1_5_raster_times`, `short_gap_to_0`, their negated copies that exist, and the 8
+`random_gaps` sequences). Each is loaded with `cpp-siemens`. The test calls `_assert_matches_oracle`
+of `test_sampling.py` on `_model_times(snap)`.
+
+**Assumptions:** As the test of section 2.5.
+
+#### `test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`
+
+**Checks:** For each time range `t[i:j]` of a grid, `sample` equals the oracle, and the same
+slice of `sample` of the whole grid exactly, for the sequences that `spec` rejects (the test of
+the same name of section 2.5 has the others).
+
+**How:** Parametrized over `short_gap`, `issue_12_delayed`, `off_raster_events` and
+`gap_of_1_5_raster_times`. Each is loaded with `cpp-siemens`. The test calls
+`check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`.
+
+**Assumptions:** None.
+
+#### `test_block_samples_equals_the_oracle_for_the_whole_sequence`
+
+**Checks:** `block_samples` of the whole sequence equals `oracle.block_samples` for each axis, at
+the gradient raster and at one half and one fifth of it, for the sequences that `spec` rejects (the
+test of the same name of section 2.5 has the others).
+
+**How:** Parametrized over the 29 cases of `_WHOLE_CASES` with a sequence of `_REJECTED_BY_SPEC`:
+the 17 sequences at the gradient raster, and `short_gap`, `issue_12_delayed`, `off_raster_events`,
+`gap_of_1_5_raster_times`, `short_gap_to_0` and `negated_short_gap` at one half and one fifth of
+it. Each is loaded with `cpp-siemens`. The test calls
+`check_block_samples_equal_the_oracle_for_the_whole_sequence`.
+
+**Assumptions:** As the test of section 2.5: the two are not bit-equal, and the difference is the
+float drift of the block starts.
+
+#### `test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole_range`
+
+**Checks:** Each range of blocks and each range of samples (`skip` and `count`) of
+`block_samples` equals the same samples of the oracle, and the same slice of the whole range
+exactly, for the sequences that `spec` rejects (the test of the same name of section 2.5 has the
+others). A new sampler gives the same values as one that made the whole range first.
+
+**How:** Parametrized over the five cases of `_ANY_RANGE_CASES` with a sequence of
+`_REJECTED_BY_SPEC`: `short_gap` at the gradient raster, `issue_12_delayed` at one fifth,
+`off_raster_events` at the gradient raster and at one fifth, and `gap_of_1_5_raster_times` at the
+gradient raster. Each is loaded with `cpp-siemens`. The test calls
+`check_block_samples_of_any_range_equal_the_oracle_and_the_slice_of_the_whole_range`.
+
+**Assumptions:** The tolerance to the oracle is that of the test of section 2.5.
+
+#### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
+
+**Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
+`block_samples` values of `GradientSampler(snap)`, and keeps its gaps in the dict that was passed,
+for the sequences that `spec` rejects (the test of the same name of section 2.5 has the others).
+
+**How:** Parametrized over `short_gap`, `off_raster_events` and `random_gaps_0`. Each is loaded
+with `cpp-siemens`. The test calls
+`check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`.
+
+**Assumptions:** None.
+
+#### `test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand`
+
+**Checks:** `sample` has the hand values at the two ramps of a long gap between events that do
+not start or end on a raster edge. It has 0 between the ramps and after the last point. A line
+across the gap, as pypulseq draws it, would not be 0 between them.
+
+**How:** `_off_raster_events_sequence` has two blocks of 8 raster times on x. Block 0 has a ramp
+from 0 to `A = max_slew * grad_raster_time / 2` over 3 raster times, from 0.3 to 3.3. Block 1
+has a ramp from `A / 2` to 0 over 3 raster times, from 8.7 to 11.7, after a delay of 0.7 raster
+times. The ramp to 0 is from 3.3 to 3.8 raster times. The ramp from 0 is from 8.2 to 8.7. The
+test samples 3.3, 3.5, 3.8, 5, 8.2, 8.5, 8.7, 11.7 and 12 raster times. It compares with the
+values `A * [1, 0.6, 0, 0, 0, 0.3, 0.5, 0, 0]` (absolute 1e-9 of `A`). It also checks that
+`get_gradients()` of the sequence that the test built (not the snapshot), at 5 raster times, is not 0.
+`_off_raster_events_sequence` is loaded with `cpp-siemens` (`_load_model("off_raster_events")`): `spec`
+rejects it (`raster.gradient-delay`, `gradient.nonzero-start-delay`, `gradient.nonzero-end-align`).
+
+**Assumptions:** `add_block` accepts the delays that are not on the raster and the start value
+that is not 0 after a delay, because the value is below `max_slew * grad_raster_time`.
+
+#### `test_hand_made_ramp_and_no_event_block`
+
+**Checks:** `block_samples` gives the exact values of a hand-made sequence: a gradient
+that ramps to a nonzero value and stops there (unlike an ordinary trapezoid, whose
+event is 0 at both ends), inside a block longer than the ramp, and a later block with
+no gradient event on any axis.
+
+**How:** Builds a two-block sequence: block 0 has `pp.make_extended_trapezoid` on x,
+ramping from 0 to `amp = 1000.0` Hz/m over `n_ramp = 4` raster steps, and
+`pp.make_trapezoid` on z with an explicit `duration` of `n_block = 7` raster steps (so
+the block is longer than the x ramp); block 1 is `pp.make_delay(n_block * dt)`, with no
+gradient event at all. The expected x samples of block 0 are computed by hand from the
+linear-interpolation rule (`amp * t / rise` while `t` is before the ramp's own last
+point, 0 after it) and compared with `numpy.testing.assert_allclose` (`rtol = atol =
+1e-12`): a division (the same rule, computed by a different sequence of floating-point
+operations) makes exact equality unlikely. gy, which has no event anywhere in the file,
+and block 1's gx and gz, which have no event in that block, are checked against exact
+zero with `numpy.testing.assert_array_equal`. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
+
+**Assumptions:** None.
+
+#### `test_skip_and_count_equal_the_same_slice_of_the_whole_range`
+
+**Checks:** `block_samples(axis, first, stop, dt, skip=s, count=c)` equals
+`block_samples(axis, first, stop, dt)[s : s + c]` exactly (`numpy.array_equal`), for
+each axis, for block ranges of the whole file and of its inner blocks, and for sample
+ranges that start and end inside a block, at the edge of a block, inside a block with
+no event, and after the last point of a block's event (the samples that are 0 and
+that the sampler does not keep). `count=None` gives all the samples after `skip`.
+
+**How:** `_blocks_with_long_events_sequence()` has five blocks: a trapezoid on x and
+a longer one on z; a delay of 300 samples; an arbitrary gradient on x that starts 20
+samples after the block start, in a block of 120 samples held by a delay event (its
+last point is 60 samples before the block end); a triangle on y; and the arbitrary
+block again. The test checks that blocks 2 and 4 have 120 samples. For each block
+range in `(0, 5)`, `(1, 5)`, `(2, 5)`, `(1, 4)`, `(2, 3)`, `(3, 5)`, `(0, 2)` and `(4,
+5)` and each axis, `whole` is the result with no `skip` and `count`. `_sample_ranges`
+makes the `(skip, count)` pairs of the blocks of that range: the whole range, an empty
+range at each end, one sample at each end, and for each block its own samples, a range
+across each edge, and five ranges that cover the block in fifths. For each pair, the
+result with `skip` and `count` is compared with `whole[skip : skip + count]`, for the
+sampler that made `whole` (with samples kept) and for a new `GradientSampler`. For
+four values of `skip` (0, 1, half the range and the end), the result with `count`
+left out is compared with `whole[skip:]`. At the end, the test checks that samples 60
+to 119 of block 2 are all 0 and that samples 20 to 59 are not. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). The sequence also has a gradient that starts above 0 after a delay (`gradient.nonzero-start-delay`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
+
+**Assumptions:** None.
+
+#### `test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point`
+
+**Checks:** A sample at exactly the time of the last point of a block's event has the
+value of that point, which is not 0, and the next sample is 0, with no `skip`/`count`
+and when the range cuts the block to one sample.
+
+**How:** `dt` is two raster steps, so the time of sample 0, `dt / 2`, is exactly one
+raster step (the test asserts this). A block with `pp.make_extended_trapezoid` that
+ramps from 0 to 1000.0 Hz/m over one raster step, and a delay event that makes the
+block four raster steps (two samples). `block_samples("gx", 0, 1, dt)` must be `[1000.0,
+0.0]`; with `skip=0, count=1` it must be `[1000.0]`, and with `skip=1, count=1` it
+must be `[0.0]`, with `numpy.testing.assert_array_equal`. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
+
+**Assumptions:** The ramp's last point is at exactly `raster` (the event stores the
+times that it is given).
+
+#### `test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point`
+
+**Checks:** A sample at exactly the time of the last point of an event, many steps into
+the block, has the value of that point (not 0). The sample after it is 0, and each earlier
+sample is below that value.
+
+**How:** `dt` is two raster steps. A ramp from 0 to 1000.0 Hz/m over 27 raster steps
+(`pp.make_extended_trapezoid`) in a block of 30 raster steps (a delay event). The test
+asserts `(13 + 0.5) * dt == 27 * raster` in floats. `block_samples("gx", 0, 1, dt)` has 15
+samples. Sample 13 equals 1000.0, sample 14 equals 0.0, and samples 0 to 12 are below
+1000.0. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
+
+**Assumptions:** The float product `(13 + 0.5) * dt` equals `27 * raster`. This is why the
+test uses 27 steps, and the test asserts it.
+
+#### `test_the_samples_in_a_short_gap_are_the_line_by_hand`
+
+**Checks:** A sample in a short gap (one raster time) is on the line from the last value of the
+earlier event to the first value of the later event. It is 0 in the own event after its last
+point.
+
+**How:** `short_gap_sequence` has a gradient that ends at 3 U at 100 µs in a block of 110 µs, and
+a second block that starts at 2 U. U is 1e4 Hz/m. The test checks the first 20 of the 21 samples
+at the gradient raster with the hand values. The 11 samples of block 0 are 0.15, 0.45, ...,
+2.85 U on the ramp, then 2.5 U at 105 µs on the line. The first 9 samples of block 1 are 1.9,
+1.7, ..., 0.3 U. The sequence is loaded with `cpp-siemens` (`_load_model`): `spec` rejects it (`gradient.nonzero-end-align` for `short_gap_sequence`). The hand values are the same, within the same tolerance.
+
+**Assumptions:** The sample at 105 µs is not 0, so this test fails for a rule that gives 0 in
+every gap.
+
+#### `test_the_samples_in_a_ramp_of_a_long_gap_that_are_not_at_its_ends_are_the_ramp_by_hand`
+
+**Checks:** A sample inside the ramp to 0 or the ramp from 0 of a long gap has the value of the
+ramp, in the block of the event and in the next block.
+
+**How:** `_off_raster_events_sequence` at the gradient raster. The ramp to 0 is from 3.3 to 3.8
+raster times and has the sample at 3.5. The ramp from 0 is from 8.2 to 8.7 and has the first
+sample of block 1 at 8.5. The test compares the 16 samples with the hand values (absolute 1e-9
+of `A`). The values at 3.5 and 8.5 are 0.6 A and 0.3 A. The other samples are those of the own
+events. The sequence is loaded with `cpp-siemens` (`_load_model`): `spec` rejects it (`raster.gradient-delay`, `gradient.nonzero-start-delay` and `gradient.nonzero-end-align` for `_off_raster_events_sequence`). The hand values are the same, within the same tolerance.
+
+**Assumptions:** None.
+
+#### `test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_oracle`
+
+**Checks:** `block_samples` of the whole sequence equals `oracle.block_samples` at the gradient
+raster where a sample falls at the last point of an event, and where it falls at a step inside
+one event. The sample at the last point has the value of that point, also when the sum of the
+delay and the offset of the point is one ulp before the sample time (review 1.3 of
+`docs/reviews/2026-10-07-code-review.md`). The sample at a step has the value before the step,
+the rule of `sample` (review 1.4).
+
+**How:** Parametrized over 15 sequences, all loaded with `cpp-siemens`: `spec` rejects them (`gradient.nonzero-start-delay`, `gradient.nonzero-end-align`). The
+oracle reads `sequence_of(snap)`, the gradients as the snapshot plays them. Fourteen are `gap_sequences.delayed_ramp_sequence`:
+filler blocks of no gradient, and a ramp on x from 0 to A, after a delay of 0.5 to 4.5 raster
+times, that ends at a sample time. Eight are the cases of `DELAYED_RAMP_CASES`: the sum
+`delay + offset` of the last point is one ulp before the sample time, and `block_samples` gave 0
+at that sample before the fix. Six are the cases of `ULP_EDGE_CASES`, chosen from a scan of 6960
+cases: the sum `(start + delay) + offset` is before the sample time `start + (j + 0.5) * dt`, so
+an oracle with no tolerance after the last point gives 0 there. In three of them `block_samples`
+gave the end value before the fix too, and in three it gave 0. The test fails without the
+tolerance in `block_samples`, and without the same tolerance in `oracle.block_samples`. The
+fifteenth is `gap_sequences.short_arbitrary_sequence`, an arbitrary gradient of 3 samples whose
+points `(tt[-1], wf[-1])` and `(shape_dur, last)` are at 25 us, a sample time. The test checks
+the three axes against the oracle within 1e-9 of the largest absolute value. The same sequences
+are in the parameters of the PNS test
+`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`.
+
+**Assumptions:** The oracle takes the time of a point from the sum of the block durations
+(`(start + delay) + offset`), and `block_samples` from the block start and the local time. The
+oracle gives the value of the last point to a sample time within `TIME_TOLERANCE` after it, so
+that the two agree on the value at the last point.
+
+#### `test_the_series_of_pns_safe_levels_are_valid`
+
+**Checks:** Each series of `pns.safe.levels` of `raster_4us_sequence` is a valid `Series` and equals
+its round trip through the strict JSON text, with no threshold, with one and with two, and with the
+default bin and with bins of 3.7 ms and 0.1 ms (the test of the same name of section 2.8 has the
+other sequences).
+
+**How:** Parametrized over the four cases of `_PNS_CASES`. The test loads
+`raster_4us_sequence()` with `cpp-siemens`, because `spec` rejects a gradient raster of 4 µs with a
+block duration raster of 10 µs (`definitions.raster-commensurate`), and calls
+`check_the_series_of_pns_safe_levels_are_valid`.
+
+**Assumptions:** None.
+
+#### `test_the_series_of_gradient_spectrum_is_valid`
+
+**Checks:** The series of `gradient.spectrum` of `raster_4us_sequence` is one valid `Series` that
+equals the series that `from_obj` reads from its `to_obj` (the test of the same name of section 2.8
+has the other sequences).
+
+**How:** The test loads `raster_4us_sequence()` with `cpp-siemens` and calls
+`check_the_series_of_gradient_spectrum_is_valid` with a sequence that has a gradient.
+
+**Assumptions:** None.
+
+### 3.11 `load` through `cpp-siemens` (`test_load_in_pulseq_analysis.py`)
+
+`test_load_in_pulseq_analysis.py` tests `load` of pulseq-analysis through `cpp-siemens`: the
+snapshot and the warning of an unapplied rotation (`test_snapshot.py`, section 2.17), the block
+table (`test_seq_index.py`, section 2.4) and the played gradients (`test_played.py`, section 2.3).
+The tests of pulseq-analysis run without the plugin, so these are their cases for `cpp-siemens`:
+the tests call the `check_*` helpers of those modules, or test what only the reader's decoding
+has. Like `test_interpreter.py`, the module needs pulseq-analysis and is not collected without it.
+
+#### `test_load_of_a_file_is_the_reading_of_cpp_siemens`
+
+**Checks:** `load(path, interpreter)` holds `read_seqfile(path, interpreter)`, with a
+`CppSiemensDecoding` (`check_load_of_a_file`).
+
+**How:** Parametrized over `"cpp-siemens"` and `CppSiemens(oversampling="edge",
+rotation="apply")`, on the gradient echo file `oracle/pulseq_seq4.seq`.
+
+**Assumptions:** None.
+
+#### `test_load_of_a_sequence_is_read_pypulseq_of_it_through_cpp_siemens`
+
+**Checks:** `load(seq, "cpp-siemens")` holds `read_pypulseq(seq, "cpp-siemens")`
+(`check_load_of_a_sequence`).
+
+**How:** Parametrized over the five synthetic sequences of `test_snapshot.py`.
+
+**Assumptions:** None.
+
+#### `test_load_through_cpp_siemens_gives_a_snapshot_of_a_file_that_spec_rejects`
+
+**Checks:** A file that `spec` rejects gives, through `cpp-siemens`, which plays it as the C++
+reader does, a snapshot with blocks.
+
+**How:** `bad_gradient_nonzero_end_align.seq` and `bad_raster_gradient_delay.seq`: `load` through
+`spec` raises `SeqFileError`, and the index of the `cpp-siemens` snapshot has blocks.
+
+**Assumptions:** None.
+
+#### `test_load_raises_not_supported_for_a_version_outside_the_package_through_cpp_siemens`
+
+**Checks:** A file of version 1.3 raises `NotSupported` from `load` through `cpp-siemens` (Q1).
+
+**How:** `bad_version_unsupported_1_3.seq`.
+
+**Assumptions:** None.
+
+#### `test_the_snapshot_records_cpp_siemens_with_its_settings`
+
+**Checks:** `snap.interpreter` is the `CppSiemens` object given, and its `str` names the settings
+that are not the defaults.
+
+**How:** `CppSiemens(oversampling="edge")` on the gradient echo file: the same object and
+`"cpp-siemens(oversampling='edge')"`.
+
+**Assumptions:** None.
+
+#### `test_load_warns_for_a_rotation_that_cpp_siemens_leaves_unapplied`
+
+**Checks:** With `cpp-siemens`'s default (D6.2), `load` of a file whose blocks play rotations
+emits one `ScannerSettingWarning`, whose hint names `rotation='apply'`, and keeps the decoding's
+rotation record with the setting `"reader"`, no block rotated and some left unapplied
+(`check_load_warns_for_an_unapplied_rotation`).
+
+**How:** Parametrized over the two radial files.
+
+**Assumptions:** None.
+
+#### `test_load_does_not_warn_when_cpp_siemens_applies_the_rotations`
+
+**Checks:** With `CppSiemens(rotation="apply")`, `load` of a file with played rotations emits no
+warning, and every block with a rotation is rotated
+(`check_load_applies_rotations_without_a_warning`).
+
+**How:** Parametrized over the two radial files.
+
+**Assumptions:** None.
+
+#### `test_load_does_not_warn_for_a_rotation_that_no_block_plays_through_cpp_siemens`
+
+**Checks:** A rotation that no block plays gives no warning with `cpp-siemens`'s default
+(`check_load_does_not_warn_for_a_rotation_that_no_block_plays`).
+
+**How:** `valid_1_5_1_rotation_not_played.seq`.
+
+**Assumptions:** None.
+
+#### `test_the_rotation_of_cpp_siemens_changes_the_measured_gradients_only_where_it_is_applied`
+
+**Checks:** On a radial file, `CppSiemens(rotation="apply")` and `spec` give the same x and y peaks
+(to 1e-6 relative: both rotate, one with the reader's helper and float32 values, one with the
+package's), and they differ from the peaks of `cpp-siemens`'s unrotated default.
+
+**How:** `pulseq_make_radial.seq`; `gradient_peaks` of the three snapshots.
+
+**Assumptions:** None.
+
+#### `test_a_copy_of_a_cpp_siemens_snapshot_is_a_new_snapshot_with_no_kept_results`
+
+**Checks:** A copy of a `cpp-siemens` snapshot from `pickle` or `copy.deepcopy` is a new snapshot
+with no kept results, equal data and equal results, which decodes the data again
+(`check_a_copy_of_a_snapshot`).
+
+**How:** Parametrized over the two copies, on the gradient echo file.
+
+**Assumptions:** None.
+
+#### `test_the_index_of_a_cpp_siemens_file_with_no_blocks_is_empty`
+
+**Checks:** `cpp-siemens` reads a file with an empty `[BLOCKS]` section (`spec` rejects it,
+`blocks.empty`): its index has no block, `end_s` 0.0 and no gradient.
+
+**How:** `bad_blocks_empty.seq`.
+
+**Assumptions:** None.
+
+#### `test_the_index_of_a_cpp_siemens_snapshot_is_the_index_of_its_model_for_each_file`
+
+**Checks:** Through `cpp-siemens`, the index of a snapshot of each file whose blocks play the
+events of the file is that of its model
+(`check_the_index_of_a_snapshot_is_the_index_of_its_model`).
+
+**How:** The files of `test_seq_index.py`; at least 15 are compared.
+
+**Assumptions:** None.
+
+#### `test_the_index_of_spec_and_of_cpp_siemens_are_equal_where_both_play_the_file_ids`
+
+**Checks:** For each file that both interpreters read and that has no block with a rotation, the
+two indexes are equal: both keep the block and event IDs of the file.
+
+**How:** The files of `test_seq_index.py` (`valid_*.seq` and `oracle/*.seq`); at least 10 are
+compared.
+
+**Assumptions:** The fixtures whose IDs are not unique are rejected by `spec` (`id.unique`), so
+the two readings of the IDs do not differ on a compared file.
+
+#### `test_the_points_of_the_played_events_are_the_gradients_of_cpp_siemens`
+
+**Checks:** On each fixture that `cpp-siemens` reads, in each setting, the points of the played
+events are the reader's `gradientsAt`, to 1e-7 of the largest value
+(`check_the_points_are_the_gradients` of `test_played.py`, section 2.3): for the decoded events,
+for the rotated blocks of `rotation="apply"`, and for the blocks with an event after the block's
+end (`oversampling="preserve"` of the spiral, D6.1, D7.4).
+
+**How:** Parametrized over every fixture and four settings: `CppSiemens()`,
+`CppSiemens(oversampling="edge")`, `CppSiemens(oversampling="preserve")` and
+`CppSiemens(rotation="apply")`. A fixture that the setting rejects is skipped.
+
+**Assumptions:** The tolerance covers the float32 rounding of the reader's values (D7.2). The
+blocks made from `gradients_at` test the step and end handling of `_played`, not an independent
+decoding.
+
+#### `test_a_rotated_block_has_an_event_on_each_axis_from_gradients_at`
+
+**Checks:** In a radial file read with `CppSiemens(rotation="apply")`, each block with a rotation
+that is not the identity and a gradient has an event on each axis with a key above the largest
+file ID, and each other block keeps the file IDs of its events.
+
+**How:** `tests/seqfiles/oracle/pulseq_make_radial.seq`. The rotated blocks are those of
+`decoding.rotations()` with a vector part that is not 0 and a gradient event. The test checks
+their keys on the three axes, and that the played columns of the other blocks equal the columns
+of the block table.
+
+**Assumptions:** The fixture has at least one such block (checked).
+
+#### `test_an_event_that_cpp_siemens_plays_after_the_end_of_its_block_ends_at_the_block_end`
+
+**Checks:** With `CppSiemens(oversampling="preserve")`, the oversampled gradient of the spiral
+lasts longer than its block (the reader keeps all the samples on the 10 µs raster, D6.1); the
+played event of every block ends at or before the end of its block, and at least one event is
+made from `gradients_at` (a key above the largest file ID).
+
+**How:** `tests/seqfiles/oracle/koma_v1.5_spiral.seq`; for each block and axis with an event, the
+last point time is at most the block duration plus 1e-12 s.
+
+**Assumptions:** None.
+
+#### `test_the_cpp_siemens_decoding_of_a_gradient_event_is_the_same_in_every_block`
+
+**Checks:** The C++ reader decodes each gradient event the same way in every block that plays it,
+so `_played` may decode it once, in its first block.
+
+**How:** Parametrized over every fixture that `cpp-siemens` reads. The test takes the points of
+each gradient event in every block that plays it (`CppSiemensDecoding.gradient_points`), and
+checks that they equal, bit for bit, those of the first block that plays the event.
+
+**Assumptions:** It holds on the fixtures; the reason that it holds in general is the reader's
+code (`decodeArbGradInBlock`, `decodeExtTrapGradInBlock` and `checkGradient` read only the
+event and the shape library), which the test does not check.
+
+#### `test_cpp_siemens_decodes_one_block_for_each_unique_gradient_event`
+
+**Checks:** `played_gradients` of a `cpp-siemens` snapshot decodes one block for each unique
+gradient event, and its result is kept: a second call decodes nothing.
+
+**How:** `tests/seqfiles/oracle/pulseq_epi_rs.seq`. `CppSiemensDecoding.block` is replaced by a
+counting wrapper; the count after the first call is the number of unique nonzero gradient IDs of
+the block table, and stays so after the second call, which returns the same object.
+
+**Assumptions:** None.

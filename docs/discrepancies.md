@@ -147,7 +147,7 @@ specification does not state, which its message says.
 | [D2.11](#d211-any-other-rf-time-shape-points) | Any other RF time shape | times in the shape | resamples; can read past the end | points, complex lines |
 | [D2.12](#d212-where-an-rf-pulse-with-a-time-shape-ends) | End of an RF pulse with a time shape | silent | dwell × samples | `N d`, or the last point |
 | [D2.13](#d213-an-arbitrary-gradient-between-its-samples-time-id-0) | Time-ID-0 gradient between its samples | centres of cells | lines | lines |
-| [D2.14](#d214-a-gap-between-two-gradient-events-on-one-axis) | Gap between gradient events | silent | one block only | 0 in a block; across blocks R14 |
+| [D2.14](#d214-a-gap-between-two-gradient-events-on-one-axis) | Gap between gradient events | silent | one block only | 0 in a block; MATLAB's ramps across blocks |
 | [D2.15](#d215-an-adc-phase-modulation-shape-rad-one-value-per-sample) | ADC phase modulation shape | none | rad | rad, one per sample |
 | [D2.16](#d216-a-soft-delay-offset-with-a-fraction-or-a-long-hint) | Soft delay offset `-100.5`; long hint | integer in the example | misreads `-100.5`; cuts the hint | reads (float) |
 | [D2.17](#d217-an-unknown-extension-that-the-file-does-not-require) | Unknown extension, not required | may ignore | ignores | ignores; records it |
@@ -610,11 +610,14 @@ of the four cases, `figures/waveform-gaps.svg`.
 
 `spec`: 0 where no gradient event plays: with `gradient.nonzero-start-delay` and
 `gradient.nonzero-end-align` (which the specification states, `spec:420`), every
-gap inside a block lies between zeros. The waveform across blocks comes with task
-R14; today's waveform code draws MATLAB's ramps (`docs/implementation.md` §1.3).
+gap inside a block lies between zeros. Across blocks the measurements (`load`,
+R14) draw MATLAB's ramps across a long gap and a line across a short one
+(`docs/implementation.md` §1.3), for every interpreter.
 
-Reason: a gap inside a block lies between zeros (those rules), and the waveform
-across blocks is task R14's.
+Reason: a gap inside a block lies between zeros (those rules). Between blocks
+the specification is silent and the C++ reader gives no waveform, so the
+measurements of every interpreter use one rule there, the package's waveform
+since 0.1.0.
 
 The same condition in `cpp-siemens`: [D7.4](../packages/pulseq-cpp-siemens/docs/specification.md#d74-gradients_at-between-blocks-and-after-a-blocks-end)
 
@@ -699,8 +702,8 @@ quaternions), as the specification describes (spec:567). It applies the content
 of the file, so it has no setting and no warning: `rotation_record` has the
 setting `"apply"` (P20, rules 2 and 4). It agrees with
 `CppSiemens(rotation="apply")` of the plugin `cpp-siemens` to float32 precision,
-on each fixture with rotations from 1.5.1. The measurements do not support
-rotations yet (task R14).
+on each fixture with rotations from 1.5.1. The measurements (`load`, R14) take
+the rotated gradients of its decoding.
 
 Reason: the specification describes a normalized rotation quaternion applied to
 the whole block, from revision 1.5.1 (spec:567); `spec` applies it from that
@@ -709,8 +712,7 @@ MATLAB Pulseq registers a quaternion only if its squares sum to 1 within 1e-6
 (`Sequence.m:802-806`), and pypulseq writes no rotation extension
 (`write_seq.py:14-265` has no such section), so a quaternion in a file of the
 writers is normalized, to the precision of the text. pulseq-checks reports a
-norm far from 1. `load` refuses a sequence with the rotation extension
-(`extensions.refuse_rotations`) until it runs on the interpreters (task R14).
+norm far from 1.
 
 The same condition in `cpp-siemens`: [D6.2](../packages/pulseq-cpp-siemens/docs/specification.md#d62-a-block-that-plays-a-rotation)
 
@@ -1100,8 +1102,8 @@ their ends.
 
 | Source | What it does |
 |---|---|
-| Specification | As D4.4: a 1.4 file has no `first`. |
-| C++ reader | Holds `FLOAT_UNDEFINED` (`cpp:1085-1086`), but a gradient with a time shape is an extended trapezoid there (`cpp.h:698`), and `gradientsAt` starts it at the amplitude times its first sample (`cpp:3628-3630`). |
+| Specification | As D4.4: a 1.4 file has no `first` or `last`. A time shape gives the times of the samples in units of `GradientRasterTime` (`spec:394`); that the samples are vertices joined by straight lines is the slide set's (slide 6, D1.3). |
+| C++ reader | Holds `FLOAT_UNDEFINED` for `first` and `last` (`cpp:1085-1086`), which no value uses: a gradient with a time shape is an extended trapezoid there (`isExtTrapGradient`, `cpp.h:698`), in any version, and `gradientsAt` never reads its `first` or `last` (`cpp:3611-3646`). It starts at the amplitude times the first sample (`cpp:3628-3630`; when the first time is after 0, its binary search carries the first segment backwards to the delay, `cpp:3634-3645`), and ends at the amplitude times the last sample. |
 
 Example: `tests/seqfiles/valid_1_4_1.seq`, block 3: gradient 2 (amplitude
 400000 Hz/m, samples 0.2, 0.6, 1, 0.6, 0.2 at the times 0, 1, 3, 6, 10) after
@@ -1132,7 +1134,9 @@ in a 1.5.0 file).
 RF_SHIMS before 1.5.1, are extensions that `spec` does not know: ignored, with a
 record in `SequenceData.records` (`"extension"`, reason `"version"`).
 `RequiredExtensions` is read from 1.5.1. Before 1.5.1 no block is rotated, where
-`CppSiemens(rotation="apply")` rotates.
+`CppSiemens(rotation="apply")` rotates; the measurements (`load`, R14) take the
+unrotated gradients, with no warning, since `spec` applies all the content of
+the file's version (rule 4 of P20).
 
 Reason: the specification gives the revision of each mechanism (above), and a
 reader of a version has only the mechanisms of that version (the user,

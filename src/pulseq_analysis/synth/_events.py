@@ -1,8 +1,7 @@
 """The points of the unique gradient events of one sequence, read one time, and the gap rule.
 
-`event_points` reads each unique gradient event of a snapshot one time, with one
-`get_block` call for each event (`seq_index.grad_events`), and keeps the result on the
-snapshot. `sampling.GradientSampler` and `grad_peaks._event_values` both build
+`event_points` takes the points of each unique gradient event of a snapshot from the decoding
+(`_played.played_gradients`), and keeps the result on the snapshot. `sampling.GradientSampler` and `grad_peaks._event_values` both build
 their data from it, so the measurements of one snapshot read each event one time, and
 hold one copy of its points. `_points_from_events` makes the same result from the events and
 the gradient raster, with no snapshot.
@@ -10,8 +9,8 @@ the gradient raster, with no snapshot.
 The points of the K unique events are in two pools, event by event, in the dense order
 of `seq_index`. Event `k` (0-based) has its points at `offsets[at[k] : at[k] + count[k]]`
 and `amp[at[k] : at[k] + count[k]]`, and the times of its points from the start of the
-block that plays it are `delay[k] + offsets[...]`. The values are those of
-`seq_utils.gradient_offsets`. `grad_raster_time` is the gradient raster of the sequence.
+block that plays it are `delay[k] + offsets[...]`. The values are those of the decoding
+(`_played.played_gradients`). `grad_raster_time` is the gradient raster of the sequence.
 
 All the arrays are read-only (`_equality._freeze`): all callers share the kept result.
 
@@ -31,7 +30,8 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from .._equality import _freeze
-from .seq_index import SequenceIndex, grad_events
+from . import _played
+from .seq_index import SequenceIndex, sequence_index
 from .seq_utils import TIME_TOLERANCE, gradient_offsets
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
@@ -45,7 +45,7 @@ class EventPoints:
     at: np.ndarray  # int64, K: the start of the points of each event in `offsets` and `amp`
     offsets: np.ndarray  # float64: the offsets of all the points, event by event (s)
     amp: np.ndarray  # float64: the amplitudes of all the points, event by event (Hz/m)
-    # The gradient raster of the sequence (s), `seq.grad_raster_time`. The gap rule of
+    # The gradient raster of the sequence (s), `SequenceData.rasters.gradient`. The gap rule of
     # `sampling` needs it.
     grad_raster_time: float
 
@@ -66,19 +66,27 @@ def event_points(snap: Snapshot) -> EventPoints:
 
 def _read_points(snap: Snapshot) -> EventPoints:
     """The `EventPoints` of `snap`, read without the keep of `event_points`."""
-    return _points_from_events(grad_events(snap), float(snap.sequence.grad_raster_time))
+    index = sequence_index(snap)
+    played = _played.played_gradients(snap)
+    columns = (played.gx, played.gy, played.gz)
+    events = []
+    for k, (block, axis) in enumerate(
+        zip(index.grad_first.tolist(), index.grad_first_axis.tolist(), strict=True)
+    ):
+        events.append((k + 1, played.points[int(columns[axis][block])]))
+    return _points_from_events(events, float(snap.data.rasters.gradient))
 
 
 def _points_from_events(events: Iterable[tuple[int, Any]], grad_raster_time: float) -> EventPoints:
     """The `EventPoints` of `events`, the `(dense index, event)` of each unique gradient event
-    in dense order, where each event is one that `seq_utils.gradient_offsets` accepts, and of
-    `grad_raster_time` (s)."""
+    in dense order, where each event is one that `seq_utils.gradient_offsets` accepts or its
+    points `(delay, offsets, amplitudes)`, and of `grad_raster_time` (s)."""
     delays: list[float] = []
     counts: list[int] = []
     offset_chunks: list[np.ndarray] = []
     amp_chunks: list[np.ndarray] = []
     for number, g in events:
-        delay, offsets, amp = gradient_offsets(g)
+        delay, offsets, amp = g if isinstance(g, tuple) else gradient_offsets(g)
         offsets = np.asarray(offsets, dtype=np.float64)
         amp = np.asarray(amp, dtype=np.float64)
         # `sampling` relies on this: no code there handles an event with no point.

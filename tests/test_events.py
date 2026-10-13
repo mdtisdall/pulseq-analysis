@@ -21,7 +21,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis.analyses import grad_peaks
+from pulseq_analysis.analyses import grad_peaks, load
 from pulseq_analysis.analyses.grad_peaks import (
     _event_values,
     block_gradient_values,
@@ -29,10 +29,10 @@ from pulseq_analysis.analyses.grad_peaks import (
 )
 from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
 from pulseq_analysis.analyses.pns_levels import pns_levels
+from pulseq_analysis.synth import SpecDecoding
 from pulseq_analysis.synth._events import event_points
 from pulseq_analysis.synth.sampling import GradientSampler
 from pulseq_analysis.synth.seq_index import sequence_index
-from pulseq_analysis.synth.snapshot import load
 
 _SEQUENCES = [
     pytest.param(spin_echo_sequence, id="spin_echo"),
@@ -44,19 +44,20 @@ _SEQUENCES = [
 @pytest.mark.parametrize("build", _SEQUENCES)
 def test_the_measurements_of_one_sequence_read_each_unique_gradient_event_once(build, monkeypatch):
     """`gradient_peaks`, `block_gradient_values`, `pns_levels` and `gradient_spectrum` of one
-    snapshot together call `get_block` one time for each unique gradient event, and not
-    for each measurement."""
+    snapshot together take the points of each unique gradient event from the decoding
+    (`SpecDecoding.gradient_points`, called by `_played.played_gradients`) one time, and not for
+    each measurement."""
     snap = load(build())
+    calls: list[object] = []
+    original = SpecDecoding.gradient_points
+
+    def counting(self, key, block, axis):
+        calls.append(key)
+        return original(self, key, block, axis)
+
+    monkeypatch.setattr(SpecDecoding, "gradient_points", counting)
     unique = sequence_index(snap).grad_first.size
     assert unique > 0
-    calls: list[int] = []
-    original = pp.Sequence.get_block
-
-    def counting(self, block_id):
-        calls.append(block_id)
-        return original(self, block_id)
-
-    monkeypatch.setattr(pp.Sequence, "get_block", counting)
     gradient_peaks(snap)
     block_gradient_values(snap)
     pns_levels(snap, hardware=EXAMPLE_HW)
@@ -113,14 +114,16 @@ def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_comput
     are at d, d + R, d + R + F and d + R + F + L, with the values 0, A, A, 0. The rise is the
     steepest segment, with the slope A / R from d. Its integral is A^2 (R / 3 + F + L / 3).
 
-    Arbitrary gradient: raster r, unit u, the waveform [1, 2, -3, -1, 2] u and the first and last
+    Arbitrary gradient: raster r, unit u, the waveform [1, 2, -4, -1, 2] u and the first and last
     values 0. Its points are at 0, 0.5 r, 1.5 r, 2.5 r, 3.5 r, 4.5 r and 5 r, with the values 0,
-    1 u, 2 u, -3 u, -1 u, 2 u and 0. The largest |value| is 3 u at 2.5 r. The slopes are 2 u / r,
-    1 u / r, 5 u / r, 2 u / r, 3 u / r and 4 u / r, and the largest is 5 u / r, from 1.5 r. The
+    1 u, 2 u, -4 u, -1 u, 2 u and 0. The largest |value| is 4 u at 2.5 r. The slopes are 2 u / r,
+    1 u / r, 6 u / r, 3 u / r, 3 u / r and 4 u / r, and the largest is 6 u / r, from 1.5 r. The
     integral is the sum of dt (a^2 + a b + b^2) / 3 over the six segments, which is
-    (1/6 + 7/3 + 7/3 + 13/3 + 1 + 2/3) r u^2 = 65/6 r u^2. (The waveform has 5 samples because
+    (1/6 + 7/3 + 4 + 7 + 1 + 2/3) r u^2 = 91/6 r u^2. (The waveform has 5 samples because
     pypulseq reads back an arbitrary gradient of 4 samples or fewer with a shape that ends at the
-    last sample, not half a raster time after it.)
+    last sample, not half a raster time after it. Its largest value is 4 u, so that the shape
+    that the file holds, the waveform divided by the largest value, is exact in the 6 digits
+    that pypulseq's writer keeps; with 3 u it is not.)
     """
     amplitude, delay, rise, flat, fall = 1e5, 100e-6, 200e-6, 400e-6, 300e-6
     raster, unit = SYSTEM.grad_raster_time, 1e4
@@ -135,7 +138,7 @@ def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_comput
     )
     arbitrary = pp.make_arbitrary_grad(
         channel="y",
-        waveform=np.array([1.0, 2.0, -3.0, -1.0, 2.0]) * unit,
+        waveform=np.array([1.0, 2.0, -4.0, -1.0, 2.0]) * unit,
         first=0.0,
         last=0.0,
         system=SYSTEM,
@@ -146,13 +149,13 @@ def test_event_values_of_a_trapezoid_and_an_arbitrary_gradient_equal_hand_comput
 
     ev = _event_values(event_points(load(seq)))
 
-    assert ev.peak.tolist() == pytest.approx([amplitude, 3 * unit], rel=1e-12)
+    assert ev.peak.tolist() == pytest.approx([amplitude, 4 * unit], rel=1e-12)
     assert ev.peak_offset.tolist() == pytest.approx([delay + rise, 2.5 * raster], abs=1e-12)
-    assert ev.slew.tolist() == pytest.approx([amplitude / rise, 5 * unit / raster], rel=1e-12)
+    assert ev.slew.tolist() == pytest.approx([amplitude / rise, 6 * unit / raster], rel=1e-12)
     assert ev.slew_offset.tolist() == pytest.approx([delay, 1.5 * raster], abs=1e-12)
     expected_integral = [
         amplitude**2 * (rise / 3 + flat + fall / 3),
-        65 / 6 * raster * unit**2,
+        91 / 6 * raster * unit**2,
     ]
     assert ev.integral.tolist() == pytest.approx(expected_integral, rel=1e-12)
 

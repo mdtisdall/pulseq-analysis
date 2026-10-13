@@ -3,9 +3,11 @@
 Each figure draws the gradient waveform that the package measures
 (`GradientSampler.sample`) for a small sequence, with pypulseq's `Sequence.waveforms()`
 on top of it where the two differ. The figures are thus made from the code that they
-describe. Run it in the devShell after a change of the waveform or of a figure:
+describe. The figures read the sequences through `cpp-siemens`, the plugin of
+packages/pulseq-cpp-siemens, so run it in the environment of that package (which
+`scripts/check` makes) after a change of the waveform or of a figure:
 
-    nix develop --command uv run python scripts/doc_figures.py
+    nix develop --command uv run --project packages/pulseq-cpp-siemens --no-sync python scripts/doc_figures.py
 
 The SVG files are reproducible: the same code gives the same bytes. matplotlib comes
 with pypulseq.
@@ -31,8 +33,8 @@ import itertools
 from scale_sequences import build_repeating
 from synthetic import SYSTEM
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.synth.sampling import gradient_sampler
-from pulseq_analysis.synth.snapshot import load
 
 OUT = ROOT / "docs" / "figures"
 # With `DOC_FIGURES_PREVIEW=<dir>`, a PNG of each figure goes to <dir> too, to look at.
@@ -94,8 +96,11 @@ def draw_blocks(ax, edges, bottom):
 
 def panel(ax, seq, title, *, axis="gx", notes=(), samples=False, show_pypulseq=True):
     """One waveform of `seq` on `ax`: ours (solid), pypulseq's (dashed), the block edges,
-    and `notes`, each `(text, (t_us, value_in_U), (text_t_us, text_value_in_U))`."""
-    snap = load(seq)
+    and `notes`, each `(text, (t_us, value_in_U), (text_t_us, text_value_in_U))`. The
+    sequence is read through `cpp-siemens`: the figures of the gaps show events that end above 0
+    before the end of their block, which `spec` rejects (`gradient.nonzero-end-align`) and the
+    scanner's reader plays."""
+    snap = load(seq, "cpp-siemens")
     edges = block_edges(seq)
     end = edges[-1]
     pad = 0.06 * end

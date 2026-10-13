@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import numpy as np
 import pypulseq as pp
 import pytest
+from oracles.blocks import sequence_of
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
     SYSTEM,
@@ -25,18 +26,14 @@ from synthetic import (
 )
 
 from pulseq_analysis import seqfile
-from pulseq_analysis._equality import _freeze, values_equal
-from pulseq_analysis.seqfile import NotSupported, SeqFileError
+from pulseq_analysis._equality import _freeze
+from pulseq_analysis.analyses import load
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_seqfile
 from pulseq_analysis.seqfile.model import TABLE_DTYPES
 from pulseq_analysis.synth import seq_index
-from pulseq_analysis.synth.seq_index import (
-    adc_events,
-    grad_events,
-    has_gradients,
-    rf_events,
-    sequence_index,
-)
-from pulseq_analysis.synth.snapshot import Snapshot, load
+from pulseq_analysis.synth._played import played_gradients
+from pulseq_analysis.synth.seq_index import has_gradients, sequence_index
+from pulseq_analysis.synth.snapshot import Snapshot
 
 _AXES = ("gx", "gy", "gz")
 
@@ -112,7 +109,7 @@ def _reference_index(seq: pp.Sequence) -> SimpleNamespace:
 
 def _assert_index_matches_reference(snap: Snapshot) -> None:
     index = sequence_index(snap)
-    ref = _reference_index(snap.sequence)
+    ref = _reference_index(sequence_of(snap))
     assert np.array_equal(index.block_id, ref.block_id)
     assert np.array_equal(index.rf.astype(np.int64), ref.rf)
     assert np.array_equal(index.gx.astype(np.int64), ref.gx)
@@ -184,13 +181,13 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     seq.add_block(e2, g2, g3, a2)
     seq.add_block(e1, g1_as_gx, a1)
     snap = load(seq)
-    ids = np.array(list(snap.sequence.block_events.values()))
-    assert ids[:, 1].tolist() == [2, 1, 2]  # RF library ids
-    assert ids[:, 2].tolist() == [0, 2, 3]  # gx
-    assert ids[:, 3].tolist() == [0, 1, 0]  # gy
-    assert ids[:, 4].tolist() == [3, 0, 0]  # gz
-    assert ids[:, 5].tolist() == [2, 1, 2]  # ADC library ids
-    assert len(snap.sequence.grad_library.data) == 3
+    blocks = snap.data.blocks
+    assert blocks["rf"].tolist() == [2, 1, 2]  # RF library ids
+    assert blocks["gx"].tolist() == [0, 2, 3]
+    assert blocks["gy"].tolist() == [0, 1, 0]
+    assert blocks["gz"].tolist() == [3, 0, 0]
+    assert blocks["adc"].tolist() == [2, 1, 2]  # ADC library ids
+    assert snap.data.trap.size == 3 and snap.data.grad.size == 0
 
     index = sequence_index(snap)
 
@@ -204,12 +201,13 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     assert index.adc.tolist() == [1, 2, 1]
     assert index.adc_first.tolist() == [0, 1]
     _assert_index_matches_reference(snap)
-    assert [ev.amplitude for _, ev in grad_events(snap)] == [1e5, 2e5, 3e5]
+    first_ids = seq_index._dense_ids(snap.data, index).grad
+    assert [snap.decoding.gradients[int(i)].amplitude for i in first_ids] == [1e5, 2e5, 3e5]
 
 
 def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
     snap = load(build_repeating(50))
-    seq = snap.sequence
+    seq = sequence_of(snap)
     index = sequence_index(snap)
 
     block_ids = list(seq.block_events.keys())
@@ -292,21 +290,37 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
     assert index.gx[-1] == unique
 
 
-def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb():
-    """A file with a large event ID must not make a table in proportion to the ID. pypulseq
-    gives the IDs 1, 2, ... in order, so this sets the gx ID of the second block in
-    `seq.block_events` to 10**8 after `add_block`, before `load` (`sequence_index` reads only
-    `seq.block_events` and `seq.block_durations`, not the libraries). The peak of
-    `tracemalloc` over the build is below 100 MB, and the dense numbers are as for small IDs.
-    A lookup table over the IDs takes 800 MB."""
+def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb(tmp_path):
+    """A file with a large event ID must not make a table in proportion to the ID. The file of
+    three trapezoids on x (amplitudes 1e5, 2e5, 1e5) gets the ID 10**8 for its second trapezoid,
+    in `[BLOCKS]` and in `[TRAP]`, with no signature. The peak of `tracemalloc` over the build of
+    the index (with the played gradients) is below 100 MB, and the dense numbers are as for small
+    IDs. A lookup table over the IDs takes 800 MB."""
     seq = pp.Sequence(SYSTEM)
     for amplitude in (1e5, 2e5, 1e5):
         seq.add_block(
             pp.make_trapezoid(channel="x", amplitude=amplitude, duration=1e-3, system=SYSTEM)
         )
+    path = tmp_path / "big.seq"
+    seq.write(str(path), create_signature=False)
     big = 10**8
-    seq.block_events[2][seq_index._GX] = big
-    snap = load(seq)
+    lines = path.read_text().splitlines()
+    section = ""
+    for i, line in enumerate(lines):
+        if line.startswith("["):
+            section = line
+            continue
+        fields = line.split()
+        if section == "[BLOCKS]" and len(fields) == 8 and fields[0] == "2":
+            fields[3] = str(big)
+        elif section == "[TRAP]" and fields and fields[0] == "2":
+            fields[0] = str(big)
+        else:
+            continue
+        lines[i] = " ".join(fields)
+    path.write_text("\n".join(lines) + "\n")
+    snap = load(path)
+    assert snap.data.blocks["gx"].tolist() == [1, big, 1]
 
     tracemalloc.start()
     try:
@@ -371,16 +385,29 @@ def _delay_only() -> pp.Sequence:
         (lambda: _one_trapezoid("y"), True),
         (lambda: _one_trapezoid("z"), True),
         (_delay_only, False),
-        (lambda: pp.Sequence(SYSTEM), False),
     ],
-    ids=["spin echo", "x", "y", "z", "delay only", "no blocks"],
+    ids=["spin echo", "x", "y", "z", "delay only"],
 )
 def test_has_gradients_is_true_only_for_an_index_with_a_gradient_event(build, expected):
     assert has_gradients(sequence_index(load(build()))) is expected
 
 
+def _no_blocks():
+    """The snapshot of a model with an empty block table: the model of a file through `spec`,
+    with its blocks removed (`spec` rejects a file with no block, `blocks.empty`, and pypulseq
+    cannot write a sequence with no block; `cpp-siemens` reads `bad_blocks_empty.seq`, in the
+    plugin's tests)."""
+    data = read_seqfile(SEQFILES / "valid_no_signature.seq")
+    empty = np.zeros(0, dtype=TABLE_DTYPES["blocks"])
+    return Snapshot(dataclasses.replace(data, blocks=_freeze(empty)[0]))
+
+
+def test_has_gradients_is_false_for_a_file_with_no_blocks():
+    assert has_gradients(sequence_index(_no_blocks())) is False
+
+
 def test_sequence_index_of_a_sequence_with_no_blocks():
-    index = sequence_index(load(pp.Sequence(SYSTEM)))
+    index = sequence_index(_no_blocks())
     assert index.num_blocks == 0
     assert index.end_s == 0.0
     for arr in (
@@ -413,124 +440,12 @@ def test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another():
     assert other == first
 
 
-def _count_get_block(snap, monkeypatch):
-    """Replace `get_block` of the sequence of `snap` with a counting wrapper that also records
-    `use_block_cache` at each call, and return `(original, calls, cache_flags)`."""
-    seq = snap.sequence
-    original = seq.get_block
-    calls: list[int] = []
-    cache_flags: list[bool] = []
-
-    def wrapper(block_id):
-        calls.append(block_id)
-        cache_flags.append(seq.use_block_cache)
-        return original(block_id)
-
-    monkeypatch.setattr(seq, "get_block", wrapper)
-    return original, calls, cache_flags
-
-
-def test_rf_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
-    snap = load(spin_echo_sequence())  # two distinct RF events: excitation and refocusing
-    index = sequence_index(snap)
-    assert index.rf_first.size == 2
-    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
-
-    results = rf_events(snap)
-
-    assert isinstance(results, tuple)
-    # One RF event per block, so the number of get_block calls is exactly the number
-    # of unique RF events here.
-    assert len(calls) == np.unique(index.rf_first).size
-    assert cache_flags and all(flag is False for flag in cache_flags)
-    assert snap.sequence.use_block_cache is False
-
-    assert [k for k, _ in results] == list(range(1, index.rf_first.size + 1))
-    for (_, ev), play_index in zip(results, index.rf_first.tolist()):
-        block_id = int(index.block_id[play_index])
-        expected = original(block_id).rf
-        assert ev.delay == expected.delay
-        assert ev.type == expected.type
-        assert np.array_equal(ev.signal, expected.signal)
-
-    calls.clear()
-    assert rf_events(snap) is results
-    assert not calls
-
-
-def test_grad_events_reads_each_unique_first_use_block_once_and_keeps_the_tuple(
-    monkeypatch,
-):
-    seq = pp.Sequence(SYSTEM)
-    common = {"rise_time": 1e-4, "flat_time": 2e-4, "fall_time": 1e-4, "system": SYSTEM}
-    seq.add_block(pp.make_trapezoid(channel="z", amplitude=1e5, **common))
-    # gx and gy are both first used in this second block: one get_block call, not two.
-    seq.add_block(
-        pp.make_trapezoid(channel="x", amplitude=2e5, **common),
-        pp.make_trapezoid(channel="y", amplitude=3e5, **common),
-    )
-    snap = load(seq)
-    index = sequence_index(snap)
-    assert index.grad_first.tolist() == [0, 1, 1]
-    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
-
-    results = grad_events(snap)
-
-    assert isinstance(results, tuple)
-    assert len(calls) == np.unique(index.grad_first).size == 2
-    assert cache_flags and all(flag is False for flag in cache_flags)
-    assert snap.sequence.use_block_cache is False
-
-    assert [k for k, _ in results] == [1, 2, 3]
-    for (_, ev), play_index, axis in zip(
-        results, index.grad_first.tolist(), index.grad_first_axis.tolist()
-    ):
-        block_id = int(index.block_id[play_index])
-        expected = getattr(original(block_id), _AXES[axis])
-        assert ev.delay == expected.delay
-        assert ev.type == expected.type
-        assert ev.amplitude == expected.amplitude
-
-    calls.clear()
-    assert grad_events(snap) is results
-    assert not calls
-
-
-def test_adc_events_reads_each_unique_event_once_and_keeps_the_tuple(monkeypatch):
-    snap = load(gre_sequence(num_trs=5))  # the same ADC event is reused every TR
-    index = sequence_index(snap)
-    assert index.adc_first.size == 1
-    original, calls, cache_flags = _count_get_block(snap, monkeypatch)
-
-    results = adc_events(snap)
-
-    assert isinstance(results, tuple)
-    assert len(calls) == np.unique(index.adc_first).size == 1
-    assert cache_flags and all(flag is False for flag in cache_flags)
-    assert snap.sequence.use_block_cache is False
-
-    assert [k for k, _ in results] == [1]
-    for (_, ev), play_index in zip(results, index.adc_first.tolist()):
-        block_id = int(index.block_id[play_index])
-        expected = original(block_id).adc
-        assert ev.delay == expected.delay
-        assert ev.num_samples == expected.num_samples
-        assert ev.dwell == expected.dwell
-
-    calls.clear()
-    assert adc_events(snap) is results
-    assert not calls
-
-
-@pytest.mark.parametrize("function", [sequence_index, rf_events, grad_events, adc_events])
 @pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
-def test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot(
-    function, build
-):
-    """`sequence_index`, `rf_events`, `grad_events` and `adc_events` raise `TypeError` that
-    names `load` for a `pp.Sequence` and for a path: they take a `Snapshot`."""
+def test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot(build):
+    """`sequence_index` raises `TypeError` that names `load` for a `pp.Sequence` and for a path:
+    it takes a `Snapshot`."""
     with pytest.raises(TypeError, match="load"):
-        function(build())
+        sequence_index(build())
 
 
 # ---- The index from parts: `_index_from_columns`, `_index_from_data` and `_dense_ids` ----
@@ -543,72 +458,31 @@ def _seqfiles() -> list[Path]:
     return sorted(SEQFILES.glob("valid_*.seq")) + sorted((SEQFILES / "oracle").glob("*.seq"))
 
 
-# The fields of the gradient numbering. pypulseq's `Sequence.read` (in `load`) calls
-# `remove_duplicates`, which makes one event of the gradient events of the file that are equal
-# after its rounding: `pypulseq_simple_mprage150.seq` has the trapezoids 39 and 40, with the
-# amplitudes 0 and -0 and the same times, and pypulseq gives the gy of its blocks 70, 200 and
-# 330 the ID 39, not 40. The model keeps the IDs of the file, so the index of the model can
-# have more gradient events.
-_GRAD_FIELDS = ("gx", "gy", "gz", "grad_first", "grad_first_axis")
-
-
-def _gradient_row(data, file_id: int) -> tuple:
-    """The gradient event `file_id` of `data`: its table, and its row without the ID."""
-    for name in ("trap", "grad"):
-        table = getattr(data, name)
-        row = table[table["id"] == file_id]
-        if row.size:
-            return (name, *row[0].tolist()[1:])
-    raise AssertionError(f"no gradient event {file_id}")
-
-
-def _assert_gradients_are_merged(data, got, expected) -> None:
-    """The gradient columns of `expected` (pypulseq) number the events of `got` (the model)
-    with the events that are equal by value as one: each dense index of `got` has one dense
-    index of `expected` on every axis, and the events of the file that get one index of
-    `expected` are equal by value (`==`, so 0 equals -0). pypulseq merges events that are
-    equal after its rounding, so a file with two events that differ by less than that rounding
-    fails here, and shows it."""
-    mine = np.concatenate([got.gx, got.gy, got.gz]).astype(np.int64)
-    theirs = np.concatenate([expected.gx, expected.gy, expected.gz]).astype(np.int64)
-    to = np.zeros(got.grad_first.size + 1, dtype=np.int64)
-    to[mine] = theirs
-    assert np.array_equal(to[mine], theirs)
-    ids = seq_index._dense_ids(data, got).grad
-    for j in range(1, expected.grad_first.size + 1):
-        rows = {_gradient_row(data, int(i)) for i in ids[to[1:] == j]}
-        assert len(rows) == 1, (j, rows)
-
-
-def test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file():
-    """For each file of `tests/seqfiles` that both `seqfile.read_seqfile` and `load` accept,
-    `_index_from_data` of the model equals `sequence_index` of the snapshot, field by field,
-    except the gradient numbering where pypulseq makes one event of two that are equal by
-    value (`_GRAD_FIELDS`): there the numbering of pypulseq is a merging of the numbering of
-    the model."""
-    compared = merged = 0
+def check_the_index_of_a_snapshot_is_the_index_of_its_model(interpreter) -> None:
+    """For each file of `tests/seqfiles` that the interpreter reads, and whose gradients the
+    decoding gives without a rotation or an event after its block's end (so each block plays
+    the events of the file), `sequence_index` of the snapshot equals `_index_from_data` of the
+    model: the event numbers follow the file IDs, as the model keeps them (two equal events with
+    different IDs are two events)."""
+    compared = 0
     for path in _seqfiles():
         try:
-            data = seqfile.read_seqfile(path)
+            snap = load(path, interpreter)
         except (SeqFileError, NotSupported):
             continue
-        try:
-            snap = load(path)
-        except (KeyError, ValueError, NotImplementedError):  # pypulseq refuses the file
-            continue
-        got, expected = seq_index._index_from_data(data), sequence_index(snap)
-        if got.grad_first.size == expected.grad_first.size:
-            names = [f.name for f in dataclasses.fields(got)]
-        else:
-            _assert_gradients_are_merged(data, got, expected)
-            names = [f.name for f in dataclasses.fields(got) if f.name not in _GRAD_FIELDS]
-            merged += 1
-        different = [
-            name for name in names if not values_equal(getattr(got, name), getattr(expected, name))
-        ]
-        assert not different, (path.name, different)
+        played = played_gradients(snap)
+        top = max(int(snap.data.blocks[axis].max(initial=0)) for axis in _AXES)
+        if any(int(getattr(played, axis).max(initial=0)) > top for axis in _AXES):
+            continue  # a block of events from `gradients_at`: `test_played.py`
+        assert sequence_index(snap) == seq_index._index_from_data(snap.data), path.name
         compared += 1
-    assert compared - merged >= 10
+    assert compared >= 15
+
+
+def test_the_index_of_a_snapshot_is_the_index_of_its_model_for_each_file():
+    """Through `spec`, the index of a snapshot is that of its model
+    (`check_the_index_of_a_snapshot_is_the_index_of_its_model`)."""
+    check_the_index_of_a_snapshot_is_the_index_of_its_model("spec")
 
 
 @pytest.mark.parametrize(
@@ -620,7 +494,7 @@ def test_the_index_from_the_columns_of_a_sequence_equals_its_index(build):
     """`_index_from_columns` with the block IDs, the durations and the event columns of the
     sequence of a snapshot (int64, read here) equals `sequence_index` of the snapshot."""
     snap = load(build())
-    seq = snap.sequence
+    seq = sequence_of(snap)
     rows = list(seq.block_events.items())
     block_id = np.array([b for b, _ in rows], dtype=np.uint32)
     duration_s = np.array([seq.block_durations[b] for b, _ in rows], dtype=np.float64)

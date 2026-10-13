@@ -1,40 +1,30 @@
 """The block table of one sequence, in play order, with dense event indexes.
 
-`sequence_index` reads `seq.block_events` as one array and `seq.block_durations` as one
-vector (`seq` is the sequence of the snapshot), without `get_block`, so it costs O(N) for N
-blocks with no per-block pypulseq call. It numbers the unique RF, gradient and ADC events from 1, in the order of their
-first use in play order. The three gradient axes share one index space: in one block, gx
-comes before gy and gz. The measurements use these numbers to compute a value one time
-for each unique event, not one time for each block, and then give it to each block that
-plays the event.
+`sequence_index` reads the block table of the snapshot's data (`SequenceData.blocks`) and its
+durations (`SequenceData.block_durations_s`) as arrays, so it costs O(N) for N blocks. It numbers
+the unique RF, gradient and ADC events from 1, in the order of their first use in play order. The
+three gradient axes share one index space: in one block, gx comes before gy and gz. The gradient
+events are those that the measurements play (`_played`): the events of the file, and in a block
+whose gradients the decoding rotates, the rotated event of each axis. The measurements use these
+numbers to compute a value one time for each unique event, not one time for each block, and then
+give it to each block that plays the event.
 
-All the public functions take a `snapshot.Snapshot` (`snapshot.load`) and keep their result on
-it. The sequence of a snapshot does not change, and `load` has refused a sequence with a rotation,
-so these functions do not check it.
+`sequence_index` takes a `snapshot.Snapshot` (`analyses.load`) and keeps its result on it.
 
 `_index_from_columns` builds the index from the block IDs, the durations and the event columns,
 and `_index_from_data` from a `model.SequenceData` with the event IDs of the file. These two keep
 nothing. `_dense_ids` gives the file ID of each dense index of the index of a `SequenceData`.
-
-`rf_events`, `grad_events` and `adc_events` give each unique event one time, from the
-first block that uses it, as a tuple that is made on the first call and kept. Only they call
-`get_block`. The block cache of the sequence of a snapshot is off (`load`), so pypulseq keeps
-no block.
 """
 
-from types import SimpleNamespace
 from typing import NamedTuple
 
 import numpy as np
-import pypulseq as pp
 
 from .._equality import _freeze, value_dataclass
 from ..seqfile.model import SequenceData
+from ._played import played_gradients
 from .seq_utils import _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
-
-# The columns of a row of `seq.block_events`.
-_RF, _GX, _GY, _GZ, _ADC = 1, 2, 3, 4, 5
 
 
 @value_dataclass
@@ -55,7 +45,7 @@ class SequenceIndex:
     """
 
     num_blocks: int
-    block_id: np.ndarray  # uint32, N: the pypulseq block id (`_index_from_data`: the file's)
+    block_id: np.ndarray  # uint32, N: the block ID of the file
     start_s: np.ndarray  # float64, N: the block start, the sequential sum of the durations
     duration_s: np.ndarray  # float64, N
     end_s: float  # the end of the last block, 0.0 without blocks
@@ -91,7 +81,8 @@ def sequence_index(snap: Snapshot) -> SequenceIndex:
     _check_snapshot(snap)
     kept = _kept_results(snap)
     if "index" not in kept:
-        kept["index"] = _build_index(snap.sequence)
+        played = played_gradients(snap)
+        kept["index"] = _index_from_data(snap.data, (played.gx, played.gy, played.gz))
     return kept["index"]
 
 
@@ -149,38 +140,6 @@ def _dense_sorted(columns: list[np.ndarray]) -> tuple[list[np.ndarray], np.ndarr
     return [np.ascontiguousarray(dense[j::m]) for j in range(m)], first[order]
 
 
-def _build_index(seq: pp.Sequence) -> SequenceIndex:
-    """The `SequenceIndex` of `seq`, built from `seq.block_events` and `seq.block_durations`
-    without the keep of `sequence_index`."""
-    block_events = seq.block_events
-    n = len(block_events)
-    block_id = np.fromiter(block_events.keys(), dtype=np.uint32, count=n)
-    durations = seq.block_durations
-    if len(durations) == n and np.array_equal(
-        np.fromiter(durations.keys(), dtype=np.uint32, count=n), block_id
-    ):
-        duration_s = np.fromiter(durations.values(), dtype=np.float64, count=n)
-    else:  # the durations are not in the order of the blocks
-        duration_s = np.fromiter((durations[b] for b in block_events), dtype=np.float64, count=n)
-
-    try:
-        rows = np.asarray(list(block_events.values()))
-    except ValueError:  # the rows differ in length
-        rows = None
-    if rows is not None and rows.ndim == 2 and rows.shape[1] > _ADC:
-        # one read of the block dict, then a copy of each column
-        def column(col: int) -> np.ndarray:
-            return np.ascontiguousarray(rows[:, col], dtype=np.int32)
-    else:
-
-        def column(col: int) -> np.ndarray:
-            return np.fromiter((ev[col] for ev in block_events.values()), dtype=np.int32, count=n)
-
-    return _index_from_columns(
-        block_id, duration_s, column(_RF), column(_GX), column(_GY), column(_GZ), column(_ADC)
-    )
-
-
 def _index_from_columns(
     block_id: np.ndarray,
     duration_s: np.ndarray,
@@ -233,9 +192,12 @@ def _index_from_columns(
     )
 
 
-def _index_from_data(data: SequenceData) -> SequenceIndex:
+def _index_from_data(
+    data: SequenceData, gradients: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+) -> SequenceIndex:
     """The `SequenceIndex` of `data`: the blocks of `data.blocks` with the durations
-    `data.block_durations_s`. The event IDs are those of the file. Raises ValueError that
+    `data.block_durations_s`. The event IDs are those of the file, or for the gradients those of
+    `gradients` (gx, gy and gz, one key for each block) when it is given. Raises ValueError that
     names the ID when a block ID does not fit in uint32."""
     blocks = data.blocks
     ids = blocks["id"]
@@ -246,9 +208,7 @@ def _index_from_data(data: SequenceData) -> SequenceIndex:
         ids.astype(np.uint32),
         data.block_durations_s,
         blocks["rf"],
-        blocks["gx"],
-        blocks["gy"],
-        blocks["gz"],
+        *(gradients if gradients is not None else (blocks[axis] for axis in _GRAD_COLUMNS)),
         blocks["adc"],
     )
 
@@ -273,57 +233,3 @@ def _dense_ids(data: SequenceData, index: SequenceIndex) -> _DenseIds:
         grad[index.grad_first, index.grad_first_axis].astype(np.int64),
         blocks["adc"][index.adc_first].astype(np.int64),
     )
-
-
-def _first_events(
-    snap: Snapshot, first: np.ndarray, attrs: list[str]
-) -> tuple[tuple[int, SimpleNamespace], ...]:
-    """(dense index, event) for each unique event, in dense order: attribute `attrs[k]`
-    of the block at play index `first[k]`. A block is read one time for consecutive
-    events in it."""
-    seq, block_id = snap.sequence, sequence_index(snap).block_id
-    events = []
-    position, block = -1, None
-    for k, (p, attr) in enumerate(zip(first.tolist(), attrs, strict=True)):
-        if p != position:
-            position, block = p, seq.get_block(int(block_id[p]))
-        events.append((k + 1, getattr(block, attr)))
-    return tuple(events)
-
-
-def rf_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
-    """(dense index, event) for each unique RF event of `snap`, in dense order, as a tuple.
-
-    The tuple is made on the first call and kept on the snapshot. The events are the objects
-    that `get_block` gives, shared by all callers: a caller must not change them. Raises
-    TypeError for an argument that is not a `Snapshot`."""
-    _check_snapshot(snap)
-    kept = _kept_results(snap)
-    if "rf_events" not in kept:
-        first = sequence_index(snap).rf_first
-        kept["rf_events"] = _first_events(snap, first, ["rf"] * first.size)
-    return kept["rf_events"]
-
-
-def grad_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
-    """(dense index, event) for each unique gradient event of `snap`, in dense order, as a
-    tuple, kept as `rf_events` is, with the same rules for the events. The axis of the block
-    where it is first used is `sequence_index(snap).grad_first_axis[k - 1]`."""
-    _check_snapshot(snap)
-    kept = _kept_results(snap)
-    if "grad_events" not in kept:
-        index = sequence_index(snap)
-        attrs = [_GRAD_COLUMNS[a] for a in index.grad_first_axis.tolist()]
-        kept["grad_events"] = _first_events(snap, index.grad_first, attrs)
-    return kept["grad_events"]
-
-
-def adc_events(snap: Snapshot) -> tuple[tuple[int, SimpleNamespace], ...]:
-    """(dense index, event) for each unique ADC event of `snap`, in dense order, as a tuple,
-    kept as `rf_events` is, with the same rules for the events."""
-    _check_snapshot(snap)
-    kept = _kept_results(snap)
-    if "adc_events" not in kept:
-        first = sequence_index(snap).adc_first
-        kept["adc_events"] = _first_events(snap, first, ["adc"] * first.size)
-    return kept["adc_events"]

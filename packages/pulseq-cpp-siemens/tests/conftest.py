@@ -3,14 +3,19 @@ pulseq-analysis) need pulseq-analysis (the dependency group `analysis`). Without
 wheel tests of cibuildwheel, their modules (`ANALYSIS_TESTS`) are not collected. With it, the
 tests directory of pulseq-analysis (the root of this repository) is put on `sys.path`, for its
 fixtures and its helpers (`test_cpp_oracle`, `test_from_pypulseq`, `synthetic`, the MATLAB
-oracle).
+oracle, and the measurement tests that `test_measurements_in_pulseq_analysis` calls).
 """
 
 import importlib.util
 import sys
 from pathlib import Path
 
-ANALYSIS_TESTS = ["test_interpreter.py", "test_interpreter_in_pulseq_analysis.py"]
+ANALYSIS_TESTS = [
+    "test_interpreter.py",
+    "test_interpreter_in_pulseq_analysis.py",
+    "test_load_in_pulseq_analysis.py",
+    "test_measurements_in_pulseq_analysis.py",
+]
 
 ROOT_TESTS = Path(__file__).resolve().parents[3] / "tests"
 

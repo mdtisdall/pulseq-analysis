@@ -13,11 +13,12 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses import pns_levels as pns_levels_module
 from pulseq_analysis.analyses.asc import hardware_from_asc, hardware_name, read_gradient_asc
 from pulseq_analysis.analyses.pns_levels import BIN_S, NO_GRADIENTS, pns_levels
 from pulseq_analysis.analyses.safe import SafeHardware
-from pulseq_analysis.synth.snapshot import load
+from pulseq_analysis.synth.sampling import GradientSampler
 
 _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times GAMMA_1H
 
@@ -47,36 +48,34 @@ def test_no_gradients_with_rf_and_adc():
     assert pns_levels(load(seq), hardware=EXAMPLE_HW).reason == NO_GRADIENTS
 
 
-def test_prediction_does_not_build_the_gradients_for_an_on_raster_sequence(monkeypatch):
-    """`pns_levels` samples an on-raster sequence with
-    `GradientSampler.block_samples`, not `seq.get_gradients()` (unlike the old
-    `seq.calculate_pns`-based prediction), so `get_gradients` is never called."""
+def test_prediction_does_not_sample_at_the_file_times_for_an_on_raster_sequence(monkeypatch):
+    """`pns_levels` samples an on-raster sequence with `GradientSampler.block_samples`, not
+    with `GradientSampler.sample` (the samples at the file times of a sequence that is not on
+    the raster), so `sample` is never called, and `block_samples` is."""
     snap = load(spin_echo_sequence())
-    calls = []
-    get_gradients = snap.sequence.get_gradients
+    sample_calls = []
+    block_samples_calls = []
+    sample = GradientSampler.sample
+    block_samples = GradientSampler.block_samples
 
-    def counted(*args, **kwargs):
-        calls.append(1)
-        return get_gradients(*args, **kwargs)
+    def counted_sample(*args, **kwargs):
+        sample_calls.append(1)
+        return sample(*args, **kwargs)
 
-    monkeypatch.setattr(snap.sequence, "get_gradients", counted)
+    def counted_block_samples(*args, **kwargs):
+        block_samples_calls.append(1)
+        return block_samples(*args, **kwargs)
+
+    monkeypatch.setattr(GradientSampler, "sample", counted_sample)
+    monkeypatch.setattr(GradientSampler, "block_samples", counted_block_samples)
     pns_levels(snap, hardware=EXAMPLE_HW)
-    assert calls == []
+    assert sample_calls == []
+    assert block_samples_calls
 
 
-def test_prediction_keeps_no_blocks():
-    """`load` turns the block cache of the private sequence off, and `pns_levels` leaves it off
-    and empty: `use_block_cache` is False and `block_cache` has no block."""
-    snap = load(spin_echo_sequence())
-    pns_levels(snap, hardware=EXAMPLE_HW)
-    assert snap.sequence.use_block_cache is False
-    assert not snap.sequence.block_cache
-
-
-def test_prediction_propagates_an_error_and_keeps_the_cache_off(monkeypatch):
+def test_prediction_propagates_an_error(monkeypatch):
     """An error deep inside the SAFE model (the pinned fork's chunk function)
-    propagates out of `pns_levels`, and the block cache of the private sequence stays off and
-    empty."""
+    propagates out of `pns_levels`."""
     snap = load(spin_echo_sequence())
 
     def fail(*args, **kwargs):
@@ -85,8 +84,6 @@ def test_prediction_propagates_an_error_and_keeps_the_cache_off(monkeypatch):
     monkeypatch.setattr(pns_levels_module, "_safe_gwf_to_pns_chunk", fail)
     with pytest.raises(RuntimeError, match="chunk failed"):
         pns_levels(snap, hardware=EXAMPLE_HW)
-    assert snap.sequence.use_block_cache is False
-    assert not snap.sequence.block_cache
 
 
 def _count_pns_levels_calls(monkeypatch) -> list:

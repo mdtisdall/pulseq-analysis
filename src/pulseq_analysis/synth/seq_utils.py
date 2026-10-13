@@ -2,12 +2,12 @@
 
 `gradient_offsets` and `gradient_points` give the corner or sample points of a gradient
 event, the points that `grad_peaks` and `sampling` join with straight lines. The event is an
-`events.Trapezoid`, an `events.ArbitraryGradient` or a gradient event of pypulseq.
+`events.Trapezoid` or an `events.ArbitraryGradient`.
 """
 
 import numpy as np
 
-from .events import ArbitraryGradient, Trapezoid
+from .events import Trapezoid
 
 # The tolerance of a comparison of two times. A segment shorter than this has no slope.
 TIME_TOLERANCE = 1e-9  # s
@@ -19,10 +19,9 @@ _GRAD_COLUMNS = ("gx", "gy", "gz")
 
 def gradient_offsets(g) -> tuple[float, np.ndarray, np.ndarray]:
     """The delay (s) and the offsets (s) and amplitudes (Hz/m) of one gradient event's
-    corner or sample points, relative to the delay. `g` is an `events.Trapezoid`, an
-    `events.ArbitraryGradient`, or a gradient event of pypulseq, whose `type` is `"trap"` for
-    a trapezoid."""
-    if isinstance(g, Trapezoid) or (not isinstance(g, ArbitraryGradient) and g.type == "trap"):
+    corner or sample points, relative to the delay. `g` is an `events.Trapezoid` or an
+    `events.ArbitraryGradient`."""
+    if isinstance(g, Trapezoid):
         offsets = np.cumsum([0.0, g.rise_time, g.flat_time, g.fall_time])
         amp = np.array([0.0, g.amplitude, g.amplitude, 0.0])
     else:

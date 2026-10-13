@@ -3,7 +3,7 @@ this package.
 
 An analysis is a pass that calculates information about a sequence and does not change it
 (the analysis passes of a compiler are the model). It works on a `snapshot.Snapshot`, which
-`snapshot.load` makes from a file or a sequence: a runner loads each file one time, and gives
+`analyses.load` makes from a file or a sequence through an interpreter: a runner loads each file one time, and gives
 the snapshot to each analysis. Each analysis has:
 
 - `spec`, an `AnalysisSpec`: its ID, its version, a title, the description of its value, the
@@ -202,9 +202,11 @@ class _SeqIndex:
             "events (x, y, z) of the block, 0 for no event. It also gives the play index of "
             "the first block of each unique event, and the end of the sequence. The numbers "
             "of the events start at 1, in the order of their first use, and the three "
-            "gradient axes share one number space. The event columns use the smallest of "
-            "uint8, uint16 and uint32 that holds the number of unique events. It reads no "
-            "block with `get_block`. The layout of the `SequenceIndex` (its fields, these "
+            "gradient axes share one number space. The gradient events are those that the "
+            "measurements play: in a block whose gradients the decoding gives from "
+            "`gradients_at` (a rotated block, or one with an event after its end), each axis "
+            "has an event of its own. The event columns use the smallest of "
+            "uint8, uint16 and uint32 that holds the number of unique events. The layout of the `SequenceIndex` (its fields, these "
             "numbers and this dtype rule) is the contract of version 1 of this analysis: a "
             "change of it raises `spec.version`."
         ),

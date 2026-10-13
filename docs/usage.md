@@ -29,13 +29,14 @@ Contents:
 from pulseq_analysis.analyses.asc import hardware_from_asc
 from pulseq_analysis.analyses.grad_peaks import gradient_peaks
 from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.pns_levels import pns_levels
-from pulseq_analysis.synth.snapshot import load
 
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
-# A .seq file. It needs no [SIGNATURE] hash.
-# `load(seq)` takes a pypulseq Sequence instead.
+# A .seq file, read through the `spec` interpreter. It needs no [SIGNATURE] hash.
+# `load(seq)` takes a pypulseq Sequence instead; `load(path, "cpp-siemens")` reads
+# the file as the scanner's C++ reader does.
 snap = load("sequence.seq")
 
 peaks = gradient_peaks(snap)
@@ -50,19 +51,20 @@ print(spectrum.frequency_hz[spectrum.rss.argmax()], "Hz")
 ```
 
 Each measurement takes a `Snapshot` as its first argument, not a file or a
-`pp.Sequence`. `load` makes the snapshot, and [section 2](#2-before-you-start)
-says why.
+`pp.Sequence`. `load` reads the file through an interpreter and makes the
+snapshot, and [section 2](#2-before-you-start) says why.
 
 The modules are in three subpackages: `pulseq_analysis.analyses` (the
 measurements), `pulseq_analysis.synth` (the snapshot, the decoding, the events
 and the waveforms) and `pulseq_analysis.seqfile` (the "as written" reading and
 the interpreters of Pulseq files). This
-guide writes a module by the last part of its path: `snapshot.load` is
-`pulseq_analysis.synth.snapshot.load`.
+guide writes a module by the last part of its path: `snapshot.Snapshot` is
+`pulseq_analysis.synth.snapshot.Snapshot`. `load` is `pulseq_analysis.analyses.load`.
 
 | Module | What it gives | Section |
 |---|---|---|
-| `pulseq_analysis.synth.snapshot` | `load`, and `Snapshot`: the sequence that the measurements read. | [2](#2-before-you-start) |
+| `pulseq_analysis.analyses` | `load`: a file or a pypulseq sequence, read through an interpreter, as a `Snapshot`. | [2](#2-before-you-start) |
+| `pulseq_analysis.synth.snapshot` | `Snapshot`: the interpreter's reading and its decoding, which the measurements read. | [2](#2-before-you-start) |
 | `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
 | `pulseq_analysis.analyses.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
@@ -70,10 +72,9 @@ guide writes a module by the last part of its path: `snapshot.load` is
 | `pulseq_analysis.analyses.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
 | `pulseq_analysis.analyses.registry` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
 | `pulseq_analysis.analyses.series` | `Series`, the part of a value that goes into JSON, its `SeriesKind`, and `FrozenDict`. | [7](#7-run-the-analyses-and-write-json) |
-| `pulseq_analysis.synth.seq_index` | The block table, and the unique events. | [8](#8-the-block-table-and-the-other-modules) |
+| `pulseq_analysis.synth.seq_index` | The block table. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.synth.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.synth.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
-| `pulseq_analysis.synth.extensions` | The refusal of the Pulseq extensions that the measurements do not support, which `load` calls. | [2](#2-before-you-start) |
 | `pulseq_analysis.seqfile.as_written` | The "as written" reading of a Pulseq text file: its sections, rows and typed fields, with line numbers. | [8](#the-as-written-reading) |
 | `pulseq_analysis.seqfile.reading` | `read_seqfile`: a Pulseq text file through an interpreter, into a `SequenceData`. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.interpreters` | The interpreter `spec`, the protocol of a plugin interpreter, and the names of the installed interpreters. | [8](#the-interpreters) |
@@ -82,53 +83,51 @@ guide writes a module by the last part of its path: `snapshot.load` is
 
 ## 2. Before you start
 
-- **Why a snapshot.** pypulseq lets a caller change a sequence in place:
-  `mod_grad_axis` and `flip_grad_axis` rewrite the entries of the gradient
-  library, `set_block` on a block ID that exists replaces the row of the block,
-  `apply_soft_delay` writes the block durations, and a caller can write into
-  `seq.block_events`, `seq.block_durations` or a library directly. A
-  measurement must describe one fixed sequence, and the package keeps its
-  results, so it cannot take a sequence that can change. `load` makes a
-  `Snapshot`, one time, that only the package holds, and each measurement takes
-  the snapshot. A measurement of a `pp.Sequence` or of a path raises
-  `TypeError` that names `load`.
-- **`load(source)`.** `source` is the path of a `.seq` file or a
-  `pp.Sequence`. `load(path)` reads the file into a sequence that no other
-  object holds, so it makes no copy. `load(seq)` makes `copy.deepcopy(seq)`: it
-  shares no mutable object with `seq`, does not change `seq`, and a later
-  change of `seq` does not change the snapshot. The copy costs time and memory
-  in proportion to the size of the sequence (0.12 s for 100,000 blocks on an
-  Apple M1 Max, and 0.31 s with 20,002 unique gradient events instead of 258),
-  so call `load` one time for each sequence and give the snapshot to each
-  measurement. A sequence that changes needs a new `load`. Another type of
-  `source` raises `TypeError`, and a file that pypulseq cannot read raises the
-  error of pypulseq.
-- **No rotation extension.** `load` checks the sequence, so the
-  measurements do not check it again. A sequence with the Pulseq rotation
-  extension raises `NotImplementedError` (`extensions.refuse_rotations`),
-  because the gradients of the file are not the gradients on the scanner.
-  This lasts until `load` runs on the interpreters (task R14); the decoding of
-  `spec` already gives the rotated gradients, and that of `cpp-siemens` gives
-  them with `CppSiemens(rotation="apply")`
+- **Why a snapshot.** A measurement must describe one fixed sequence, and the
+  package keeps its results, so it cannot take a sequence that can change.
+  `load` reads the file, or the text of a pypulseq sequence, through an
+  interpreter one time, into a `Snapshot` that only the package holds, and each
+  measurement takes the snapshot. A measurement of a `pp.Sequence` or of a path
+  raises `TypeError` that names `load`.
+- **`load(source, interpreter="spec")`.** `source` is the path of a `.seq` file
+  or a `pp.Sequence`. `interpreter` is a name (`"spec"`, the default, or
+  the name of an installed plugin, such as `"cpp-siemens"`) or an interpreter
+  object with its settings, for example `CppSiemens(rotation="apply")`
   ([The interpreters](#the-interpreters)).
-  `load` does not read the `[SIGNATURE]` hash, because no result uses it: a
-  sequence built in memory and a file with no `[SIGNATURE]` section load. A
-  caller who requires a hash checks `seq.signature_value` of the source before
-  `load`, or of `snap.sequence`. Do not call `write` on `snap.sequence` to sign
-  it: `write` changes the sequence
-  ([implementation, section 7](implementation.md#7-the-checks-of-load)).
-- **`snap.sequence`.** It is the private `pp.Sequence` of the snapshot, for a
-  caller that needs a value of the file (for example
-  `snap.sequence.definitions`). A caller and an analysis must not change it, and
-  must not change an object that they get from it (for example a block from
-  `get_block`): the kept results are made from it, and a change would make them
-  wrong. Its block cache is off (`use_block_cache` is `False`), so `get_block`
-  keeps no block. `snap.source` is the path that `load` read (a `str`), or `None`
-  for a `pp.Sequence`. A snapshot is equal only to itself. Make a snapshot with
-  `load`: `Snapshot(sequence, source)` does not check the sequence.
-- **Logical axes.** The values are of the logical axes of the file (x, y, z),
-  not of the physical axes of a scanner. On an oblique slice, one physical
-  axis can get the magnitude of the three-axis vector.
+  `load(path, interpreter)` is `read_seqfile(path, interpreter)`, and
+  `load(seq, interpreter)` is `read_pypulseq(seq, interpreter)`: the sequence
+  written with pypulseq's writer, then read as a file
+  ([A pypulseq sequence in memory](#a-pypulseq-sequence-in-memory)). So the
+  values are those of the file that the scanner receives (the writer rounds
+  them), a later change of `seq` does not change the snapshot, and `load(seq)`
+  and `load` of the file of `seq.write` give the same results. A file that the
+  interpreter rejects raises its `SeqFileError` (with the code of each reason),
+  a file outside the package's scope `NotSupported`, and another type of
+  `source` `TypeError`. Call `load` one time for each file and interpreter, and
+  give the snapshot to each measurement.
+- **What a snapshot records.** `snap.interpreter` is the interpreter with its
+  settings, `snap.records` what the interpreter recorded of the file (for `spec`,
+  an extension or a section that it ignored, `SequenceData.records`), and
+  `snap.rotation_record` what the decoding did with the rotations of the file
+  (`synth.RotationRecord`). `snap.data` is the `SequenceData`, `snap.decoding`
+  its decoding, and `snap.source` the path that `load` read (a `str`), or `None`
+  for a `pp.Sequence`. A snapshot is equal only to itself.
+- **Rotations.** `load` reads a file with the rotation extension (ROTATIONS,
+  D2.18, D6.2). The measurements take the gradients of the decoding: `spec` rotates each
+  block by its rotation from version 1.5.1, and `cpp-siemens` gives the reader's
+  unrotated gradients by default, or rotates them with
+  `CppSiemens(rotation="apply")`. When blocks play a rotation that the
+  measurements leave unapplied (`cpp-siemens`'s default), `load` emits a
+  `synth.ScannerSettingWarning`: the values are then those of the logical
+  gradients, not those that the scanner plays. `load` does not read the
+  `[SIGNATURE]` hash for a result: a sequence built in memory and a file with no
+  `[SIGNATURE]` section load
+  ([implementation, section 7](implementation.md#7-what-load-does)).
+- **The axes.** The values are of the axes of the gradients as the decoding
+  gives them: the logical axes of the file (x, y, z), each block turned by its
+  rotation where the decoding applies it. They are not the physical axes of a
+  scanner. On an oblique slice, one physical axis can get the magnitude of the
+  three-axis vector.
 - **Units with no gamma.** The gradients are in Hz/m and Hz/m/s, the spectrum
   in Hz/m/√Hz and the PNS in Hz/T, as in pypulseq. Divide a value by |γ| to get
   the unit with tesla ([section 9](#9-units-and-gamma)).
@@ -137,14 +136,14 @@ guide writes a module by the last part of its path: `snapshot.load` is
   draws. They differ only where an event starts or ends at a value that is not
   0 next to a gap, or at a step at a block junction
   ([implementation, section 1](implementation.md#1-the-gradient-waveform)).
-- **Block ID and play index.** The *block ID* is the ID of pypulseq (a key of
-  `seq.block_events`). The *play index* is the position of a block in play
+- **Block ID and play index.** The *block ID* is the ID of the block in the
+  file (`SequenceData.blocks["id"]`). The *play index* is the position of a block in play
   order, from 0. The arrays of a result have one entry for each play index.
   Use `block_id[i]` to get the block ID of play index `i`. A time is in
   seconds from the start of the sequence.
 - **Kept, read-only results.** Each measurement keeps its result on the
   snapshot, so a second call with the same arguments costs nothing and gives the
-  same object. The sequence of a snapshot does not change, so a kept result is
+  same object. The data of a snapshot does not change, so a kept result is
   never old. A copy of a snapshot from `pickle` or `copy.deepcopy` has no kept
   results and makes them again. All callers share a kept result, so its arrays
   and dicts are read-only (`series.FrozenDict`, a subclass of `dict`: a change raises
@@ -179,14 +178,14 @@ sequence of 100,000 blocks (120 s, 258 unique gradient events):
 
 | Call | Grows with | Time |
 |---|---|---|
-| `load(seq)` | the size of the sequence | 0.12 s |
-| `load(path)` | the size of the file | 0.36 s |
-| `sequence_index` | blocks | 22 ms |
+| `load(seq)` | the size of the sequence (pypulseq's writer) | 0.58 s |
+| `load(path)` | the size of the file | 0.07 s |
+| `sequence_index` | blocks | 19 ms |
 | `gradient_peaks(snap)`, the first gradient measurement | blocks, and unique gradient events | 47 ms |
 | `block_gradient_values`, after it | blocks | 0.5 ms |
 | `gradient_peaks(snap, window=...)`, after the first call | (almost constant) | under 1 ms |
 | `pns_levels` | duration | 0.89 s |
-| `gradient_spectrum` | duration | 0.88 s |
+| `gradient_spectrum` | duration | 0.89 s |
 
 From `sequence_index` on, each row is the time of its call after the rows above
 it, on one snapshot: the first call of `gradient_peaks` does not include the
@@ -194,9 +193,10 @@ block table. The exception is `pns_levels`: it is the time of the model with no
 kept result. The first of `gradient_peaks(snap)` and `block_gradient_values`
 also reads the points of the unique gradient events and makes the values of each
 block, and the other one and the windows use them. A sequence with 20,002 unique
-gradient events (a new phase-encode event in each TR) takes 0.22 s for the first
-call of `gradient_peaks`, 0.31 s for `load(seq)`, 1.1 s for `load(path)` and
-1.0 s for `gradient_spectrum`.
+gradient events (a new phase-encode event in each TR) takes 65 ms for the first
+call of `gradient_peaks`, 1.9 s for `load(seq)`, 0.92 s for `load(path)` and
+1.0 s for `gradient_spectrum`. These times are with `spec`; with `cpp-siemens`,
+`load(path)` takes 0.44 s and 0.63 s, and the other calls about the same.
 [Implementation, section 3](implementation.md#3-algorithms-and-cost) gives the
 algorithms, their complexity and more measured times.
 
@@ -212,8 +212,8 @@ the same units.
 ```python
 import pypulseq as pp
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import gradient_peaks
-from pulseq_analysis.synth.snapshot import load
 
 system = pp.Opts(max_grad=40, grad_unit="mT/m", max_slew=200, slew_unit="T/m/s")
 
@@ -594,7 +594,11 @@ always in the result.
 
 **The block table.** `sequence_index(snap)` gives a `SequenceIndex`: one entry
 for each block in play order, with the unique events of each kind numbered
-from 1 in the order of their first use. It reads no block with `get_block`.
+from 1 in the order of their first use. The gradient events are those that the
+measurements play: the events of the file by their IDs, and in a block whose
+gradients the decoding gives from `gradients_at` (a block that it rotates, or a
+block with an event after its end), an event of its own on each axis
+([implementation, section 2.5](implementation.md#25-the-block-table)).
 N is the number of blocks, and K the number of unique events of one kind.
 
 | Field | Meaning |
@@ -657,10 +661,6 @@ other line that starts with `$INCLUDE` raises `ValueError` that names the file
 and the line, a file that includes itself (or a cycle of files) raises
 `ValueError` that names the cycle, and a missing included file raises
 `FileNotFoundError`.
-
-**`extensions`.** `refuse_rotations(seq)` raises `NotImplementedError` when
-`seq` uses the Pulseq rotation extension. `load` calls it one time for each
-snapshot. A measurement does not call it: a snapshot has passed it.
 
 ### The interpreters
 
@@ -800,8 +800,9 @@ is what the package uses of a decoding. Blocks are indexed in play order from 0:
 `block_durations` in s). In it, each event is the straight lines between its
 points, 0 before its delay and after its end, and every value is 0 outside the
 block. A plugin that decodes a block at a time can decode one event differently
-in two blocks, so `gradient_points` takes the block. `load` does not use the
-interpreters yet (task R14).
+in two blocks, so `gradient_points` takes the block. `load` keeps the decoding on the snapshot
+(`Snapshot.decoding`), and the measurements take their gradients from it, by
+`gradient_points` and `gradients_at`.
 
 **Rotations.** A decoding gives the rotation of each block (the ROTATIONS
 extension, D2.18 and D4.6) with `rotations()` and what it did with them with
@@ -813,9 +814,8 @@ rotated". Its `warning()` is a `scanner.ScannerSettingWarning` (a
 `UserWarning`) when the decoding leaves a rotation unapplied, and None
 otherwise. The text of the warning ends with `hint`, the advice of the
 interpreter for the gradients that the scanner plays (empty for none; it is not
-compared by `==`). The decoding does not emit the warning; the measurements
-will, when `load` runs on the interpreters (task R14). Until then `load`
-refuses a sequence with rotations, as before.
+compared by `==`). The decoding does not emit the warning; `load` emits it, and
+keeps the record on the snapshot (`Snapshot.rotation_record`).
 
 **Rotations in `spec`.** `spec` applies the content of the file from the
 revision that introduced it (P20, rule 2): from 1.5.1, `SpecDecoding` rotates
@@ -971,8 +971,10 @@ cpp = read_pypulseq(seq, interpreter="cpp-siemens")  # a plugin: needs pulseq-cp
   that it cannot write) is raised as it is, and an object that is not a
   pypulseq sequence raises `TypeError`.
 
-`load(seq)` does not use it yet: it reads the sequence in memory with
-pypulseq (task R14 moves `load` onto the interpreters).
+`load(seq, interpreter)` uses it: the snapshot of a sequence is that of its
+text. A sequence that pypulseq cannot write, or whose `remove_duplicates`
+fails, raises pypulseq's exception: pypulseq 1.5.0.post1 raises `KeyError` for
+an oversampled arbitrary gradient (time ID -1) in `remove_duplicates`.
 
 ### The "as written" reading
 

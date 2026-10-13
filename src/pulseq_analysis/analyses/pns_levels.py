@@ -11,7 +11,7 @@ gamma. Divide it by the magnitude of the gamma of the target, in Hz/T, to get th
 (1 is 100 %). The model runs on the gradient samples in Hz/m and reads no gamma
 (`docs/usage.md` section 9).
 
-`pns_levels` is the one entry point. It takes a `snapshot.Snapshot` (`snapshot.load`) and
+`pns_levels` is the one entry point. It takes a `snapshot.Snapshot` (`analyses.load`) and
 keeps its result on it, for each (hardware, thresholds, bin size), so a caller that needs
 both the summary and the level of one sequence runs the model one time. On a miss it calls
 `_compute_levels`, which samples the gradients block by block
@@ -216,7 +216,7 @@ def pns_levels(
     thresholds_hz_per_t: tuple[float, ...] = (),
     bin_s: float = BIN_S,
 ) -> PnsLevels:
-    """The stored level and the summary of the SAFE PNS total of `snap` (`snapshot.load`),
+    """The stored level and the summary of the SAFE PNS total of `snap` (`analyses.load`),
     with `hardware`. The result is kept on the snapshot (see "The kept result" below).
 
     `hardware` is necessary: the package has no default hardware. It is a pair
@@ -260,11 +260,11 @@ def pns_levels(
 
     The model is `calc_pns` of the pinned fork, on other samples:
 
-    1. `dt = snap.sequence.grad_raster_time`. The samples are `GradientSampler.block_samples` of
+    1. `dt = snap.data.rasters.gradient`. The samples are `GradientSampler.block_samples` of
        each axis, in Hz/m, the waveform of the model of MATLAB Pulseq (see the module
-       docstring). They are not divided by a gamma. (`calc_pns` divides them by
-       `snap.sequence.system.gamma`.) Thus each value is the value of `calc_pns` times the
-       magnitude of `snap.sequence.system.gamma`, to the float rounding, for a sequence with no end that is not
+       docstring). They are not divided by a gamma. (`calc_pns` divides them by the gamma of
+       the sequence's `system`.) Thus each value is the value of `calc_pns` times the
+       magnitude of that gamma, to the float rounding, for a sequence with no end that is not
        0 next to a gap of more than one raster time and no step at a block junction (there
        `calc_pns` has pypulseq's line across the gap, and a line from the earlier value
        across the first segment of the later event). When a block is not on the raster
@@ -368,7 +368,7 @@ def _compute_levels(
     (`_check_hardware`, `_validated_thresholds`, `real`), and `snap` is a snapshot: this does
     not check them again, but it converts the struct of `hardware` to a `SafeHardware` again
     (`_as_safe_hardware`). The model is the one of `pns_levels`."""
-    dt = snap.sequence.grad_raster_time
+    dt = snap.data.rasters.gradient
 
     hw_ns = _as_safe_hardware(hardware)
     hardware_label = hardware[1]

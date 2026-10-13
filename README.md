@@ -33,8 +33,9 @@ key `"format"` of a `Series`, and removes `block_cache_off`.
 
 The documents (`docs/usage.md` and `docs/implementation.md`) describe `main`.
 The tag `v0.1.0rc6` of the install line below has an older interface: its
-`load` refuses a sequence with no `[SIGNATURE]` hash, and it has
-`extensions.refuse_unsigned`. The next release replaces this note and the tag.
+`load` is `pulseq_analysis.snapshot.load`, it reads with pypulseq, it refuses a
+sequence with no `[SIGNATURE]` hash, and it has `extensions.refuse_unsigned`.
+The next release replaces this note and the tag.
 
 With uv, from the git URL:
 
@@ -67,13 +68,13 @@ of pulseq-cpp-siemens depends on pulseq-analysis is decided at release time.
 The SAFE PNS peak of a `.seq` file:
 
 ```python
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.asc import hardware_from_asc
 from pulseq_analysis.analyses.pns_levels import pns_levels
-from pulseq_analysis.synth.snapshot import load
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
-snap = load("sequence.seq")  # or load(seq) for a pypulseq Sequence
+snap = load("sequence.seq")  # through `spec`; load(seq) for a pypulseq Sequence
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
 levels = pns_levels(snap, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)
