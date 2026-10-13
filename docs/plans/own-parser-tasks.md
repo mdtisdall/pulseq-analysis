@@ -377,6 +377,16 @@ entries in their reports. The main agent writes them and runs the baseline.
 
 ## 6. Task 4: `feature/pypulseq-converter`
 
+**Replaced by task R15 of `docs/plans/parser-redesign.md` (P16), done on branch
+`feature/pypulseq-via-seq`.** There is no converter and no `convert.py`: a
+`pypulseq.Sequence` in memory is written to Pulseq text with pypulseq's own
+writer and read through an interpreter, `seqfile.read_pypulseq(seq,
+interpreter)` (`docs/usage.md`, "A pypulseq sequence in memory"). The rules
+`convert.precision` and `raster.block-duration`, and the split of
+`seqfile._build`, are not made: the writer's rounding is what the scanner
+receives, and the interpreter reads it. The rest of this section is kept as the
+record of the first plan.
+
 ### 6.1 Result
 
 `pulseq_analysis.convert.from_pypulseq(seq) -> SequenceData`:

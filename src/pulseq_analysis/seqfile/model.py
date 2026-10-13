@@ -399,7 +399,8 @@ class SequenceData:
     - `extensions`, and `skipped_extensions`: the STRING_IDs of the extensions that the
       interpreter does not know (their rows are not read).
     - `signature`: `None` when the file has no `[SIGNATURE]` section.
-    - `origin`: `"file"`.
+    - `origin`: `"file"`, or `"pypulseq"` for a sequence in memory that `from_pypulseq` wrote
+      and read.
     - `interpreter`: the interpreter that read the file, with its settings
       (`interpreters.CppSiemens` or `interpreters.Strict`).
     - `reading`: for `cpp-siemens`, the C++ reader's own reading of the file, a

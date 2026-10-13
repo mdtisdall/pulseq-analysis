@@ -37,7 +37,7 @@ Contents:
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
-   written" reading
+   written" reading; a pypulseq sequence in memory
 3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
    the checks of undefined behaviour; the digests of the driver's output; the
    driver of the C++ oracle; the reader's shared state; the cases of undefined
@@ -8427,6 +8427,91 @@ replaced by `1 0 0 0`.
 that names `pulseq-analysis[cpp-siemens]`, and the default, `strict`, still reads.
 
 **How:** The test sets `sys.modules["pulseq_cpp_siemens"]` to None.
+
+**Assumptions:** None.
+
+### 2.28 A pypulseq sequence in memory (`test_from_pypulseq.py`)
+
+`test_from_pypulseq.py` tests `seqfile.read_pypulseq` (`seqfile.from_pypulseq`, task R15 of
+`docs/plans/parser-redesign.md`): a `pypulseq.Sequence` in memory, written with pypulseq's writer
+and read through an interpreter. The interpreters are `"strict"`, `Strict()`, `"cpp-siemens"`
+and `CppSiemens(oversampling="edge")`; the cases of `cpp-siemens` skip without
+pulseq-cpp-siemens. The sequences are `mixed_sequence` of the module (a slice-selective sinc RF
+with its gradient, a phase encode, a readout trapezoid with its ADC, an arbitrary gradient,
+labels `LIN` (SET) and `SLC` (INC), a delay block, two repetitions with repeated events) and
+five synthetic sequences: `gre_sequence`, `spin_echo_sequence`,
+`arbitrary_gradient_sequence`, `border_sequence` (extended trapezoids) and `empty_sequence`.
+
+#### `test_a_sequence_in_memory_reads_as_its_written_file`
+
+**Checks:** For each sequence and each interpreter, `read_pypulseq(seq, interpreter)` equals
+`read_seqfile` of the file that `seq.write(path)` writes with the writer's defaults, except
+`origin`, which is `"pypulseq"` in place of `"file"`. The result has the signature of the file.
+
+**How:** The test reads the sequence with `read_pypulseq`, then writes a deep copy of it to a
+file of `tmp_path` with `write(path)` and reads the file with the same interpreter. It compares
+the two models with `==` (the model's value equality, every field but `reading`) after it sets
+`origin` to `"file"`, and compares the interpreters and the signatures.
+
+**Assumptions:** `write` with the defaults runs pypulseq's timing check, which only warns, and
+`read_pypulseq` does not run it; the bytes are otherwise the same, which the equal signatures
+(the MD5 hash of the text) confirm. The `reading` of `cpp-siemens` is not compared by `==`; it is
+the reader's reading of the same bytes.
+
+#### `test_the_mixed_sequence_has_each_kind_of_event`
+
+**Checks:** The model of `mixed_sequence` has 10 blocks, one RF event (the writer merged the
+repeated one), one ADC event, one arbitrary gradient, at least three trapezoids, two `LABELSET`
+rows and one `LABELINC` row, with each interpreter. So the comparison above covers RF, gradients
+of both kinds, the ADC and the labels.
+
+**How:** The test counts the rows of the tables of the model.
+
+**Assumptions:** The counts are those of pypulseq's writer at the version of `uv.lock`.
+
+#### `test_the_sequence_is_not_changed`
+
+**Checks:** `read_pypulseq` does not change the caller's sequence: every attribute but
+pypulseq's block cache is the same after the reading, the definitions have no `TotalDuration`
+(which `write` sets), and the signature value is still empty (which `write` sets).
+
+**How:** For each sequence and each interpreter, the test pickles the attributes of the sequence
+(`vars(seq)`, without `block_cache`) before and after the reading, and compares the bytes.
+
+**Assumptions:** pickle gives the same bytes for the same state of the attributes. The block
+cache is left out: it holds the decoded blocks that `get_block` caches, not the sequence.
+
+#### `test_the_temporary_folder_is_removed_and_nothing_is_written_next_to_the_caller`
+
+**Checks:** `read_pypulseq` writes nothing to the current folder, and the temporary folder that
+it writes to is removed after the reading.
+
+**How:** The test changes to an empty folder of `tmp_path`, sets `TMPDIR` to a folder in it
+(and resets `tempfile.tempdir`, so that `tempfile` reads `TMPDIR` again), reads a sequence, and
+lists both folders.
+
+**Assumptions:** `tempfile` uses `TMPDIR` on the platforms of CI.
+
+#### `test_a_rejection_is_the_file_s_and_names_the_sequence_not_the_temporary_file`
+
+**Checks:** A sequence that an interpreter rejects raises the `SeqFileError` of its written file
+(the same code and violations), whose `path` is `from_pypulseq.SOURCE`
+(`"<pypulseq.Sequence>"`), whose message names the sequence and not the temporary file, and
+which does not chain the error of the temporary file. The cases are `strict` with a trapezoid of
+1 ms in a block of 0.5 ms (`block.event-too-long`), and `cpp-siemens` with an arbitrary gradient
+on a gradient raster of 4 µs (`gradient.raster`).
+
+**How:** For each case (parametrized), the test reads the sequence with `read_pypulseq` and its
+written file with `read_seqfile`, and compares the two errors.
+
+**Assumptions:** None.
+
+#### `test_an_unknown_interpreter_and_an_object_that_is_not_a_sequence_raise`
+
+**Checks:** An unknown interpreter name raises `ValueError`, and an object that is not a pypulseq
+sequence (a path) raises `TypeError` that names `pypulseq.Sequence`.
+
+**How:** The test calls `read_pypulseq` with each.
 
 **Assumptions:** None.
 

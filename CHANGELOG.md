@@ -120,6 +120,14 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
   does not have (`Strict(rotation="apply")`) raises `TypeError`. These are part
   of the contract with pulseq-checks.
+- `seqfile.read_pypulseq(seq, interpreter="strict")`
+  (`from_pypulseq.read_pypulseq`): a `pypulseq.Sequence` built in memory,
+  written to Pulseq text with pypulseq's own writer (in a private temporary
+  folder) and read through an interpreter, by name or as an object. It gives
+  the `SequenceData` of the file of `seq.write(path)`, the writer's rounding
+  and `[SIGNATURE]` included, with `origin` `"pypulseq"`. It does not change
+  the sequence, and does not run pypulseq's timing check. `load` does not use
+  it yet (task R14).
 
 ### Changed
 

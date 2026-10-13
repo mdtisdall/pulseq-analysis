@@ -834,6 +834,46 @@ its rules. Section 5.4 of `docs/plans/parser-redesign.md` says what becomes of e
 rejections, and the model of each interpreter are public, and kept stable for pulseq-checks (section 7.3 of the
 plan). A change to any of them is noted in `CHANGELOG.md`.
 
+### A pypulseq sequence in memory
+
+`seqfile.read_pypulseq(seq, interpreter="strict")` (also
+`from_pypulseq.read_pypulseq`) reads a `pypulseq.Sequence` built in memory
+through an interpreter, by name or as an object, as `read_seqfile` reads a
+file. It writes the sequence to Pulseq text with pypulseq's own writer, so what
+it reads is what the scanner would receive from `seq.write(path)`, the writer's
+rounding included. The result is the `SequenceData` that `read_seqfile` gives
+for that file, with `origin` `"pypulseq"` in place of `"file"`.
+
+```python
+from pulseq_analysis.seqfile import read_pypulseq
+
+data = read_pypulseq(seq)  # interpreter="strict", the default
+cpp = read_pypulseq(seq, interpreter="cpp-siemens")
+```
+
+- **The writer's options** are those of `seq.write(path)`, except the timing
+  check: the text has its `[SIGNATURE]` section (`create_signature=True`, read
+  into `SequenceData.signature`), the duplicate events and shapes are merged
+  (`remove_duplicates=True`), and the version is the one that pypulseq writes.
+  pypulseq's timing check is not run (`check_timing=False`): the package does
+  not check a sequence, and the interpreter reads or rejects it. pypulseq's
+  warning about a gradient that does not ramp down in the last block is not
+  suppressed.
+- **The sequence is not changed.** `seq.write` sets the definition
+  `TotalDuration` and the signature fields of the sequence that it writes, so
+  `read_pypulseq` writes a copy (`seq.remove_duplicates()`, the deep copy that
+  `seq.write` also makes).
+- **The text goes to a private temporary folder**, never next to your files,
+  and the folder is removed after the reading.
+- **It raises** what `read_seqfile` raises. A `SeqFileError` has
+  `from_pypulseq.SOURCE` (`"<pypulseq.Sequence>"`) as its `path`, in place of the
+  temporary file. An exception of pypulseq's writer (for example for an event
+  that it cannot write) is raised as it is, and an object that is not a
+  pypulseq sequence raises `TypeError`.
+
+`load(seq)` does not use it yet: it reads the sequence in memory with
+pypulseq (task R14 moves `load` onto the interpreters).
+
 ### The "as written" reading
 
 `seqfile.read_as_written(path)` (also `as_written.read_as_written`) reads a
