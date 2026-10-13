@@ -128,6 +128,9 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   change: `version.invalid` D04 (was D02), `syntax.shape` D07 (was D14),
   `ub.gradient-shape-0` D21, `ub.gradient-one-point` D59 (both were "—"), and
   `ub.gradient-time-range` D60 (was D29).
+- `docs/specification.md` gives what `spec` does and why, by rule, as the
+  record of `cpp-siemens` does: its rule, each place where the rule does not
+  decide, and the codes of its rejections, with the same IDs.
 - Rotations in `cpp-siemens` (D49, task R9). `CppSiemens(rotation="reader" |
   "apply")` (`pulseq_cpp_siemens.interpreter.ROTATION`): `"reader"`, the default, gives the
   reader's gradients, which it never rotates; `"apply"` rotates the gradients

@@ -885,6 +885,11 @@ Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
   `spec` does and why. Its section 4, the review of the former strict reader against the order
   of preference, was removed; commit `49a7e2c` is the last that has it. Its appendix keeps the
   scripts of the acceptance matrix and the figures, not the matrix itself.
+- `docs/specification.md`: what `spec` does and why, by rule, as the record of `cpp-siemens`
+  gives it (the user, 2026-10-13): its rule (Q4), each place where the rule does not decide (the
+  version gate, each version as its own format, where the specification disagrees with itself,
+  the readings and the rejections of choice where it is silent, the settings, the values in the
+  model), and the codes of `spec.RULES`, with the IDs of `docs/discrepancies.md`.
 - `packages/pulseq-cpp-siemens/docs/specification.md`: the record of `cpp-siemens` (the user,
   2026-10-13): its rule (P1 to P3) and each exception (the version gate, the undefined behaviour,
   the settings, the reader's values in the model, the codes), with the same IDs; D59 and D60 are
