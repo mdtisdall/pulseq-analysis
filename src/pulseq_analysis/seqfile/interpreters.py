@@ -9,7 +9,9 @@
 - A plugin interpreter: a class that another distribution gives through the entry-point group
   `pulseq_analysis.interpreters` (`GROUP`). The name of the entry point is the name of the
   interpreter, and its value is the class (`Plugin`). The package lists the names without
-  importing a plugin, and imports a plugin only when its name is asked for.
+  importing a plugin, and imports a plugin only when its name is asked for. A plugin states the
+  version of the protocol that it implements (`Plugin.protocol`); the package uses only a plugin
+  of its own version, `PROTOCOL` (P22).
 
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
@@ -29,6 +31,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GROUP",
+    "PROTOCOL",
     "Interpreter",
     "Plugin",
     "Spec",
@@ -38,6 +41,13 @@ __all__ = [
 
 # The entry-point group of the plugin interpreters.
 GROUP = "pulseq_analysis.interpreters"
+
+# The version of the protocol `Plugin` (and of `synth.Decoding`) that the package uses. Version 1
+# (P22, task R16): `decode(data, session)` takes the scanner session, and a decoding gives the
+# actual and stored durations, the records of the session and the flags of the field of view.
+# Before it the protocol had no version. A change of the protocol is a change of the contract
+# with pulseq-checks (section 7.3 of the plan): a new version, noted in `CHANGELOG.md`.
+PROTOCOL = 1
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -57,21 +67,29 @@ class Plugin(Protocol):
     argument for its default settings.
 
     - `name`: the name of its entry point (a class attribute).
+    - `protocol`: the version of this protocol that it implements (a class attribute, an int);
+      the package uses it only when it is `PROTOCOL`.
     - `read(path)`: the Pulseq text file `path` (a `Path`) into a `SequenceData` whose
       `interpreter` is this object, as `seqfile.read_seqfile` returns it: `SeqFileError` with the
       code of each reason when the interpreter rejects the file, `NotSupported` for a file
       outside the package's scope (Q1), `OSError` when the file cannot be read.
-    - `decode(data)`: the decoding of a `SequenceData` that `read` made, an object of the
-      protocol `synth.Decoding`; `synth.decode` calls it.
+    - `decode(data, session=None)`: the decoding of a `SequenceData` that `read` made under the
+      scanner session `session` (a `synth.Session`; `synth.decode` gives one, the neutral one
+      by default), an object of the protocol `synth.Decoding`, whose `session` is that session.
+      The plugin applies the session with its own hooks, and may use the shared simulation of
+      `synth.scanner` (P22, rules 3 and 6 of section 7.8 of the plan). It raises
+      `synth.SettingError` for a setting that addresses something the file does not have under
+      the interpreter (rule 8).
     - `str()`: the name, with each setting that is not its default.
 
     It is frozen and compares by its settings, as `Spec` does."""
 
     name: ClassVar[str]
+    protocol: ClassVar[int]
 
     def read(self, path: Path) -> "SequenceData": ...
 
-    def decode(self, data: "SequenceData") -> Any: ...
+    def decode(self, data: "SequenceData", session: Any = None) -> Any: ...
 
 
 Interpreter = Spec | Plugin
@@ -91,10 +109,23 @@ def interpreter_names() -> tuple[str, ...]:
     return (Spec.name, *sorted(set(_entry_points()) - {Spec.name}))
 
 
+def _check_protocol(value: Any) -> None:
+    """Raise `TypeError` when the plugin interpreter `value` (a class or an object) does not
+    implement the protocol version `PROTOCOL`."""
+    found = getattr(value, "protocol", None)
+    if found != PROTOCOL:
+        name = getattr(value, "name", value)
+        raise TypeError(
+            f"the interpreter {name!r} implements the plugin protocol version {found!r}, and "
+            f"this pulseq-analysis uses version {PROTOCOL}: install versions of the two that "
+            "agree"
+        )
+
+
 def _plugin(name: str) -> type:
     """The class of the plugin interpreter `name`. Raises `ValueError` when no entry point or
     more than one has the name, `ImportError` when the entry point does not load, and
-    `TypeError` when the class it gives has another name."""
+    `TypeError` when the class it gives has another name or another protocol version."""
     eps = _entry_points().get(name, [])
     if not eps:
         raise ValueError(
@@ -113,20 +144,25 @@ def _plugin(name: str) -> type:
         ) from error
     if getattr(cls, "name", None) != name:
         raise TypeError(f"the entry point {name!r} gives {cls!r}, whose name is not {name!r}")
+    _check_protocol(cls)
     return cls
 
 
 def interpreter(value: "str | Interpreter") -> Interpreter:
     """The interpreter `value`: an interpreter object as it is, or a name (`interpreter_names`)
     with its default settings. Raises `ValueError` for another name (a plugin cannot be named
-    `spec`), `ImportError` for a plugin that does not load, and `TypeError` for another
-    value."""
+    `spec`), `ImportError` for a plugin that does not load, and `TypeError` for another value
+    and for a plugin of another protocol version (`PROTOCOL`)."""
     if isinstance(value, Spec):
         return value
     if isinstance(value, str):
         if value == Spec.name:
             return Spec()
         return _plugin(value)()
-    if isinstance(value, Plugin) and value.name != Spec.name:
-        return value
+    if isinstance(getattr(value, "name", None), str) and value.name != Spec.name:
+        # A plugin object of another protocol version can lack a member of `Plugin`: its
+        # version is checked first, for a message that names it.
+        _check_protocol(value)
+        if isinstance(value, Plugin):
+            return value
     raise TypeError(f"an interpreter is a name or an interpreter object, not {type(value)}")

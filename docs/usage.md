@@ -106,10 +106,12 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   `source` `TypeError`. Call `load` one time for each file and interpreter, and
   give the snapshot to each measurement.
 - **What a snapshot records.** `snap.interpreter` is the interpreter with its
-  settings, `snap.records` what the interpreter recorded of the file (for `spec`,
-  an extension or a section that it ignored, `SequenceData.records`), and
-  `snap.rotation_record` what the decoding did with the rotations of the file
-  (`synth.RotationRecord`). `snap.data` is the `SequenceData`, `snap.decoding`
+  settings, `snap.session` the scanner session (`synth.Session`), `snap.records`
+  what the interpreter recorded of the file (for `spec`, an extension or a
+  section that it ignored, `SequenceData.records`), and `snap.rotation_record`,
+  `snap.soft_delay_record` and `snap.fov_record` what the decoding did with the
+  rotations of the file and with the session (`synth.RotationRecord`,
+  `synth.SoftDelayRecord`, `synth.FovRecord`). `snap.data` is the `SequenceData`, `snap.decoding`
   its decoding, and `snap.source` the path that `load` read (a `str`), or `None`
   for a `pp.Sequence`. A snapshot is equal only to itself.
 - **Rotations.** `load` reads a file with the rotation extension (ROTATIONS,
@@ -123,11 +125,18 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   `[SIGNATURE]` hash for a result: a sequence built in memory and a file with no
   `[SIGNATURE]` section load
   ([implementation, section 7](implementation.md#7-what-load-does)).
+- **The scanner session.** `load(path, interpreter, session=Session(...))`
+  decodes the file under the inputs of the scanner session: the values of soft
+  delays, and the rotation and gradient scaling of the field of view
+  ([The scanner session](#the-scanner-session)). The default is the neutral
+  session: each block at its stored duration, and the field of view at the
+  isocentre, not rotated or scaled.
 - **The axes.** The values are of the axes of the gradients as the decoding
   gives them: the logical axes of the file (x, y, z), each block turned by its
-  rotation where the decoding applies it. They are not the physical axes of a
-  scanner. On an oblique slice, one physical axis can get the magnitude of the
-  three-axis vector.
+  rotation where the decoding applies it, and turned and scaled by the field of
+  view of the session. With the neutral session they are not the physical axes
+  of a scanner. On an oblique slice, one physical axis can get the magnitude of
+  the three-axis vector.
 - **Units with no gamma.** The gradients are in Hz/m and Hz/m/s, the spectrum
   in Hz/m/√Hz and the PNS in Hz/T, as in pypulseq. Divide a value by |γ| to get
   the unit with tesla ([section 9](#9-units-and-gamma)).
@@ -756,12 +765,20 @@ The class is of the protocol `interpreters.Plugin`:
 
 - `name`: a class attribute, equal to the name of the entry point (the name of
   the plugin cannot be `spec`).
+- `protocol`: a class attribute, the version of this protocol that the plugin
+  implements. The package uses a plugin only of its own version,
+  `interpreters.PROTOCOL` (also `seqfile.PROTOCOL`, 1 since R16, P22), and
+  `interpreters.interpreter` raises `TypeError` that names both versions for
+  another.
 - `read(path)`: the Pulseq text file `path` (a `Path`) into a
   `model.SequenceData` whose `interpreter` is this object; it raises
   `SeqFileError`, `NotSupported` and `OSError` as `read_seqfile` does.
   `SequenceData.reading` is the plugin's own object (None for `spec`).
-- `decode(data)`: the decoding of a `SequenceData` that `read` made, an object
-  of the protocol `decoding.Decoding`. `decoding.decode` calls it.
+- `decode(data, session=None)`: the decoding of a `SequenceData` that `read`
+  made, under the scanner session `session` (`scanner.Session`), an object of
+  the protocol `decoding.Decoding`. `decoding.decode` calls it with a session.
+  The plugin applies the session with its own hooks, and may use the shared
+  simulation of `scanner` ([The scanner session](#the-scanner-session)).
 - `str()`: the name, with each setting that is not its default.
 
 A plugin is a frozen dataclass, as `Spec` is: two with the same settings are
@@ -771,8 +788,9 @@ raises `ValueError` for two entry points with one name, `TypeError` for a class
 whose `name` is not the name of its entry point, and `ImportError` for an entry
 point that does not load.
 
-**The decoding.** `decoding.decode(data)` (also `synth.decode`) decodes a model
-by its interpreter. For `spec` it gives a `decoding.SpecDecoding` with the
+**The decoding.** `decoding.decode(data, session=None)` (also `synth.decode`)
+decodes a model by its interpreter, under the scanner session `session` (the
+neutral `Session()` for None). For `spec` it gives a `decoding.SpecDecoding` with the
 events of the model by file ID: `events.decode_rf`, `events.decode_gradients`
 and `events.decode_adc`, into `events.RfEvent`, `events.Trapezoid`,
 `events.ArbitraryGradient` (together `events.GradEvent`) and `events.AdcEvent`.
@@ -781,23 +799,33 @@ what `Plugin.decode` gives. Both are of the protocol `decoding.Decoding`, which
 is what the package uses of a decoding. Blocks are indexed in play order from 0:
 
 - `interpreter`: the interpreter of the model, with its settings.
+- `session`: the scanner session that the decoding applies.
 - `block_count`: the number of blocks.
+- `block_durations` and `stored_block_durations`: the actual and the stored
+  duration of each block in s (read-only arrays). The actual one is the stored
+  one, except for a block whose soft delay the session sets; the measurements
+  use it.
 - `rotations()`: the play indices of the blocks with a rotation, and their
   quaternions, an array (n, 4) of q0, qx, qy, qz, of norm 1.
 - `rotation_record`: what the decoding does with the rotations
   (`scanner.RotationRecord`), below.
+- `soft_delay_record` and `fov_record`: what it does with the session's soft
+  delays and field of view (`scanner.SoftDelayRecord`, `scanner.FovRecord`),
+  and `fov_flags()`: the flag NOROT and the scaling flag of each block (two
+  bool arrays) ([The scanner session](#the-scanner-session)).
 - `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m at
   each pair of a block index and a time in us from the start of that block, an
-  array (n, 3). `rotated=None` follows the interpreter; `False` gives the
-  logical gradients and `True` the rotated ones, for one call.
+  array (n, 3), 0 after the actual end of the block. `rotated=None` follows the
+  interpreter and the session; `False` gives the logical gradients, and `True`
+  also rotates each block by its rotation, for one call.
 - `gradient_points(key, block, axis)`: the `decoding.Points` of the gradient
   event with the file ID `key` that the block `block` plays on the axis `axis`
   (0, 1, 2 for x, y, z), not rotated. `Points` is a tuple of the delay in s, the
   offsets in s from the delay and the values in Hz/m of the points between
   which the event is straight lines (`seq_utils.gradient_offsets`).
 
-`SpecDecoding` also has the blocks (`blocks`, the block table of the model;
-`block_durations` in s). In it, each event is the straight lines between its
+`SpecDecoding` also has the blocks (`blocks`, the block table of the model) and
+the flags (`norot`, `noscale`). In it, each event is the straight lines between its
 points, 0 before its delay and after its end, and every value is 0 outside the
 block. A plugin that decodes a block at a time can decode one event differently
 in two blocks, so `gradient_points` takes the block. `load` keeps the decoding on the snapshot
@@ -933,6 +961,72 @@ decoding of each interpreter (`gradients_at`, `gradient_points`, `rotations` and
 included), the codes of the rejections, and the model of each interpreter are public, and kept
 stable for pulseq-checks (section 7.3 of the plan). The codes of `cpp-siemens` are
 `pulseq_cpp_siemens.interpreter.CODES`. A change to any of them is noted in `CHANGELOG.md`.
+
+### The scanner session
+
+The scanner's interpreter acts on inputs that are not in the file. A
+`synth.Session` (module `scanner`) gives them to a decoding, the same for each
+interpreter (section 7.8 of `docs/plans/parser-redesign.md`, rules 3 to 8):
+
+```python
+from pulseq_analysis.synth import Session
+
+session = Session(
+    soft_delays={"TE": 5e-3, "TR": 2.0},  # s, by the hint of the soft delay
+    fov_rotation=(0.7071068, 0.7071068, 0, 0),  # q0, qx, qy, qz: 90 degrees about x
+    gradient_scaling=(1.0, 1.0, 2.0),  # x, y, z, each above 0
+)
+snap = load("my_sequence.seq", session=session)
+```
+
+- **The neutral session** `Session()` is the default: each block at its stored
+  duration, and the field of view at the isocentre, not rotated or scaled. It is
+  a defined case (rule 1), recorded and not warned about. `Session.neutral`,
+  `rotates` and `scales` say what is set. A session is frozen, compares by value
+  and keeps `soft_delays` as (hint, value) pairs sorted by hint. A value that is
+  not a number, a quaternion whose norm is not 1 within 1e-6 (it is divided by
+  its norm), and a scaling of 0 or below raise `ValueError` or `TypeError`; a
+  setting that the session does not have raises `TypeError`.
+- **Soft delays** (extension DELAYS, from 1.5.0). The duration of a block whose
+  soft delay has a value is `value / factor + offset` (spec:550-563) on the
+  block duration raster, rounded half away from 0, as MATLAB Pulseq's
+  `applySoftDelay` rounds it (D2.21). `scanner.SettingError` (a `ValueError`
+  that names the setting, the interpreter, the file's version and the reason)
+  is raised when the setting addresses something that the file does not have
+  under the interpreter: no soft delay with that hint, a file older than 1.5.0
+  under `spec`, a hint whose rows have two numeric IDs (or whose numeric ID has
+  another hint), a block with that hint that has an RF, gradient or ADC event
+  (spec:545) or two soft delays, and a duration below 0. `soft_delay_record`
+  (`scanner.SoftDelayRecord`) has the values, the hints of the file, the blocks
+  with a soft delay, those that the session set (`applied`) and the hints at
+  their stored durations (`unset`).
+- **The field of view.** The gradients of each block are scaled on the logical
+  axes, then turned by the block's rotation, then by the rotation of the field
+  of view: R_fov R_block S g, the order of MATLAB Pulseq's `mr.TransformFOV`.
+  No source gives the order of the scanner's interpreter (D2.20). A block whose
+  flag NOROT is set is not turned by the field of view, and a block whose scaling
+  flag is set is not scaled. The flags are a state: a LABELSET sets a flag for
+  its block and the blocks after it. The scaling flag of `spec` is `NOSLC`, the
+  specification's spelling, from 1.4.1; `NOSCL`, the spelling of the C++
+  reader, MATLAB Pulseq and pypulseq, is a label that `spec` does not know
+  (D2.19, D2.22). `cpp-siemens` applies `NOSCL`, which its reader keeps.
+  `fov_record` (`scanner.FovRecord`) has the rotation, the scaling, the name of
+  the scaling flag, the blocks with each flag, and the blocks rotated and
+  scaled.
+- **The stored and the actual durations.** A decoding gives both
+  (`stored_block_durations`, `block_durations`); `gradients_at` is 0 after the
+  actual end of a block, and the block table and the measurements use the
+  actual durations.
+
+The simulation is the package's own, shared by the interpreters (rule 6):
+`scanner.soft_delay_durations`, `scanner.fov_flags`,
+`scanner.physical_gradients` and `scanner.fov_record`, with `scanner.SoftDelay`
+for the soft delays that an interpreter attaches to its blocks. A plugin applies
+the session in its own decoding, with its reader's hooks where they exist;
+`cpp-siemens` sets the duration of a block with the reader's
+`setActualSoftDelay_ru`, and turns the gradients with the reader's
+`rotate_vec3_by_quat` (`packages/pulseq-cpp-siemens/docs/specification.md`,
+D6.3 and D6.4).
 
 ### A pypulseq sequence in memory
 

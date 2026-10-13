@@ -12,7 +12,7 @@ names a decision, not a condition: a condition on which each interpreter decides
 the entries link to each other. D1 to D4 are the decisions of `spec`, in
 [`docs/discrepancies.md`](../../../docs/discrepancies.md), where D4.1 (the version gate) is the
 decision of both interpreters; D5 to D7 are the decisions of `cpp-siemens`, here. The appendix of
-`docs/discrepancies.md` maps the old IDs (D01a to D60) to these. P1 to P21 and Q1 to Q6 are the
+`docs/discrepancies.md` maps the old IDs (D01a to D60) to these. P1 to P22 and Q1 to Q6 are the
 decisions of `docs/plans/parser-redesign.md` of pulseq-analysis. Fixtures named without a folder
 are in `tests/seqfiles/` of pulseq-analysis.
 
@@ -178,7 +178,9 @@ The same condition in `spec`: [D2.11](../../../docs/discrepancies.md#d211-any-ot
 
 The reader applies nothing that the scanner's interpreter decides, and has modes that the
 scanner can set. `cpp-siemens` gives the reader's output with the reader's defaults, and offers
-settings for the rest (P7, P18, P20). A result records the settings it used.
+settings for the rest (P7, P18, P20). The inputs of the scanner session (`pulseq_analysis.synth.Session`)
+are not settings: `decode(data, session)` applies them (P22; D6.3, D6.4). A result records the
+settings it used and what it applied of the session.
 
 #### D6.1: An oversampled arbitrary gradient: the reader's sampling mode
 
@@ -213,6 +215,62 @@ settings for the rest (P7, P18, P20). A result records the settings it used.
 The same condition in `spec`:
 [D2.18](../../../docs/discrepancies.md#d218-a-rotation-quaternion-divided-by-its-norm),
 [D4.6](../../../docs/discrepancies.md#d46-an-extension-before-the-revision-that-introduced-it).
+
+#### D6.3: The soft delays of a session
+
+- Condition: a scanner session (`pulseq_analysis.synth.Session`) with a value for a soft delay
+  hint (the DELAYS extension).
+- The reader: attaches the first soft delay of a block's list (`cpp:1900-1907`), as `load` read
+  it (an int offset: `-100.5 1 TE` is the offset -100, the factor 0.5 and the hint `1 TE`; at most
+  31 bytes of the hint, D2.16 in `spec`), in any version. It never computes the duration: the
+  scanner's interpreter sets it on each block with the hook `SeqBlock::setActualSoftDelay_ru`, and
+  `GetDuration`, `gradientsAt` (`cpp:3561`) and the reader's other helpers then use it
+  (`cpp.h:601-610`, `cpp.h:705-708`). It does not check that the block is a pure delay block.
+- `cpp-siemens`: `CppSiemens.decode(data, session)` (P22) computes each duration from the soft
+  delays as the reader attaches them (`Sequence.block_soft_delays`), by the shared rule of
+  pulseq-analysis (`synth.scanner.soft_delay_durations`: `value / factor + offset` on the block
+  duration raster, rounded half away from 0, with the same `SettingError`s as `spec`), and sets it
+  with the reader's hook (`Sequence.block_durations_ru`, and `gradients_at(..., actual_ru=...)`,
+  which sets it on the block for the call). `block_durations` is then the reader's
+  `GetDuration_ru`, `stored_block_durations` its `GetStoredDuration_ru`. A hint that the reader did
+  not attach (for example `TE` in `valid_soft_delay_fraction.seq`, whose hint the reader reads as
+  `1 TE`) is a `SettingError`. The neutral session sets nothing: each block lasts its stored
+  duration, as the reader gives it. `soft_delay_record` records what was applied.
+- Why: the session is the scanner's input (rule 3 of P20), the duration is set with the reader's
+  own hook, and the rule is shared with `spec` so that the two interpreters agree (rule 6); the
+  rule of the scanner's interpreter is not public.
+- Fixture: `tests/session/scanner_session.seq` of pulseq-analysis.
+
+The same condition in `spec`:
+[D2.21](../../../docs/discrepancies.md#d221-a-soft-delay-value-of-the-session),
+[D4.6](../../../docs/discrepancies.md#d46-an-extension-before-the-revision-that-introduced-it).
+
+#### D6.4: The field of view of a session
+
+- Condition: a scanner session with a rotation or a gradient scaling of the field of view, and
+  the flags `NOROT`, `NOSCL` and `NOSLC`.
+- The reader: has no code that turns or scales the gradients for the field of view. `decodeLabel`
+  knows the flags `NOROT` and `NOSCL` (`cpp.h:249-262`, `cpp:2378-2380`) and attaches their
+  LABELSET to the block; it does not know `NOSLC`, the specification's spelling (spec:520), and
+  leaves it out with "unknown label specification". It reads labels in any version.
+- `cpp-siemens`: `gradients_at` gives the gradients on the physical axes in the shared order of
+  pulseq-analysis (`synth.scanner.physical_gradients`, D2.20 in `spec`): the session's scaling of
+  the logical axes, except in a block with `NOSCL`; the block's rotation, with
+  `rotation="apply"`; the session's rotation of the field of view, except in a block with
+  `NOROT`. Each rotation is the reader's `rotate_vec3_by_quat`. The flags are a state across
+  blocks (`synth.scanner.fov_flags`) from the LABELSET events that `GetBlock` attaches
+  (`Sequence.block_label_sets`), in any version. `NOSLC` has no effect, and the model records
+  each label that the reader left out (`SequenceData.records`, reason `"unknown"`). `fov_record`
+  records what was applied, with the scaling flag `"NOSCL"`.
+- Why: the session is the scanner's input, and the flags are those that the reader keeps for the
+  scanner's interpreter. The order is the package's own: no source gives the scanner's.
+- Fixture: `tests/session/scanner_session.seq` of pulseq-analysis: block 4 (`NOSLC`) is scaled,
+  blocks 5 to 8 (`NOSCL`, never set back) are not.
+
+The same condition in `spec`:
+[D2.20](../../../docs/discrepancies.md#d220-the-order-of-the-gradient-scaling-the-blocks-rotation-and-the-field-of-view),
+[D2.22](../../../docs/discrepancies.md#d222-the-flag-noslc-and-the-writers-noscl),
+[D4.7](../../../docs/discrepancies.md#d47-a-label-flag-of-141-in-an-older-file).
 
 ### 2.4 The reader's values in the model
 
