@@ -5,8 +5,8 @@ line numbers, without loss and without interpretation.
 raises only `OSError` when the file cannot be read. It applies no rule of the specification and
 no default: a value that the specification forbids, a row with too few or too many fields, a
 section that the format does not have, and a byte that is not UTF-8 are all kept as written.
-The readers of the package (`reader.read_seqfile`) and pulseq-checks read the file through it.
-Its types are part of the contract with pulseq-checks: a change to them is noted in
+The interpreters of the package (`reading.read_seqfile`) and pulseq-checks read the file through
+it. Its types are part of the contract with pulseq-checks: a change to them is noted in
 `CHANGELOG.md`.
 
 **Lines.** The file is decoded as UTF-8; a byte that is not UTF-8 is kept as a lone surrogate

@@ -14,7 +14,8 @@ corrupts it silently. A file fails the fuzzing when:
 - the two give other verdicts, or other values of `gradientsAt` at the same times.
 
 Each file is generated from (seed, index) alone, so a failure is reproduced by its two numbers
-(scripts/fuzz.py --seed S --start INDEX --count 1). A file is a random valid file, then up to
+(scripts/fuzz.py --seed S --start INDEX --count 1). The same two numbers give the file's sampling
+mode of oversampled gradients (`oversampling_mode`), which both readers get. A file is a random valid file, then up to
 three mutations: the shapes of section 5.3 of the plan (each case of undefined behaviour and its
 neighbours), values at the edges of their types, and changes to the text and the sections.
 
@@ -49,6 +50,10 @@ WORKER = HERE / "fuzz_worker.py"
 # but they make both the reader and its sanitized build allocate gigabytes. Values that the
 # checks reject (above the range of an int) are generated.
 CAP = 20_000
+
+# The reader's sampling modes of an oversampled arbitrary gradient (pulseq_cpp_siemens.OVERSAMPLING;
+# the oracle's --oversampling): the fuzzing gives each file one.
+OVERSAMPLING = ("center", "edge", "preserve")
 
 # The sanitized oracle aborts an allocation above this size (ASan's max_allocation_size_mb): the
 # loop of D23 (a cycle in an extension list) then ends in about 0.5 s instead of growing until the
@@ -231,15 +236,20 @@ def random_model(rng: random.Random) -> Model:
                            str(rng.choice([0, 10, 50]))])  # fmt: skip
         grad_ids.append(str(next_id))
         next_id += 1
-    for _ in range(rng.randint(0, 3)):
-        kind = rng.choice(["arbitrary", "oversampled", "ext_trap"])
+    for _ in range(rng.randint(0, 4)):
+        kind = rng.choice(["arbitrary", "oversampled", "oversampled", "ext_trap"])
         n = rng.choice([1, 2, 3, 4, 5, 9, 10, 31, 50])
+        if kind == "oversampled":
+            # Any number of samples (MATLAB writes an odd one, and the reader reads either). The
+            # reader keeps (n + 1) / 2, (n - 1) / 2 or n of them, by its mode: none in the "edge"
+            # mode for 1 and 2, where gradientsAt returns early. So small sizes are the most
+            # frequent.
+            n = rng.choice([1, 1, 2, 2, 3, 3, 4, 4, 5, 9, 10, 31, 50])
         if kind == "ext_trap":
             n = max(n, 2)  # one point is ub.gradient-one-point: the mutation gradient-one-point
             times = sorted(rng.sample(range(4 * n + 4), n))
             time = model.add_shape(rng, [float(t) for t in times])
         elif kind == "oversampled":
-            n = n | 1
             time = "-1"
         else:
             time = "0"
@@ -729,6 +739,15 @@ def mutate_text(text: bytes, rng: random.Random) -> tuple[bytes, str]:
     return text[: rng.randrange(len(text) + 1)], "text-cut"
 
 
+def oversampling_mode(seed: int, index: int) -> str:
+    """The sampling mode of oversampled gradients that both readers get for the file of (seed,
+    index): a function of the two numbers, from a generator of its own, so that the file does not
+    change with it."""
+    return random.Random(f"pulseq-cpp-siemens fuzz oversampling {seed} {index}").choice(
+        OVERSAMPLING
+    )
+
+
 def generate(seed: int, index: int) -> tuple[bytes, list[str]]:
     """The file of (seed, index), and the names of its mutations."""
     rng = random.Random(f"pulseq-cpp-siemens fuzz {seed} {index}")
@@ -826,6 +845,7 @@ class Result:
     detail: str = ""
     known: str = ""  # known_cases of a failure
     name: str = ""  # the file's name
+    oversampling: str = "center"  # the sampling mode of oversampled gradients
 
 
 def oracle_env() -> dict:
@@ -839,12 +859,15 @@ def oracle_env() -> dict:
     return env
 
 
-def run_oracle(oracle: str, path: Path, stdin: str | None = None) -> tuple[str, str]:
+def run_oracle(
+    oracle: str, path: Path, stdin: str | None = None, oversampling: str = "center"
+) -> tuple[str, str]:
     """The sanitized oracle's verdict: "accept", "reject", "undefined", "no end" (a timeout),
     "memory" (an allocation above ORACLE_MAX_ALLOCATION_MB: the growth of D23, or a size that the
     file gives), "crash", or "usage" (exit 2, a fault of the fuzzing), with its output. With
-    `stdin`, its `--sample` mode."""
-    command = [oracle, "--sample", str(path)] if stdin is not None else [oracle, str(path)]
+    `stdin`, its `--sample` mode. `oversampling` is its `--oversampling`."""
+    command = [oracle, f"--oversampling={oversampling}"]
+    command += ["--sample", str(path)] if stdin is not None else [str(path)]
     try:
         result = subprocess.run(
             command, input=stdin, capture_output=True, text=True, errors="replace",
@@ -873,11 +896,11 @@ class Worker:
             stderr=subprocess.DEVNULL, text=True, bufsize=1,
         )  # fmt: skip
 
-    def verdict(self, path: Path) -> dict:
+    def verdict(self, path: Path, oversampling: str) -> dict:
         if self.process is None or self.process.poll() is not None:
             self._start()
         assert self.process.stdin and self.process.stdout
-        self.process.stdin.write(f"{path}\n")
+        self.process.stdin.write(f"{oversampling}\t{path}\n")
         self.process.stdin.flush()
         answer: list[str] = []
         reader = threading.Thread(target=lambda: answer.append(self.process.stdout.readline()))
@@ -904,9 +927,10 @@ FLAGGED = {"undefined", "no end", "crash"}
 
 
 def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Path, out: str,
-            oracle_binary: str) -> Result:  # fmt: skip
+            oracle_binary: str, oversampling: str = "center") -> Result:  # fmt: skip
     package = ours["verdict"]
     result = Result(index, mutations, oracle, package, ours.get("code", ""))
+    result.oversampling = oversampling
     if package in ("died", "no end"):
         result.failure = f"the package's process {'died' if package == 'died' else 'did not end'}"
         result.detail = ours.get("detail", "")
@@ -933,7 +957,9 @@ def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Pat
         if oracle == "accept" and ours.get("where"):
             # A case that only gradientsAt meets: the oracle's --sample at its block and time.
             block, time_us = ours["where"]
-            verdict, sampled = run_oracle(oracle_binary, path, f"{block} {time_us!r}\n")
+            verdict, sampled = run_oracle(
+                oracle_binary, path, f"{block} {time_us!r}\n", oversampling
+            )
             if verdict in FLAGGED:
                 result.oracle = verdict
             else:
@@ -965,7 +991,7 @@ def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Pat
     if not points:
         return result
     stdin = "".join(f"{b} {t!r}\n" for b, t in points)
-    verdict, sampled = run_oracle(oracle_binary, path, stdin)
+    verdict, sampled = run_oracle(oracle_binary, path, stdin, oversampling)
     if verdict != "accept":
         result.failure = f"the oracle's --sample says {verdict!r}, the package samples the file"
         result.detail = sampled
@@ -997,17 +1023,40 @@ class Report:
         flagged = FLAGGED | {"memory", "indeterminate"}
         return Counter(r.code for r in self.results if r.oracle in flagged and r.code)
 
+    def confirmed_codes_by_mode(self) -> dict[str, Counter]:
+        """`confirmed_codes` for the files of each sampling mode."""
+        flagged = FLAGGED | {"memory", "indeterminate"}
+        return {
+            mode: Counter(
+                r.code
+                for r in self.results
+                if r.oversampling == mode and r.oracle in flagged and r.code
+            )
+            for mode in OVERSAMPLING
+        }
+
+    def modes(self) -> dict[str, tuple[int, int]]:
+        """For each sampling mode of oversampled gradients: its number of files and of failures."""
+        files = Counter(r.oversampling for r in self.results)
+        failed = Counter(r.oversampling for r in self.failures)
+        return {mode: (files[mode], failed[mode]) for mode in OVERSAMPLING}
+
     def summary(self) -> str:
         known = Counter(r.known or "not known" for r in self.failures)
         lines = [f"{len(self.results)} files, {len(self.failures)} failures {dict(known)}"]
+        lines += [
+            f"  oversampling {mode:8} {files} files, {failed} failures"
+            for mode, (files, failed) in self.modes().items()
+        ]
         lines += [f"  oracle {o:9} package {p}: {n}" for (o, p), n in sorted(self.table().items())]
         return "\n".join(lines)
 
 
 def _run(items: list, make, oracle: str, python: str | None, jobs: int | None,
          keep: Path | None) -> Report:  # fmt: skip
-    """Both readers on the file of each item (`make(item)` gives its name, bytes, mutations and
-    index), compared. `keep` is a folder for the files that fail (with a .json of each result)."""
+    """Both readers on the file of each item (`make(item)` gives its name, bytes, mutations,
+    index and sampling mode of oversampled gradients), compared. `keep` is a folder for the files
+    that fail (with a .json of each result)."""
     python = python or sys.executable
     jobs = jobs or os.cpu_count() or 2
     local = threading.local()
@@ -1021,12 +1070,13 @@ def _run(items: list, make, oracle: str, python: str | None, jobs: int | None,
                 local.worker = Worker(python)
                 with lock:
                     workers.append(local.worker)
-            name, data, mutations, index = make(item)
-            path = Path(folder) / name
+            name, data, mutations, index, oversampling = make(item)
+            # The mode is in the name of the temporary file: a file may be run in each mode.
+            path = Path(folder) / f"{oversampling}_{name}"
             path.write_bytes(data)
-            ours = local.worker.verdict(path)
-            verdict, out = run_oracle(oracle, path)
-            result = compare(index, mutations, ours, verdict, path, out, oracle)
+            ours = local.worker.verdict(path, oversampling)
+            verdict, out = run_oracle(oracle, path, oversampling=oversampling)
+            result = compare(index, mutations, ours, verdict, path, out, oracle, oversampling)
             result.name = name
             if result.failure:
                 result.known = ", ".join(known_cases(data))
@@ -1049,22 +1099,27 @@ def _run(items: list, make, oracle: str, python: str | None, jobs: int | None,
 def run(seed: int, start: int, count: int, oracle: str, python: str | None = None,
         jobs: int | None = None, keep: Path | None = None) -> Report:  # fmt: skip
     """Generate the files start..start+count-1 of `seed`, run both readers on each, and compare.
-    `keep` is a folder for the files that fail (with a .json of each result)."""
+    Each file gets the sampling mode of `oversampling_mode`. `keep` is a folder for the files
+    that fail (with a .json of each result)."""
 
     def make(index: int):
         data, mutations = generate(seed, index)
-        return f"fuzz_{seed}_{index}.seq", data, mutations, index
+        return (f"fuzz_{seed}_{index}.seq", data, mutations, index,
+                oversampling_mode(seed, index))  # fmt: skip
 
     return _run(list(range(start, start + count)), make, oracle, python, jobs, keep)
 
 
 def run_files(paths: list[Path], oracle: str, python: str | None = None,
-              jobs: int | None = None, keep: Path | None = None) -> Report:  # fmt: skip
-    """Both readers on each of the files `paths` (the regression corpus), compared as the
-    generated files are."""
+              jobs: int | None = None, keep: Path | None = None,
+              modes: tuple[str, ...] = OVERSAMPLING) -> Report:  # fmt: skip
+    """Both readers on each of the files `paths` (the regression corpus) in each of the sampling
+    modes `modes`, compared as the generated files are."""
+    items = [(position, mode) for position in range(len(paths)) for mode in modes]
 
-    def make(position: int):
+    def make(item: tuple[int, str]):
+        position, mode = item
         path = paths[position]
-        return path.name, path.read_bytes(), [], position
+        return path.name, path.read_bytes(), [], position, mode
 
-    return _run(list(range(len(paths))), make, oracle, python, jobs, keep)
+    return _run(items, make, oracle, python, jobs, keep)

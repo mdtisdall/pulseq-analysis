@@ -1,7 +1,9 @@
 """The package's API: the libraries as read, the decoding of one block, `gradients_at`, and the
 version gate before `load`."""
 
+import copy
 import json
+import pickle
 import re
 
 import numpy as np
@@ -11,6 +13,8 @@ from canonical import (
     DIGESTS,
     SEQFILES,
     canonical_dump,
+    driver,
+    driver_samples,
     fixture_id,
     fixtures,
     sample_points,
@@ -141,8 +145,8 @@ def test_a_binary_file_and_a_folder_are_not_supported(tmp_path):
 class _ReaderThatMustNotLoad:
     """The extension's Reader, whose `load` fails the test."""
 
-    def __init__(self):
-        self._reader = _original_reader()
+    def __init__(self, oversampling="center"):
+        self._reader = _original_reader(oversampling)
 
     def read_version(self, data):
         return self._reader.read_version(data)
@@ -204,3 +208,141 @@ def test_the_version_gate_reads_each_fixture_as_load_does(path):
             assert reader.libraries()["version_parts"] == tuple(parts)
     elif not found:
         assert not reader.load(data)  # load returns false where the gate finds no version
+
+
+def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq"):
+    """A file of one block of 200 us: gradient 1 on X is an oversampled arbitrary gradient (time
+    shape -1) of `samples` with no delay, and gradient 2 on Y is a trapezoid with a plateau from
+    10 to 110 us. The reader plays Y at 1e6 Hz/m there, and X from the shape."""
+    text = (
+        f"""# Pulseq sequence file
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 20 0 1 2 0 0 0
+
+[GRADIENTS]
+1 500000 0 0 1 -1 0
+
+[TRAP]
+2 1000000 10 100 10 0
+
+[SHAPES]
+shape_id 1
+num_samples {len(samples)}
+"""
+        + "".join(f"{v}\n" for v in samples)
+        + "\n"
+    )
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def x_samples(sequence):
+    return sequence.decode_block(0)["grad"][0]["samples"].tolist()
+
+
+def test_oversampling_keeps_the_samples_of_its_mode(tmp_path):
+    path = oversampled_file(tmp_path, [0.25, 0.5, 0.75, 1.0, 0.5, 0.25, 0.0])
+    assert cs.OVERSAMPLING == ("center", "edge", "preserve")
+    seen = {}
+    for mode in cs.OVERSAMPLING:
+        sequence = cs.load(path, oversampling=mode)
+        assert sequence.oversampling == mode
+        assert sequence.decode_block(0)["grad"][0]["oversampled"]
+        seen[mode] = x_samples(sequence)
+    assert seen == {
+        "center": [0.25, 0.75, 0.5, 0.0],
+        "edge": [0.5, 1.0, 0.25],
+        "preserve": [0.25, 0.5, 0.75, 1.0, 0.5, 0.25, 0.0],
+    }
+    assert cs.load(path).oversampling == "center"
+    # An even number of samples (MATLAB writes an odd one, the reader reads either).
+    path = oversampled_file(tmp_path, [0.25, 0.5, 0.75, 1.0], "even.seq")
+    assert [x_samples(cs.load(path, oversampling=mode)) for mode in cs.OVERSAMPLING] == [
+        [0.25, 0.75],
+        [0.5],
+        [0.25, 0.5, 0.75, 1.0],
+    ]
+
+
+@pytest.mark.parametrize("mode", ["Center", "left", "", None])
+def test_an_oversampling_mode_that_is_not_one_of_the_three_raises_value_error(mode):
+    with pytest.raises(ValueError, match="oversampling"):
+        cs.load(VALID, oversampling=mode)
+    with pytest.raises(ValueError):
+        cs._reader.Reader(mode if mode is not None else "")
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_an_edge_gradient_with_no_sample_leaves_no_value_from_the_sample_before(tmp_path, count):
+    """An oversampled gradient of 1 or 2 samples has none in the "edge" mode, and gradientsAt
+    returns early for it at its delay (cpp:3673-3677), after the channel before it and before
+    the channels after it. Y is on its plateau (1e6) at 50 us, and at the delay of X (0 us)
+    gradientsAt returns early: the Y of that line is 0, as the driver gives for a line of its
+    own, not the 1e6 of the line before."""
+    path = oversampled_file(tmp_path, [0.5, 1.0][:count])
+    times = [50.0, 0.0, 50.0, 0.0]
+    edge = cs.load(path, oversampling="edge")
+    assert x_samples(edge) == []
+    values = edge.gradients_at([0] * 4, times)
+    assert values[:, 1].tolist() == [1e6, 0.0, 1e6, 0.0]
+    assert values[1].tolist() == [0.0, 0.0, 0.0] and values[3].tolist() == [0.0, 0.0, 0.0]
+    for mode in ("center", "preserve"):
+        other = cs.load(path, oversampling=mode).gradients_at([0] * 4, times)
+        assert other[:, 1].tolist() == [1e6, 0.0, 1e6, 0.0]
+        kept = [0.5] if mode == "center" else [0.5, 1.0][:count]
+        assert x_samples(cs.load(path, oversampling=mode)) == kept
+    if driver() is not None:
+        expected = driver_samples(path, np.zeros(4, dtype=np.int64), np.array(times), "edge")
+        assert np.array_equal(values, expected)
+
+
+def test_a_sequence_survives_pickle_and_copy():
+    for mode in cs.OVERSAMPLING:
+        original = cs.load(VALID, oversampling=mode)
+        original.decode_block(1)  # a decoded block is a cache that a pickle does not carry
+        restored = pickle.loads(pickle.dumps(original))
+        assert restored is not original and restored.oversampling == mode
+        assert np.array_equal(restored.libraries.blocks, original.libraries.blocks)
+        assert restored.libraries.version == original.libraries.version
+        assert restored.messages == original.messages
+        dump = wrapper_dump(original)
+        assert canonical_dump(wrapper_dump(restored)) == canonical_dump(dump)
+        block_index, time_us = sample_points(canonical_dump(dump))
+        expected = original.gradients_at(block_index, time_us)
+        assert np.array_equal(restored.gradients_at(block_index, time_us), expected)
+        assert copy.copy(original) is original and copy.deepcopy(original) is original
+        assert copy.deepcopy({"reading": original})["reading"] is original
+
+
+def test_first_rejected_block_is_the_first_block_that_decodeblock_rejects(tmp_path):
+    assert cs.load(VALID).first_rejected_block() is None
+    sequence = cs.load(SEQFILES / "valid_arbitrary_gradient_4us_raster.seq")
+    assert sequence.first_rejected_block() == 0
+    assert "decodeBlock returned false for block 0" in sequence.rejection_messages
+    # It keeps no block: gradients_at still decodes the block that it needs, and rejects it.
+    with pytest.raises(cs.Rejected):
+        sequence.gradients_at([0], [0.0])
+    # The first of several rejected blocks: a second block that uses the same gradient.
+    text = (SEQFILES / "valid_arbitrary_gradient_4us_raster.seq").read_text()
+    two = text.replace(
+        "\n1   5  0  1  0  0  0  0\n", "\n1   5  0  1  0  0  0  0\n2   5  0  1  0  0  0  0\n"
+    )
+    assert two != text
+    path = tmp_path / "two_rejected.seq"
+    path.write_text(two)
+    sequence = cs.load(path)
+    assert sequence.block_count == 2 and sequence.first_rejected_block() == 0
+    assert sequence.rejection_messages.count("decodeBlock returned false") == 1
+    assert cs.load(VALID).rejection_messages == ""

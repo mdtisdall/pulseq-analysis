@@ -1,8 +1,8 @@
 """The package's side of the fuzzing (seqfuzz.py), in a process of its own: a case that the checks
 miss can end the process, so the fuzzing runs the package here and watches this process.
 
-It reads one path of a .seq file on each line of stdin and writes one JSON object on a line of
-stdout for each:
+It reads a sampling mode of oversampled gradients and a path of a .seq file on each line of stdin
+(separated by a tab) and writes one JSON object on a line of stdout for each:
 
 - "verdict": "not-supported", "rejected" (load, or a decodeBlock), "undefined-behaviour" (with
   "code", and "where": [block, time] for a case that only gradientsAt meets), or "read" (every
@@ -26,7 +26,9 @@ SAMPLED_BLOCKS = 24
 
 def sample_points(sequence: cs.Sequence) -> tuple[list[int], list[float]]:
     """A few times in each of the first blocks: before, at and after its start and its end, its
-    middle, and the delays of its gradients and a few rasters after them."""
+    middle, and the delays of its gradients and a few rasters after them. The middle comes before
+    each delay: the channels after a gradient that gradientsAt returns early for (an oversampled
+    gradient with no sample, in the "edge" mode) must not keep the values of the time before."""
     libraries = sequence.libraries
     blocks, times = [], []
     for index, row in enumerate(libraries.blocks[:SAMPLED_BLOCKS].tolist()):
@@ -35,7 +37,7 @@ def sample_points(sequence: cs.Sequence) -> tuple[list[int], list[float]]:
         for grad_id in row[2:5]:
             if grad_id in libraries.grad:
                 delay = float(libraries.grad[grad_id]["delay_us"])
-                candidates += [delay, delay + 5.0, delay + 12.5, delay + 40.0]
+                candidates += [duration / 2, delay, delay + 5.0, delay + 12.5, delay + 40.0]
         for t in candidates:
             if math.isfinite(t):
                 blocks.append(index)
@@ -43,9 +45,9 @@ def sample_points(sequence: cs.Sequence) -> tuple[list[int], list[float]]:
     return blocks, times
 
 
-def verdict(path: str) -> dict:
+def verdict(path: str, oversampling: str) -> dict:
     try:
-        sequence = cs.load(path)
+        sequence = cs.load(path, oversampling=oversampling)
     except cs.NotSupported:
         return {"verdict": "not-supported"}
     except cs.UndefinedBehaviour as error:
@@ -82,10 +84,10 @@ def limit_memory() -> None:
 def main() -> None:
     limit_memory()
     for line in sys.stdin:
-        path = line.rstrip("\n")
+        oversampling, _, path = line.rstrip("\n").partition("\t")
         if not path:
             continue
-        sys.stdout.write(json.dumps(verdict(path)) + "\n")
+        sys.stdout.write(json.dumps(verdict(path, oversampling)) + "\n")
         sys.stdout.flush()
 
 

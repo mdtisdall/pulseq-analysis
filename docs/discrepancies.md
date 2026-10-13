@@ -3,8 +3,11 @@
 This document records each place where the sources that define how a Pulseq
 file is read disagree, or where they leave a question open. For each one it
 gives what each source does, an example, and what pulseq-analysis does and why.
-It records the package as it is on 2026-10-09. Section 4 compares the package
-with the order of preference of section 1.
+It records the package as it is on 2026-10-12, with its two interpreters,
+`cpp-siemens` and `strict` (section 1). The sources and the runs on them are
+those of 2026-10-09, unless an entry says otherwise. Section 4 compares the
+strict reader with the order of preference of 2026-10-09, which section 1
+explains.
 
 Contents:
 
@@ -24,22 +27,45 @@ Four sources define how a file is read. Each is fixed at one version.
 | The specification | `doc/specification.tex` of [pulseq/pulseq](https://github.com/pulseq/pulseq) at commit `c7469123c2f381f065986e6cc3a7d09730ed16ef`: "Version 1.5.3 (DRAFT)". The PDF of that commit (`doc/specification.pdf`) is made from it. | The definition of the format. | `spec:N`, line N of `specification.tex`, with the section number of the PDF |
 | The C++ reader | `src/ExternalSequence.cpp` and `src/ExternalSequence.h` of pulseq/pulseq at the same commit, built by `flake.nix` as `pulseq-cpp-oracle` with the driver of `tests/cpp_oracle/` | The reader of the Pulseq interpreter on the scanner: what the scanner plays. | `cpp:N` (`.cpp`), `cpp.h:N` (`.h`) |
 | MATLAB Pulseq | `matlab/` of pulseq/pulseq at the same commit, run under GNU Octave 11.3.0 by `pulseq-matlab-oracle` (`tests/matlab_oracle/`) | The toolbox that writes most Pulseq files. | `read.m:N`, `Sequence.m:N` (`matlab/+mr/@Sequence/`), `restoreAdditionalShapeSamples.m:N` (`matlab/+mr/`) |
-| pypulseq | The pin of `pyproject.toml`: the fork [mdtisdall/pypulseq](https://github.com/mdtisdall/pypulseq) at `3c3bd8515e591ef859399aa20db64b1bd2c3a725` (pypulseq 1.5.0.post1 and six commits) | The reader behind `load(path)`, which does not use `reader.read_seqfile` yet. | `read_seq.py:N`, `sequence.py:N` (`pypulseq/Sequence/`), `event_lib.py:N` (`pypulseq/`) |
+| pypulseq | The pin of `pyproject.toml`: the fork [mdtisdall/pypulseq](https://github.com/mdtisdall/pypulseq) at `3c3bd8515e591ef859399aa20db64b1bd2c3a725` (pypulseq 1.5.0.post1 and six commits) | The reader behind `load(path)`, which does not use the interpreters yet (task R14). | `read_seq.py:N`, `sequence.py:N` (`pypulseq/Sequence/`), `event_lib.py:N` (`pypulseq/`) |
 
-pulseq-analysis ("the package") reads a file with `reader.read_seqfile`. It
-rejects a file that breaks a rule, with the rule IDs of `reader.RULES`. The
-module docstring of `reader` gives each rule and its source.
+pulseq-analysis ("the package") reads a file with `read_seqfile(path,
+interpreter)`, through one of its two interpreters (`docs/usage.md`, "The
+interpreters"):
 
-Each statement about a source was checked in one of two ways:
+- `cpp-siemens` (by name: `read_seqfile(path, "cpp-siemens")`) reads a file as
+  the C++ reader of the scanner's interpreter on Siemens systems reads it. Its
+  engine is the C++ reader itself, run in the process by the package
+  pulseq-cpp-siemens. It makes the waveforms that the reader makes, and rejects
+  what the reader rejects, with a code (`cpp_siemens.CODES`). Where the reader's
+  behaviour is undefined (it reads or writes memory that it does not own, or it
+  does not end), it rejects the file with a `ub.*` code (section 5.3 of the
+  plan).
+- `strict` (the default until the `spec` interpreter of task R11 replaces it) is
+  the strict reader that the package had before the interpreters. It rejects a
+  file that breaks a rule, with the rule IDs of `reader.RULES`. The module
+  docstring of `reader` gives each rule and its source.
+
+A version outside 1.4.0 to 1.5.x raises `NotSupported` in both (decision Q1),
+and says nothing about the file. The package reports no discrepancy itself:
+pulseq-checks does (P17). The decisions P1 to P19 and Q1 to Q6 that this
+document cites are those of sections 2 and 3 of `docs/plans/parser-redesign.md`
+("the plan"). The entries of section 3 give, for each interpreter, what it does
+and why.
+
+Each statement about a source was checked in one of three ways:
 
 - by reading its code at the commit above (the citation gives the file and the
-  line); or
+  line);
 - by a run on 2026-10-09, on an Apple M1 Max (macOS 26.6.2, arm64): the
   acceptance matrix of appendix A, or a small file that the entry shows (run
   through the same four readers as the matrix). The C++ reader is the macOS
   build of `pulseq-cpp-oracle`. "Crash" is a signal (exit status 70 of the
   driver). Where the reader reads memory that it does not own, the result can
-  depend on the build.
+  depend on the build; or
+- by a run on 2026-10-12 of the two interpreters on the fixture or the small
+  file that the entry names (`read_seqfile(path, "cpp-siemens")` and
+  `read_seqfile(path, "strict")`), with `pulseq-cpp-oracle` on the same file.
 
 The matrix gives two columns for pypulseq. Most fixtures have a `ROTATIONS`
 extension, and pypulseq's `read` rejects every file with one, so the column
@@ -47,86 +73,92 @@ extension, and pypulseq's `read` rejects every file with one, so the column
 pypulseq does not read, without `RequiredExtensions`, and with time ID -1 set
 to 0. An entry says "probe" when it cites that column.
 
-pulseq-analysis does not judge whether a file is valid. It reads a file with
-the meaning that the first source in this order gives it:
+pulseq-analysis does not judge whether a file is valid. On 2026-10-09 its goal
+was to read a file with the meaning that the first source in this order gives
+it:
 
 1. the C++ reader;
 2. the specification;
 3. MATLAB Pulseq;
 4. pypulseq.
 
-A source gives no meaning where it is unclear (for example where it differs
-between builds), rejects the file, crashes, does not end, or has undefined
-behaviour; then the next source decides. Section 4.1 gives these rules in full.
+A source gave no meaning where it was unclear (for example where it differs
+between builds), rejected the file, crashed, did not end, or had undefined
+behaviour; then the next source decided. Section 4.1 gives these rules in full.
 
-The package does not follow this order everywhere yet. Each entry of section 3
-gives what the package does now, and why. Section 4 compares each entry with
-the order, and says where the package differs from it.
+The plan (section 1) replaced this goal with the two interpreters above. The
+entries of section 3 give what each interpreter does and why. Section 4 reviews
+the strict reader against the older order of preference, and is rewritten for
+the two interpreters later (plan section 11).
 
 ## 2. Summary
 
 The verdicts are short. "Accepts" and "reads" mean that the source goes on with
 no error; "rejects" means an error; "silent" means that the source has no rule.
+The last two columns are the package's interpreters. "As C++" means that
+`cpp-siemens` does what the C++ reader does; "not supported" is the
+`NotSupported` exception.
 
-| ID | Condition in the file | Specification | C++ reader | MATLAB Pulseq | pypulseq | Package |
-|---|---|---|---|---|---|---|
-| [D01a](#d01a-an-rf-row-with-12-fields) | `[RF]` row with 12 fields | prose: 7 numbers, line: 8 fields; table and example: 12 | 12 | 12 | 12 | 12 |
-| [D01b](#d01b-a-gradients-row-with-7-fields) | `[GRADIENTS]` row with 7 fields | prose: 4 numbers; line, table and example: 7 | 7 | 7 | 7 | 7 |
-| [D01c](#d01c-an-adc-row-with-9-fields) | `[ADC]` row with 9 fields | prose: 6 numbers; line, table and example: 9 | 9 | 9 | 9 | 9 |
-| [D02](#d02-a-file-with-no-version-section) | No `[VERSION]` | recommends to reject | rejects | rejects | fails (`UnboundLocalError`) | rejects |
-| [D03](#d03-a-file-whose-version-is-before-140-or-after-15x) | Version outside 1.4.0 to 1.5.x | silent | 1.2.0 and later | 1.2.0 and later, major 1 | 1.2.0 and later | 1.4.0 to 1.5.x |
-| [D04](#d04-a-version-line-whose-value-is-not-a-plain-integer-such-as-minor-50) | `[VERSION]` value such as `5.0` | `major <major>` | reads `5.0` as 5 | reads `5.0` | rejects `5.0`; cuts `revision` | rejects |
-| [D05](#d05-sections-in-an-unusual-order-such-as-version-after-blocks-or-last-in-the-file) | `[VERSION]` after `[BLOCKS]` or last | silent | any order; crash with `[VERSION]` last | `[VERSION]` before `[BLOCKS]` | `[VERSION]` before `[BLOCKS]` | any order |
-| [D06](#d06-a-blank-or--line-inside-a-section-with-data-after-it) | Blank or `#` line inside a section | silent | blank line; `#` is data | blank or `#` line | blank line or a lone `#` | blank or `#` line |
-| [D07](#d07-a-shape-whose-last-sample-is-followed-by-the-next-shape_id-with-no-blank-line) | No blank line after a shape | blank line | `shape_id` line too; drops the rest | blank or `#` line | blank or a lone `#` | blank line |
-| [D08](#d08-a-section-that-the-format-does-not-have) | Unknown section | silent | ignores | rejects | rejects | rejects |
-| [D09](#d09-a-delays-section-in-a-file-of-140-or-later) | `[DELAYS]` from 1.4.0 | removed in 1.4.0 | ignores | rejects | rejects | rejects |
-| [D10](#d10-a-section-that-appears-twice) | A section twice | silent | reads the last | reads | reads | rejects |
-| [D11](#d11-a-required-raster-that-is-missing-zero-negative-or-not-finite) | Missing or invalid raster | required | presence; value partly | presence | defaults | presence and value |
-| [D12](#d12-a-definition-that-appears-twice) | A definition twice | silent | last wins | last wins | last wins | rejects |
-| [D13](#d13-a-definition-or-a-signature-hash-whose-text-reads-as-a-number) | Definition or hash that reads as a number | `any`, hash `string` | text and numbers | numbers when they parse; hash too | numbers; hash text | text |
-| [D14](#d14-a-number-with-a-fraction-in-an-integer-column-a-sign-or-nan-a-row-with-too-few-or-too-many-columns-bytes-that-are-not-utf-8) | Number syntax, columns, encoding | types only | partly | lenient | partly | strict |
-| [D15](#d15-an-adc-dwell-time-written-with-a-decimal-point-such-as-25000) | ADC dwell `2500.0` | float | rejects | reads | reads | reads |
-| [D16](#d16-a-soft-delay-row-with-a-fractional-offset-such-as--1005-or-a-hint-longer-than-31-characters) | Soft delay offset `-100.5`; long hint | integer in the example | misreads `-100.5`; cuts the hint | reads | rejects `-100.5` | reads |
-| [D17](#d17-an-rf-use-letter-that-is-not-one-of-e-r-i-s-p-o-u) | RF `use` letter not in the list | one of 7 letters | any character | any | any | rejects |
-| [D18](#d18-a-value-with-more-digits-than-a-32-bit-float-holds) | Value beyond 32-bit precision | shapes float32 | float32 | double | float64 | float64 |
-| [D19](#d19-ids-that-are-not-positive-or-not-unique) | IDs not positive or not unique | must | silent (last wins) | mixed | silent | rejects |
-| [D20](#d20-block-ids-that-are-not-in-increasing-order) | Block IDs out of order | no restriction | file order | ID order | file order | rejects |
-| [D21](#d21-a-reference-to-an-event-shape-or-extension-that-does-not-exist) | Reference that does not resolve | implied | partly; crashes | mostly rejects | partly | rejects |
-| [D22](#d22-time-id--1-for-an-rf-event-or-in-a-14-file) | Time ID -1 for RF, in 1.4 | gradients only | crashes (RF) | default raster (RF) | fails (`KeyError`) | rejects |
-| [D23](#d23-a-cycle-in-an-extension-list) | Cycle in an extension list | implied | no end | no end (code) | reads | rejects |
-| [D24](#d24-a-file-with-no-block) | No block | must | accepts | reads | reads | rejects |
-| [D25](#d25-an-event-that-lasts-longer-than-its-block) | Event longer than its block | interpreter must reject | accepts | reads | reads | rejects |
-| [D26](#d26-a-time-that-is-not-a-multiple-of-its-raster) | Times off a raster | must | accepts | reads | reads | rejects |
-| [D27](#d27-a-gradient-that-starts-above-0-after-a-delay-or-ends-above-0-before-the-end-of-its-block) | Gradient non-zero at an end | must / need to | accepts | reads | reads | rejects |
-| [D28](#d28-an-arbitrary-gradient-on-a-gradient-raster-other-than-10-µs) | Arbitrary gradient off 10 µs | allowed | rejects | reads | reads | accepts |
-| [D29](#d29-a-shape-that-does-not-have-the-number-of-samples-that-it-declares) | Shape length | must | accepts | reads | reads | rejects |
-| [D30](#d30-an-amplitude-shape-with-a-sample-outside--1-1) | Shape outside [-1, 1] | must | clamps | reads | reads | rejects |
-| [D31](#d31-an-rf-magnitude-shape-with-a-sample-below-0) | RF magnitude below 0 | allowed | clamps to 0 | reads | reads | rejects |
-| [D32](#d32-an-rf-phase-shape-with-a-sample-outside-0-1) | RF phase outside [0, 1) | silent | clamps | reads | reads | rejects |
-| [D33](#d33-a-shape-with-no-sample-that-an-event-uses) | Empty shape | silent | crashes | rejects | rejects | rejects |
-| [D34](#d34-the-shapes-of-one-event-with-different-numbers-of-samples) | Shapes of one event, two lengths | silent | crashes | rejects | reads | rejects |
-| [D35](#d35-an-rf-time-shape-stored-compressed-in-3-or-4-values-a-regular-step) | Regular RF time shape (3 or 4 stored values) | times in the shape | dwell from the shape; first time ignored | times of the shape | times of the shape | as C++; rejects off-centre |
-| [D36](#d36-an-rf-time-shape-stored-in-any-other-form) | Other RF time shape | times in the shape | resamples; can read past the end | times of the shape | times of the shape | as C++; rejects past the end |
-| [D37](#d37-an-rf-time-shape-whose-last-time-is-before-the-end-of-the-last-samples-dwell) | RF time shape that ends inside its last dwell | silent | dwell × samples | last time rounded up | last time rounded up | as C++ |
-| [D38](#d38-an-rf-event-of-a-14-file-which-has-no-center-column) | 1.4 RF event, no `center` | not in 1.4 | -1 (invalid) | computed | computed | absent |
-| [D39](#d39-a-14-arbitrary-gradient-on-the-default-raster-which-has-no-first-and-last-columns) | 1.4 gradient on the default raster | not in 1.4 | about 0 | alternating sum | extrapolation | rejects |
-| [D40](#d40-a-14-arbitrary-gradient-with-a-time-shape-which-has-no-first-column) | 1.4 time-shaped gradient, no `first` | not in 1.4 | first sample | from the block before | from the block before | first sample |
-| [D41](#d41-an-arbitrary-gradient-on-the-default-raster-time-id-0-whose-samples-are-at-the-centres-of-the-raster-cells) | Time-ID-0 gradient between its samples | centres of cells | lines | restores the edges | lines | lines |
-| [D42](#d42-a-gap-between-two-gradient-events-on-one-axis) | Gap between gradient events | silent | one block only | ramps to 0 | straight line | ramps (MATLAB) |
-| [D43](#d43-an-oversampled-arbitrary-gradient-time-id--1) | Oversampled gradient | defined | keeps the centres | reads | fails (`KeyError`) | reads |
-| [D44](#d44-an-adc-event-with-a-phase-modulation-shape) | ADC phase modulation shape | none | rad | as stored | not checked | as stored |
-| [D45](#d45-an-unknown-extension-that-the-file-does-not-require) | Unknown extension, not required | may ignore | ignores | ignores | rejects | ignores |
-| [D46](#d46-a-file-whose-last-section-that-starts-with--is-extensions) | `[EXTENSIONS]` last | silent | rejects | reads | reads | accepts |
-| [D47](#d47-an-unknown-extension-that-the-file-requires) | Unknown required extension | must reject | rejects | reads | reads | rejects |
-| [D48](#d48-a-block-with-more-than-one-rotations-or-rf_shims-object) | Two ROTATIONS or RF_SHIMS in a block | one only | warns, uses the first | rejects | rejects any ROTATIONS | rejects |
-| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3 | normalizes, rotates | rejects | reads as written |
-| [D50](#d50-a-labelset-or-labelinc-row-with-a-label-name-that-a-reader-does-not-know) | Unknown label name | lists labels | ignores the label | rejects | rejects | reads |
-| [D51](#d51-two-event-rows-with-equal-values-and-different-ids-such-as-amplitudes-0-and--0) | Equal events, different IDs | silent | keeps | keeps | merges, renumbers | keeps |
-| [D52](#d52-any-file-it-holds-no-dead-time-ringdown-time-or-default-raster-of-a-scanner) | No values of a target in the file | not in the file | none | dead times | dead times, default rasters | none |
-| [D53](#d53-a-signature-hash-in-a-file-with-crlf-line-ends-or-a-hash-that-does-not-match-the-file) | Signature: CRLF line ends, mismatch | strip the `\n` | drops the empty line | no check | no check | as C++ |
-| [D54](#d54-a-signature-section-without-type-or-hash) | `[SIGNATURE]` without `Type` or `Hash` | must have both | accepts | reads | reads | rejects |
-| [D55](#d55-an-extension-header-whose-string_id-is-a-word-where-the-specifications-table-gives-the-type-integer) | `STRING_ID` that is a word | integer in the table; a word in the examples | text | text | text | text |
+| ID | Condition in the file | Specification | C++ reader | MATLAB Pulseq | pypulseq | `cpp-siemens` | `strict` |
+|---|---|---|---|---|---|---|---|
+| [D01a](#d01a-an-rf-row-with-12-fields) | `[RF]` row with 12 fields | prose: 7 numbers, line: 8 fields; table and example: 12 | 12 | 12 | 12 | 12 | 12 |
+| [D01b](#d01b-a-gradients-row-with-7-fields) | `[GRADIENTS]` row with 7 fields | prose: 4 numbers; line, table and example: 7 | 7 | 7 | 7 | 7 | 7 |
+| [D01c](#d01c-an-adc-row-with-9-fields) | `[ADC]` row with 9 fields | prose: 6 numbers; line, table and example: 9 | 9 | 9 | 9 | 9 | 9 |
+| [D02](#d02-a-file-with-no-version-section) | No `[VERSION]` | recommends to reject | rejects | rejects | fails (`UnboundLocalError`) | rejects (`version.missing`) | rejects |
+| [D03](#d03-a-file-whose-version-is-before-140-or-after-15x) | Version outside 1.4.0 to 1.5.x | silent | 1.2.0 and later | 1.2.0 and later, major 1 | 1.2.0 and later | not supported | not supported |
+| [D04](#d04-a-version-line-whose-value-is-not-a-plain-integer-such-as-minor-50) | `[VERSION]` value such as `5.0` | `major <major>` | reads `5.0` as 5 | reads `5.0` | rejects `5.0`; cuts `revision` | as C++ (`5.0` is 5) | rejects |
+| [D05](#d05-sections-in-an-unusual-order-such-as-version-after-blocks-or-last-in-the-file) | `[VERSION]` after `[BLOCKS]` or last | silent | any order; crash with `[VERSION]` last | `[VERSION]` before `[BLOCKS]` | `[VERSION]` before `[BLOCKS]` | as C++; `[VERSION]` last loses the shapes | any order |
+| [D06](#d06-a-blank-or--line-inside-a-section-with-data-after-it) | Blank or `#` line inside a section | silent | blank line; `#` is data | blank or `#` line | blank line or a lone `#` | as C++: drops rows after a blank line | blank or `#` line |
+| [D07](#d07-a-shape-whose-last-sample-is-followed-by-the-next-shape_id-with-no-blank-line) | No blank line after a shape | blank line | `shape_id` line too; drops the rest | blank or `#` line | blank or a lone `#` | as C++: later shapes lost | blank line |
+| [D08](#d08-a-section-that-the-format-does-not-have) | Unknown section | silent | ignores | rejects | rejects | ignores | rejects |
+| [D09](#d09-a-delays-section-in-a-file-of-140-or-later) | `[DELAYS]` from 1.4.0 | removed in 1.4.0 | ignores | rejects | rejects | ignores | rejects |
+| [D10](#d10-a-section-that-appears-twice) | A section twice | silent | reads the last | reads | reads | reads the last | rejects |
+| [D56](#d56-the-last-section-with-no-blank-line-after-it) | Last section with no blank line after it | silent | skips the sections it reads after it | reads | fails (`AttributeError`) | as C++ (`definitions.skipped`) | reads |
+| [D11](#d11-a-required-raster-that-is-missing-zero-negative-or-not-finite) | Missing or invalid raster | required | presence; value partly | presence | defaults | rejects missing, `nan`, text; partly | presence and value |
+| [D12](#d12-a-definition-that-appears-twice) | A definition twice | silent | last wins | last wins | last wins | last wins | rejects |
+| [D13](#d13-a-definition-or-a-signature-hash-whose-text-reads-as-a-number) | Definition or hash that reads as a number | `any`, hash `string` | text and numbers | numbers when they parse; hash too | numbers; hash text | text | text |
+| [D14](#d14-a-number-with-a-fraction-in-an-integer-column-a-sign-or-nan-a-row-with-too-few-or-too-many-columns-bytes-that-are-not-utf-8) | Number syntax, columns, encoding | types only | partly | lenient | partly | as C++ | strict |
+| [D15](#d15-an-adc-dwell-time-written-with-a-decimal-point-such-as-25000) | ADC dwell `2500.0` | float | rejects | reads | reads | rejects (`syntax.row`) | reads |
+| [D16](#d16-a-soft-delay-row-with-a-fractional-offset-such-as--1005-or-a-hint-longer-than-31-characters) | Soft delay offset `-100.5`; long hint | integer in the example | misreads `-100.5`; cuts the hint | reads | rejects `-100.5` | as C++ (misreads `-100.5`) | reads |
+| [D17](#d17-an-rf-use-letter-that-is-not-one-of-e-r-i-s-p-o-u) | RF `use` letter not in the list | one of 7 letters | any character | any | any | any character | rejects |
+| [D18](#d18-a-value-with-more-digits-than-a-32-bit-float-holds) | Value beyond 32-bit precision | shapes float32 | float32 | double | float64 | float32 | float64 |
+| [D19](#d19-ids-that-are-not-positive-or-not-unique) | IDs not positive or not unique | must | silent (last wins) | mixed | silent | last wins | rejects |
+| [D20](#d20-block-ids-that-are-not-in-increasing-order) | Block IDs out of order | no restriction | file order | ID order | file order | file order | rejects |
+| [D21](#d21-a-reference-to-an-event-shape-or-extension-that-does-not-exist) | Reference that does not resolve | implied | partly; crashes | mostly rejects | partly | rejects event, shape; extensions as C++ | rejects |
+| [D22](#d22-time-id--1-for-an-rf-event-or-in-a-14-file) | Time ID -1 for RF, in 1.4 | gradients only | crashes (RF) | default raster (RF) | fails (`KeyError`) | rejects RF (`ub.rf-time-id-minus-1`); reads 1.4 gradient | rejects |
+| [D23](#d23-a-cycle-in-an-extension-list) | Cycle in an extension list | implied | no end | no end (code) | reads | rejects (`ub.extension-cycle`) | rejects |
+| [D24](#d24-a-file-with-no-block) | No block | must | accepts | reads | reads | reads | rejects |
+| [D25](#d25-an-event-that-lasts-longer-than-its-block) | Event longer than its block | interpreter must reject | accepts | reads | reads | reads | rejects |
+| [D26](#d26-a-time-that-is-not-a-multiple-of-its-raster) | Times off a raster | must | accepts | reads | reads | reads | rejects |
+| [D27](#d27-a-gradient-that-starts-above-0-after-a-delay-or-ends-above-0-before-the-end-of-its-block) | Gradient non-zero at an end | must / need to | accepts | reads | reads | reads | rejects |
+| [D28](#d28-an-arbitrary-gradient-on-a-gradient-raster-other-than-10-µs) | Arbitrary gradient off 10 µs | allowed | rejects | reads | reads | rejects (`gradient.raster`) | accepts |
+| [D29](#d29-a-shape-that-does-not-have-the-number-of-samples-that-it-declares) | Shape length | must | accepts | reads | reads | longer rejects; shorter reads | rejects |
+| [D30](#d30-an-amplitude-shape-with-a-sample-outside--1-1) | Shape outside [-1, 1] | must | clamps | reads | reads | clamps | rejects |
+| [D31](#d31-an-rf-magnitude-shape-with-a-sample-below-0) | RF magnitude below 0 | allowed | clamps to 0 | reads | reads | clamps to 0 | rejects |
+| [D32](#d32-an-rf-phase-shape-with-a-sample-outside-0-1) | RF phase outside [0, 1) | silent | clamps | reads | reads | clamps | rejects |
+| [D33](#d33-a-shape-with-no-sample-that-an-event-uses) | Empty shape | silent | crashes | rejects | rejects | rejects (`ub.shape-empty`) | rejects |
+| [D34](#d34-the-shapes-of-one-event-with-different-numbers-of-samples) | Shapes of one event, two lengths | silent | crashes | rejects | reads | shorter phase rejects; longer reads | rejects |
+| [D35](#d35-an-rf-time-shape-stored-compressed-in-3-or-4-values-a-regular-step) | Regular RF time shape (3 or 4 stored values) | times in the shape | dwell from the shape; first time ignored | times of the shape | times of the shape | as C++ | as C++; rejects off-centre |
+| [D36](#d36-an-rf-time-shape-stored-in-any-other-form) | Other RF time shape | times in the shape | resamples; can read past the end | times of the shape | times of the shape | as C++; past the end rejects | as C++; rejects past the end |
+| [D37](#d37-an-rf-time-shape-whose-last-time-is-before-the-end-of-the-last-samples-dwell) | RF time shape that ends inside its last dwell | silent | dwell × samples | last time rounded up | last time rounded up | as C++ | as C++ |
+| [D38](#d38-an-rf-event-of-a-14-file-which-has-no-center-column) | 1.4 RF event, no `center` | not in 1.4 | -1 (invalid) | computed | computed | absent | absent |
+| [D39](#d39-a-14-arbitrary-gradient-on-the-default-raster-which-has-no-first-and-last-columns) | 1.4 gradient on the default raster | not in 1.4 | about 0 | alternating sum | extrapolation | reads; ends about 0 | rejects |
+| [D40](#d40-a-14-arbitrary-gradient-with-a-time-shape-which-has-no-first-column) | 1.4 time-shaped gradient, no `first` | not in 1.4 | first sample | from the block before | from the block before | as C++ (first sample) | first sample |
+| [D41](#d41-an-arbitrary-gradient-on-the-default-raster-time-id-0-whose-samples-are-at-the-centres-of-the-raster-cells) | Time-ID-0 gradient between its samples | centres of cells | lines | restores the edges | lines | lines | lines |
+| [D42](#d42-a-gap-between-two-gradient-events-on-one-axis) | Gap between gradient events | silent | one block only | ramps to 0 | straight line | one block at a time | ramps (MATLAB) |
+| [D43](#d43-an-oversampled-arbitrary-gradient-time-id--1) | Oversampled gradient | defined | keeps the centres | reads | fails (`KeyError`) | centre samples (the reader's default) | reads |
+| [D44](#d44-an-adc-event-with-a-phase-modulation-shape) | ADC phase modulation shape | none | rad | as stored | not checked | as C++ (rad) | as stored |
+| [D45](#d45-an-unknown-extension-that-the-file-does-not-require) | Unknown extension, not required | may ignore | ignores | ignores | rejects | ignores | ignores |
+| [D46](#d46-a-file-whose-last-section-that-starts-with--is-extensions) | `[EXTENSIONS]` last | silent | rejects | reads | reads | rejects (`section.extensions-last`) | accepts |
+| [D47](#d47-an-unknown-extension-that-the-file-requires) | Unknown required extension | must reject | rejects | reads | reads | rejects (`extension.required-unknown`) | rejects |
+| [D48](#d48-a-block-with-more-than-one-rotations-or-rf_shims-object) | Two ROTATIONS or RF_SHIMS in a block | one only | warns, uses the first | rejects | rejects any ROTATIONS | the first, as C++ | rejects |
+| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3 | normalizes, rotates | rejects | normalizes; rejects off by 1e-3 (`rotation.norm`) | reads as written |
+| [D50](#d50-a-labelset-or-labelinc-row-with-a-label-name-that-a-reader-does-not-know) | Unknown label name | lists labels | ignores the label | rejects | rejects | ignores the label | reads |
+| [D51](#d51-two-event-rows-with-equal-values-and-different-ids-such-as-amplitudes-0-and--0) | Equal events, different IDs | silent | keeps | keeps | merges, renumbers | keeps | keeps |
+| [D52](#d52-any-file-it-holds-no-dead-time-ringdown-time-or-default-raster-of-a-scanner) | No values of a target in the file | not in the file | none | dead times | dead times, default rasters | none | none |
+| [D53](#d53-a-signature-hash-in-a-file-with-crlf-line-ends-or-a-hash-that-does-not-match-the-file) | Signature: CRLF line ends, mismatch | strip the `\n` | drops the empty line | no check | no check | as C++ | as C++ |
+| [D54](#d54-a-signature-section-without-type-or-hash) | `[SIGNATURE]` without `Type` or `Hash` | must have both | accepts | reads | reads | reads | rejects |
+| [D55](#d55-an-extension-header-whose-string_id-is-a-word-where-the-specifications-table-gives-the-type-integer) | `STRING_ID` that is a word | integer in the table; a word in the examples | text | text | text | text | text |
 
 ## 3. The entries
 
@@ -147,14 +179,19 @@ the delay is 1000 µs and the frequency offset is 100 Hz. By the table, the
 center is at 1000 µs and the delay is 100 µs, as the text under the example
 says (`spec:372`).
 
-Package: reads the 12 fields of the table, in its order (`_RF_15` of
-`reader`). A row with another number of fields is `syntax.columns`. A 1.4.x
-file has its own layout of 8 fields, with no `center`, ppm offsets or `use`
-(D38).
+Package (`cpp-siemens`): reads the 12 fields of the table, in its order, as the
+C++ reader does. A row with fewer fields is `syntax.row`; the reader reads a row
+with more, and ignores the extra fields. A 1.4.x file has its own layout of 8
+fields, with no `center`, ppm offsets or `use` (D38).
 
-Reason: where the prose of the specification contradicts its tables and
-examples, the package follows the tables and examples. They agree with each
-other and with MATLAB's files.
+Package (`strict`): reads the 12 fields of the table, in its order (`_RF_15` of
+`reader`). A row with another number of fields is `syntax.columns`. A 1.4.x file
+has its own layout of 8 fields (D38).
+
+Reason: `cpp-siemens` reads what the C++ reader reads, the 12 fields of the
+table. Where the prose of the specification contradicts its tables and examples,
+`strict` follows the tables and examples, as the C++ reader and MATLAB's files
+do: they agree with each other.
 
 Note: the specification has another slip of the text that does not change how a
 file is read: the paragraph of the soft delay extension starts "Label extension
@@ -171,9 +208,14 @@ can be used" (`spec:545`).
 
 Example: the example row of section 2.8.2, `1 790127 0 -550073 6 0 980`.
 
-Package: reads the 7 fields of the table (`_GRAD_15` of `reader`). A row with
-another number of fields is `syntax.columns`. A 1.4.x file has its own layout of
-5 fields, with no `first` and `last` (D39, D40).
+Package (`cpp-siemens`): reads the 7 fields of the table, as the C++ reader
+does. A row with fewer fields is `syntax.row`; the reader reads a row with more,
+and ignores the extra fields. A 1.4.x file has its own layout of 5 fields, with
+no `first` and `last` (D39, D40).
+
+Package (`strict`): reads the 7 fields of the table (`_GRAD_15` of `reader`). A
+row with another number of fields is `syntax.columns`. A 1.4.x file has its own
+layout of 5 fields (D39, D40).
 
 Reason: as in D01a.
 
@@ -188,9 +230,14 @@ Reason: as in D01a.
 
 Example: the example rows of section 2.8.3.
 
-Package: reads the 9 fields of the table (`_ADC_15` of `reader`). A row with
-another number of fields is `syntax.columns`. A 1.4.x file has its own layout of
-6 fields, with no ppm offsets and no phase shape.
+Package (`cpp-siemens`): reads the 9 fields of the table, as the C++ reader
+does. A row with fewer fields is `syntax.row`; the reader reads a row with more,
+and ignores the extra fields. A 1.4.x file has its own layout of 6 fields, with
+no ppm offsets and no phase shape.
+
+Package (`strict`): reads the 9 fields of the table (`_ADC_15` of `reader`). A
+row with another number of fields is `syntax.columns`. A 1.4.x file has its own
+layout of 6 fields.
 
 Reason: as in D01a.
 
@@ -206,10 +253,13 @@ Reason: as in D01a.
 Example: `tests/seqfiles/bad_version_missing.seq` (matrix: C++ rejects,
 MATLAB rejects, pypulseq `UnboundLocalError`).
 
-Package: `version.missing`.
+Package (`cpp-siemens`): `version.missing`, as the C++ reader rejects it.
 
-Reason: the specification recommends to reject a file without `[VERSION]`, and
-layer 1 needs the version.
+Package (`strict`): `version.missing`.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P2). The
+specification recommends to reject a file without `[VERSION]`, and `strict`
+needs the version to know the layout of the tables.
 
 #### D03: A file whose version is before 1.4.0 or after 1.5.x
 
@@ -226,12 +276,18 @@ keeps the 1.5 tables, so the other readers fail on its tables, not on its
 version (matrix: C++ rejects, MATLAB "nonconformant arguments", pypulseq
 "Mismatch between number of tokens and format spec").
 
-Package: `version.unsupported` for a version that is not 1.4.0 up to, not
-including, 1.6.0.
+Package (`cpp-siemens`): raises `NotSupported` for a version before 1.4.0 or
+from 1.6.0, before the C++ reader runs: the version gate reads the version on
+the "as written" reading. The C++ reader would read 1.6.0 and port 1.2 and 1.3
+files. Both fixtures of the example raise `NotSupported`.
 
-Reason: the package reads the versions 1.4.0 to 1.5.x. It rejects a version
-that it does not know (1.6 or later, or 1.5 with a layout that it cannot read)
-with a message that names it, so that a new version fails loudly, not wrongly.
+Package (`strict`): raises `NotSupported` for the same versions. Before the
+interpreters it rejected them with `version.unsupported`.
+
+Reason: the package reads the versions 1.4.0 to 1.5.x (decision Q1). In both
+interpreters it refuses another version as not supported by the package, with an
+exception that says nothing about the file, so that a new version fails loudly,
+not wrongly.
 
 #### D04: A `[VERSION]` line whose value is not a plain integer, such as `minor 5.0`
 
@@ -245,11 +301,16 @@ with a message that names it, so that a new version fails loudly, not wrongly.
 Example: `tests/seqfiles/bad_version_invalid.seq` has `minor 5.0` (matrix: C++
 accepts, MATLAB reads, pypulseq `ValueError`).
 
-Package: `version.invalid`: each line is one of the three keys with one
-integer, and each key appears once.
+Package (`cpp-siemens`): reads `minor 5.0` as 5, as the C++ reader does
+(`sscanf` with `%d`). A line that does not decode (`minor abc`), or a key other
+than `major`, `minor` and `revision`, is `version.invalid`.
 
-Reason: section 2.3 of the specification gives the three lines (the docstring
-of `reader` gives it as the source).
+Package (`strict`): `version.invalid`: each line is one of the three keys with
+one integer, and each key appears once.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P2). `strict` follows
+section 2.3 of the specification, which gives the three lines (the docstring of
+`reader` gives it as the source).
 
 #### D05: Sections in an unusual order, such as `[VERSION]` after `[BLOCKS]` or last in the file
 
@@ -260,13 +321,30 @@ of `reader` gives it as the source).
 | MATLAB Pulseq | Reads the sections in file order, and rejects `[BLOCKS]` before `[VERSION]` (`read.m:114-116`). |
 | pypulseq | Reads in file order; `[BLOCKS]` before `[VERSION]` fails with `UnboundLocalError` (`read_seq.py:139`). |
 
-Example: a run of a small 1.5.1 file with `[DEFINITIONS]`, `[BLOCKS]`,
-`[VERSION]`, `[RF]`, `[EXTENSIONS]`, `[SHAPES]` in that order: the package and
-the C++ reader accept it; MATLAB rejects it ("MUST include [VERSION] section
-prior to [BLOCKS]"); pypulseq fails with `UnboundLocalError`. The same file
-with `[VERSION]` as the last section made the C++ reader crash in the run.
+Example: a run of `valid_1_5_1.seq` with its sections in the order
+`[DEFINITIONS]`, `[BLOCKS]`, `[VERSION]`, `[RF]`, `[GRADIENTS]`, `[TRAP]`,
+`[ADC]`, `[EXTENSIONS]` with its extension sections, and `[SHAPES]`, and with no
+`[SIGNATURE]`: `cpp-siemens`, `strict` and the C++ reader accept it; MATLAB
+rejects it ("MUST include [VERSION] section prior to [BLOCKS]"); pypulseq fails
+with `UnboundLocalError`. The same file with `[VERSION]` as the last section
+made the C++ reader crash in the run
+(`tests/seqfiles/undefined/version_last.seq` is such a file).
 
-Package: reads the sections by name in any order (`reader._sections`).
+Package (`cpp-siemens`): reads the sections in any order, as the C++ reader
+does: it finds each section through an index of the file. The exception is
+`[VERSION]` as the last section, a case of D56: reading it to the end of the
+file fails the reader's stream, the seek to `[SHAPES]` then fails, and the
+reader reads no shape. With no `[SHAPES]` section the stream stays failed, the
+reader skips `[DEFINITIONS]` too, and the file is `definitions.skipped`. With a
+`[SHAPES]` section that no event uses, the file is read, with no shape. If an
+event uses a shape, the file is `ub.shape-missing` (D21).
+
+Package (`strict`): reads the sections by name in any order
+(`reader._sections`).
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P2); its failure with
+`[VERSION]` last comes from its stream, not from a rule of the format (D56). The
+specification is silent on the order, and `strict` accepts any.
 
 #### D06: A blank or `#` line inside a section, with data after it
 
@@ -286,11 +364,19 @@ never read), MATLAB and pypulseq reject it ("Unknown section code: 1 2 3").
 `valid_comments_between_sections.seq` has comments between sections: all
 accept (pypulseq: probe).
 
-Package: a blank or `#` line ends a section, as in `read.m`. A data line after
-the end and before the next header is `syntax.line`.
+Package (`cpp-siemens`): ends a table at a blank line, and never reads the rows
+after it (only `[` lines start a section), as the C++ reader does: a misreading
+(P3). A run with a blank line after block 4 of `valid_1_5_1.seq` reads 4 of its
+9 blocks. A `#` line inside a table is read as a row and fails:
+`syntax.comment-row`. `[VERSION]` and `[EXTENSIONS]` skip blank and `#` lines. A
+data line before the first header is never read (`bad_syntax_line.seq` is read).
 
-Reason: the specification is silent, so the package follows the reference
-implementation, `read.m` (the docstring of `reader` says so).
+Package (`strict`): a blank or `#` line ends a section, as in `read.m`. A data
+line after the end and before the next header is `syntax.line`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P2, P3); pulseq-checks
+reports the dropped rows. The specification is silent, so `strict` follows the
+reference implementation, `read.m` (the docstring of `reader` says so).
 
 #### D07: A shape whose last sample is followed by the next `shape_id` with no blank line
 
@@ -308,12 +394,22 @@ rejects ("mr.decompressShape() failed for shapeId 4"), pypulseq rejects
 `bad_syntax_shape.seq` has a shape with no `num_samples` line: C++ rejects,
 MATLAB rejects, pypulseq `IndexError` (probe).
 
-Package: `syntax.shape` for a `shape_id` line with no blank line before it (the
-shape before it is still read), and for a shape without its two header lines.
-A `#` line ends a shape like a blank line.
+Package (`cpp-siemens`): reads as the C++ reader does: it stops reading
+`[SHAPES]` at the line that follows a `shape_id` line with no blank line before
+it, so the later shapes are lost (the shape before it is read). A block that
+uses a lost shape is `ub.shape-missing` (D21):
+`bad_syntax_shape_no_blank_line.seq`. A file whose events use none of the lost
+shapes is read (run: `valid_1_5_1.seq` with the blank line before its unused
+shape 9 removed). A shape without its two header lines is `syntax.shape`.
 
-Reason: the specification does not state this rule; the docstring of `reader`
-lists `syntax.shape` as added.
+Package (`strict`): `syntax.shape` for a `shape_id` line with no blank line
+before it (the shape before it is still read), and for a shape without its two
+header lines. A `#` line ends a shape like a blank line.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P3); a lost shape that an
+event uses is the reader's undefined behaviour (Q2). `strict` rejects the
+missing blank line, which the specification states only as the end of a shape
+(section 2.9); the docstring of `reader` lists `syntax.shape` as added.
 
 #### D08: A section that the format does not have
 
@@ -326,10 +422,13 @@ lists `syntax.shape` as added.
 
 Example: `tests/seqfiles/bad_section_unknown.seq` has `[FOO]`.
 
-Package: `section.unknown`.
+Package (`cpp-siemens`): reads the file and ignores the section, as the C++
+reader does (it reads only the sections that it knows).
 
-Reason: the package reads only the sections of the format (sections 2.3 to 2.9
-of the specification).
+Package (`strict`): `section.unknown`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). `strict` reads only the
+sections of the format (sections 2.3 to 2.9 of the specification).
 
 #### D09: A `[DELAYS]` section in a file of 1.4.0 or later
 
@@ -342,10 +441,13 @@ of the specification).
 
 Example: `tests/seqfiles/bad_section_delays.seq`.
 
-Package: `section.delays`.
+Package (`cpp-siemens`): reads the file and ignores `[DELAYS]` from 1.4.0, as
+the C++ reader does.
 
-Reason: MATLAB's rule: a file of 1.4.0 or later "MUST NOT" have `[DELAYS]`
-(`read.m`).
+Package (`strict`): `section.delays`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). `strict` follows MATLAB's
+rule: a file of 1.4.0 or later "MUST NOT" have `[DELAYS]` (`read.m`).
 
 #### D10: A section that appears twice
 
@@ -358,11 +460,55 @@ Reason: MATLAB's rule: a file of 1.4.0 or later "MUST NOT" have `[DELAYS]`
 
 Example: `tests/seqfiles/bad_section_duplicate.seq` has a second `[TRAP]`.
 
-Package: `section.duplicate`, also for two `extension` sections with one
-`STRING_ID`.
+Package (`cpp-siemens`): reads the last section of a name, as the C++ reader
+does (its index keeps the last header).
 
-Reason: the specification does not state this rule; the docstring of `reader`
-lists it as added.
+Package (`strict`): `section.duplicate`, also for two `extension` sections with
+one `STRING_ID`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The specification does not
+state this rule for `strict`; the docstring of `reader` lists it as added.
+
+#### D56: The last section with no blank line after it
+
+| Source | What it does |
+|---|---|
+| Specification | Silent. It declares the end of a shape with a blank line (section 2.9, `spec:602`) and says nothing about a blank line after another section, or about the end of the file. |
+| C++ reader | Reads a table with its `getline` up to an empty line or a `[` line. At the end of the file, `is.get()` sets the failbit of the stream (`cpp:2301`), and `getline` also seeks to -1 when it has read nothing (`cpp:2322-2326`). So a section that runs to the end of the file, with no blank line after its last row, leaves the stream failed, and the reader skips each section that it reads after it, in its own order: `[VERSION]` (`cpp:877`), `[SHAPES]` (`cpp:933`), `[RF]`, `[GRADIENTS]`, `[TRAP]`, `[ADC]`, `[DELAYS]`, `[EXTENSIONS]` (`cpp:999-1204`), `[DEFINITIONS]` (`cpp:1399`), `[BLOCKS]` (`cpp:1550`), `[SIGNATURE]` (`cpp:1602`). Only `[SHAPES]` resets the stream, after it has read the section (`cpp:980`). |
+| MATLAB Pulseq | Reads a section up to an empty line or the end of the file with `fgetl`: reads the files of the example (run). |
+| pypulseq | An event table at the end of the file fails with `AttributeError` (run): `__strip_line` returns -1 at the end of the file, and `__read_events` takes it for a line (`read_seq.py:604-607`, `read_seq.py:757-772`). `[DEFINITIONS]` as the last section is read (run). |
+
+Example: a 1.5.1 file with `[VERSION]`, `[DEFINITIONS]`, `[BLOCKS]` (two blocks,
+the first with a trapezoid) and `[TRAP]` as the last section, with no `[SHAPES]`
+section. If the last row of `[TRAP]` has no blank line after it (a newline or
+none, which is the same to the reader), the C++ reader skips `[DEFINITIONS]` and
+rejects the file ("Required: definition AdcRasterTime is not present");
+`cpp-siemens` rejects it with `definitions.skipped`; `strict` and MATLAB read
+it, and pypulseq fails (`AttributeError`). With a blank line after the row, all
+four read it. A `[SHAPES]` section before `[TRAP]` does not help: the reader
+resets the stream after `[SHAPES]`, and reads `[TRAP]` later. A `[SHAPES]`
+section after `[TRAP]` makes `[SHAPES]` the last section, which ends the file
+and resets the stream: the file is read. With `[DEFINITIONS]` as the last
+section the reader reads the definitions and then no block: the file is read as
+a sequence of 0 blocks, with no error. With `[BLOCKS]` last, the file is read
+(only `[SIGNATURE]` comes after it). `[VERSION]` as the last section is D05.
+
+Writers: MATLAB `write.m` and pypulseq `write_seq.py` end every section with a
+blank line (`write.m:25-259`, `write_seq.py:14-265`) and write `[SIGNATURE]`
+last, which the reader reads last. So no file that they write is affected.
+
+Package (`cpp-siemens`): reads or rejects as the C++ reader does, because the
+reader itself reads the file. When the reader skips `[DEFINITIONS]`, the file is
+`definitions.skipped`, so that the code names the cause and not a missing
+raster. A skipped `[BLOCKS]` is a sequence of 0 blocks (D24). The reader's
+skipping of `[SHAPES]` (`[VERSION]` last) is D05.
+
+Package (`strict`): reads the sections by name, and needs no blank line at the
+end of a section.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P2). The loss comes from
+the state of the reader's stream, not from a rule of the format, and the
+specification is silent. `strict` does not follow it.
 
 ### Definitions and the syntax of values
 
@@ -381,12 +527,23 @@ Example: `tests/seqfiles/bad_definitions_raster_missing.seq` (no
 `AdcRasterTime 0`, `RadiofrequencyRasterTime -1e-06` and
 `GradientRasterTime nan`.
 
-Package: `definitions.raster-missing`; `definitions.raster-invalid` for a value
-that is not one finite number above 0.
+Package (`cpp-siemens`): `definitions.raster-missing` for a raster that the file
+does not define; `definitions.raster-invalid` for a value that the reader does
+not read as a number (`nan`, `inf`, text). A `GradientRasterTime` of 0 or below
+is `gradient.raster` when a block has an arbitrary gradient, as in D28
+(`bad_definitions_raster_invalid.seq`). The other values are read as the reader
+reads them: `AdcRasterTime 0`, `RadiofrequencyRasterTime -1e-06` and
+`BlockDurationRaster 0` are read, and so is `GradientRasterTime 0` in a file
+with no arbitrary gradient. A raster that is missing only because the reader
+skipped `[DEFINITIONS]` is `definitions.skipped` (D56).
 
-Reason: the specification requires the four rasters from 1.4.0. The package
-rejects a file that breaks a "must" rule of the specification, and a file that
-does not define layer 1.
+Package (`strict`): `definitions.raster-missing`; `definitions.raster-invalid`
+for a value that is not one finite number above 0.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects and reads the rest
+(P1, P2). `strict` follows the specification, which requires the four rasters
+from 1.4.0: it rejects a file that breaks a "must" rule of the specification,
+and a file that does not define layer 1.
 
 #### D12: A definition that appears twice
 
@@ -400,10 +557,13 @@ does not define layer 1.
 Example: `tests/seqfiles/bad_definitions_duplicate.seq` has `Name` twice (all
 three accept; pypulseq: probe).
 
-Package: `definitions.duplicate`.
+Package (`cpp-siemens`): the last definition wins, as the C++ reader does (it
+keeps a map): `bad_definitions_duplicate.seq` has `Name again`.
 
-Reason: the specification does not state this rule; the docstring of `reader`
-lists it as added.
+Package (`strict`): `definitions.duplicate`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The specification does not
+state this rule for `strict`; the docstring of `reader` lists it as added.
 
 #### D13: A definition or a `[SIGNATURE]` hash whose text reads as a number
 
@@ -417,12 +577,16 @@ lists it as added.
 Example: `Hash 12345678901234567890123456789012`, a hex digest with no letter.
 A double cannot hold its 32 digits.
 
-Package: the tokens of each definition as text (`SequenceData.definitions`);
-only the four rasters are numbers (`Rasters`). The hash is text.
+Package (`cpp-siemens`): the tokens of each definition as text
+(`SequenceData.definitions`); only the four rasters are numbers (`Rasters`),
+read as the C++ reader reads them. The hash is text.
 
-Reason: the package does not convert the text of a definition to a float
-(`SequenceData.definitions` holds the tokens of each line as text). The example
-shows why: a double cannot hold the 32 digits of such a hash.
+Package (`strict`): the same: the tokens as text, the four rasters as numbers,
+the hash as text.
+
+Reason: the package does not convert the text of a definition to a float. The
+example shows why: a double cannot hold the 32 digits of such a hash. The C++
+reader keeps the text too.
 
 #### D14: A number with a fraction in an integer column, a sign or `nan`; a row with too few or too many columns; bytes that are not UTF-8
 
@@ -438,14 +602,22 @@ Example: the fixtures `bad_syntax_integer.seq` (`30.5`),
 `bad_syntax_columns.seq` (7 values), `bad_syntax_negative.seq` (delay -10) and
 `bad_syntax_encoding.seq` (a byte 0xB5 in a comment).
 
-Package: `syntax.integer`, `syntax.number`, `syntax.columns`,
+Package (`cpp-siemens`): per form, as the C++ reader reads it (`sscanf`). `30.5`
+in an integer column of `[BLOCKS]`, and `100.5` as the rise time in `[TRAP]`,
+are `syntax.row`, and so is a row with too few fields. `100.5` as the delay in
+`[RF]` is read as 100 µs, and the rest of the row moves one column (run:
+`freq_ppm` 0.5, `use` `0`): a misreading (P3). `+30` and `nan` are read; a block
+row of 7 values is read with 0 for the eighth; a negative delay is read; bytes
+that are not UTF-8 are read. pulseq-checks reports the misreading.
+
+Package (`strict`): `syntax.integer`, `syntax.number`, `syntax.columns`,
 `syntax.negative`, `syntax.encoding`.
 
-Reason: the tables and examples of the specification give the number of columns
-of each row for the version, and the type of each value. The package reads
-integers as integers, and floats as finite numbers. The specification does not
-state `syntax.negative` and `syntax.encoding`; the docstring of `reader` lists
-them as added.
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P2, P3). The tables and
+examples of the specification give the number of columns of each row for the
+version, and the type of each value; `strict` reads integers as integers, and
+floats as finite numbers. The specification does not state `syntax.negative` and
+`syntax.encoding`; the docstring of `reader` lists them as added.
 
 #### D15: An ADC dwell time written with a decimal point, such as `2500.0`
 
@@ -458,10 +630,19 @@ them as added.
 
 Example: a run of a 1.5.1 file with `AdcRasterTime 1e-10` and the ADC row
 `1 8 2500.0 0 0 0 0 0 0`: the C++ reader rejects it ("failed to decode ADC
-event"), and so it does with `2500.5`; the package, MATLAB and pypulseq read
-both. With `2500` all four read it.
+event"), and so it does with `2500.5`; `strict`, MATLAB and pypulseq read
+both, and `cpp-siemens` rejects both. With `2500` all four read it.
 
-Package: a float; `raster.adc-dwell` checks it against `AdcRasterTime`.
+Package (`cpp-siemens`): `syntax.row` for a dwell time with a decimal point
+(`2500.0` and `2500.5`), as the C++ reader rejects it. Both writers write the
+dwell time with `%.0f`, so no file that they write is affected.
+
+Package (`strict`): a float; `raster.adc-dwell` checks it against
+`AdcRasterTime`. Both examples are read.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P2): the reader holds
+the dwell time as an `int`. The specification types it as a float, and `strict`
+follows it.
 
 #### D16: A soft delay row with a fractional offset, such as `-100.5`, or a hint longer than 31 characters
 
@@ -473,11 +654,19 @@ Package: a float; `raster.adc-dwell` checks it against `AdcRasterTime`.
 | pypulseq | Reads the offset with `int()` (`read_seq.py:223`). |
 
 Example: a run of a 1.5.1 file with the soft delay row `1 0 -100.5 1 TE`. The
-C++ dump has offset -100 µs, factor 0.5 and hint `1 TE`. The package reads
-offset -100.5 µs, factor 1 and hint `TE`. MATLAB reads the file; pypulseq
-raises `ValueError`.
+C++ dump has offset -100 µs, factor 0.5 and hint `1 TE`, and so does
+`cpp-siemens`. `strict` reads offset -100.5 µs, factor 1 and hint `TE`. MATLAB
+reads the file; pypulseq raises `ValueError`.
 
-Package: the offset is a float (µs), and the hint is the whole text.
+Package (`cpp-siemens`): reproduces the misreading of the C++ reader (P3): the
+offset `-100.5` is read as -100 µs, and the rest as the factor 0.5 and the hint
+`1 TE`. The hint is cut to 31 characters.
+
+Package (`strict`): the offset is a float (µs), and the hint is the whole text.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1, P3). The example of the
+specification has integer offsets and no table of types; `strict` reads the
+offset as a float, as MATLAB writes and reads it.
 
 #### D17: An RF `use` letter that is not one of `e r i s p o u`
 
@@ -491,9 +680,13 @@ Package: the offset is a float (µs), and the hint is the whole text.
 Example: `tests/seqfiles/bad_syntax_use.seq` has `x` (all three accept;
 pypulseq: probe).
 
-Package: `syntax.use`: one of `e r i s p o u`.
+Package (`cpp-siemens`): reads any character as the `use`, as the C++ reader
+does (`bad_syntax_use.seq` has `x`).
 
-Reason: the specification gives the `use` as the initial of one of seven words.
+Package (`strict`): `syntax.use`: one of `e r i s p o u`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). `strict` follows the
+specification, which gives the `use` as the initial of one of seven words.
 
 #### D18: A value with more digits than a 32-bit float holds
 
@@ -507,7 +700,15 @@ Reason: the specification gives the `use` as the initial of one of seven words.
 Example: a comparison of the package's values with the C++ dump needs a
 relative tolerance of about 1e-6 for this reason.
 
-Package: float64 values and int64 IDs.
+Package (`cpp-siemens`): the model holds the reader's `float` values, converted
+to float64 (P6): a trapezoid amplitude `1234567.891` is 1234567.875. IDs are
+int64.
+
+Package (`strict`): float64 values and int64 IDs: the same amplitude is
+1234567.891.
+
+Reason: `cpp-siemens` gives the values that the C++ reader holds (P1, P6).
+`strict` keeps the values of the file.
 
 ### IDs and references
 
@@ -524,9 +725,16 @@ Example: `tests/seqfiles/bad_id_positive.seq` (RF ID -2), `bad_id_unique.seq`
 (ADC ID 1 twice), `bad_id_unique_block.seq` (block ID 2 twice),
 `bad_id_gradient_unique.seq` (ID 2 in `[GRADIENTS]` and `[TRAP]`).
 
-Package: `id.positive`, `id.unique`, `id.gradient-unique`.
+Package (`cpp-siemens`): reads all four fixtures, and keeps each table as the
+C++ reader does: a later row with the same ID replaces the earlier one, a
+negative ID is kept, and the block ID is not used. `[GRADIENTS]` and `[TRAP]`
+are one library in the reader, so a `[TRAP]` row (read later) replaces a
+`[GRADIENTS]` row of the same ID.
 
-Reason: section 2.2 of the specification states these rules.
+Package (`strict`): `id.positive`, `id.unique`, `id.gradient-unique`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). Section 2.2 of the
+specification states these rules, and `strict` enforces them.
 
 #### D20: Block IDs that are not in increasing order
 
@@ -542,11 +750,15 @@ Example: `tests/seqfiles/bad_blocks_order.seq` has the blocks in the order
 `getBlock(2)` is block 2 (gx, gy and an ADC); pypulseq's keys are 1, 3, 2, 4
 (runs).
 
-Package: `blocks.order`: block IDs increase through the file, so the order of
-the file and the order of the IDs are one play order.
+Package (`cpp-siemens`): plays the blocks in file order, as the C++ reader does.
+The reader keeps no block ID, so the `id` of a block in the model is its
+position from 1.
 
-Reason: as above. The specification does not state this rule; the docstring of
-`reader` lists it as added.
+Package (`strict`): `blocks.order`: block IDs increase through the file, so the
+order of the file and the order of the IDs are one play order.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The specification does not
+state the rule `strict` enforces; the docstring of `reader` lists it as added.
 
 #### D21: A reference to an event, shape or extension that does not exist
 
@@ -561,9 +773,19 @@ Example: `tests/seqfiles/bad_ref_block_rf.seq`, `bad_ref_shape.seq`,
 `bad_ref_time_shape.seq`, `bad_ref_extension_entry.seq`,
 `bad_ref_extension_object.seq`, `bad_ref_extension_type.seq`.
 
-Package: `ref.unresolved`.
+Package (`cpp-siemens`): `ref.unresolved` for a block that names an RF, gradient
+or ADC event that the reader did not read, as the C++ reader rejects it. A block
+that uses a shape that was not read is `ub.shape-missing` (the reader takes a
+null reference, `cpp:1995`, `cpp:2177`). The extension cases are read as the
+reader reads them: an entry that does not exist ends the list; a label whose
+object is missing is left out; a missing trigger, rotation, soft delay or RF
+shim is empty; an undeclared extension type is read.
 
-Reason: the format implies that each reference to an event, a shape or an
+Package (`strict`): `ref.unresolved`.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P2), and rejects a
+missing shape because the reader's behaviour is undefined (Q2). `strict` follows
+the format, which implies that each reference to an event, a shape or an
 extension resolves.
 
 #### D22: Time ID -1 for an RF event, or in a 1.4 file
@@ -578,11 +800,18 @@ extension resolves.
 Example: `tests/seqfiles/bad_ref_time_id_minus_1_in_1_4.seq`, and a run of a
 1.5.1 file with the RF row `1 1000 1 2 -1 50 0 0 0 0 0 e`.
 
-Package: `ref.unresolved`: time ID -1 is valid from 1.5.0 and for a gradient
-only.
+Package (`cpp-siemens`): an RF event with time ID -1 is `ub.rf-time-id-minus-1`:
+the reader looks up the time shape -1, which does not exist (run:
+`valid_1_5_1.seq` with the RF row `1 1000 1 2 -1 50 0 0 0 0 0 e`). A 1.4
+gradient with time ID -1 is read (`bad_ref_time_id_minus_1_in_1_4.seq`).
 
-Reason: section 2.8.2 of the specification defines time ID -1 for gradients
-only (the docstring of `reader` gives it as the source).
+Package (`strict`): `ref.unresolved`: time ID -1 is valid from 1.5.0 and for a
+gradient only.
+
+Reason: `cpp-siemens` rejects the RF event because the reader's behaviour is
+undefined (Q2), and reads the 1.4 gradient as the reader does (P1). `strict`
+follows section 2.8.2 of the specification, which defines time ID -1 for
+gradients only (the docstring of `reader` gives it as the source).
 
 #### D23: A cycle in an extension list
 
@@ -596,10 +825,15 @@ only (the docstring of `reader` gives it as the source).
 Example: `tests/seqfiles/bad_ref_extension_cycle.seq` (entry 2 points back to
 entry 1).
 
-Package: `ref.unresolved` ("the extension list of this block has a cycle").
+Package (`cpp-siemens`): `ub.extension-cycle`: the reader follows the list with
+no end, and in the process it would hold the reader's lock.
 
-Reason: the specification describes a zero-terminated list, so each extension
-list must end, with no cycle.
+Package (`strict`): `ref.unresolved` ("the extension list of this block has a
+cycle").
+
+Reason: the C++ reader does not end on a cycle, so `cpp-siemens` rejects the
+file (Q2). The specification describes a zero-terminated list, so `strict`
+rejects a cycle too.
 
 #### D24: A file with no block
 
@@ -612,10 +846,13 @@ list must end, with no cycle.
 
 Example: `tests/seqfiles/bad_blocks_empty.seq`.
 
-Package: `blocks.empty`.
+Package (`cpp-siemens`): reads the file as an empty sequence (0 blocks), as the
+C++ reader does.
 
-Reason: the specification says that the sequence must declare at least one
-block.
+Package (`strict`): `blocks.empty`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The specification says
+that the sequence must declare at least one block, and `strict` follows it.
 
 ### Timing
 
@@ -631,12 +868,16 @@ block.
 Example: `tests/seqfiles/bad_block_event_too_long_rf.seq`,
 `bad_block_event_too_long_adc.seq`, `bad_block_event_too_long_trigger.seq`.
 
-Package: `block.event-too-long`. The end of an RF event with a time shape is
-the end that the C++ reader plays (D37).
+Package (`cpp-siemens`): reads the file. The events are as the C++ reader holds
+them, and `gradients_at` gives 0 after the end of the block.
 
-Reason: the specification says that the interpreters must throw an error. The
-package checks the event that the scanner plays, so the end of an RF event is
-the end that the C++ reader plays (D35, D36).
+Package (`strict`): `block.event-too-long`. The end of an RF event with a time
+shape is the end that the C++ reader plays (D37).
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1), which does not check it.
+The specification says that the interpreters must throw an error, and `strict`
+checks the event that the scanner plays, so the end of an RF event is the end
+that the C++ reader plays (D35, D36).
 
 #### D26: A time that is not a multiple of its raster
 
@@ -652,13 +893,18 @@ Example: `tests/seqfiles/bad_raster_adc_dwell.seq` (25050 ns on 100 ns),
 `bad_raster_gradient_flat.seq` (195 µs), `bad_raster_gradient_ramp.seq`
 (95 µs).
 
-Package: `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`,
-`raster.gradient-ramp`, `raster.gradient-flat`, with the tolerance
-`reader.TOLERANCE_NS` (1 ps).
+Package (`cpp-siemens`): reads the file, with the times as written, as the C++
+reader does.
 
-Reason: the specification states these rules ("must"). The package compares a
-time with a raster in integer nanoseconds where the file gives integers in µs,
-and with an absolute tolerance of 1 ps for the floats in ns (the dwell time).
+Package (`strict`): `raster.adc-dwell`, `raster.gradient-delay`,
+`raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat`, with the
+tolerance `reader.TOLERANCE_NS` (1 ps).
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1), which does not check it.
+The specification states these rules ("must"), and `strict` enforces them. It
+compares a time with a raster in integer nanoseconds where the file gives
+integers in µs, and with an absolute tolerance of 1 ps for the floats in ns (the
+dwell time).
 
 #### D27: A gradient that starts above 0 after a delay, or ends above 0 before the end of its block
 
@@ -673,11 +919,16 @@ Example: `tests/seqfiles/bad_gradient_nonzero_start_delay.seq` (delay 10 µs,
 first 500000 Hz/m) and `bad_gradient_nonzero_end_align.seq` (ends 100 µs
 before its block, last 500000 Hz/m).
 
-Package: `gradient.nonzero-start-delay`, `gradient.nonzero-end-align`.
+Package (`cpp-siemens`): reads the file, with the gradients as written, as the
+C++ reader does.
 
-Reason: the package enforces the rules that the specification phrases "need to"
-or "can be specified" as "must" (`gradient.nonzero-end-align`,
-`extension.per-block`): they state the format, not a preference.
+Package (`strict`): `gradient.nonzero-start-delay`,
+`gradient.nonzero-end-align`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1), which does not check it.
+`strict` enforces the rules that the specification phrases "need to" or "can be
+specified" as "must" (`gradient.nonzero-end-align`, `extension.per-block`): they
+state the format, not a preference.
 
 #### D28: An arbitrary gradient on a gradient raster other than 10 µs
 
@@ -691,10 +942,17 @@ or "can be specified" as "must" (`gradient.nonzero-end-align`,
 Example: `tests/seqfiles/valid_arbitrary_gradient_4us_raster.seq`
 (`GradientRasterTime 4e-06`).
 
-Package: accepts. The C++ reader rejects such a file.
+Package (`cpp-siemens`): `gradient.raster`: an arbitrary gradient (time ID 0 or
+-1) in a file whose gradient raster is not 10 µs is rejected, as `decodeBlock`
+of the C++ reader rejects it.
 
-Reason: the specification allows any raster. The failure of the C++ reader is a
-limit of the reader, so the package does not follow it here.
+Package (`strict`): accepts. The C++ reader rejects such a file.
+
+Reason: the failure is a limit of the C++ reader, whose sampling uses a fixed
+gradient raster of 10 µs (`SeqBlock::s_gradientRaster`, `cpp:90`); `cpp-siemens`
+reproduces it (P2). The specification allows any raster, and `strict` follows
+it: `valid_arbitrary_gradient_4us_raster.seq` is read by `strict` and rejected
+by `cpp-siemens`.
 
 ### Shapes
 
@@ -710,9 +968,18 @@ limit of the reader, so the package does not follow it here.
 Example: `tests/seqfiles/bad_shape_length.seq` declares 16 samples for a shape
 that decompresses to 15.
 
-Package: `shape.length`.
+Package (`cpp-siemens`): as the C++ reader reads it. A shape that decompresses
+to more than `num_samples`, or that ends in a repeated value with no count, is
+`ub.shape-decompression`: the reader writes or reads past its buffer. A shorter
+shape is read, and its last value repeats to `num_samples` (run: a shape of 10
+values declared with 12 gives 12, the last 3 equal). `bad_shape_length.seq` is
+read.
 
-Reason: section 2.9 of the specification states the rule ("must").
+Package (`strict`): `shape.length`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1) for a shorter shape, and
+rejects a longer one because the reader's behaviour is undefined (Q2). Section
+2.9 of the specification states the rule ("must"), and `strict` enforces it.
 
 #### D30: An amplitude shape with a sample outside [-1, 1]
 
@@ -726,10 +993,14 @@ Reason: section 2.9 of the specification states the rule ("must").
 Example: `tests/seqfiles/bad_shape_range.seq` has a gradient sample of 1.5.
 The C++ dump has 1 for it (run): the scanner plays 1 where the file says 1.5.
 
-Package: `shape.range`, within `reader.RANGE_TOLERANCE` (1e-9).
+Package (`cpp-siemens`): clamps each sample of an arbitrary gradient to [-1, 1],
+as the C++ reader does (`bad_shape_range.seq`: the sample 1.5 is 1).
 
-Reason: the specification states the rule. The tolerance is the largest error
-of decompression found on the oracle files, rounded up, so that no oracle file
+Package (`strict`): `shape.range`, within `reader.RANGE_TOLERANCE` (1e-9).
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The specification states
+the rule, and `strict` enforces it. The tolerance is the largest error of
+decompression found on the oracle files, rounded up, so that no oracle file
 fails the rule: the text of a file has 9 significant digits, and decompression
 adds to the error.
 
@@ -745,12 +1016,16 @@ adds to the error.
 Example: `tests/seqfiles/bad_shape_rf_magnitude_negative.seq` has a magnitude
 sample of -0.5. The C++ dump has 0 for it (run).
 
-Package: `shape.rf-magnitude-negative`.
+Package (`cpp-siemens`): sets a negative magnitude sample to 0, as the C++
+reader does (`bad_shape_rf_magnitude_negative.seq`).
 
-Reason: this rule is stricter than the specification, which allows [-1, 1]. It
-agrees with the reference implementations: MATLAB writes the magnitude as an
-absolute value, and the scanner's reader sets a negative sample to 0. It has
-the tolerance of `shape.range`.
+Package (`strict`): `shape.rf-magnitude-negative`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). The rule of `strict` is
+stricter than the specification, which allows [-1, 1]. It agrees with the
+reference implementations: MATLAB writes the magnitude as an absolute value, and
+the scanner's reader sets a negative sample to 0. It has the tolerance of
+`shape.range`.
 
 #### D32: An RF phase shape with a sample outside [0, 1)
 
@@ -765,10 +1040,14 @@ Example: `tests/seqfiles/bad_shape_rf_phase_range.seq` has a phase of 1.5 turns
 (3π rad, the same as π). The C++ dump has 6.28308535 rad (2π - 1e-4) for each
 sample (run): the scanner plays about 0 rad where the file says π.
 
-Package: `shape.rf-phase-range`. A sample of 1 within `RANGE_TOLERANCE` is a
-full turn and is allowed.
+Package (`cpp-siemens`): clamps the phase to [0, 2π - 1e-4], as the C++ reader
+does (`bad_shape_rf_phase_range.seq`: 6.2830853 rad for each sample).
 
-Reason: a clamped phase is a different pulse than the file says.
+Package (`strict`): `shape.rf-phase-range`. A sample of 1 within
+`RANGE_TOLERANCE` is a full turn and is allowed.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). For `strict`, a clamped
+phase is a different pulse than the file says.
 
 #### D33: A shape with no sample that an event uses
 
@@ -782,12 +1061,15 @@ Reason: a clamped phase is a different pulse than the file says.
 Example: `tests/seqfiles/bad_shape_empty.seq` has `num_samples 0` for the
 magnitude and phase of an RF event.
 
-Package: `shape.empty`, for a shape that an RF event or an arbitrary gradient
-uses.
+Package (`cpp-siemens`): `ub.shape-empty`, for a shape that an event uses: the
+reader's behaviour is undefined.
 
-Reason: this rule is stricter than the specification, which says nothing.
-MATLAB fails on such an event, and what the C++ reader does depends on the
-build.
+Package (`strict`): `shape.empty`, for a shape that an RF event or an arbitrary
+gradient uses.
+
+Reason: the C++ reader's behaviour depends on the build, so `cpp-siemens`
+rejects the file (Q2). The rule of `strict` is stricter than the specification,
+which says nothing; MATLAB fails on such an event.
 
 #### D34: The shapes of one event with different numbers of samples
 
@@ -801,9 +1083,17 @@ build.
 Example: `tests/seqfiles/bad_shape_event_length.seq`: an RF event with a
 magnitude of 100 samples and a phase of 8.
 
-Package: `shape.event-length`.
+Package (`cpp-siemens`): a phase shorter than the magnitude, or a resampling
+that reads past either shape, is `ub.rf-shape-lengths`
+(`bad_shape_event_length.seq`, `checkRF` reads past the phase). A longer phase
+is read, and the reader plays the length of the magnitude (run: a phase of 110
+samples with a magnitude of 100 gives 100).
 
-Reason: the specification does not state this rule; the docstring of `reader`
+Package (`strict`): `shape.event-length`.
+
+Reason: `cpp-siemens` rejects the cases where the reader reads past a shape
+because its behaviour is undefined (Q2), and reproduces the longer phase (P1).
+The specification does not state the rule of `strict`; the docstring of `reader`
 lists it as added.
 
 ### RF decoding
@@ -833,16 +1123,22 @@ matrix: the C++ reader, MATLAB and pypulseq (probe) accept it. The top panel is
 a regular shape on its cell centres (`1 2 2 17`: 1, 3, …, 39 µs): there the
 samples agree, and only the end differs (D37).
 
-Package: decodes the event as the C++ reader plays it (`events.decode_rf`,
-`model._rf_time_step`): `t = (i + 0.5) d`, `shape_dur = N d`.
-`shape.rf-time-grid` rejects a regular shape whose times are not the centres of
-its cells, within `reader.RF_TIME_TOLERANCE` (1e-6 RF rasters).
+Package (`cpp-siemens`): plays the event as the C++ reader does, off-centre
+times included (P5): a regular time shape has the dwell time of its second
+stored value, and its first time is not used (run: the time shape `10 1 1 17` of
+20 samples gives a dwell of 1 µs and a shape duration of 20 µs).
+`bad_shape_rf_time_grid.seq` is read.
 
-Reason: the package decodes the event as the scanner's reader plays it.
-`shape.rf-time-grid` rejects a regular shape whose times are not the centres of
-its cells, because the reader would play its samples at other times than the
-file says. In general the package follows the C++ reader here: MATLAB is a
-writer, not an ideal reader.
+Package (`strict`): decodes the event as the C++ reader plays it
+(`events.decode_rf`, `model._rf_time_step`): `t = (i + 0.5) d`, `shape_dur = N
+d`. `shape.rf-time-grid` rejects a regular shape whose times are not the centres
+of its cells, within `reader.RF_TIME_TOLERANCE` (1e-6 RF rasters).
+
+Reason: `cpp-siemens` plays what the C++ reader plays (P1, P5). `strict` decodes
+the event as the scanner's reader plays it, and rejects a regular shape whose
+times are not the centres of its cells, because the reader would play its
+samples at other times than the file says. In general both follow the C++ reader
+here: MATLAB is a writer, not an ideal reader.
 
 #### D36: An RF time shape stored in any other form
 
@@ -861,16 +1157,23 @@ time shape 0, 99.6: the loop reads past the 2 stored samples; matrix: the
 macOS build of the C++ reader crashes (the Linux build accepts the file),
 MATLAB reads, pypulseq reads (probe).
 
-Package: decodes the event as the C++ reader plays it (`model._rf_resample`).
-`shape.rf-time-end` rejects a shape for which the index of the loop reaches the
-number of stored samples.
+Package (`cpp-siemens`): resamples the pulse to the RF raster as the C++ reader
+does (P5), artefacts included (run: the time shape 1, 2, 4, 7, 10 µs of the
+example gives the 10 cells listed). When the loop reads past the stored samples,
+the reader's behaviour is undefined: `ub.rf-time-overrun`
+(`bad_shape_rf_time_end.seq`).
 
-Reason: the package decodes the event as the reader plays it: `round(t_last)`
-samples on the RF raster, each the stored value that the reader's loop picks.
-`shape.rf-time-end` rejects an RF time shape whose last time rounds up
-(`int(0.5 + t_last) > t_last`): then the reader's resampling reads past the end
-of the stored samples, which is undefined behaviour in the scanner. The reason
-is that of `shape.empty` (D33) for a crash.
+Package (`strict`): decodes the event as the C++ reader plays it
+(`model._rf_resample`). `shape.rf-time-end` rejects a shape for which the index
+of the loop reaches the number of stored samples.
+
+Reason: `cpp-siemens` plays what the C++ reader plays (P1, P5), and rejects the
+read past the end (Q2). `strict` decodes the event as the reader plays it:
+`round(t_last)` samples on the RF raster, each the stored value that the
+reader's loop picks. `shape.rf-time-end` rejects an RF time shape whose last
+time rounds up (`int(0.5 + t_last) > t_last`): then the reader reads past the
+stored samples, which is undefined behaviour in the scanner. The reason is that
+of `shape.empty` (D33).
 
 #### D37: An RF time shape whose last time is before the end of the last sample's dwell
 
@@ -887,11 +1190,15 @@ at 40 µs. With a block of 39 µs, MATLAB's pulse fits and the C++ reader's does
 not. No fixture of `tests/seqfiles/` has an RF event that only the C++ end
 makes too long.
 
-Package: `RfEvent.shape_dur` and the end that `block.event-too-long` checks
-are those of the C++ reader.
+Package (`cpp-siemens`): `shape_dur` is the dwell time times the number of
+samples, as in the C++ reader (run: the shape `1 2 2 17` with 20 samples gives 2
+µs and 40 µs).
 
-Reason: as in D25, D35 and D36: the package uses the end that the scanner
-plays.
+Package (`strict`): `RfEvent.shape_dur` and the end that `block.event-too-long`
+checks are those of the C++ reader.
+
+Reason: `cpp-siemens` plays what the C++ reader plays (P1); `strict` uses the
+end that the scanner plays, as in D25, D35 and D36.
 
 #### D38: An RF event of a 1.4 file, which has no `center` column
 
@@ -904,13 +1211,18 @@ plays.
 
 Example: `tests/seqfiles/oracle/koma_v1.4_fid.seq`, RF row
 `1 2500 1 2 3 100 0 0`. Run: MATLAB 50 µs, pypulseq 50 µs (`get_block`), C++
--1 µs, the package NaN in the model and `None` in `RfEvent.center`. All give
+-1 µs, both interpreters NaN in the model, and `strict` `None` in
+`RfEvent.center`. All give
 the use `u` (undefined).
 
-Package: `center` absent; `use` is `u`.
+Package (`cpp-siemens`): `center` is NaN in the model; the reader holds -1
+("invalid"), which `decode_block` gives as `center_us`. The `use` is `u`.
 
-Reason: layer 1 holds the values of the file, and a 1.4 file has no center. A
-caller that needs it computes it (pulseq-reports uses `calc_rf_center` today).
+Package (`strict`): `center` absent (NaN in the model); `use` is `u`.
+
+Reason: layer 1 holds the values of the file, and a 1.4 file has no center: the
+reader's -1 is a mark, not a value. A caller that needs the center computes it
+(pulseq-reports uses `calc_rf_center` today).
 
 ### Gradient decoding
 
@@ -929,13 +1241,20 @@ blocks. Run: `last` is 0 Hz/m in MATLAB, -7280.92 Hz/m in pypulseq, and
 1.18e-38 Hz/m in the C++ reader. `tests/seqfiles/bad_layer1_gradient_ends.seq`
 is the fixture of the rule; pypulseq fails on it with `TypeError` (matrix).
 
-Package: `layer1.gradient-ends` rejects a 1.4 file with an arbitrary gradient
-of time ID 0.
+Package (`cpp-siemens`): reads the file. The model holds the reader's
+`FLOAT_UNDEFINED` (1.18e-38 Hz/m) for `first` and `last`, and `gradients_at`
+interpolates to it at the ends of the event, so the waveform goes to about 0
+there (P7; run: `koma_v1.4_gr-uniformly-shaped.seq`, 1.18e-38 Hz/m at 0 and 100
+µs).
 
-Reason: the file does not define the values at the two ends of such a gradient.
-The package rejects the file with a message that names the gradients and says
-that Pulseq 1.5 stores the ends. Other 1.4.x files are read: trapezoids and
-time-shaped gradients define their ends.
+Package (`strict`): `layer1.gradient-ends` rejects a 1.4 file with an arbitrary
+gradient of time ID 0.
+
+Reason: `cpp-siemens` follows the reader's default (P7). For `strict` the file
+does not define the values at the two ends of such a gradient; it rejects the
+file with a message that names the gradients and says that Pulseq 1.5 stores the
+ends. Other 1.4.x files are read: trapezoids and time-shaped gradients define
+their ends.
 
 #### D40: A 1.4 arbitrary gradient with a time shape, which has no `first` column
 
@@ -948,17 +1267,24 @@ time-shaped gradients define their ends.
 
 Example: `tests/seqfiles/valid_1_4_1.seq`, block 3: gradient 2 (amplitude
 400000 Hz/m, samples 0.2, 0.6, 1, 0.6, 0.2 at the times 0, 1, 3, 6, 10) after
-a block with no gz. Run: MATLAB `first` 0 Hz/m; the package 80000 Hz/m, the
+a block with no gz. Run: MATLAB `first` 0 Hz/m; `strict` 80000 Hz/m, the
 value of the first sample, which is at time 0.
 
-Package: `first` and `last` are the amplitude times the first and last
-samples. `layer1.gradient-ends` also rejects a 1.4 time shape whose first time
-is not 0 (within `reader.FIRST_TIME_TOLERANCE`).
+Package (`cpp-siemens`): reads the file. The model holds the reader's
+`FLOAT_UNDEFINED` for `first` and `last`, and `gradients_at` starts the gradient
+at the amplitude times its first sample (run: 80000 Hz/m at 0 µs for the
+gradient of `valid_1_4_1.seq`). A time shape that starts after 0 is read too:
+with the times 1, 2, 4, 7, 10 µs, `gradients_at` gives -80000 Hz/m at 0 µs, 0 at
+5 µs and 80000 Hz/m at 10 µs, since the first segment extends backwards.
 
-Reason: the package keeps the value that the file gives at the start of the
-event, the amplitude times the first sample. It rejects a 1.4 time shape that
-does not start at 0, since then the file has no value at the start of the
-event.
+Package (`strict`): `first` and `last` are the amplitude times the first and
+last samples. `layer1.gradient-ends` also rejects a 1.4 time shape whose first
+time is not 0 (within `reader.FIRST_TIME_TOLERANCE`).
+
+Reason: `cpp-siemens` plays what the C++ reader plays (P1, P7). `strict` keeps
+the value that the file gives at the start of the event, the amplitude times the
+first sample. It rejects a 1.4 time shape that does not start at 0, since then
+the file has no value at the start of the event.
 
 #### D41: An arbitrary gradient on the default raster (time ID 0), whose samples are at the centres of the raster cells
 
@@ -977,12 +1303,16 @@ Example: the figure: the samples of the half sine of D39 in a 1.5.1 file with
 rise smoothly; the package and the C++
 reader draw straight lines between the samples.
 
-Package: straight lines between the sample centres, and to `first` and `last`
-(`docs/implementation.md` §1).
+Package (`cpp-siemens`): straight lines between the sample centres, and to
+`first` and `last`, as `gradients_at` of the C++ reader does (run: block 2 of
+`valid_1_5_1.seq`).
 
-Reason: the package draws straight lines between the sample centres, as
-`gradientsAt` of the C++ reader does and as `docs/implementation.md` section 1
-describes. Layer 1 does not guess.
+Package (`strict`): straight lines between the sample centres, and to `first`
+and `last` (`docs/implementation.md` §1).
+
+Reason: `cpp-siemens` plays what the C++ reader plays (P1). `strict` draws the
+same lines, as `docs/implementation.md` section 1 describes. Layer 1 does not
+guess.
 
 #### D42: A gap between two gradient events on one axis
 
@@ -1000,11 +1330,19 @@ goes straight from (30 µs, 30000) to (70 µs, 15000).
 [`docs/implementation.md` §1.3](implementation.md#13-the-gaps) has the figure
 of the four cases, `figures/waveform-gaps.svg`.
 
-Package: MATLAB's ramps, `docs/implementation.md` §1.3 and §1.9.
+Package (`cpp-siemens`): plays one block at a time, as the C++ reader does:
+`gradients_at` gives the gradients inside a block and 0 after its end, and a
+block with no gradient event gives 0 (run: the three blocks of the example give
+0 in the gap). It joins no blocks; the timeline across blocks comes with task
+R14.
 
-Reason: `docs/implementation.md` §1 gives the waveform as "the gradient
-waveform of MATLAB Pulseq", and §1.1 gives the reason: a step can be the
-largest slew of a file and is part of the PNS.
+Package (`strict`): MATLAB's ramps, `docs/implementation.md` §1.3 and §1.9 (in
+the waveform code, not in the reader).
+
+Reason: `cpp-siemens` shows what the C++ reader plays, and the reader decodes
+one block at a time. `strict`: `docs/implementation.md` §1 gives the waveform as
+"the gradient waveform of MATLAB Pulseq", and §1.1 gives the reason: a step can
+be the largest slew of a file and is part of the PNS.
 
 #### D43: An oversampled arbitrary gradient (time ID -1)
 
@@ -1017,10 +1355,18 @@ largest slew of a file and is part of the PNS.
 
 Example: `tests/seqfiles/oracle/koma_v1.5_spiral.seq`.
 
-Package: all the samples, with MATLAB's times (`events.decode_gradients`).
+Package (`cpp-siemens`): the reader's sampling mode of an oversampled gradient,
+`CppSiemens(oversampling=...)`. The default `"center"` keeps the samples at the
+centres of the raster, every second stored sample (run: block 3 of
+`koma_v1.5_spiral.seq` has 2112 samples; `"edge"` 2111 and `"preserve"` 4223,
+all of them).
 
-Reason: the package decodes the oversampled spiral (time ID -1), on which
-pypulseq fails.
+Package (`strict`): all the samples, with MATLAB's times
+(`events.decode_gradients`).
+
+Reason: `cpp-siemens` follows the reader's default, as the scanner's interpreter
+can set another (P7, P18). `strict` decodes the oversampled spiral (time ID -1),
+on which pypulseq fails.
 
 #### D44: An ADC event with a phase modulation shape
 
@@ -1033,12 +1379,16 @@ pypulseq fails.
 
 Example: `tests/seqfiles/valid_1_5_1.seq`, ADC 2 with phase shape 8.
 
-Package: `AdcEvent.phase_modulation` is the decompressed shape as stored, with
-no factor.
+Package (`cpp-siemens`): the reader uses the decompressed shape as radians. The
+model holds the shape ID of the ADC event (`adc['phase_shape']`) and the shape
+as stored, with no factor (run: ADC 2 of `valid_1_5_1.seq` used by a block).
 
-Reason: the specification gives the shape no unit, and the C++ reader uses it
-as radians. The package keeps the decompressed shape as stored, or `None` when
-the event has no phase shape.
+Package (`strict`): `AdcEvent.phase_modulation` is the decompressed shape as
+stored, with no factor.
+
+Reason: the specification gives the shape no unit, and the C++ reader uses it as
+radians. `cpp-siemens` reproduces the reader (P1); `strict` keeps the
+decompressed shape as stored, or `None` when the event has no phase shape.
 
 ### Extensions
 
@@ -1055,12 +1405,16 @@ Example: `tests/seqfiles/oracle/koma_v1.5_unknown_ext.seq` (UNKNOWN1,
 UNKNOWN2). `valid_1_5_1.seq` and most `bad_*` fixtures have an extension
 UNKNOWN.
 
-Package: reads the section and does not interpret it; its `STRING_ID` is in
+Package (`cpp-siemens`): reads the section and does not interpret it, as the C++
+reader does; its `STRING_ID` is in `SequenceData.skipped_extensions`
+(`valid_1_5_1.seq`: `UNKNOWN`).
+
+Package (`strict`): the same: its `STRING_ID` is in
 `SequenceData.skipped_extensions`.
 
 Reason: the specification allows a reader to ignore an unknown extension that
-the file does not require. The package reads such a section and does not
-interpret it.
+the file does not require. Both interpreters read such a section and do not
+interpret it, as the C++ reader does.
 
 #### D46: A file whose last section that starts with `[` is `[EXTENSIONS]`
 
@@ -1077,11 +1431,19 @@ rejected; the same file with `UNKNOWN1` and `UNKNOWN2` renamed to `LABELSET`
 and `LABELINC` is rejected with the same message; each of the two is accepted
 with a `[SIGNATURE]` section added at the end.
 
-Package: accepts.
+Package (`cpp-siemens`): `section.extensions-last`, as the C++ reader rejects it
+(run: `koma_v1.5_unknown_ext.seq` is rejected; with a `[SIGNATURE]` section
+added at the end it is read, and so is the version with `LABELSET` and
+`LABELINC`).
 
-Reason: the specification does not set an order of the sections. The C++ reader
-rejects this file because of how it finds the end of `[EXTENSIONS]`, not
-because of a rule of the format, so the package does not follow it here.
+Package (`strict`): accepts.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P9, P2). The
+specification does not set an order of the sections. The reader rejects this
+file because of how it finds the end of `[EXTENSIONS]`, not because of a rule of
+the format, so `strict` does not follow it here. Both writers write
+`[EXTENSIONS]` before `[SHAPES]` and `[SIGNATURE]`, so a file of theirs ends
+with `[EXTENSIONS]` only when it has no shape and no signature.
 
 #### D47: An unknown extension that the file requires
 
@@ -1095,10 +1457,13 @@ because of a rule of the format, so the package does not follow it here.
 Example: `tests/seqfiles/bad_extension_required_unknown.seq`
 (`RequiredExtensions ROTATIONS FOO`).
 
-Package: `extension.required-unknown`.
+Package (`cpp-siemens`): `extension.required-unknown`, as the C++ reader rejects
+it.
+
+Package (`strict`): `extension.required-unknown`.
 
 Reason: from 1.5.1 the specification says that the interpreter must generate an
-error.
+error, and the C++ reader rejects the file (P2).
 
 #### D48: A block with more than one ROTATIONS or RF_SHIMS object
 
@@ -1112,10 +1477,13 @@ error.
 Example: `tests/seqfiles/bad_extension_per_block.seq` (two ROTATIONS entries in
 one list).
 
-Package: `extension.per-block`.
+Package (`cpp-siemens`): reads the file and keeps the first object, as the C++
+reader does (it warns).
 
-Reason: as in D27: the specification says "can", and the package enforces it as
-"must".
+Package (`strict`): `extension.per-block`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). `strict` is as in D27: the
+specification says "can", and `strict` enforces it as "must".
 
 #### D49: A block that plays a rotation, or a quaternion that is not normalized
 
@@ -1126,19 +1494,24 @@ Reason: as in D27: the specification says "can", and the package enforces it as
 | MATLAB Pulseq | Divides each quaternion by its norm (`read.m:182-184`), and rotates the gradients of the block in `waveforms_and_times` (`Sequence.m:1988-1999`). |
 | pypulseq | Rejects every file with ROTATIONS (`read_seq.py:229-230`). |
 
-Example: runs of a 1.5.1 file whose block plays the rotation `1 1.01 0 0 0`:
-the C++ reader rejects it, MATLAB reads it, pypulseq rejects it, the package
-reads it. With `1 1.0005 0 0 0` the C++ reader accepts it.
-`tests/seqfiles/oracle/pulseq_make_radial.seq` and
+Example: runs of a 1.5.1 file whose block plays the rotation `1 1.01 0 0 0`: the
+C++ reader rejects it, MATLAB reads it, pypulseq rejects it, `strict` reads it,
+and `cpp-siemens` rejects it (`rotation.norm`). With `1 1.0005 0 0 0` the C++
+reader accepts it. `tests/seqfiles/oracle/pulseq_make_radial.seq` and
 `koma_v1.5_rotation_radial_tiny.seq` have rotations.
 
-Package: `read_seqfile` reads the quaternions as the file writes them, with no
-check of the norm (`SequenceData.extensions.rotations`). The measurements do
-not support rotations.
+Package (`cpp-siemens`): divides a quaternion whose norm is within 1e-3 of 1 by
+its norm, as the C++ reader does (`1 1.0005 0 0 0` is read as `1 1 0 0 0`), and
+rejects another with `rotation.norm` (`1 1.01 0 0 0`, and a quaternion of norm
+0). The rotation is not applied to the gradients yet (task R9, decision Q3).
 
-Reason: the measurements do not support rotations, and `load` refuses a
-sequence with the rotation extension (`extensions.refuse_rotations`). The
-package does not check the norm.
+Package (`strict`): `read_seqfile` reads the quaternions as the file writes
+them, with no check of the norm (`SequenceData.extensions.rotations`). The
+measurements do not support rotations.
+
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P2). `strict` does
+not check the norm, and `load` refuses a sequence with the rotation extension
+(`extensions.refuse_rotations`).
 
 #### D50: A `LABELSET` or `LABELINC` row with a label name that a reader does not know
 
@@ -1150,10 +1523,17 @@ package does not check the norm.
 | pypulseq | `ValueError` (run; `read_seq.py:204-205`). |
 
 Example: a run of a 1.5.1 file with `extension LABELSET 1` and the row
-`1 3 FOO`: the package and the C++ reader accept it; MATLAB and pypulseq
-reject it.
+`1 3 FOO`: `cpp-siemens`, `strict` and the C++ reader accept it; MATLAB and
+pypulseq reject it.
 
-Package: keeps the name as text (`Extensions.labelset`), with no check.
+Package (`cpp-siemens`): reads the file and leaves the label out, as the C++
+reader does (run: `1 3 FOO` gives no label).
+
+Package (`strict`): keeps the name as text (`Extensions.labelset`), with no
+check.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). `strict` does not check
+the name; labels do not change the waveforms.
 
 ### Values that a reader changes
 
@@ -1172,8 +1552,13 @@ Example: `tests/seqfiles/oracle/pypulseq_simple_mprage150.seq`, `[TRAP]` rows
 is `9.999999999999999e-06` s. The package has both trapezoids, with amplitudes
 0.0 and -0.0, and a rise time of `1e-05` s.
 
-Package: the IDs and the values of the file; a time is the number of the file
-divided by 1e6 or 1e9 (`reader` docstring: no rounding, no renumbering).
+Package (`cpp-siemens`): keeps both rows with their IDs and values, as the C++
+reader does (`pypulseq_simple_mprage150.seq`: amplitudes 0.0 and -0.0, rise time
+`1e-05` s).
+
+Package (`strict`): the IDs and the values of the file; a time is the number of
+the file divided by 1e6 or 1e9 (`reader` docstring: no rounding, no
+renumbering).
 
 Reason: the block and event IDs are those of the file: the package does not
 renumber them.
@@ -1189,10 +1574,12 @@ renumber them.
 
 Example: any file with an ADC event, such as `tests/seqfiles/valid_1_5_1.seq`.
 
-Package: no value of a target in the model.
+Package (`cpp-siemens`): no value of a target in the model.
 
-Reason: no dead time, ringdown time, gamma, B0, limit or other value of a
-target is in the model: such values belong to the target, not to the file.
+Package (`strict`): no value of a target in the model.
+
+Reason: no dead time, ringdown time, gamma, B0, limit or other value of a target
+is in the model: such values belong to the target, not to the file.
 
 ### The signature
 
@@ -1214,11 +1601,14 @@ the stored hash `f29fa772d7baf2ca58d083e4f4cd1f18`. The C++ dump has
 match: the package, the C++ reader and MATLAB read it, and so does pypulseq
 (probe).
 
-Package: `Signature.matches` by the rule of the C++ reader
-(`reader._scanner_hash_input`). A hash that does not match is not a
-violation.
+Package (`cpp-siemens`): `Signature.matches` is the C++ reader's own check of
+its hash (`valid_crlf.seq` matches; `valid_signature_mismatch.seq` does not, and
+is read). A hash that does not match is not a rejection.
 
-Reason: the package follows the C++ reader. It checks and reports the signature
+Package (`strict`): `Signature.matches` by the rule of the C++ reader
+(`reader._scanner_hash_input`). A hash that does not match is not a violation.
+
+Reason: both follow the C++ reader. `strict` checks and reports the signature
 (`matches`), and a mismatch is not a rule: the specification has no "must" to
 verify it.
 
@@ -1234,10 +1624,15 @@ verify it.
 Example: `tests/seqfiles/bad_signature_invalid.seq` has `Type md5` and no
 `Hash` (all three accept; pypulseq: probe).
 
-Package: `signature.invalid`.
+Package (`cpp-siemens`): reads the file, and takes it as unsigned when `Hash` is
+missing (`SequenceData.signature` is `None` for `bad_signature_invalid.seq`), as
+the C++ reader does.
 
-Reason: section 2.4 of the specification says that the section must contain
-both fields (the docstring of `reader` gives it as the source).
+Package (`strict`): `signature.invalid`.
+
+Reason: `cpp-siemens` reproduces the C++ reader (P1). Section 2.4 of the
+specification says that the section must contain both fields, and `strict`
+enforces it (the docstring of `reader` gives it as the source).
 
 #### D55: An `extension` header whose `STRING_ID` is a word, where the specification's table gives the type integer
 
@@ -1251,14 +1646,21 @@ both fields (the docstring of `reader` gives it as the source).
 Example: `extension LABELSET 2` in `tests/seqfiles/valid_1_5_1.seq`, and every
 `extension` header of the oracle files.
 
-Package: reads `STRING_ID` as text; `Extensions.type_ids` maps it to the type ID
-of the file.
+Package (`cpp-siemens`): reads `STRING_ID` as text; `Extensions.type_ids` maps
+it to the type ID of the file.
+
+Package (`strict`): the same.
 
 Reason: here the table and the examples of the specification disagree with each
-other (D01a is about the prose against the tables). The package follows the
+other (D01a is about the prose against the tables). Both interpreters follow the
 examples and the three readers.
 
 ## 4. Review against the order of preference
+
+This section reviews the strict reader (now the interim interpreter `strict`)
+against the order of preference of 2026-10-09, which the plan replaced with the
+two interpreters (section 1). It is rewritten for the two interpreters later
+(plan section 11); until then "the package" in this section means `strict`.
 
 pulseq-analysis does not judge whether a file is valid: there are several
 readers, and the specification leaves grey areas between them. Its policy is to
@@ -1508,6 +1910,8 @@ keeps the times of the file. A time shape with a time that is not a whole µs
 ## Appendix A: the acceptance matrix
 
 `scripts/discrepancy_matrix.py` made this table on 2026-10-09 (appendix B).
+The column "pulseq-analysis" is the strict interpreter's: the matrix does not
+have a column for `cpp-siemens`.
 The C++ column is the macOS arm64 build. "crash (70)" is a signal. The MATLAB
 column is the oracle, which calls `read`, `getBlock` for each block and
 `waveforms_and_times`, so an error can come from any of them. The column

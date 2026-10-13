@@ -829,21 +829,39 @@ pypulseq keeps `signature_value` on the object when the object changes
 (`add_block` after `read`), and its `read` does not check the hash against the
 file.
 
-### 7.1 The reader of Pulseq files (in progress)
+### 7.1 The interpreters of Pulseq files
 
-`reader.read_seqfile(path)` gives a `model.SequenceData` of a Pulseq text file
-(versions 1.4.0 to 1.5.x), or raises `reader.SeqFileError` with the
-`reader.Violation` of every rule that the file breaks (`reader.RULES`, at
-most `reader.MAX_LOCATIONS` for each rule). The module docstring of `reader`
-gives each rule with its source in the specification, and the docstring of
-`model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`, `model.Shape`,
-`model.Signature`, `model.Extensions` and `model.decompress_shape` are part of
-the model. `reader.RANGE_TOLERANCE` and `reader.TOLERANCE_NS` are the
-tolerances of the shape range rule and of the raster rules. `load` does not use
-the reader yet. Task 6 of `docs/plans/own-parser.md` documents these names in
-full.
+`reading.read_seqfile(path, interpreter="cpp-siemens")` reads a file through
+an interpreter (`docs/usage.md`, "The interpreters"). Two modules do the work:
 
-The reader is built on the "as written" reading (`as_written.read_as_written`,
+- `cpp_siemens.read_cpp_siemens` runs the C++ reader through pulseq-cpp-siemens
+  (its own distribution, `packages/pulseq-cpp-siemens/`, with its README). The
+  version gate reads `AsWritten.version`; the package then reads the version
+  again with the reader's own code. The codes of the rejections come from the
+  reader's messages (`cpp_siemens._classify`), which name no code: each
+  message of `load` that returns false is a pattern of
+  `cpp_siemens._LOAD_MESSAGES`, the order in which they are tried matters (the
+  reader prints warnings with "ERROR" in them before its error), and the "as
+  written" reading refines a code where the message is not enough (a `#` row,
+  a raster that is there but skipped, the line of a row that the message
+  quotes). A rejection by `decodeBlock` of a gradient raster other than 10 µs
+  has no message (it is printed at a debug level), so it is found from the
+  libraries. The model is built from the libraries (`cpp_siemens._model`); the
+  extension gives each event as a dict of the reader's struct.
+- `reader.read_strict` is the interim `strict` interpreter: it gives a
+  `model.SequenceData` of a Pulseq text file (versions 1.4.0 to 1.5.x), or
+  raises `errors.SeqFileError` with the `errors.Violation` of every rule that
+  the file breaks (`reader.RULES`, at most `reader.MAX_LOCATIONS` for each
+  rule). The module docstring of `reader` gives each rule with its source in
+  the specification (section 5.4 of `docs/plans/parser-redesign.md` says what
+  becomes of each); the docstring of `model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`, `model.Shape`,
+  `model.Signature`, `model.Extensions` and `model.decompress_shape` are part
+  of the model. `reader.RANGE_TOLERANCE` and `reader.TOLERANCE_NS` are the
+  tolerances of the shape range rule and of the raster rules.
+
+`load` does not use the interpreters yet (task R14).
+
+The strict reader is built on the "as written" reading (`as_written.read_as_written`,
 documented in `docs/usage.md`). The reading splits the text at its headers with
 one regular expression that finds the blank, `#` and header lines, so a run of
 data lines is a slice of the text with no loop over its lines, and it types each

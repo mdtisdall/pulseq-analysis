@@ -30,6 +30,13 @@ system:
 
 A call with one argument is always the first mode, so a file named `--dump` is read as a file.
 
+A leading `--oversampling=center|edge|preserve` sets the reader's sampling mode of an oversampled
+arbitrary gradient (time shape -1) for every mode, for example `pulseq-cpp-oracle
+--oversampling=edge --sample FILE` or `pulseq-cpp-oracle --oversampling=edge FILE`. It needs at
+least two more arguments (with one argument, the first mode reads it as a file name). Another
+value, or an option anywhere else, is a wrong call (status 2). With no option the mode is
+`center`, the reader's default. The sampling modes are under `--dump` below.
+
 | Exit status | Meaning |
 | --- | --- |
 | 0 | The file loads and each block decodes (and the mode did its work). |
@@ -158,9 +165,18 @@ absent labels are `[]`.
 | `ext_trap` | `isExtTrapGradient(c)` | `times_us` (µs, `GetExtTrapGradTimes(c)`), `shape` (fractions of `amplitude`, `GetExtTrapGradShape(c)`) |
 | `arbitrary` | `isArbitraryGradient(c)` | `wave_shape`, `time_shape` (shape IDs; `-1` is an oversampled gradient), `first`, `last` (Hz/m: `first`, `last`), `oversampled` (`isArbGradWithOversampling(c)`), `samples` (fractions of `amplitude`, `GetArbGradShapePtr(c)`, `GetArbGradNumSamples(c)` values, after `checkGradient`) |
 
-The driver keeps the default sampling of the reader for an oversampled arbitrary gradient: only
-the samples at the centres of the rasters (every second stored sample, from the first). The
-reader sets `first` and `last` of a file of version 1.4 to `FLOAT_UNDEFINED` (`1.18e-38f`,
+For an oversampled arbitrary gradient, `samples` depend on the sampling mode of the reader, which
+`--oversampling` sets (`ExternalSequence.h:970-993`, `ExternalSequence.cpp:2123-2146`). For a shape
+of n stored samples:
+
+| `--oversampling` | Reader call | Samples kept |
+| --- | --- | --- |
+| `center` (default) | none (`ags_center`) | The centres of the rasters: every second stored sample from the first, (n+1)/2 samples. |
+| `edge` | `SetArbGradCenterSampling(false)` | The raster edges: every second stored sample from the second, (n-1)/2 samples. None for n = 1 or 2: `samples` is empty and `gradientsAt` returns early (a warning) for such a gradient at the time of its delay, leaving the channels after it at 0. |
+| `preserve` | `SetArbGradPreserveOversampling()` | All n stored samples. |
+
+`--sample` uses the samples as a 10 µs raster in every mode, as `gradientsAt` does. The reader
+sets `first` and `last` of a file of version 1.4 to `FLOAT_UNDEFINED` (`1.18e-38f`,
 written as `1.17999995e-38`).
 
 `adc` (`GetADCEvent()`): `num_samples`, `dwell_ns` (ns), `delay_us` (µs), `freq_ppm`, `phase_ppm`,

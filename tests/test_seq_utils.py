@@ -13,7 +13,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis.seqfile.reader import read_seqfile
+from pulseq_analysis.seqfile.reader import read_strict
 from pulseq_analysis.synth import seq_utils
 from pulseq_analysis.synth.events import decode_gradients
 
@@ -60,7 +60,7 @@ def test_gradient_offsets_arbitrary():
 
 
 def test_gradient_offsets_of_a_decoded_trapezoid():
-    g = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))[1]
+    g = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))[1]
     delay, offsets, amp = seq_utils.gradient_offsets(g)
     assert delay == 1e-4
     npt.assert_array_equal(offsets, np.cumsum([0.0, 1e-4, 2e-4, 1e-4]))
@@ -70,7 +70,7 @@ def test_gradient_offsets_of_a_decoded_trapezoid():
 @pytest.mark.parametrize("gradient_id", [3, 5, 6], ids=["time_id_0", "time_shape", "time_id_-1"])
 def test_gradient_offsets_of_a_decoded_arbitrary_gradient(gradient_id):
     """The samples of the event, with `first` at offset 0 and `last` at `shape_dur`."""
-    g = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))[gradient_id]
+    g = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))[gradient_id]
     delay, offsets, amp = seq_utils.gradient_offsets(g)
     assert delay == g.delay
     npt.assert_array_equal(offsets, np.concatenate([[0.0], g.tt, [g.shape_dur]]))

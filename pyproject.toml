@@ -12,6 +12,12 @@ dependencies = [
     "scipy",
 ]
 
+# The cpp-siemens interpreter (`interpreter="cpp-siemens"`, the default of `read_seqfile`) runs
+# the C++ reader through the package pulseq-cpp-siemens, which has compiled wheels. Without this
+# extra, the package reads files only through the interim strict interpreter.
+[project.optional-dependencies]
+cpp-siemens = ["pulseq-cpp-siemens"]
+
 # The analyses of this package (`pulseq_analysis.analyses.registry`): the name of an entry point
 # is the ID of the analysis.
 [project.entry-points."pulseq_analysis.analyses"]
@@ -31,6 +37,7 @@ packages = ["src/pulseq_analysis"]
 [dependency-groups]
 dev = [
     "import-linter",
+    "pulseq-cpp-siemens",
     "pytest",
     "ruff",
 ]
@@ -44,6 +51,11 @@ dev = [
 # uv also applies this source for a project that depends on pulseq-analysis by git URL; pip
 # does not.
 [tool.uv.sources]
+# pulseq-cpp-siemens from this repository, built from source (a C++ compiler; CMake fetches the
+# reader's files, unless PULSEQ_SOURCE_DIR names them). uv applies this source also to a project
+# that depends on pulseq-analysis by git URL: it builds the package from the same commit. How a
+# release gets it (wheels from an index, or this source) is decided at release time.
+pulseq-cpp-siemens = { path = "packages/pulseq-cpp-siemens" }
 pypulseq = { git = "https://github.com/mdtisdall/pypulseq", rev = "3c3bd8515e591ef859399aa20db64b1bd2c3a725" }
 
 # The layers of docs/plans/parser-redesign.md, section 7.1: a layer imports only from the layers

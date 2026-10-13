@@ -44,7 +44,7 @@ RadiofrequencyRasterTime 1e-06
 1 100 0 0 0 0 0 0
 """
 
-# The rules of `read_seqfile` (the docstring of `pulseq_analysis.seqfile.reader` lists them) that
+# The rules of `read_strict` (the docstring of `pulseq_analysis.seqfile.reader` lists them) that
 # the oracle does not check, in `load` or in `decodeBlock`, so it may accept a file that breaks only
 # these rules. The value says what the oracle accepted: a fixture of `tests/seqfiles/`, or a
 # change to a valid 1.5.0 file of four blocks (RF, trapezoid, arbitrary gradient, ADC and delay
@@ -54,8 +54,6 @@ RadiofrequencyRasterTime 1e-06
 # some fixtures), so a rule is here when either build accepts its fixture.
 NOT_CHECKED_BY_THE_READER = {
     "version.invalid": "`bad_version_invalid.seq`",
-    "version.unsupported": "version 1.6.0 (`bad_version_unsupported_1_6.seq`) and version 2.0.0 "
-    "(it rejects 1.3.0)",
     "definitions.duplicate": "`bad_definitions_duplicate.seq`",
     "definitions.raster-invalid": "a raster of 0 or of -1e-5 for AdcRasterTime, "
     "BlockDurationRaster and RadiofrequencyRasterTime (it rejects 0 and -1e-5 for "
@@ -113,7 +111,7 @@ NOT_CHECKED_BY_THE_READER = {
 }
 
 
-# Files under tests/seqfiles that the oracle does not accept and `read_seqfile` accepts, where the
+# Files under tests/seqfiles that the oracle does not accept and `read_strict` accepts, where the
 # oracle is wrong against the specification. The comparison test skips them. Each entry has the
 # reason.
 ORACLE_KNOWN_WRONG = {
@@ -130,7 +128,7 @@ ORACLE_KNOWN_WRONG = {
 }
 
 
-# The reason why the comparison of the accept/reject verdicts skips a file that `read_seqfile`
+# The reason why the comparison of the accept/reject verdicts skips a file that `read_strict`
 # accepts and that has an arbitrary gradient on a gradient raster other than 10 us: `decodeBlock`
 # returns false for the block (ExternalSequence.cpp:2114-2119, "Shape is on a raster that is
 # different from the system raster").
@@ -251,7 +249,7 @@ def test_the_skip_of_the_comparison_is_for_an_arbitrary_gradient_off_the_10_us_r
     reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
 
     def skipped(path):
-        return arbitrary_gradient_off_the_10_us_raster(reader.read_seqfile(path))
+        return arbitrary_gradient_off_the_10_us_raster(reader.read_strict(path))
 
     fixture = SEQFILES / "valid_arbitrary_gradient_4us_raster.seq"
     assert skipped(fixture)
@@ -312,7 +310,7 @@ def signature_variants():
     [v[1:] for v in signature_variants()],
     ids=[v[0] for v in signature_variants()],
 )
-def test_the_oracle_and_read_seqfile_check_the_same_signature_hash(
+def test_the_oracle_and_read_strict_check_the_same_signature_hash(
     tmp_path, before, hashed, newline
 ):
     reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
@@ -321,14 +319,14 @@ def test_the_oracle_and_read_seqfile_check_the_same_signature_hash(
     path = tmp_path / "signed.seq"
     path.write_bytes(before + tail + digest + newline)
     assert signature_ok(path) is True
-    assert reader.read_seqfile(path).signature.matches is True
+    assert reader.read_strict(path).signature.matches is True
     # A hash of other bytes matches in neither reader.
     path.write_bytes(before + tail + hashlib.md5(before + b"x").hexdigest().encode() + newline)
     assert signature_ok(path) is False
-    assert reader.read_seqfile(path).signature.matches is False
+    assert reader.read_strict(path).signature.matches is False
 
 
-def test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files(record_property):
+def test_the_oracle_and_read_strict_accept_and_reject_the_same_files(record_property):
     reader = pytest.importorskip("pulseq_analysis.seqfile.reader")
     paths = sorted(SEQFILES.rglob("*.seq"))
     if not paths:
@@ -339,20 +337,22 @@ def test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files(record_pro
         if path.relative_to(SEQFILES).as_posix() in ORACLE_KNOWN_WRONG:
             continue
         try:
-            data = reader.read_seqfile(path)
+            data = reader.read_strict(path)
+        except reader.NotSupported:
+            continue  # a version outside 1.4.0-1.5.x (Q1): neither interpreter reads it
         except reader.SeqFileError as error:
             rules = {violation.rule for violation in error.violations}
             verdict, messages = run_oracle(path)
             # A file that breaks only rules which the oracle does not check may be accepted.
             if verdict == "accept" and not all(not_checked(rule) for rule in rules):
-                differences.append(f"{path}: read_seqfile rejects {sorted(rules)}, oracle accepts")
+                differences.append(f"{path}: read_strict rejects {sorted(rules)}, oracle accepts")
             continue
         if arbitrary_gradient_off_the_10_us_raster(data):
             skipped.append(path.relative_to(SEQFILES).as_posix())
             continue
         verdict, messages = run_oracle(path)
         if verdict != "accept":
-            differences.append(f"{path}: read_seqfile accepts, oracle: {verdict}\n{messages}")
+            differences.append(f"{path}: read_strict accepts, oracle: {verdict}\n{messages}")
     record_property(
         "skipped",
         f"{len(skipped)} files skipped, {SKIPPED_ARBITRARY_GRADIENT_RASTER}: {', '.join(skipped)}",

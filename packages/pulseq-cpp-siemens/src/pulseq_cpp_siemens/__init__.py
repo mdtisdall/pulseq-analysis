@@ -4,10 +4,12 @@ Pulseq interpreter on Siemens systems, compiled with a signed `char` and no fuse
 its x86_64 build.
 
     sequence = load("file.seq")       # ExternalSequence::load, then the checks
+    load("file.seq", oversampling="edge")  # the reader's other sampling modes (OVERSAMPLING)
     sequence.libraries                # what load read: events, shapes, blocks, definitions
     sequence.decode_block(0)          # GetBlock and decodeBlock of one block
     sequence.decode()                 # every block, in play order
     sequence.gradients_at([0], [5.0]) # SeqBlock::gradientsAt (Hz/m)
+    sequence.first_rejected_block()   # the driver's first mode, keeping no block
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
 and it rejects each case of undefined behaviour of the reader before any block is decoded
@@ -32,6 +34,7 @@ from ._checks import CODES
 __all__ = [
     "BLOCK_COLUMNS",
     "CODES",
+    "OVERSAMPLING",
     "PULSEQ_COMMIT",
     "Libraries",
     "NotSupported",
@@ -47,6 +50,12 @@ PULSEQ_COMMIT: str = _reader.PULSEQ_COMMIT
 # The columns of `Libraries.blocks`: the block duration in units of BlockDurationRaster, then
 # the IDs of the events (0 for none), as the reader holds them.
 BLOCK_COLUMNS = ("duration_ru", "rf", "gx", "gy", "gz", "adc", "ext")
+
+# The reader's sampling modes of an oversampled arbitrary gradient (a wave shape and time shape -1;
+# cpp:2123-2146), the values of `load`'s `oversampling`: the samples at the centres of the rasters
+# (the reader's default), those on the edges (SetArbGradCenterSampling(false); the stored samples
+# at odd positions, one fewer), or all the stored samples (SetArbGradPreserveOversampling).
+OVERSAMPLING = ("center", "edge", "preserve")
 
 # The versions that the package reads (Q1 of docs/plans/parser-redesign.md): 1.4.0 to 1.5.x, as
 # major*1000000 + minor*1000 + revision.
@@ -142,12 +151,38 @@ class Libraries:
 
 class Sequence:
     """A file that `load` read and checked. Blocks are decoded on request; each decoded block is
-    kept for `gradients_at`."""
+    kept for `gradients_at`. `oversampling` is the reader's sampling mode of an oversampled
+    arbitrary gradient (one of `OVERSAMPLING`), which `load` sets before any block is decoded.
 
-    def __init__(self, reader: _reader.Reader, libraries: Libraries, messages: str):
+    A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode,
+    and loading it reads and checks the file again. `copy.copy` and `copy.deepcopy` return the
+    same object: nothing that a caller can reach changes after `load` (the decoded blocks are a
+    cache)."""
+
+    def __init__(
+        self,
+        reader: _reader.Reader,
+        libraries: Libraries,
+        messages: str,
+        data: bytes,
+        oversampling: str,
+    ):
         self._reader = reader
+        self._data = data
         self.libraries = libraries
         self.messages = messages  # what the reader printed while it loaded the file
+        self.oversampling = oversampling
+        # The reader's messages for the block that `first_rejected_block` last found rejected.
+        self.rejection_messages = ""
+
+    def __reduce__(self):
+        return _load_again, (self._data, self.oversampling)
+
+    def __copy__(self) -> Sequence:
+        return self
+
+    def __deepcopy__(self, memo) -> Sequence:
+        return self
 
     @property
     def version(self) -> int:
@@ -176,6 +211,16 @@ class Sequence:
         """`decode_block` of each block in play order, as the driver's `--dump`. Raises `Rejected`
         at the first block that `decodeBlock` rejects: the C++ reader then rejects the file."""
         return [self.decode_block(index) for index in range(self.block_count)]
+
+    def first_rejected_block(self) -> int | None:
+        """The index (play order from 0) of the first block that `decodeBlock` rejects, or None:
+        the verdict of the driver's first mode. It decodes every block in play order, also after
+        one that is rejected, and keeps none (it frees each block), so a file of many blocks
+        needs the memory of one. `rejection_messages` has what the reader printed for the block
+        that it returns (and is empty for None)."""
+        index = self._reader.first_rejected_block()
+        self.rejection_messages = self._reader.messages
+        return None if index < 0 else index
 
     def gradients_at(self, block_index, time_us) -> np.ndarray:
         """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index (play order from 0) and a
@@ -209,15 +254,21 @@ def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
     return data, name
 
 
-def load(source: str | PathLike | bytes) -> Sequence:
+def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequence:
     """Read the file `source` (a path, or the bytes of a file) with `ExternalSequence::load`,
     and check it. Decodes no block.
+
+    `oversampling` is the reader's sampling mode of an oversampled arbitrary gradient (one of
+    `OVERSAMPLING`; ValueError otherwise). It is set before any block is decoded and stays for
+    the life of the `Sequence`. "center" is the reader's default.
 
     Raises `NotSupported` for a file outside the package's scope (the reader is not run),
     `Rejected` when `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for a case
     of undefined behaviour of `GetBlock` or `decodeBlock` on any block."""
+    if oversampling not in OVERSAMPLING:
+        raise ValueError(f"oversampling is one of {OVERSAMPLING}, not {oversampling!r}")
     data, name = _read_bytes(source)
-    reader = _reader.Reader()
+    reader = _reader.Reader(oversampling)
     # The version gate. For a file older than 1.4.0, load converts the blocks with GetBlock, before
     # any check could run (cpp:1656-1663), so the version is read first, with the reader's own
     # code, and the version as written decides (an int overflow in the reader's arithmetic
@@ -242,4 +293,9 @@ def load(source: str | PathLike | bytes) -> Sequence:
     if case is not None:
         raise UndefinedBehaviour(case)
     reader.mark_checked()
-    return Sequence(reader, libraries, messages)
+    return Sequence(reader, libraries, messages, data, oversampling)
+
+
+def _load_again(data: bytes, oversampling: str) -> Sequence:
+    """What unpickling a `Sequence` calls."""
+    return load(data, oversampling=oversampling)

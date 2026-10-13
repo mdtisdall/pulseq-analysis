@@ -1,4 +1,6 @@
-"""The events of a Pulseq file, decoded from the model of layer 1 (`model.SequenceData`).
+"""The events of a Pulseq file, decoded from the model of layer 1 (`model.SequenceData`) that the
+interim `strict` interpreter read. The decoding of `cpp-siemens` is the C++ reader's own
+(`decoding.CppSiemensDecoding`); these functions refuse its model.
 
 `decode_rf`, `decode_gradients` and `decode_adc` each give every row of a table of the model,
 whether a block uses it or not, as an event in a `types.MappingProxyType` by file ID. The order
@@ -41,6 +43,7 @@ from types import MappingProxyType
 
 import numpy as np
 
+from ..seqfile.interpreters import Strict
 from ..seqfile.model import SequenceData, _model, _rf_resample, _rf_time_step
 
 
@@ -147,6 +150,11 @@ class _Shapes:
     """The decompressed samples of the shapes of `data`, each decompressed on its first use."""
 
     def __init__(self, data: SequenceData) -> None:
+        if not isinstance(data.interpreter, Strict):
+            raise TypeError(
+                f"the events decode the model of the strict interpreter, not of "
+                f"{data.interpreter}: use synth.decode"
+            )
         self._shapes = data.shapes
         self._samples: dict[int, np.ndarray] = {}
 

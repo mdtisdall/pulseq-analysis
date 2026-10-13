@@ -1,8 +1,9 @@
 """The model of layer 1: what a Pulseq file defines, as plain read-only values.
 
-`reader.read_seqfile` makes a `SequenceData` from a text file. It holds the version, the
-definitions, the rasters, the block table, one table for each kind of event, the shapes, the
-extensions and the signature. IDs are those of the file (no renumbering). A value is in the unit
+Each interpreter (`interpreters`) makes a `SequenceData` from a text file
+(`reading.read_seqfile`). It holds the version, the definitions, the rasters, the block table, one
+table for each kind of event, the shapes, the extensions and the signature. IDs are those of the
+file (no renumbering; the C++ reader keeps no block ID, see `cpp_siemens`). A value is in the unit
 of the file converted to seconds, or Hz, Hz/m, rad and ppm as in the file. No value of a target
 (dead times, gamma, B0, limits) is in the model: they belong to layer 2.
 
@@ -28,7 +29,9 @@ The tables are structured arrays (`TABLE_DTYPES` has the dtype of each), in file
 - `adc`: `id`, `num_samples`, `dwell` (s), `delay` (s), `freq_ppm`, `phase_ppm`,
   `freq_offset` (Hz), `phase_offset` (rad), `phase_shape_id` (0 is no modulation).
 
-A 1.4.x file has fewer columns, and the model has the 1.5 layout with these values: RF
+The paragraphs below describe the model of the `strict` interpreter (`reader`); the model of
+`cpp-siemens` holds the C++ reader's values, and `cpp_siemens` says where they differ. A 1.4.x
+file has fewer columns, and the model has the 1.5 layout with these values: RF
 `freq_ppm` and `phase_ppm` are 0, `use` is `u` (undefined), and `center` is NaN (the format
 had no center, and a caller that needs it computes it from the pulse). ADC `freq_ppm`,
 `phase_ppm` and `phase_shape_id` are 0. The `first` and `last` of a gradient with a time shape
@@ -52,6 +55,7 @@ from typing import Any
 import numpy as np
 
 from .._equality import _freeze, values_equal
+from .interpreters import CppSiemens, Strict
 
 # The dtype of each table of the model, by field name of `SequenceData` or `Extensions`.
 # `Extensions.labelset`, `Extensions.labelinc` and `Extensions.soft_delays` have a text field
@@ -185,7 +189,9 @@ def _model_eq(self: Any, other: object) -> bool:
     if other.__class__ is not self.__class__:
         return NotImplemented
     return all(
-        _equal(getattr(self, f.name), getattr(other, f.name)) for f in dataclasses.fields(self)
+        _equal(getattr(self, f.name), getattr(other, f.name))
+        for f in dataclasses.fields(self)
+        if f.compare
     )
 
 
@@ -302,7 +308,7 @@ def _rf_time_step(shape: Shape) -> float | None:
     values) and `packed` has 3 or 4 values. Its dwell time is then `packed[1]` RF raster times,
     and the reader does not decompress the shape. The parser rejects a regular shape whose times
     are not the centres of its cells (rule `shape.rf-time-grid`), so for a file that
-    `read_seqfile` loads the reader plays the samples at the times of the file.
+    `read_strict` loads the reader plays the samples at the times of the file.
     """
     packed = shape.packed
     if packed.size != shape.num_samples and packed.size in (3, 4):
@@ -382,18 +388,28 @@ class Extensions:
 
 @_model
 class SequenceData:
-    """A Pulseq file as it is specified (layer 1). The module docstring has the layout.
+    """A Pulseq file as one interpreter reads it (layer 1). The module docstring has the layout.
 
     - `version`: `(major, minor, revision)`.
-    - `definitions`: the tokens of each line of `[DEFINITIONS]` as text, in file order. No
-      value is converted to a number (the rasters are in `rasters`).
+    - `definitions`: the tokens of each line of `[DEFINITIONS]` as text. No value is converted
+      to a number (the rasters are in `rasters`).
     - `rasters`, `required_extensions` (the STRING_IDs of the definition `RequiredExtensions`).
     - `blocks`, `rf`, `grad`, `trap`, `adc`: the tables of the module docstring.
     - `shapes`: `Shape` by shape ID.
     - `extensions`, and `skipped_extensions`: the STRING_IDs of the extensions that the
-      parser does not know and that the file does not require (their rows are not read).
+      interpreter does not know (their rows are not read).
     - `signature`: `None` when the file has no `[SIGNATURE]` section.
     - `origin`: `"file"`.
+    - `interpreter`: the interpreter that read the file, with its settings
+      (`interpreters.CppSiemens` or `interpreters.Strict`).
+    - `reading`: for `cpp-siemens`, the C++ reader's own reading of the file, a
+      `pulseq_cpp_siemens.Sequence`: its libraries as it read them (`reading.libraries`), its
+      decoding of each block (`reading.decode_block`) and `reading.gradients_at`. `None` for
+      `strict`. It is not compared by `==`; `pickle` carries the bytes of the file and reads them
+      again.
+
+    The `cpp-siemens` reading (`cpp_siemens`) fills the tables from the reader's libraries, so it
+    differs from `strict` where the reader does (`cpp_siemens` lists how).
     """
 
     version: tuple[int, int, int]
@@ -410,6 +426,8 @@ class SequenceData:
     skipped_extensions: tuple[str, ...]
     signature: Signature | None
     origin: str
+    interpreter: CppSiemens | Strict
+    reading: Any = dataclasses.field(compare=False)
 
     @property
     def block_durations_s(self) -> np.ndarray:
