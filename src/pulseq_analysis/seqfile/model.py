@@ -305,7 +305,7 @@ TIME_TOLERANCE = 1e-6
 
 def rf_time_step(times: np.ndarray) -> float | None:
     """The dwell time, in RF raster times, of a regular RF time shape, or `None` when the shape is
-    one of points (`spec`, D2.10 to D2.12).
+    one of points (`spec`, D2.10 to D2.12, D3.9).
 
     `times` is the decompressed time shape, in RF raster times. A shape is regular when it has 2
     or more samples, its steps are equal and above 0, and its first time is half a step, all to
@@ -316,8 +316,14 @@ def rf_time_step(times: np.ndarray) -> float | None:
     a regular pulse; that a shape of this form is one, and not points at those times, is the
     package's choice: every regular pulse that MATLAB Pulseq and pypulseq write has this form, and
     neither writes points there (`docs/discrepancies.md`, D2.10). The time shape of the default
-    raster, `0.5 1 1 N-3`, gives 1."""
+    raster, `0.5 1 1 N-3`, gives 1. A shape of one sample `t0` is the same form with N = 1: one
+    cell of `2 t0` when that is above `TIME_TOLERANCE` (the user, 2026-10-13, D3.9), as MATLAB
+    Pulseq writes `5` for an arbitrary pulse of one sample with a dwell of 10 rasters; otherwise
+    `None` (`spec` rejects it, `shape.time-order`)."""
     t = np.asarray(times, dtype=np.float64)
+    if t.size == 1:
+        step = 2 * float(t[0])
+        return step if step > TIME_TOLERANCE else None
     if t.size < 2:
         return None
     steps = np.diff(t)

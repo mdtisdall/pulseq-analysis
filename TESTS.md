@@ -6850,7 +6850,7 @@ follows it, not that the decision is right.
 
 #### `test_nan_and_inf_in_a_float_column_are_syntax_number_with_the_choice`
 
-**Checks:** D3.5: `nan`, `inf` and `-inf` in a float column give `syntax.number` with the choice in the message. The twelve cases cover the amplitude, `center`, `freq_offset` and `phase_offset` of an RF row, the amplitude and `first` of a gradient, the amplitude of a trapezoid, the dwell time and `freq_ppm` of an ADC, a soft delay offset, a quaternion and an RF shim value.
+**Checks:** D3.5: `nan`, `inf` and `-inf` in a float column give `syntax.number` with the choice in the message, whose reason is that they give no waveform, not the writers. The twelve cases cover the amplitude, `center`, `freq_offset` and `phase_offset` of an RF row, the amplitude and `first` of a gradient, the amplitude of a trapezoid, the dwell time and `freq_ppm` of an ADC, a soft delay offset, a quaternion and an RF shim value.
 
 **How:** For each case (parametrized), the test changes one value of a valid fixture and reads the file.
 
@@ -6858,7 +6858,7 @@ follows it, not that the decision is right.
 
 #### `test_a_negative_time_or_count_is_syntax_negative_with_the_choice`
 
-**Checks:** D3.6: a negative delay of an RF, gradient or trapezoid row, block duration, rise, flat or fall time, ADC number of samples or dwell time, trigger delay or duration, or shape `num_samples` gives `syntax.negative` with the choice in the message, which starts with the column name, at a row of the file.
+**Checks:** D3.6: a negative delay of an RF, gradient or trapezoid row, block duration, rise, flat or fall time, ADC number of samples or dwell time, trigger delay or duration, or shape `num_samples` gives `syntax.negative` with the choice in the message, which starts with the column name, at a row of the file. The reason of the choice is that a negative time or count gives no waveform, not the writers.
 
 **How:** For each case (parametrized), the test changes one value of a valid fixture and reads the file. It looks at the `syntax.negative` violation only: a negative block duration also gives `block.event-too-long`.
 
@@ -7138,11 +7138,19 @@ follows it, not that the decision is right.
 
 #### `test_an_rf_time_shape_that_defines_no_line_is_shape_time_order`
 
-**Checks:** D2.10-D2.12: an RF time shape of one sample, with times that do not increase (decreasing, or equal), or with a first time below 0 gives `shape.time-order` once, with the choice in the message; `bad_shape_time_order.seq` (`100 -1 -1 97`) too.
+**Checks:** D2.10-D2.12, D3.9: an RF time shape of one sample at 0 or below 0, with times that do not increase (decreasing, or equal), or with a first time below 0 gives `shape.time-order` once, with the choice in the message; `bad_shape_time_order.seq` (`100 -1 -1 97`) too.
 
-**How:** The test (four cases) writes the file with a time shape of the case, reads it and checks the message; then it reads the fixture.
+**How:** The test (five cases) writes the file with a time shape of the case, reads it and checks the message; then it reads the fixture.
 
 **Assumptions:** The rejection is the user's choice.
+
+#### `test_an_rf_time_shape_of_one_sample_above_0_is_one_cell`
+
+**Checks:** D3.9, D2.10: an RF time shape of one sample `5` (the file that MATLAB Pulseq writes for an arbitrary pulse of one sample with a dwell of 10 µs) reads: `rf_time_step` gives 10, and the decoded RF event has a dwell of 10 µs, a `shape_dur` of 10 µs, and its sample at 5 µs.
+
+**How:** The test writes a valid fixture with an RF event of one sample on that time shape (RF raster 1 µs), reads it and decodes the RF events.
+
+**Assumptions:** The user's decision (2026-10-13): one sample `t0` above 0 is one cell of `2 t0`, the form `(i + 0.5) d` with N = 1.
 
 #### `test_a_gradient_time_shape_must_increase_and_have_its_vertices_on_the_raster`
 
@@ -8309,13 +8317,15 @@ tested (`signal` gives the last sample at the last point, and the docstring says
 #### `test_rf_time_step_of_a_time_shape`
 
 **Checks:** `model.rf_time_step` gives the step, in RF raster times, of a regular time shape (2 or more
-samples, equal steps, a first time of half a step), and `None` for any other shape (slide 9, D2.10, D2.11).
+samples, equal steps, a first time of half a step; or one sample `t0` above 0, a step of `2 t0`), and `None`
+for any other shape (slide 9, D2.10, D2.11, D3.9).
 
-**How:** For ten shapes (parametrized), the test makes a `model.Shape` from the stored values, decompresses
+**How:** For thirteen shapes (parametrized), the test makes a `model.Shape` from the stored values, decompresses
 it, and compares the result: `0.5 1 1 97` (100 samples) gives 1; `1 2 2 47` (50 samples) gives 2; the
 uncompressed 0.5, 1.5, 2.5 gives 1; and `None` for `1 1 3` (the times 1 to 5: the first time is a whole step),
-the block pulse 0, 100, the vertices 1, 2, 4, 7, 10, the unequal steps 0.5, 1, 2, 4, one sample, decreasing
-times 2.5, 1.5, 0.5, and the times 0.5, 0.5 (a step of 0). A step is compared to a relative 1e-12.
+the block pulse 0, 100, the vertices 1, 2, 4, 7, 10, the unequal steps 0.5, 1, 2, 4, decreasing
+times 2.5, 1.5, 0.5, the times 0.5, 0.5 (a step of 0), and one sample at 0 or at -1; one sample 0.5 gives 1,
+and one sample 5 gives 10. A step is compared to a relative 1e-12.
 
 **Assumptions:** The decompression of the shapes (`Shape.samples`) is right.
 

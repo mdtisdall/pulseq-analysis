@@ -26,7 +26,9 @@ The entries are in four groups, by the kind of decision:
   rule of the user (2026-10-12) is to reject only where no current writer
   writes such a file, so each entry says what the two writers write. Runs of
   2026-10-13 found writers that write the files of D3.5, D3.6 and D3.9; each of
-  those entries gives the user's decision.
+  those entries gives the user's decision: `spec` keeps rejecting NaN and
+  negative times because they give no waveform, and reads an RF time shape of
+  one sample above 0 as one cell.
 - D4: versions. The gate (both interpreters), and each version as its own
   format.
 
@@ -159,7 +161,7 @@ specification does not state, which its message says.
 | [D3.6](#d36-a-negative-time-or-count) | Negative time or count | integers unsigned; negatives elsewhere | reads | rejects (choice) |
 | [D3.7](#d37-an-event-that-uses-a-shape-with-no-sample) | Empty shape that an event uses | silent | crashes (macOS build) | rejects (choice) |
 | [D3.8](#d38-the-shapes-of-one-event-with-different-numbers-of-samples) | Shapes of one event, two lengths | silent | crashes (RF) | rejects (choice) |
-| [D3.9](#d39-an-rf-time-shape-of-one-sample-or-times-that-do-not-increase-or-start-below-0) | RF time shape of one sample, or times not increasing | times in the shape | resamples; no check | rejects (choice) |
+| [D3.9](#d39-an-rf-time-shape-of-one-sample-or-times-that-do-not-increase-or-start-below-0) | RF time shape of one sample, or times not increasing | times in the shape | resamples; no check | one sample above 0: one cell; otherwise rejects (choice) |
 | [D3.10](#d310-a-rotation-quaternion-of-norm-0) | Quaternion of norm 0 | normalized quaternion | rejects | rejects (choice) |
 | [D3.11](#d311-a-shape-with-no-blank-line-after-it) | No blank line after a shape | blank line ends a shape | reads the next header as a sample line; stops | rejects (choice) |
 | [D4.1](#d41-a-version-before-140-or-from-160-both-interpreters) | Version before 1.4.0 or from 1.6.0 | silent | 1.2.0 and later | not supported |
@@ -482,7 +484,8 @@ which the reader plays at 0.5 to 99.5 µs); matrix: the C++ reader accepts it.
 reader resamples it, and the macOS build crashes (`tests/test_cpp_oracle.py`).
 
 `spec`: a time shape whose times are `(i + 0.5) d` (2 or more samples, equal
-steps, the first half a step, within `model.TIME_TOLERANCE`) is cells of `d`:
+steps, the first half a step, within `model.TIME_TOLERANCE`; or one sample `t0`
+above 0, a cell of `d = 2 t0`, D3.9) is cells of `d`:
 each sample is held for one dwell around its time, from the start of the pulse,
 and the pulse lasts `N d` (`model.rf_time_step`, `events.RfEvent.dwell`). Any
 other time shape is points (D2.11). `bad_shape_rf_time_grid.seq` (`1 1 98`,
@@ -530,8 +533,8 @@ the complex signal: the linear interpolation of its real and imaginary parts
 need not be on the edges of the RF raster: `bad_shape_rf_time_end.seq` (0, 99.6)
 is read, a straight line from 0 to 99.6 µs. The block pulse of both writers
 (`0 N`) is points, a flat line (`makeBlockPulse.m:73`, `make_block_pulse.py:102`).
-A time shape of one sample, times that do not increase, or a first time below 0
-are `shape.time-order` (D3.9).
+A time shape of one sample at 0 or before, times that do not increase, or a first
+time below 0 are `shape.time-order` (D3.9).
 
 Reason: the specification gives the times only as "the time sampling points"
 (spec:349); the slide set calls such a pulse one "defined by vertices" (slide 9),
@@ -832,8 +835,7 @@ offset NaN, while it refused an amplitude of infinity; pypulseq failed on both
 (`make_trapezoid.py:212`, `event_lib.py:282`). So the rejection does not rest on
 what the writers write: `spec` keeps it because NaN and infinity give no waveform,
 and MATLAB Pulseq writes NaN only when a script passes it (the user, 2026-10-13).
-The message of `syntax.number` still gives the writers as the reason; a
-follow-up task changes it.
+The message of `syntax.number` gives this reason.
 
 #### D3.6: A negative time or count
 
@@ -856,8 +858,7 @@ makers: in runs of 2026-10-13, `makeTrapezoid` of MATLAB Pulseq wrote a delay of
 wrote the delay of -10 µs. So a script that passes a negative time gets a file
 with it, and the rejection does not rest on what the writers write: `spec` keeps
 it because a negative time or count gives no waveform (the user, 2026-10-13).
-The message of `syntax.negative` still gives the writers as a reason; a
-follow-up task changes it. The number of samples of a shape is the length of an array in both
+The message of `syntax.negative` gives this reason. The number of samples of a shape is the length of an array in both
 (`compressShape.m:21`, `compressShape.m:53`; `compress_shape.py:32`,
 `compress_shape.py:59`), so it is never negative.
 
@@ -921,15 +922,24 @@ The same condition in `cpp-siemens`: [D5.7](../packages/pulseq-cpp-siemens/docs/
 | C++ reader | Resamples any time shape that is not stored in 3 or 4 values as in D2.11 (`cpp:2022-2050`), and does not check that the times increase or start at 0 or later (matrix: accepts `bad_shape_time_order.seq`). |
 
 Example: `tests/seqfiles/bad_shape_time_order.seq` has an RF time shape of 100
-samples that decrease, 100, 99, …, 1.
+samples that decrease, 100, 99, …, 1. An RF event of one sample on the time
+shape `5` (RF raster 1 µs, the file of MATLAB Pulseq below, which
+`test_an_rf_time_shape_of_one_sample_above_0_is_one_cell` writes): the C++
+reader resamples it to `int(0.5 + 5)` = 5 cells of 1 µs, each the one sample,
+so it plays the sample from 0 to 5 µs, half the dwell of 10 µs that the writer
+meant (`pulseq-cpp-oracle --dump`: `shape_dur_us` 5, five magnitudes). On the
+time shape `0` it plays no cell (`shape_dur_us` 0, no magnitude); it reads both
+files.
 
-`spec`: `shape.time-order` for an RF time shape of one sample, an RF time shape
-whose first time is below 0, and a time shape (of RF or of a gradient) whose
-times do not increase.
+`spec`: an RF time shape of one sample `t0` above 0 is one cell of `d = 2 t0`
+(D2.10 with N = 1): the sample is held from 0 to `2 t0`, around `t0`
+(`model.rf_time_step`). `shape.time-order` for an RF time shape of one sample
+at 0 or before, an RF time shape whose first time is below 0, and a time shape
+(of RF or of a gradient) whose times do not increase.
 
-Reason: a time shape of one sample defines no step and no line, and times that do
-not increase or start before the event define no waveform, so `spec` rejects
-them (the user's choice; the message says so). The makers of both writers give
+Reason: a time shape of one sample at 0 or before defines no cell, and times
+that do not increase or start before the event define no waveform, so `spec`
+rejects them (the user's choice; the message says so). The makers of both writers give
 times that increase: `(i - 0.5)` dwell, or `0` and `N` for a block pulse
 (`makeArbitraryRf.m:70`, `makeBlockPulse.m:73`; `make_arbitrary_rf.py:114`,
 `make_block_pulse.py:102`), and refuse an extended trapezoid whose times do not
@@ -942,8 +952,9 @@ shape of one sample, with the value 5), where pypulseq fails on a signal of one 
 does not rest on what the writers write. The user decided (2026-10-13) that
 `spec` reads a time shape of one sample `t0` above 0 as one cell of `d = 2 t0`,
 the form `(i + 0.5) d` of D2.10 with N = 1, so that MATLAB's pulse plays for one
-dwell; a follow-up task makes the change (`model.rf_time_step`). Until then
-`spec` rejects it.
+dwell (`model.rf_time_step`). A time shape of one sample at 0 or before is not
+the time shape of a writer: MATLAB Pulseq puts the sample at half a dwell, and
+a dwell is above 0.
 
 The same condition in `cpp-siemens`: [D5.8](../packages/pulseq-cpp-siemens/docs/specification.md#d58-the-rf-resampling-reads-past-the-samples), [D5.9](../packages/pulseq-cpp-siemens/docs/specification.md#d59-an-rf-time-shape-whose-last-time-does-not-fit-an-int)
 

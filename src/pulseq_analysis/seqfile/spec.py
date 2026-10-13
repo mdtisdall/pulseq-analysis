@@ -197,7 +197,8 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "a value of a float column is not a finite number",
             "the types of the tables (spec:176, spec:293-455); D3.5",
             choice="the specification types the column as a float and does not say whether NaN "
-            "and infinity are floats of the file; " + _NO_WRITER,
+            "and infinity are floats of the file; they give no waveform, and the makers of the "
+            "writers do not check for them, so a script that passes one gets such a file",
             partial=True,
         ),
         "syntax.use": Rule(
@@ -210,8 +211,9 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             'spec:176 ("integer types are stored as 64-bit unsigned integers"); D3.6',
             choice="this is not literally the specification: it stores integers as unsigned "
             "(spec:176) but defines negative values elsewhere (the time ID -1, a soft delay "
-            "offset), and the ADC dwell time is a float; a negative time or count has no "
-            "waveform, and " + _NO_WRITER,
+            "offset), and the ADC dwell time is a float; a negative time or count gives no "
+            "waveform, and the makers of the writers do not check the sign, so a script that "
+            "passes one gets such a file",
         ),
         "syntax.shape": Rule(
             "a shape without its shape_id and num_samples lines, a line of [SHAPES] outside a "
@@ -311,8 +313,9 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "plays: some samples have no partner, and " + _NO_WRITER,
         ),
         "shape.time-order": Rule(
-            "an RF time shape of one sample, or a time shape whose times do not increase, or an "
-            "RF time shape whose first time is below 0",
+            "an RF time shape of one sample at 0 or before, or a time shape whose times do not "
+            "increase, or an RF time shape whose first time is below 0 (one sample t0 above 0 is "
+            "one cell of 2 t0)",
             "spec:349, spec:395 (the time sampling points); D2.10-D2.12, D3.9",
             choice="the specification does not define such time sampling points, and " + _NO_WRITER,
         ),
@@ -1502,8 +1505,10 @@ def _check_time_shapes(f: _File) -> None:
         times = info.samples
         if times is None or not times.size:
             continue
-        if times.size == 1:
-            why = "has one sample: it defines no step and no line"
+        if times.size == 1 and rf_time_step(times) is None:
+            why = f"has one sample at {times[0]:g} RF rasters: it defines no cell"
+        elif times.size == 1:
+            continue
         elif (np.diff(times) <= 0).any():
             why = "has times that do not increase"
         elif times[0] < 0:

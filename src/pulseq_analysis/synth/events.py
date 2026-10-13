@@ -29,7 +29,8 @@ lines, MATLAB Pulseq restores values at the raster edges).
 **RF.** Without a time shape, each sample is a cell of the RF raster: `t = (i + 0.5) dwell`,
 `shape_dur = n dwell`, `dwell` the RF raster (spec:290). With a time shape (D2.10 to D2.12):
 
-- a regular shape, whose times are `(i + 0.5) d` (`model.rf_time_step`), is cells of `d`: each
+- a regular shape, whose times are `(i + 0.5) d` (`model.rf_time_step`; one sample `t0` above 0
+  is one cell of `2 t0`, D3.9), is cells of `d`: each
   sample is held for one dwell around its time, from the start of the pulse (slide 9), and the
   pulse lasts `n d`;
 - any other shape is points at its times (slide 4: they need not be on the raster edges; slide 9:
