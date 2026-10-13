@@ -3,16 +3,16 @@ events and the waveform of each block, the block index and the sampling. It impo
 files layer and the base modules, not from the analyses.
 
 `decode(data)` decodes a `seqfile.SequenceData` by its interpreter: for `cpp-siemens` the C++
-reader's own decoding and `gradientsAt`, for `strict` the events of `events`. `scanner` has what
+reader's own decoding and `gradientsAt`, for `spec` the events of `events`. `scanner` has what
 a decoding records of the scanner-side settings (`RotationRecord`) and `ScannerSettingWarning`."""
 
-from .decoding import CppSiemensDecoding, StrictDecoding, decode
+from .decoding import CppSiemensDecoding, SpecDecoding, decode
 from .scanner import RotationRecord, ScannerSettingWarning
 
 __all__ = [
     "CppSiemensDecoding",
     "RotationRecord",
     "ScannerSettingWarning",
-    "StrictDecoding",
+    "SpecDecoding",
     "decode",
 ]

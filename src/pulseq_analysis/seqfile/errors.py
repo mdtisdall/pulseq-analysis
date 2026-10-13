@@ -3,8 +3,8 @@ scope.
 
 - `SeqFileError` (a `ValueError`): an interpreter gives no waveform for the file. It has every
   reason that the interpreter gives, each a `Violation` with a stable code (`Violation.rule`):
-  for `strict`, every violation of its rules (`reader.RULES`); for `cpp-siemens`, the reason why
-  the C++ reader rejects the file (`cpp_siemens.CODES`). pulseq-checks and the tests name a
+  for `spec`, every violation of its rules (`spec.RULES`, each with its basis); for
+  `cpp-siemens`, the reason why the C++ reader rejects the file (`cpp_siemens.CODES`). pulseq-checks and the tests name a
   rejection by its code.
 - `NotSupported` (a `NotImplementedError`): the package does not read the file, whatever the
   interpreter (Q1 of `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary
@@ -36,7 +36,7 @@ class Violation:
 
 class SeqFileError(ValueError):
     """An interpreter rejects a file. `violations` has its reasons, at most `MAX_LOCATIONS` of
-    `seqfile.reader` for each code, in the order of the file. `omitted` maps a code to the number
+    `seqfile.spec` for each code, in the order of the file. `omitted` maps a code to the number
     of its further reasons that are not in `violations`. `path` is the file, and `interpreter`
     the name of the interpreter that rejects it."""
 
@@ -45,7 +45,7 @@ class SeqFileError(ValueError):
         path: str,
         violations: Sequence[Violation],
         omitted: Mapping[str, int] | None = None,
-        interpreter: str = "strict",
+        interpreter: str = "spec",
     ):
         self.path = path
         self.violations = tuple(violations)

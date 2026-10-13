@@ -28,7 +28,7 @@ from synthetic import (
 from pulseq_analysis.seqfile import (
     CppSiemens,
     SeqFileError,
-    Strict,
+    Spec,
     read_pypulseq,
     read_seqfile,
 )
@@ -41,8 +41,8 @@ needs_cpp_siemens = pytest.mark.skipif(
 
 # Each interpreter, by name and as an object with a setting.
 INTERPRETERS = [
-    pytest.param("strict", id="strict"),
-    pytest.param(Strict(), id="Strict()"),
+    pytest.param("spec", id="spec"),
+    pytest.param(Spec(), id="Spec()"),
     pytest.param("cpp-siemens", id="cpp-siemens", marks=needs_cpp_siemens),
     pytest.param(CppSiemens(oversampling="edge"), id="CppSiemens-edge", marks=needs_cpp_siemens),
 ]
@@ -152,7 +152,7 @@ def test_the_temporary_folder_is_removed_and_nothing_is_written_next_to_the_call
 
 
 def short_block_sequence() -> pp.Sequence:
-    """A trapezoid of 1 ms in a block of 0.5 ms (`strict` rejects it: `block.event-too-long`)."""
+    """A trapezoid of 1 ms in a block of 0.5 ms (`spec` rejects it: `block.event-too-long`)."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_trapezoid(channel="x", area=100, duration=1e-3, system=SYSTEM))
     seq.block_durations[1] = 0.5e-3
@@ -173,7 +173,7 @@ def arbitrary_gradient_4us_sequence() -> pp.Sequence:
 @pytest.mark.parametrize(
     ("builder", "interpreter", "code"),
     [
-        pytest.param(short_block_sequence, "strict", "block.event-too-long", id="strict"),
+        pytest.param(short_block_sequence, "spec", "block.event-too-long", id="spec"),
         pytest.param(
             arbitrary_gradient_4us_sequence,
             "cpp-siemens",

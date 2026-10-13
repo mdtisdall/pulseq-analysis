@@ -1,0 +1,46 @@
+# Pulseq sequence file
+# Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
+
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 5e-06
+Name valid_arbitrary_gradient_5us_raster
+RadiofrequencyRasterTime 1e-06
+
+# Format of blocks:
+# NUM DUR RF GX GY GZ ADC EXT
+[BLOCKS]
+1   5  0  1  0  0  0  0
+
+# Format of arbitrary gradients:
+# id amplitude first last amp_shape_id time_shape_id delay
+# ..      Hz/m  Hz/m Hz/m        ..         ..          us
+[GRADIENTS]
+1 500000 0 0 1 0 0
+
+# Sequence Shapes
+[SHAPES]
+
+shape_id 1
+num_samples 10
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+1
+
+[SIGNATURE]
+# This is the hash of the Pulseq file, calculated right before the [SIGNATURE] section was added
+Type md5
+Hash eda0b136faff5ebff87ea98ef2a518e3

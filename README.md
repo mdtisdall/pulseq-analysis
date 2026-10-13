@@ -48,9 +48,9 @@ applies this pin for a project that depends on `pulseq-analysis` by git URL.
 pip does not.
 
 On `main`, the interpreter `cpp-siemens` of `read_seqfile` (by name; the
-default is `strict`) runs the C++ reader of the scanner through the package
-pulseq-cpp-siemens (`packages/pulseq-cpp-siemens/`), which is the extra
-`cpp-siemens`:
+default is `spec`, as true as possible to the Pulseq specification) runs the
+C++ reader of the scanner through the package pulseq-cpp-siemens
+(`packages/pulseq-cpp-siemens/`), which is the extra `cpp-siemens`:
 
 ```
 uv add "pulseq-analysis[cpp-siemens] @ git+https://github.com/mdtisdall/pulseq-analysis@main"

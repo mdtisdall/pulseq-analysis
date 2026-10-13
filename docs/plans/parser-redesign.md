@@ -209,7 +209,8 @@ libraries such an event looks like a `[TRAP]` row. Their fixtures are in
 the C++ reader rejects, with the codes of `seqfile.cpp_siemens.CODES`. Until R11, the strict
 reader stays as the interim interpreter `strict` (the user, 2026-10-12), with its rules, except
 that a version outside 1.4.0–1.5.x raises the "not supported" exception (Q1). For R11, each rule
-is kept for `spec`, changed, or removed (section 6):
+is kept for `spec`, changed, or removed (section 6). R11 removed the interim `strict` interpreter
+(the user, 2026-10-12):
 
 | Rule | `cpp-siemens` | `spec` (R11) |
 |---|---|---|
@@ -222,13 +223,13 @@ is kept for `spec`, changed, or removed (section 6):
 | `section.unknown` | Ignores it (D08) | Removed: ignored (D08). |
 | `section.delays` | Ignores it (D09) | Removed: ignored (D09). |
 | `section.duplicate` | Reads the last (D10) | Removed: the copies read as one (D10). |
-| `syntax.encoding` | Reads the bytes | Kept (D14), to settle in R11. |
+| `syntax.encoding` | Reads the bytes | Kept (D14): settled in R11 (the user, 2026-10-12), any byte that is not UTF-8, documented as the package's choice (the specification gives no encoding). |
 | `syntax.line` | Drops the rows after a blank line (D06) | Changed: rows after a blank or `#` line are read (D06); a data line before the first header stays. |
 | `syntax.columns` | `syntax.row` for too few fields; reads a longer row (D14) | Kept (D14). |
 | `syntax.integer` | `syntax.row` for `30.5` and `1e2`; reads `+30` (D14) | Kept, but `+30` reads as 30 (D14). |
 | `syntax.number` | Reads NaN and inf as the reader holds them (D14) | Kept (D14). |
 | `syntax.use` | Any character (D17) | Kept (D17). |
-| `syntax.negative` | Reads negative values (D14) | Kept for delays (D14); to settle in R11 for the others. |
+| `syntax.negative` | Reads negative values (D14) | Kept (D14): settled in R11 (the user, 2026-10-12) for each column of the strict reader (block duration, delay, rise, flat, fall, `num_samples`, dwell, trigger duration), documented as the package's choice (not literally spec:176). |
 | `syntax.shape` | `syntax.shape` for a line that does not decode; a shape with no blank line after it ends the section (D07, then `ub.shape-missing`) | Kept (D07). |
 | `id.positive`, `id.unique`, `id.gradient-unique` | The last wins (D19) | Kept (D19). |
 | `ref.unresolved` | `ref.unresolved` (events), `ub.shape-missing` (shapes), `ub.extension-cycle` (D23); reads the extension cases (D21) | Kept (D21, D23). |
@@ -264,12 +265,12 @@ text of the specification by hand, with a citation for each.
 | D03 | Silent | Q1. |
 | D04 | `major <major>`: integers | Reject `5.0` (not an integer, as D14). |
 | D05 | Silent on order | Any order. |
-| D06 | A comment is a line that starts with `#` (§2.1) | **Chosen**: skip blank and `#` lines anywhere outside a shape; the rows after them are read. |
-| D07 | A blank line ends a shape (§2.9) | **Chosen**: reject a shape with no blank line after it. |
+| D06 | A comment is a line that starts with `#` (§2.1) | **Chosen**: skip blank and `#` lines anywhere; the rows after them are read. Inside a shape a `#` line is skipped too, and a blank line ends the shape (D07; R11). A data line before the first header: reject (R11, no writer writes one). |
+| D07 | A blank line ends a shape (§2.9) | **Chosen**: reject a shape with no blank line after it, before the next `shape_id`, a header or the end of the section (R11). |
 | D08 | Silent | **Chosen**: ignore an unknown section, with a finding. |
 | D09 | Removed in 1.4.0; "current readers ignore this section" (binary format) | **Chosen**: ignore, with a finding. |
-| D10 | Silent | **Chosen**: read the copies of a section in file order, as one (as MATLAB and pypulseq), with a finding. An ID repeated across the copies is D19: reject. |
-| D11 | Required | Reject a missing raster, and a raster that is not finite and above 0. |
+| D10 | Silent | **Chosen** (R11, the user, 2026-10-13): reject a section that appears twice, and two `extension` sections with one `STRING_ID` (`section.duplicate`): the readers disagree on a second copy (the C++ reader keeps the last; MATLAB adds the copies of `[GRADIENTS]` and `[TRAP]` and keeps the last of the others; pypulseq adds those of `[RF]`, `[GRADIENTS]`, `[TRAP]`, `[ADC]` and TRIGGERS), and no writer writes one. This replaces "read the copies as one (as MATLAB and pypulseq)", which their code does not do. |
+| D11 | Required | Reject a missing raster, and a raster that is not finite and above 0. Reject an RF or gradient raster that is neither a multiple nor a divisor of the block duration raster (slide 11, R11). |
 | D12 | Silent | **Chosen**: the last definition wins (as all three implementations), with a finding. |
 | D13 | `any`; the hash a string | Text. |
 | D14 | Types only; no number syntax | Each field as its type: reject `30.5` and `100.5` in integer columns, and a row with too few or too many fields; read `+30` as 30. **Chosen**: reject NaN and inf in each float column, and a negative delay. |
@@ -277,42 +278,50 @@ text of the specification by hand, with a citation for each.
 | D16 | An example only: the offset in µs, no table of types | **Chosen**: read the offset as a float (`-100.5` µs, as MATLAB writes and reads it) and keep the whole hint. |
 | D17 | One of 7 letters | Reject another letter. |
 | D18 | Shapes stored as float32 in binary files | float64. |
-| D19 | IDs must be positive and unique | Reject. |
+| D19 | IDs must be positive and unique | Reject. A block ID used twice too, which §2.2 does not state (R11, no writer writes one). |
 | D20 | "The blocks are executed sequentially" (§2.7); no restriction on IDs | File order. |
 | D21 | References are implied to resolve | Reject. |
-| D22 | Time ID -1 for gradients only | Reject it for an RF event. |
+| D22 | Time ID -1 for gradients only | Reject it for an RF event, and for a gradient of a 1.4 file (R11; slide 4 dates it from 1.5.0). |
 | D23 | Implied | Reject a cycle. |
 | D24 | "Must declare at least one block" | Reject. |
 | D25 | The scanner's interpreter must reject it | Reject. |
-| D26 | "Must" | Reject. |
+| D26 | "Must" | Reject. Also an RF event and an ADC that do not start on an edge of the RF raster (slides 9, 10), and a vertex of a gradient time shape off the gradient raster (R11: slides 4 and 6 conflict, no writer writes one). |
 | D27 | "Must" and "need to" | Reject. |
-| D28 | Any gradient raster | Play on the file's raster. |
+| D28 | Any gradient raster | Play on the file's raster, when it is commensurate with the block duration raster (slide 11, D11). |
 | D29 | "Must" | Reject. |
 | D30 | "Must" be in [-1, 1] | Reject. |
 | D31 | Allowed: the magnitude is a signed amplitude shape | Play a negative magnitude as written (a phase of π). |
 | D32 | Silent | Play the phase as written, 2π times the value (a phase of 1.5 turns is the waveform of 0.5 turns), as MATLAB. |
-| D33 | Silent; no minimum number of samples | **Chosen**: reject; an event with no samples has no waveform. |
+| D33 | Silent; no minimum number of samples | **Chosen**: reject; an event with no samples has no waveform (any event, the ADC phase shape included, R11). |
 | D34 | Silent; the magnitude, phase and time of an RF event pair up by index (§2.6, §2.8.1) | **Chosen**: reject; some samples have no partner. |
-| D35, D36 | "The time sampling points", in RF rasters; cells are defined only for the default raster (§2.6) | **Chosen**: as the format's tools split them (C++'s two branches; MATLAB `checkTiming.m:58-69`). A regular step is cells: each sample covers one dwell. Any other shape is points on the raster edges, joined by straight lines (the intent of the C++ FIXME). A shape read as points gives a finding: the specification does not define it. |
-| D37 | Silent | **Chosen** with D35, D36: a regular step lasts N × dwell; points end at the last time. |
+| D35, D36 | "The time sampling points", in RF rasters; cells are defined only for the default raster (§2.6); the slide set: an RF pulse is "regularly sampled or defined by vertices", regular samples at the centres of their dwell periods from the start of the pulse (slide 9), the points of a time vector need not be on the raster edges (slide 4) | **Chosen** (R11, the user, 2026-10-12, the slides normative for timing): a time shape whose times are `(i + 0.5) d` is cells of `d` (any other cannot be a regular pulse, slide 9; that this one is cells is the package's choice, as every writer's regular pulse has this form); any other time shape is points at its times, on or off the raster edges, joined by straight lines of the complex signal (the C++ FIXME's linear interpolation). The split does not depend on the storage (§2.9). Reject a time shape of one sample, times that do not increase, a first time below 0 (no writer writes them). A shape read as points gives a finding where `cpp-siemens` plays it otherwise. |
+| D37 | Silent | **Chosen** with D35, D36: cells last N × dwell; points end at the last time (as the writers' block pulses). |
 | D38 | No `center` in 1.4 | Absent. |
 | D39 | No `first` and `last` in 1.4 | **Chosen**: reject a 1.4 arbitrary gradient on the default raster: the file has no ends. `spec` then refuses many 1.4 files with arbitrary gradients, which `cpp-siemens` reads; pulseq-checks flags each. |
 | D40 | No `first` in 1.4 | A time shape that starts at 0: its first sample. **Chosen**: one that starts later: reject, as D39. |
 | D41 | Samples at the centres of the cells (§2.6) | **Chosen**: straight lines between the centres, to `first` and `last` at the edges, as `cpp-siemens` and pypulseq. |
 | D42 | Silent | 0 where no gradient event plays. With D27 rejected (Q4), every gap inside a block lies between zeros, and a gradient that ends above 0 at its block's end continues into the next block. |
-| D43 | N − 1 extra points on the edges | All the samples, half a raster apart. |
+| D43 | N − 1 extra points on the edges | All the samples, half a raster apart. Reject an even number of samples (slides 4, 8: the shape starts and ends at cell centres; R11). |
 | D44 | No unit for the ADC phase shape | **Chosen**: rad, as C++ and MATLAB use it, one value for each ADC sample (as `makeAdc` requires); reject a shape of another length. |
-| D45 | The scanner's interpreter may ignore an extension that is not required | Ignore. |
+| D45 | The scanner's interpreter may ignore an extension that is not required | Ignore. Each extension is read from the revision that introduced it (P20, section 7.8); in an older file it is unknown and ignored (D58). |
 | D46 | Silent on order | Accept. |
 | D47 | Must reject | Reject. |
 | D48 | One rotation and one shim per block | Reject two. |
 | D49 | A "normalized rotation quaternion", from revision 1.5.1 (spec:567); the specification's own example has a norm of 1 + 2.3e-7 | **Chosen**: from 1.5.1, divide the quaternion by its norm, with a finding when the norm as read is more than 1e-3 from 1, reject a quaternion of norm 0, and rotate the block's gradients (P20). Before 1.5.1, `ROTATIONS` is an unknown extension: ignored and recorded (D45, D58). |
-| D50 | Lists the labels "supported at the moment" | **Chosen**: ignore an unknown label, with a finding (labels do not change the waveforms). |
+| D50 | Lists the labels "supported at the moment" | **Chosen**: ignore an unknown label, with a finding (labels do not change the waveforms). R11: its row stays in the model, and `SequenceData.records` records it (P20 rule 4; `NOSCL`, D57; a 1.4.1 flag in an older file, D58). |
 | D51 | Silent | Keep both. |
 | D52 | Not in the file | No change. |
 | D53 | The `\n` before `[SIGNATURE]` belongs to the signature | As the specification: strip one `\n`. Differs from `cpp-siemens` for CRLF. |
 | D54 | Must have both | Reject. |
 | D55 | A word in the examples | Text. |
+| D56 | Silent; a blank line ends a shape only | Read (R11): no blank line is needed at the end of another section. |
+
+**R11 (2026-10-12).** The user made the slide set that §2.6 cites
+(`doc/pulseq_shapes_and_times.pdf`) normative for timing, and set the principle for the rows that
+the specification leaves unclear: `spec` implements what the specification and the slides state
+clearly, and rejects what no current writer (MATLAB Pulseq, pypulseq) writes. Each rule of `spec`
+records its basis (`spec.Rule`), and a rejection that is the package's choice says so in its
+message, so a user understands it. The rows above carry R11's refinements.
 
 ## 7. Architecture
 

@@ -45,6 +45,11 @@ UNDEFINED = {
     "bad_shape_empty.seq": ("D33", "1995: element 0 of an empty shape"),
     "bad_shape_event_length.seq": ("D34", "2288: a phase shape shorter than the magnitude"),
     "bad_shape_rf_time_end.seq": ("D36 (2)", "2044: the resampling reads one sample too far"),
+    "valid_rf_time_shapes.seq": (
+        "D36 (2)",
+        "decodeBlock indexes past the stored samples: the RF 3 time shape 0.5 1.5 2.5 (the "
+        + "stack trace has no line number)",
+    ),
 }
 
 # The fixtures on which the reader does not end. The sanitizers do not see this: the loop over a
@@ -65,10 +70,14 @@ REJECTED = {
     "bad_syntax_integer.seq",
     "bad_syntax_line_after_comment.seq",
     "bad_syntax_shape.seq",
+    "bad_syntax_shape_end.seq",
     "bad_version_missing.seq",
     "bad_version_unsupported_1_3.seq",
     "oracle/koma_v1.5_unknown_ext.seq",
     "valid_arbitrary_gradient_4us_raster.seq",
+    "valid_arbitrary_gradient_5us_raster.seq",
+    "valid_comment_in_shape.seq",
+    "valid_last_section_no_blank.seq",
 }
 
 FIXTURES = sorted(path.relative_to(SEQFILES).as_posix() for path in SEQFILES.rglob("*.seq"))

@@ -1,7 +1,8 @@
 """The acceptance matrix of `docs/discrepancies.md`: each `.seq` file of `tests/seqfiles` (the
 fixtures and `oracle/`) through the four readers, as a Markdown table on stdout.
 
-- pulseq-analysis: `reader.read_seqfile`. "accept", or the rule IDs of the violations.
+- pulseq-analysis: `seqfile.read_seqfile` with its default interpreter, `spec`. "accept", or the
+  rule IDs of the violations, or "not supported" for a version outside 1.4.0 to 1.5.x.
 - C++: `pulseq-cpp-oracle FILE`, the reader `ExternalSequence` of pulseq/pulseq
   (`tests/cpp_oracle`). "accept" (exit 0), "reject" (exit 1), "crash" and the exit status (70 is
   a signal), or "no end in 10 s".
@@ -35,7 +36,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_seqfile
 
 ROOT = Path(__file__).resolve().parent.parent
 SEQFILES = ROOT / "tests" / "seqfiles"
@@ -97,6 +98,8 @@ def package_verdict(path: Path) -> tuple[str, bool]:
     """The verdict of `read_seqfile` and whether it found a cycle in an extension list."""
     try:
         read_seqfile(path)
+    except NotSupported:
+        return "not supported", False
     except SeqFileError as error:
         rules = sorted({v.rule for v in error.violations})
         cycle = any("cycle" in v.message for v in error.violations)

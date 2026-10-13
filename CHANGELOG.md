@@ -21,15 +21,16 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 
 ### Added
 
-- `reader.read_seqfile(path)`, a strict reader of Pulseq text files,
-  versions 1.4.0 to 1.5.x, into `model.SequenceData`, the immutable model of
-  layer 1 (the version, the definitions, the rasters, the block table, one
-  table for each kind of event, the shapes, the extensions and the
-  signature). A file that breaks a rule of the format raises
-  `reader.SeqFileError` (a `ValueError`) with all its `reader.Violation`
-  values, each with a stable rule ID (`reader.RULES`). A 1.4.x file with a
-  gradient on the default raster is rejected (`layer1.gradient-ends`): the
-  file has no values at the ends of such a gradient. `load` does not use the
+- `seqfile.read_seqfile(path)`, a reader of Pulseq text files, versions
+  1.4.0 to 1.5.x, into `model.SequenceData`, the immutable model of layer 1
+  (the version, the definitions, the rasters, the block table, one table for
+  each kind of event, the shapes, the extensions and the signature), through
+  an interpreter (below). A file that the interpreter rejects raises
+  `errors.SeqFileError` (a `ValueError`) with all its `errors.Violation`
+  values, each with a stable code. A 1.4.x file with a gradient on the default
+  raster, or with a time shape that does not start at 0, is rejected by `spec`
+  (`layer1.gradient-ends`): the file has no values at the ends of such a
+  gradient. `load` does not use the
   reader yet, and no value of a measurement changes. The tests have an
   oracle folder of Pulseq files from MATLAB Pulseq, pypulseq and KomaMRI.jl
   (`tests/seqfiles/oracle/SOURCES.md`).
@@ -42,16 +43,8 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 - `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`:
   the events of a `SequenceData`, by file ID, as `events.RfEvent`,
   `events.Trapezoid`, `events.ArbitraryGradient` (together `events.GradEvent`)
-  and `events.AdcEvent`, in seconds, Hz, Hz/m and rad. An RF event with a time
-  shape is decoded as the scanner's reader (`ExternalSequence` of
-  pulseq/pulseq) plays it. `load` does not use them yet.
-- New rules of `read_seqfile`: `shape.rf-magnitude-negative`,
-  `shape.rf-phase-range`, `shape.empty`, `shape.rf-time-grid` and
-  `shape.rf-time-end`. `layer1.gradient-ends` also rejects a 1.4.x gradient
-  whose time shape does not start at 0, and `block.event-too-long` uses the
-  end of an RF event as the scanner's reader plays it.
-  `reader.FIRST_TIME_TOLERANCE` and `reader.RF_TIME_TOLERANCE` are the
-  tolerances of the new checks.
+  and `events.AdcEvent`, in seconds, Hz, Hz/m and rad: the decoder of `spec`
+  (below). `load` does not use them yet.
 - The tests compare the parser and the decoding with two oracles: the C++
   reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`) and MATLAB
   Pulseq run under GNU Octave (`pulseq-matlab-oracle`, in the default
@@ -75,9 +68,9 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   contract with pulseq-checks, which compares it with what an interpreter
   read; `docs/usage.md` documents them.
 - The interpreters (`docs/usage.md`, "The interpreters"). `read_seqfile(path,
-  interpreter="strict")` (`seqfile.read_seqfile`) reads a file through
-  an interpreter, by name or as an object (`interpreters.CppSiemens`,
-  `interpreters.Strict`), and `SequenceData.interpreter` records it with its
+  interpreter="spec")` (`seqfile.read_seqfile`) reads a file through
+  an interpreter, by name or as an object (`interpreters.Spec`,
+  `interpreters.CppSiemens`), and `SequenceData.interpreter` records it with its
   settings:
   - `cpp-siemens`, by name: the C++ reader of the scanner's interpreter on
     Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), in
@@ -89,18 +82,25 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
     reader's own libraries, and `SequenceData.reading` keeps the reader's
     object. `CppSiemens(oversampling="center" | "edge" | "preserve")` sets
     the reader's sampling mode of an oversampled arbitrary gradient (D43).
-  - `strict`, the default: the strict reader of the package
-    (`reader.read_strict`), with its rules, until the `spec` interpreter
-    replaces it, also as the default. The default is the fast interpreter:
-    `cpp-siemens` decodes every block to give its verdict, about seven times
-    as long.
+  - `spec`, the default (`spec.read_spec`): as true as possible to the Pulseq
+    specification (1.5.3 draft) and, for timing, to the slide set that its
+    section 2.6 cites (`doc/pulseq_shapes_and_times.pdf`). It rejects a file
+    where they say "must", with every violation and a stable code for each
+    (`spec.RULES`), and where they are silent it reads the file as section 6
+    of `docs/plans/parser-redesign.md` chose, rejecting only what no current
+    writer (MATLAB Pulseq, pypulseq) writes. Each rule records its basis
+    (`spec.Rule`): the lines of the specification, the slides, or the
+    package's choice and why; the message of a violation of a rule of the
+    package's choice says so. The default is the fast interpreter:
+    `cpp-siemens` decodes every block to give its verdict, about six times as
+    long.
 - `errors.NotSupported` (a `NotImplementedError`): a file that the package
   does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x,
   a binary Pulseq file, a folder.
 - `synth.decode(data)` (`decoding.decode`): the decoding of a model by its
   interpreter. For `cpp-siemens`, the reader's own `decodeBlock` of each block
-  and `gradientsAt` (`decoding.CppSiemensDecoding`); for `strict`, the events
-  of `events` (`decoding.StrictDecoding`).
+  and `gradientsAt` (`decoding.CppSiemensDecoding`); for `spec`, the events
+  of `events` (`decoding.SpecDecoding`).
 - `docs/discrepancies.md` has a new entry, D56: the last section of a file
   with no blank line after it.
 - Rotations in `cpp-siemens` (D49, task R9). `CppSiemens(rotation="reader" |
@@ -118,9 +118,9 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   the interpreters (task R14). `load` still refuses a sequence with rotations
   until then. pulseq-cpp-siemens has `Sequence.block_rotations()` and
   `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
-  does not have (`Strict(rotation="apply")`) raises `TypeError`. These are part
+  does not have (`Spec(rotation="apply")`) raises `TypeError`. These are part
   of the contract with pulseq-checks.
-- `seqfile.read_pypulseq(seq, interpreter="strict")`
+- `seqfile.read_pypulseq(seq, interpreter="spec")`
   (`from_pypulseq.read_pypulseq`): a `pypulseq.Sequence` built in memory,
   written to Pulseq text with pypulseq's own writer (in a private temporary
   folder) and read through an interpreter, by name or as an object. It gives
@@ -128,14 +128,23 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   and `[SIGNATURE]` included, with `origin` `"pypulseq"`. It does not change
   the sequence, and does not run pypulseq's timing check. `load` does not use
   it yet (task R14).
+- `SequenceData.records`, a tuple of `model.Record` (`kind`, `subject`,
+  `reason`, `line`): what `spec` ignored (an unknown extension, section or
+  label, an extension or a label that the version does not have yet, the
+  section `[DELAYS]`). `cpp-siemens` gives an empty tuple. Part of the contract
+  with pulseq-checks.
+- `events.RfEvent.dwell` (the dwell of a pulse of cells, or None for a pulse
+  of points) and `events.RfEvent.signal(times)` (the complex signal at any
+  times), and `model.rf_time_step` (the step of a regular RF time shape, or
+  None).
 
 ### Changed
 
 - The modules are in three subpackages, in layers, and their import paths
   change. There are no aliases for the old paths:
   - `pulseq_analysis.seqfile` (the files): `seqfile` becomes
-    `pulseq_analysis.seqfile.reader`, and `model` becomes
-    `pulseq_analysis.seqfile.model`.
+    `pulseq_analysis.seqfile.spec` (the `spec` interpreter), and `model`
+    becomes `pulseq_analysis.seqfile.model`.
   - `pulseq_analysis.synth` (the waveforms): `snapshot`, `extensions`,
     `seq_index`, `seq_utils`, `sampling` and `events`, for example
     `pulseq_analysis.synth.snapshot.load`.
@@ -174,43 +183,72 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   source (`''` for a sequence built in memory). `load` still refuses the
   rotation extension (`NotImplementedError`), also for an unsigned sequence,
   which gave `ValueError` before.
-- `Signature.matches` of `read_seqfile` hashes the bytes that the scanner's
-  reader hashes: every byte before the line `[SIGNATURE]`, except one empty
-  line (`\n` or `\r\n`) right before it. It differs from the former rule
-  (the bytes before `\n[SIGNATURE]`) only for a CRLF file, a file with no
-  empty line, or a file with a line of spaces or a comment before the
-  section.
-- `read_seqfile` reads the file through `read_as_written` and applies its rules
-  to it. It accepts and rejects the same files, with the same model and the
-  same violations, except one case: a file whose every sample line has the
-  same number of values, more than one, now gives `syntax.number` for each
-  line, where it gave `shape.length` with a message of numpy. It reads a file
-  of 21 MB with 916 266 blocks in 0.51 s, where it took 0.56 s (Apple M1 Max).
-- The spec of each analysis is not changed: each `spec.version` stays 1.
-- `read_seqfile` reads through the interpreter `strict` by default, with the
-  same verdicts as before (but `NotSupported`, below). `read_seqfile(path,
-  "cpp-siemens")` reads what the C++ reader reads. Among the fixtures it reads
-  42 files that `strict` rejects (for example an unknown section, a definition
-  twice, IDs out of order, a shape outside [-1, 1]), and it rejects three that
-  `strict` reads: `valid_arbitrary_gradient_4us_raster.seq` (an arbitrary
-  gradient on a gradient raster other than 10 µs, `gradient.raster`, D28),
-  `oracle/koma_v1.5_unknown_ext.seq` (`[EXTENSIONS]` as the last section,
-  `section.extensions-last`, D46) and `undefined/version_last.seq`
-  (`[VERSION]` as the last section, so the reader reads no shape:
-  `ub.shape-missing`, D05). It also rejects an ADC dwell time written with a
-  decimal point (`syntax.row`, D15) and a quaternion whose norm is more than
-  1e-3 from 1 (`rotation.norm`, D49).
-- `reader.read_seqfile` is `reader.read_strict`. `SeqFileError` and
-  `Violation` are in `errors` (`reader` still has them); a `SeqFileError` has
+- `Signature.matches` of `spec` hashes the bytes of the specification
+  (section 2.4): every byte before the first `[SIGNATURE]` header, without the
+  `\n` right before it (`AsWritten.signed_bytes()`). For `cpp-siemens` it is
+  the reader's own check, which drops an empty line `\r\n` before the header:
+  `tests/seqfiles/valid_crlf.seq` matches for `cpp-siemens` and not for
+  `spec` (D53). A mismatch is not a rejection.
+- `read_seqfile` reads the file through `read_as_written`, and through the
+  interpreter `spec` by default, which replaces the reader of the package from
+  before the interpreters (`strict`). Among the fixtures of `tests/seqfiles`,
+  `spec` reads ten files that the former reader rejected:
+  `bad_blocks_order.seq` (block IDs out of order: file order, D20),
+  `bad_definitions_duplicate.seq` (the last definition, D12),
+  `bad_section_delays.seq` and `bad_section_unknown.seq` (ignored, D08, D09),
+  `bad_shape_rf_magnitude_negative.seq` and `bad_shape_rf_phase_range.seq`
+  (played as written, D31, D32), `bad_shape_rf_time_grid.seq` and
+  `bad_shape_rf_time_end.seq` (RF time shapes read as points, D35, D36),
+  `bad_syntax_integer_plus.seq` (`+30` is 30, D14) and
+  `bad_syntax_line_after_comment.seq` (a `#` line inside a table is skipped,
+  D06). It rejects one that the former reader read:
+  `valid_arbitrary_gradient_4us_raster.seq`, whose gradient raster (4 µs) is
+  neither a multiple nor a divisor of its block duration raster (10 µs), which
+  slide 11 of the slide set requires (`definitions.raster-commensurate`); D28
+  has a new fixture on 5 µs, `valid_arbitrary_gradient_5us_raster.seq`, which
+  `spec` reads and `cpp-siemens` rejects. On an Apple M1 Max, `spec` reads a file of
+  20 MB with 900 000 blocks in 0.5 s, and `cpp-siemens` in 2.9 s.
+- The rules of `spec` that the former reader did not have:
+  `definitions.raster-commensurate`, `raster.rf-delay`, `raster.adc-delay`
+  (slides 9 to 11), `shape.oversampled-length` (an even number of samples
+  with time ID -1), `raster.gradient-vertex`, `shape.time-order` and
+  `rotation.zero` (a quaternion of norm 0; from 1.5.1 `spec` divides each
+  quaternion by its norm, D49). `section.duplicate` rejects any section that
+  appears twice, also `[SIGNATURE]`, and two `extension` sections with one
+  `STRING_ID` (D10). `shape.empty` also covers the phase shape of an ADC, and
+  `shape.event-length` an ADC phase shape whose length is not the number of
+  ADC samples (D44). A shape with no blank line after it before a header or
+  the end of the section is `syntax.shape` (D07). `RequiredExtensions` is read
+  from 1.5.1, `extension DELAYS` from 1.5.0, ROTATIONS and RF_SHIMS from 1.5.1:
+  in an older file such an extension is unknown, ignored and listed in
+  `SequenceData.skipped_extensions`.
+- The decoding of an RF event with a time shape (`events.decode_rf`) follows
+  `spec`, not the C++ reader: a shape whose times are `(i + 0.5) d` is cells of
+  `d`, any other is points at its times, joined by straight lines of the
+  complex signal (D35 to D37). `events.AdcEvent.phase_modulation` is in rad,
+  one value for each ADC sample (D44).
+- `SeqFileError` and `Violation` are in `errors`; a `SeqFileError` has
   `interpreter` and `codes`, and its message names the interpreter.
-- A version outside 1.4.0 to 1.5.x raises `NotSupported`, also in `strict`;
-  the rule `version.unsupported` is removed.
+- A version outside 1.4.0 to 1.5.x raises `NotSupported` in both interpreters.
+- The spec of each analysis is not changed: each `spec.version` stays 1.
 - `SequenceData` has two new fields: `interpreter` and `reading` (not compared
   by `==`).
 - `events.decode_rf`, `events.decode_gradients` and `events.decode_adc` raise
   `TypeError` for the model of `cpp-siemens`: its decoding is the reader's.
 
 ### Removed
+
+- The interim interpreter `strict`, the reader of the package from before the
+  interpreters: `interpreters.Strict`, `reader.read_strict` (the module
+  `pulseq_analysis.seqfile.reader`, now `seqfile.spec`),
+  `decoding.StrictDecoding` (now `decoding.SpecDecoding`), and the replica of
+  the C++ reader's RF resampling, `model._rf_time_step` and
+  `model._rf_resample`. Its rules that `spec` does not have are removed:
+  `definitions.duplicate`, `section.unknown`, `section.delays`,
+  `blocks.order`, `shape.rf-magnitude-negative`, `shape.rf-phase-range`,
+  `shape.rf-time-grid`, `shape.rf-time-end` and `version.unsupported`
+  (`NotSupported`). pulseq-checks takes the "specification" profile from
+  `spec` (section 7.5 of the plan).
 
 - `extensions.refuse_unsigned`. A caller who requires a hash checks
   `isinstance(seq.signature_value, str) and seq.signature_value != ""` on the

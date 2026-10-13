@@ -3,7 +3,7 @@ of layer 1 (`model.SequenceData`)."""
 
 from pathlib import Path
 
-from . import cpp_siemens, reader
+from . import cpp_siemens, spec
 from .interpreters import CppSiemens, Interpreter
 from .interpreters import interpreter as _interpreter
 from .model import SequenceData
@@ -11,11 +11,11 @@ from .model import SequenceData
 __all__ = ["read_seqfile"]
 
 
-def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "strict") -> SequenceData:
-    """Read the Pulseq text file `path` through `interpreter`, a name (`"strict"`, the default
-    until the `spec` interpreter replaces it, or `"cpp-siemens"`) or an interpreter object
-    (`CppSiemens(oversampling="edge")`, `CppSiemens(rotation="apply")`). The default is the fast interpreter; `cpp-siemens`, the
-    C++ reader of the scanner, is read by name (the user, 2026-10-12).
+def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "spec") -> SequenceData:
+    """Read the Pulseq text file `path` through `interpreter`, a name (`"spec"`, the default, or
+    `"cpp-siemens"`) or an interpreter object (`CppSiemens(oversampling="edge")`,
+    `CppSiemens(rotation="apply")`). The default is the fast interpreter; `cpp-siemens`, the C++
+    reader of the scanner, is read by name (the user, 2026-10-12).
 
     Returns the `SequenceData` of the interpreter; its `interpreter` field records the
     interpreter and its settings. Raises `SeqFileError` (a `ValueError`) when the interpreter
@@ -26,4 +26,4 @@ def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "strict") 
     chosen = _interpreter(interpreter)
     if isinstance(chosen, CppSiemens):
         return cpp_siemens.read_cpp_siemens(path, chosen)
-    return reader.read_strict(path)
+    return spec.read_spec(path)

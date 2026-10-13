@@ -1,23 +1,24 @@
 """The interpreters of the package: the ways in which it reads a Pulseq file
 (`docs/plans/parser-redesign.md`, section 1 and Q6).
 
+- `Spec` (`"spec"`, the default): as true as possible to the Pulseq specification (1.5.3 draft)
+  and to the slide set that its section 2.6 cites for timing (`doc/pulseq_shapes_and_times.pdf`).
+  It rejects a file where they say "must", and where they are unclear it makes a documented choice
+  (`spec`, section 6 of the plan). It is fast: the default is the fast interpreter (P19).
 - `CppSiemens` (`"cpp-siemens"`): the C++ reader of the scanner's interpreter on
   Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), run in the process
   through the package pulseq-cpp-siemens (the extra `pulseq-analysis[cpp-siemens]`). It reads
   what that reader reads and rejects what it rejects. Its setting `oversampling` is the reader's
   sampling mode of an oversampled arbitrary gradient (D43); its setting `rotation` says whether
   the decoding gives the reader's unrotated gradients or simulates the scanner's rotation of each
-  block (D49, P20).
-- `Strict` (`"strict"`, the default): the strict reader of the package before the interpreters
-  (`seqfile.reader`), with its rules. It is interim: the `spec` interpreter (task R11) replaces
-  it, as the default too. The default is the fast interpreter: `cpp-siemens` decodes every block
-  of a file with the C++ reader, about seven times as long (`docs/usage.md`).
+  block (D49, P20). It decodes every block of a file with the C++ reader, about six times as long
+  as `spec` (`docs/usage.md`), so it is read by name.
 
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
 An interpreter is a frozen dataclass: two with the same settings are equal, and a result
 records the interpreter that made it. A setting that the interpreter does not have (for example
-`Strict(rotation="apply")`) is a `TypeError` when the object is made (rule 8 of section 7.8 of
+`Spec(rotation="apply")`) is a `TypeError` when the object is made (rule 8 of section 7.8 of
 `docs/plans/parser-redesign.md`).
 """
 
@@ -30,7 +31,7 @@ __all__ = [
     "ROTATION",
     "CppSiemens",
     "Interpreter",
-    "Strict",
+    "Spec",
     "interpreter",
 ]
 
@@ -87,22 +88,22 @@ class CppSiemens:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class Strict:
-    """The interim `strict` interpreter: the rules of `seqfile.reader`, and the decoding of
-    `synth.events`. It has no setting."""
+class Spec:
+    """The `spec` interpreter: the rules of `seqfile.spec`, and the decoding of `synth.events`.
+    It has no setting."""
 
-    name: ClassVar[str] = "strict"
+    name: ClassVar[str] = "spec"
 
     def __str__(self) -> str:
         return self.name
 
 
-Interpreter = CppSiemens | Strict
+Interpreter = CppSiemens | Spec
 
 # Each interpreter by its name.
-INTERPRETERS: dict[str, type[CppSiemens] | type[Strict]] = {
+INTERPRETERS: dict[str, type[CppSiemens] | type[Spec]] = {
+    Spec.name: Spec,
     CppSiemens.name: CppSiemens,
-    Strict.name: Strict,
 }
 
 
@@ -110,11 +111,9 @@ def interpreter(value: "str | Interpreter") -> Interpreter:
     """The interpreter `value`: an interpreter object as it is, or a name of `INTERPRETERS` with
     its default settings. Raises `ValueError` for another name, and `TypeError` for another
     value."""
-    if isinstance(value, CppSiemens | Strict):
+    if isinstance(value, CppSiemens | Spec):
         return value
     if isinstance(value, str):
-        if value == "spec":
-            raise ValueError("the interpreter spec is not there yet (task R11); use 'strict'")
         try:
             return INTERPRETERS[value]()
         except KeyError:

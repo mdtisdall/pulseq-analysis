@@ -1,7 +1,7 @@
 """Tests of the `cpp-siemens` interpreter (`seqfile.cpp_siemens`), which each test names (the
-default interpreter is `strict`): its verdict on each fixture
-against the C++ oracle and its sanitized build, the code of each rejection, the version gate, the
-model from the reader's libraries, the `interpreter` argument, and its decoding in `synth`.
+default interpreter is `spec`): its verdict on each fixture against the C++ oracle and its
+sanitized build, the code of each rejection, the version gate, the model from the reader's
+libraries, the `interpreter` argument, and its decoding in `synth`.
 
 The tests that compare with the oracle skip when it is not on the PATH, as outside the Nix
 devShell. The module skips without pulseq-cpp-siemens (the extra `cpp-siemens`).
@@ -26,7 +26,7 @@ from pulseq_analysis.seqfile import (
     CppSiemens,
     NotSupported,
     SeqFileError,
-    Strict,
+    Spec,
     read_seqfile,
 )
 from pulseq_analysis.seqfile.cpp_siemens import CODES
@@ -52,6 +52,7 @@ REJECTED = {
     "bad_syntax_integer.seq": "syntax.row",
     "bad_syntax_line_after_comment.seq": "syntax.comment-row",
     "bad_syntax_shape.seq": "syntax.shape",
+    "bad_syntax_shape_end.seq": "syntax.shape",
     "bad_syntax_shape_no_blank_line.seq": "ub.shape-missing",
     "bad_version_missing.seq": "version.missing",
     "oracle/koma_v1.5_unknown_ext.seq": "section.extensions-last",
@@ -59,6 +60,10 @@ REJECTED = {
     "undefined/shape_decompress_longer.seq": "ub.shape-decompression",
     "undefined/version_last.seq": "ub.shape-missing",
     "valid_arbitrary_gradient_4us_raster.seq": "gradient.raster",
+    "valid_arbitrary_gradient_5us_raster.seq": "gradient.raster",
+    "valid_comment_in_shape.seq": "syntax.comment-row",
+    "valid_last_section_no_blank.seq": "definitions.skipped",
+    "valid_rf_time_shapes.seq": "ub.rf-time-overrun",
 }
 
 # The fixtures outside the versions that the package reads (Q1): `NotSupported`.
@@ -313,24 +318,23 @@ def test_a_1_4_rf_event_has_no_center_and_the_use_u():
 def test_the_rotations_are_the_readers_normalized_quaternions(tmp_path):
     path = tmp_path / "rotation.seq"
     path.write_text(
-        edit(MINIMAL_SEQ, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION.format(q="1.0005 0 0 0"))
+        edit(MINIMAL_15_1, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION.format(q="1.0005 0 0 0"))
     )
     (row,) = read_seqfile(path, "cpp-siemens").extensions.rotations
     assert row["q0"] == 1.0
-    assert read_seqfile(path, "strict").extensions.rotations["q0"].tolist() == [1.0005]
+    # `spec` divides the quaternion by its norm too, from 1.5.1 (D49).
+    assert read_seqfile(path, "spec").extensions.rotations["q0"].tolist() == [1.0]
 
 
 def test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it():
     path = SEQFILES / "valid_1_5_1.seq"
-    assert read_seqfile(path).interpreter == Strict()  # the default, until spec (R11)
+    assert read_seqfile(path).interpreter == Spec()  # the default
     assert read_seqfile(path, "cpp-siemens").interpreter == CppSiemens(oversampling="center")
     edge = read_seqfile(path, CppSiemens(oversampling="edge"))
     assert edge.interpreter.oversampling == "edge" and edge.reading.oversampling == "edge"
     assert str(edge.interpreter) == "cpp-siemens(oversampling='edge')"
-    strict = read_seqfile(path, "strict")
-    assert strict.interpreter == Strict() and strict.reading is None
-    with pytest.raises(ValueError, match="R11"):
-        read_seqfile(path, "spec")
+    spec = read_seqfile(path, "spec")
+    assert spec.interpreter == Spec() and spec.reading is None
     with pytest.raises(ValueError, match="no interpreter"):
         read_seqfile(path, "matlab")
     with pytest.raises(ValueError, match="oversampling"):
@@ -369,7 +373,7 @@ def test_a_cpp_siemens_model_compares_and_survives_pickle_and_deepcopy():
         data.reading = None
 
 
-def test_synth_decode_gives_the_readers_decoding_or_the_strict_events():
+def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
     path = SEQFILES / "valid_1_5_1.seq"
     data = read_seqfile(path, "cpp-siemens")
     decoding = synth.decode(data)
@@ -382,9 +386,9 @@ def test_synth_decode_gives_the_readers_decoding_or_the_strict_events():
         decoding.gradients_at(np.ones(4, int), times),
         data.reading.gradients_at(np.ones(4, int), times),
     )
-    strict = synth.decode(read_seqfile(path, "strict"))
-    assert isinstance(strict, synth.StrictDecoding)
-    assert set(strict.rf) == {1}
+    spec = synth.decode(read_seqfile(path, "spec"))
+    assert isinstance(spec, synth.SpecDecoding)
+    assert set(spec.rf) == {1}
     with pytest.raises(TypeError, match="synth.decode"):
         synth.events.decode_rf(data)
 
@@ -402,7 +406,7 @@ def test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_la
         CppSiemens(rotation="scanner")
     # Rule 8 of P20: a setting that the interpreter does not have.
     with pytest.raises(TypeError):
-        Strict(rotation="apply")
+        Spec(rotation="apply")
     with pytest.raises(TypeError):
         CppSiemens(rotate="apply")
 
@@ -484,7 +488,8 @@ def test_the_decoding_emits_no_warning_for_rotations(recwarn):
 
 def test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install(monkeypatch):
     monkeypatch.setitem(sys.modules, "pulseq_cpp_siemens", None)
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq").interpreter == Strict()
-    with pytest.raises(ImportError, match=re.escape("pulseq-analysis[cpp-siemens]")):
+    assert read_seqfile(SEQFILES / "valid_1_5_1.seq").interpreter == Spec()
+    with pytest.raises(ImportError, match=re.escape("pulseq-analysis[cpp-siemens]")) as caught:
         read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq", "strict").interpreter == Strict()
+    assert "interpreter='spec'" in str(caught.value)
+    assert read_seqfile(SEQFILES / "valid_1_5_1.seq", "spec").interpreter == Spec()

@@ -29,7 +29,7 @@ The tables are structured arrays (`TABLE_DTYPES` has the dtype of each), in file
 - `adc`: `id`, `num_samples`, `dwell` (s), `delay` (s), `freq_ppm`, `phase_ppm`,
   `freq_offset` (Hz), `phase_offset` (rad), `phase_shape_id` (0 is no modulation).
 
-The paragraphs below describe the model of the `strict` interpreter (`reader`); the model of
+The paragraphs below describe the model of the `spec` interpreter (`spec`); the model of
 `cpp-siemens` holds the C++ reader's values, and `cpp_siemens` says where they differ. A 1.4.x
 file has fewer columns, and the model has the 1.5 layout with these values: RF
 `freq_ppm` and `phase_ppm` are 0, `use` is `u` (undefined), and `center` is NaN (the format
@@ -37,14 +37,13 @@ had no center, and a caller that needs it computes it from the pulse). ADC `freq
 `phase_ppm` and `phase_shape_id` are 0. The `first` and `last` of a gradient with a time shape
 (`time_id` above 0) are the amplitude times the first and the last sample of its waveform,
 which are at the two ends of the event. A 1.4.x file with a gradient on the default raster
-(`time_id` 0) does not define these values, so the parser does not read it, and neither does a
+(`time_id` 0) does not define these values, so `spec` does not read it, and neither does a
 1.4.x gradient whose time shape starts after time 0 (by more than 1e-6 gradient rasters): the
-file has no value at the start of the event (`seqfile`, rule `layer1.gradient-ends`).
+file has no value at the start of the event (`spec`, rule `layer1.gradient-ends`).
 
 `Extensions` holds the list table of `[EXTENSIONS]` and one table for each extension that the
-parser knows. `Shape` holds a shape as the file stores it, and `Shape.samples()` decompresses
-it (`decompress_shape`). `_rf_time_step` and `_rf_resample` give how the scanner's reader plays an
-RF time shape.
+interpreter knows. `Shape` holds a shape as the file stores it, and `Shape.samples()` decompresses
+it (`decompress_shape`). `rf_time_step` tells a regular RF time shape (cells) from one of points.
 """
 
 import dataclasses
@@ -55,7 +54,7 @@ from typing import Any
 import numpy as np
 
 from .._equality import _freeze, values_equal
-from .interpreters import CppSiemens, Strict
+from .interpreters import CppSiemens, Spec
 
 # The dtype of each table of the model, by field name of `SequenceData` or `Extensions`.
 # `Extensions.labelset`, `Extensions.labelinc` and `Extensions.soft_delays` have a text field
@@ -299,65 +298,46 @@ class Shape:
         return decompress_shape(self.packed, self.num_samples)
 
 
-def _rf_time_step(shape: Shape) -> float | None:
-    """The step, in RF raster times, of an RF time shape that the scanner's reader takes as
-    regular, or `None` when it does not.
-
-    The reader (`ExternalSequence.cpp` of the C++ oracle, `decodeBlock`, lines 2014 to 2021)
-    takes a time shape as regular when it is stored compressed (`packed` has not `num_samples`
-    values) and `packed` has 3 or 4 values. Its dwell time is then `packed[1]` RF raster times,
-    and the reader does not decompress the shape. The parser rejects a regular shape whose times
-    are not the centres of its cells (rule `shape.rf-time-grid`), so for a file that
-    `read_strict` loads the reader plays the samples at the times of the file.
-    """
-    packed = shape.packed
-    if packed.size != shape.num_samples and packed.size in (3, 4):
-        return float(packed[1])
-    return None
+# The times of a regular RF time shape are at the centres of its cells to within this many RF
+# rasters, and its steps are equal to within as many.
+TIME_TOLERANCE = 1e-6
 
 
-def _rf_resample(times: np.ndarray) -> np.ndarray:
-    """For an RF time shape that is not regular (`_rf_time_step` is `None`), the index of the
-    stored sample that the scanner's reader plays in each RF raster cell.
+def rf_time_step(times: np.ndarray) -> float | None:
+    """The dwell time, in RF raster times, of a regular RF time shape, or `None` when the shape is
+    one of points (`spec`, D35 to D37).
 
-    `times` is the decompressed time shape, in RF raster times. This is the loop of
-    `ExternalSequence.cpp` of the C++ oracle (`decodeBlock`, lines 2031 to 2046): the pulse has
-    `int(0.5 + times[-1])` cells. The index starts at 0, and in cell `c` it goes up by one when
-    `times[index] < c + 1`, at most one step for each cell. The cell plays the sample at the
-    index.
-
-    Returns a new int64 array of one index for each cell. Raises `ValueError` when the index
-    reaches `times.size` (there the reader reads after the end of the stored samples), when
-    `times` is empty, or when the number of cells is negative.
-    """
-    values = np.asarray(times, dtype=np.float64).tolist()
-    if not values:
-        raise ValueError("the time shape has no samples")
-    cells = int(0.5 + values[-1])
-    if cells < 0:
-        raise ValueError(f"the time shape gives {cells} RF raster cells")
-    played = []
-    index = 0
-    for c in range(cells):
-        if values[index] < c + 1:
-            index += 1
-            if index == len(values):
-                raise ValueError(
-                    f"RF raster cell {c} plays sample {index} of a time shape of {len(values)} "
-                    "samples, after its end"
-                )
-        played.append(index)
-    return np.array(played, dtype=np.int64)
+    `times` is the decompressed time shape, in RF raster times. A shape is regular when it has 2
+    or more samples, its steps are equal and above 0, and its first time is half a step, all to
+    within `TIME_TOLERANCE`: then its times are `(i + 0.5) d` for a step `d`, the centres of cells
+    of `d` from the start of the pulse. The slide set that section 2.6 of the specification cites
+    places the samples of a regularly sampled RF pulse at the centres of their dwell periods, from
+    the start of the pulse (`doc/pulseq_shapes_and_times.pdf`, slide 9), so no other shape can be
+    a regular pulse; that a shape of this form is one, and not points at those times, is the
+    package's choice: every regular pulse that MATLAB Pulseq and pypulseq write has this form, and
+    neither writes points there (`docs/discrepancies.md`, D35). The time shape of the default
+    raster, `0.5 1 1 N-3`, gives 1."""
+    t = np.asarray(times, dtype=np.float64)
+    if t.size < 2:
+        return None
+    steps = np.diff(t)
+    step = float(steps[0])
+    if step <= TIME_TOLERANCE or np.abs(steps - step).max() > TIME_TOLERANCE:
+        return None
+    if abs(float(t[0]) - step / 2) > TIME_TOLERANCE:
+        return None
+    return step
 
 
 @_model
 class Signature:
     """The `[SIGNATURE]` section: `type` (for example `md5`) and `hash` as in the file.
 
-    `matches` is whether `hash` is the hash of the file as the scanner's reader (`ExternalSequence`)
-    computes it: every byte before the line that starts `[SIGNATURE]`, except one empty line (`\\n`
-    or `\\r\\n`) right before it. It is `None` when it cannot be known (an algorithm that `hashlib` does not have). The parser
-    reports it and does not reject a file for a mismatch.
+    `matches` is whether `hash` is the hash of the file, or `None` when it cannot be known (an
+    algorithm that `hashlib` does not have). For `spec` the hash covers the bytes of the
+    specification (section 2.4): every byte before the first `[SIGNATURE]` header, without the
+    `\\n` right before it (`AsWritten.signed_bytes`). For `cpp-siemens` it is the C++ reader's own
+    check, which differs for a file with CRLF line ends (D53). A mismatch is not a rejection.
     """
 
     type: str
@@ -382,8 +362,31 @@ class Extensions:
     labelset: np.ndarray  # LABELSET
     labelinc: np.ndarray  # LABELINC
     soft_delays: np.ndarray  # DELAYS: offset in s
-    rotations: np.ndarray  # ROTATIONS: quaternions as in the file
+    rotations: np.ndarray  # ROTATIONS: quaternions divided by their norm (D49)
     rf_shims: Mapping[int, np.ndarray]  # RF_SHIMS
+
+
+@_model
+class Record:
+    """What an interpreter recorded about a file that it read (P20, rule 4, of
+    `docs/plans/parser-redesign.md`): for `spec`, what it ignored.
+
+    - `kind`: what it is about: `"extension"`, `"label"` or `"section"`.
+    - `subject`: its name as in the file: the STRING_ID of an extension, the name of a label, the
+      header of a section.
+    - `reason`: why: `"unknown"` (the specification does not have it: D08, D45, D50, D57),
+      `"version"` (the file's version is older than the revision that introduced it: D58), or
+      `"removed"` (a section that the format removed, `[DELAYS]` from 1.4.0: D09).
+    - `line`: the line of the file (the header of the section, or the row of a label).
+
+    Task R16 adds the records of the mechanisms that a file uses and that are left at the
+    default.
+    """
+
+    kind: str
+    subject: str
+    reason: str
+    line: int
 
 
 @_model
@@ -398,20 +401,22 @@ class SequenceData:
     - `shapes`: `Shape` by shape ID.
     - `extensions`, and `skipped_extensions`: the STRING_IDs of the extensions that the
       interpreter does not know (their rows are not read).
+    - `records`: a `Record` for each thing that the interpreter ignored, in file order (`spec`;
+      empty for `cpp-siemens` until task R16).
     - `signature`: `None` when the file has no `[SIGNATURE]` section.
     - `origin`: `"file"`, or `"pypulseq"` for a sequence in memory that `from_pypulseq` wrote
       and read.
     - `interpreter`: the interpreter that read the file, with its settings
-      (`interpreters.CppSiemens` or `interpreters.Strict`).
+      (`interpreters.CppSiemens` or `interpreters.Spec`).
     - `reading`: for `cpp-siemens`, the C++ reader's own reading of the file, a
       `pulseq_cpp_siemens.Sequence`: its libraries as it read them (`reading.libraries`), its
       decoding of each block (`reading.decode_block`), the rotation that it attaches to each
       block (`reading.block_rotations()`) and `reading.gradients_at`. `None` for
-      `strict`. It is not compared by `==`; `pickle` carries the bytes of the file and reads them
+      `spec`. It is not compared by `==`; `pickle` carries the bytes of the file and reads them
       again.
 
     The `cpp-siemens` reading (`cpp_siemens`) fills the tables from the reader's libraries, so it
-    differs from `strict` where the reader does (`cpp_siemens` lists how).
+    differs from `spec` where the reader does (`cpp_siemens` lists how).
     """
 
     version: tuple[int, int, int]
@@ -426,9 +431,10 @@ class SequenceData:
     shapes: Mapping[int, Shape]
     extensions: Extensions
     skipped_extensions: tuple[str, ...]
+    records: tuple[Record, ...]
     signature: Signature | None
     origin: str
-    interpreter: CppSiemens | Strict
+    interpreter: CppSiemens | Spec
     reading: Any = dataclasses.field(compare=False)
 
     @property

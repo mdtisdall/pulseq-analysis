@@ -1,8 +1,8 @@
 """Tests of the decoding of a Pulseq file against MATLAB Pulseq, run under GNU Octave by the
 command `pulseq-matlab-oracle` (`tests/oracles/matlab.py`, `tests/matlab_oracle/`).
 
-For each file of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/*.seq` that
-`read_strict` accepts, the tests compare the package with what MATLAB Pulseq gives for the
+For each file of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/*.seq` that the `spec`
+interpreter (`seqfile.read_seqfile`) accepts, the tests compare the package with what MATLAB Pulseq gives for the
 file: the events of each block (`getBlock`) and the block durations, the gradient waveform of
 each axis (`waveforms_and_times`), and the times of the ADC samples. Block `b` of the model, in
 play order, is block `b + 1` of MATLAB. Both read the same text in float64, so a value is
@@ -10,12 +10,12 @@ compared to a relative 1e-12 of the largest magnitude of its event or axis, and 
 absolute 1e-12 s. A difference fails the test, with the file, the block, the field and the two
 values.
 
-Where the package decodes a file otherwise than MATLAB by a decision of
-`docs/plans/own-parser-tasks.md` section 12, the tests do not compare that part, and say why:
-`shape_dur` of an RF event with a regular time shape and the samples of one with another time
-shape (U25, U26), `first` of a 1.4 gradient with a time
-shape (U23), the polyline of an arbitrary gradient of time ID 0 away from its samples and its
-ends (U21), and the waveform of a file in which a block plays a rotation (U22).
+Where the package decodes a file otherwise than MATLAB, the tests do not compare that part, and
+say why: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and of one of
+points whose last time is not a whole number of RF rasters (D37: MATLAB rounds the last time up
+to the RF raster), `first` of a 1.4 gradient with a time shape (U23), the polyline of an arbitrary
+gradient of time ID 0 away from its samples and its ends (U21), and the waveform of a file in
+which a block plays a rotation (U22).
 
 The module skips when the command is not on the PATH: only the default devShell has it.
 """
@@ -26,8 +26,9 @@ import numpy as np
 import pytest
 from oracles import matlab
 
-from pulseq_analysis.seqfile.model import _rf_time_step
-from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
+from pulseq_analysis import seqfile
+from pulseq_analysis.seqfile import NotSupported, SeqFileError
+from pulseq_analysis.seqfile.model import TIME_TOLERANCE
 from pulseq_analysis.synth._events import _points_from_events
 from pulseq_analysis.synth.events import (
     ArbitraryGradient,
@@ -65,12 +66,26 @@ RF_USE = {
     "u": "undefined",
 }
 
+# The files that `spec` reads and MATLAB Pulseq cannot read, by name, with the reason. The test of
+# such a file skips when MATLAB fails on it; for any other file a failure of MATLAB fails the test.
+MATLAB_CANNOT_READ = {
+    "valid_comment_in_shape.seq": (
+        "MATLAB ends a section at a line that starts with `#` (read.m), so it cannot read a shape "
+        "with a comment inside (D06)"
+    ),
+    "valid_label_unknown.seq": (
+        "MATLAB looks up the name of a label in `mr.getSupportedLabels` (read.m:165) and fails "
+        "for a name that it does not know (D50)"
+    ),
+}
+
 # Differences listed in a failure message. The message also gives the number of all of them.
 SHOWN = 20
 
 
 class Case:
-    """A file that `read_strict` accepts, its model, its decoded events and MATLAB's JSON."""
+    """A file that the `spec` interpreter accepts, its model, its decoded events and MATLAB's
+    JSON."""
 
     def __init__(self, name, data, dump):
         self.name = name
@@ -104,14 +119,14 @@ def _rotated_blocks(data):
 
 @pytest.fixture(scope="session")
 def cases(request):
-    """The model of each file of `FILES` that `read_strict` accepts, and the `SeqFileError` of
-    each other file, by path, and MATLAB's JSON of each accepted file. MATLAB reads only the
-    files that `read_strict` accepts: a file that it rejects can make MATLAB loop with no end (a
-    cycle in an extension list, `tests/matlab_oracle/README.md`)."""
+    """The model of each file of `FILES` that the `spec` interpreter accepts, and the
+    `SeqFileError` of each other file, by path, and MATLAB's JSON of each accepted file. MATLAB
+    reads only the files that `spec` accepts: a file that it rejects can make MATLAB loop with no
+    end (a cycle in an extension list, `tests/matlab_oracle/README.md`)."""
     models, rejected = {}, {}
     for path in FILES:
         try:
-            models[path] = read_strict(path)
+            models[path] = seqfile.read_seqfile(path)
         except (SeqFileError, NotSupported) as error:
             rejected[path] = error
     cache = getattr(request.config, "cache", None)
@@ -125,8 +140,8 @@ def cases(request):
 
 
 def case_of(cases, path):
-    """The `Case` of `path`, made on its first use. Skips when `read_strict` rejects the file,
-    and fails when MATLAB cannot read it."""
+    """The `Case` of `path`, made on its first use. Skips when the `spec` interpreter rejects the
+    file, and fails when MATLAB cannot read it."""
     models, dumps, rejected, made = cases
     if path in rejected:
         if isinstance(rejected[path], NotSupported):
@@ -134,12 +149,14 @@ def case_of(cases, path):
         rules = sorted({v.rule for v in rejected[path].violations})
         if rules == ["layer1.gradient-ends"]:
             pytest.skip(
-                "read_strict rejects the file (layer1.gradient-ends): a 1.4 file does not define "
+                "spec rejects the file (layer1.gradient-ends): a 1.4 file does not define "
                 "the values at the ends of an arbitrary gradient of time ID 0, or of one whose "
                 "time shape does not start at 0, and MATLAB guesses them from the block before"
             )
-        pytest.skip(f"read_strict rejects the file ({', '.join(rules)})")
+        pytest.skip(f"spec rejects the file ({', '.join(rules)})")
     name = path.relative_to(SEQFILES)
+    if "error" in dumps[path] and str(name) in MATLAB_CANNOT_READ:
+        pytest.skip(f"MATLAB cannot read the file: {MATLAB_CANNOT_READ[str(name)]}")
     assert "error" not in dumps[path], f"{name}: MATLAB cannot read it: {dumps[path]['error']}"
     if path not in made:
         made[path] = Case(name, models[path], dumps[path])
@@ -229,22 +246,30 @@ def _compare_rf_samples(diff, where, rf, theirs):
     diff.times(where, "t", rf.t, theirs["t"])
 
 
+def _same_end_as_matlab(rf, raster):
+    """Whether MATLAB's `shape_dur` of the event is the package's `shape_dur`. MATLAB rounds the
+    last time of a time shape up to the RF raster (`Sequence.m:531`), and has the number of
+    samples times the RF raster without one (`Sequence.m:535`). So the two are equal for an event
+    with no time shape, for cells of one RF raster (the last time is `(n - 0.5)` rasters, which
+    rounds up to `n`) and for points whose last time is a whole number of RF rasters. They differ
+    for cells of a dwell of more than one raster (the pulse ends at `n d`, MATLAB's at its last
+    time rounded up) and for points whose last time is not a whole number (D37)."""
+    if rf.dwell is not None:
+        return rf.dwell == raster
+    last = rf.t[-1] / raster
+    return abs(last - round(last)) <= TIME_TOLERANCE
+
+
 def compare_rf(diff, where, rf, theirs, data):
     """Compare an `RfEvent` with MATLAB's `rf` of `getBlock`.
 
-    The package decodes an RF event with a time shape as the scanner's reader plays it (U24 to
-    U26 of `docs/plans/own-parser-tasks.md`). With a time shape that the reader takes as regular
-    (`model._rf_time_step`), it plays the samples at the centres of cells of the step from the
-    delay; the parser checks that the stored times are those centres (`shape.rf-time-grid`), so
-    the samples and `t` are compared, but not `shape_dur`: MATLAB rounds the last time up to the
-    RF raster (`Sequence.m:531`), the reader gives the number of samples times the step. With
-    any other time shape, the reader resamples the pulse to the RF raster and MATLAB keeps the
-    stored points, so `magnitude`, `phase`, `t` and `shape_dur` are not compared. The scalar
-    fields are compared for every RF event."""
-    regular = rf.time_id > 0 and _rf_time_step(data.shapes[rf.time_id]) is not None
-    if rf.time_id == 0 or regular:
-        _compare_rf_samples(diff, where, rf, theirs)
-    if rf.time_id == 0:
+    MATLAB's `rf.t` is the time shape times the RF raster, and `rf.signal` the samples, so
+    `magnitude`, `phase` and `t` are compared for every RF event, cells and points (the cells of a
+    regular time shape are at the times of the shape). `shape_dur` is compared where MATLAB's
+    rounding gives the end of the package (`_same_end_as_matlab`). The scalar fields are compared
+    for every RF event."""
+    _compare_rf_samples(diff, where, rf, theirs)
+    if _same_end_as_matlab(rf, data.rasters.rf):
         diff.times(where, "shape_dur", rf.shape_dur, theirs["shape_dur"])
     if data.version >= (1, 5, 0):
         diff.times(where, "center", rf.center, theirs["center"])
@@ -465,7 +490,10 @@ def test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq(cases, 
     from pulseq_analysis.seqfile import CppSiemens, read_seqfile
 
     case = case_of(cases, path)
-    data = read_seqfile(path, CppSiemens(rotation="apply"))
+    try:
+        data = read_seqfile(path, CppSiemens(rotation="apply"))
+    except SeqFileError as error:
+        pytest.skip(f"cpp-siemens rejects the file ({', '.join(sorted(error.codes))})")
     decoding = synth.decode(data)
     # valid_1_5_1_rotation_not_played.seq has a rotation that no block plays: 0 blocks rotated.
     assert decoding.rotation_record.rotated == decoding.rotation_record.blocks

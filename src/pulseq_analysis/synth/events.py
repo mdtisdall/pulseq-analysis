@@ -1,5 +1,6 @@
 """The events of a Pulseq file, decoded from the model of layer 1 (`model.SequenceData`) that the
-interim `strict` interpreter read. The decoding of `cpp-siemens` is the C++ reader's own
+`spec` interpreter read: the decoder of `spec` (stage 2 of section 7.2 of
+`docs/plans/parser-redesign.md`). The decoding of `cpp-siemens` is the C++ reader's own
 (`decoding.CppSiemensDecoding`); these functions refuse its model.
 
 `decode_rf`, `decode_gradients` and `decode_adc` each give every row of a table of the model,
@@ -11,31 +12,43 @@ is decompressed once in one call.
 Each event is a frozen dataclass made with `model._model`: its arrays are read-only, two events
 are equal when each field is equal, and an event can be pickled. A time is in s from the start
 of the event (after `delay`). An amplitude is in Hz (RF) or Hz/m (gradients), as in the file. No
-value of a target (gamma, dead times, ringdown times) is used.
+value of a target (gamma, dead times, ringdown times) is used. The sources are cited as in
+`seqfile.spec`: spec:N is line N of the specification, "slide N" a slide of the slide set that its
+section 2.6 cites.
 
-The times of the gradient samples are those of `getBlock` of MATLAB Pulseq (`Sequence.m`), for
-`n` samples. An arbitrary gradient with time ID 0 has a sample at the centre of each cell of the
-gradient raster `dt`: `tt = (i + 0.5) * dt` and `shape_dur = n * dt`. With time ID -1
-(oversampled) the samples are half a raster apart: `tt = (i + 1) / 2 * dt` and
-`shape_dur = (n + 1) / 2 * dt`. With a time shape, `tt` is the shape times `dt`, and `shape_dur`
-is the last time.
+**Gradients.** An arbitrary gradient with time ID 0 has a sample at the centre of each cell of
+the gradient raster `dt` (spec:290; slide 7): `tt = (i + 0.5) dt`, `shape_dur = n dt`. With time
+ID -1 (oversampled, from 1.5.0) all the samples are kept, half a raster apart, the first and the
+last at cell centres (spec:420; slides 4 and 8; D43): `tt = (i + 1) / 2 dt`,
+`shape_dur = (n + 1) / 2 dt`. With a time shape, the samples are the vertices of an extended
+trapezoid (slide 6): `tt` is the shape times `dt`, and `shape_dur` is the last time. Between its
+points a gradient is a straight line, from `first` at the start to `last` at the end
+(`seq_utils.gradient_offsets` gives the points; D41: `cpp-siemens` and pypulseq draw the same
+lines, MATLAB Pulseq restores values at the raster edges).
 
-The RF samples are those that the scanner's reader plays (`ExternalSequence.cpp` of the C++
-oracle, `decodeBlock`, lines 2010 to 2063). Where that reader and MATLAB Pulseq disagree, the
-package follows the reader, by the decision of the user. Each RF sample is at the centre of a
-cell of the dwell time, `t = (i + 0.5) * dwell`, and `shape_dur` is the number of samples times
-the dwell time:
+**RF.** Without a time shape, each sample is a cell of the RF raster: `t = (i + 0.5) dwell`,
+`shape_dur = n dwell`, `dwell` the RF raster (spec:290). With a time shape (D35 to D37):
 
-- Without a time shape, the dwell time is the RF raster, and the samples are those of the shapes.
-- With a time shape that the reader takes as regular (`model._rf_time_step`), the dwell time is
-  the step of the shape times the RF raster, and the samples are those of the shapes. The first
-  time of the shape is not used.
-- With another time shape, the reader resamples the pulse to the RF raster (`model._rf_resample`):
-  the dwell time is the RF raster, and each cell plays one stored sample.
+- a regular shape, whose times are `(i + 0.5) d` (`model.rf_time_step`), is cells of `d`: each
+  sample is held for one dwell around its time, from the start of the pulse (slide 9), and the
+  pulse lasts `n d`;
+- any other shape is points at its times (slide 4: they need not be on the raster edges; slide 9:
+  a pulse "defined by vertices"), joined by straight lines of the complex signal, and the pulse
+  ends at its last time. The straight line is the linear interpolation of the complex signal that
+  the C++ reader names as its intent (`ExternalSequence.cpp` of pulseq/pulseq at `c7469123`, the
+  FIXME at line 2033: "convert to complex, use linear interpolation and convert back to
+  magnitude&phase"), and that MATLAB Pulseq uses for the RF power, bandwidth and simulation
+  (`calcRfPower.m`, `calcRfBandwidth.m`, `simRf.m`). The C++ reader itself holds each sample for
+  whole RF raster cells (nearest neighbour), and plays a regular-looking shape that does not start
+  at half a step as cells from 0 (`docs/discrepancies.md`, D35, D36).
 
-MATLAB Pulseq (`rfFromLibData` of `Sequence.m`) keeps the stored samples and the times of the
-time shape (the shape times the RF raster), and ends the pulse at the last time rounded up to the
-RF raster.
+`RfEvent.dwell` is the dwell of cells, or `None` for points, and `RfEvent.signal(times)` gives the
+complex signal at any times. The magnitude is the amplitude times the magnitude shape as written,
+a negative sample included (a phase of pi, D31); the phase is 2 pi times the phase shape as
+written, with no wrap (D32).
+
+**ADC.** The phase modulation shape is in rad, one value for each ADC sample (D44): the reader
+rejects a shape of another length.
 """
 
 from collections.abc import Mapping
@@ -43,8 +56,8 @@ from types import MappingProxyType
 
 import numpy as np
 
-from ..seqfile.interpreters import Strict
-from ..seqfile.model import SequenceData, _model, _rf_resample, _rf_time_step
+from ..seqfile.interpreters import Spec
+from ..seqfile.model import SequenceData, _model, rf_time_step
 
 
 @_model
@@ -100,12 +113,14 @@ GradEvent = Trapezoid | ArbitraryGradient
 
 @_model
 class RfEvent:
-    """An RF event (`[RF]`). The module docstring gives the samples and their times `t`.
+    """An RF event (`[RF]`). The module docstring gives the samples, their times `t` and how they
+    play.
 
     `magnitude` is the amplitude times the magnitude shape, and `phase` is 2 pi times the phase
-    shape, at the samples that the scanner's reader plays. The amplitude and the shape IDs
-    identify the pulse without its offsets. `center` is `None` for a file of version 1.4, which
-    has no center. `use` is one character, as in the file (`u` for a file of version 1.4).
+    shape, at the times `t`. `dwell` is the dwell time of a pulse of cells (the RF raster without
+    a time shape), or `None` for a pulse of points. The amplitude and the shape IDs identify the
+    pulse without its offsets. `center` is `None` for a file of version 1.4, which has no center.
+    `use` is one character, as in the file (`u` for a file of version 1.4).
     """
 
     id: int
@@ -116,6 +131,7 @@ class RfEvent:
     magnitude: np.ndarray  # Hz
     phase: np.ndarray  # rad
     t: np.ndarray  # s
+    dwell: float | None  # s
     shape_dur: float  # s
     center: float | None  # s
     delay: float  # s
@@ -125,13 +141,31 @@ class RfEvent:
     phase_offset: float  # rad
     use: str
 
+    def signal(self, times: np.ndarray) -> np.ndarray:
+        """The complex signal `magnitude * exp(1j * phase)` (Hz) at `times` (s from the start of
+        the event, after `delay`), without the offsets. A pulse of cells holds each sample from
+        `i dwell` to `(i + 1) dwell`; a pulse of points is a straight line of the complex signal
+        between two neighbouring points. The signal is 0 outside the pulse: for cells before 0 and
+        from `shape_dur` on, for points before the first time and after the last."""
+        times = np.asarray(times, dtype=np.float64)
+        samples = self.magnitude * np.exp(1j * self.phase)
+        if self.dwell is not None:
+            cell = np.floor(times / self.dwell).astype(np.int64)
+            inside = (cell >= 0) & (cell < samples.size)
+            return np.where(inside, samples[np.clip(cell, 0, samples.size - 1)], 0j)
+        inside = (times >= self.t[0]) & (times <= self.t[-1])
+        if samples.size == 1:
+            return np.where(inside, samples[0], 0j)
+        line = np.interp(times, self.t, samples.real) + 1j * np.interp(times, self.t, samples.imag)
+        return np.where(inside, line, 0j)
+
 
 @_model
 class AdcEvent:
     """An ADC event (`[ADC]`).
 
-    `phase_modulation` is the shape `phase_shape_id` as the file stores it, decompressed, with no
-    factor, or `None` when `phase_shape_id` is 0. The specification gives it no unit.
+    `phase_modulation` is the shape `phase_shape_id`, decompressed, in rad: one value for each
+    ADC sample (D44), or `None` when `phase_shape_id` is 0.
     """
 
     id: int
@@ -143,16 +177,16 @@ class AdcEvent:
     freq_offset: float  # Hz
     phase_offset: float  # rad
     phase_shape_id: int  # 0 is no modulation
-    phase_modulation: np.ndarray | None
+    phase_modulation: np.ndarray | None  # rad
 
 
 class _Shapes:
     """The decompressed samples of the shapes of `data`, each decompressed on its first use."""
 
     def __init__(self, data: SequenceData) -> None:
-        if not isinstance(data.interpreter, Strict):
+        if not isinstance(data.interpreter, Spec):
             raise TypeError(
-                f"the events decode the model of the strict interpreter, not of "
+                f"the events decode the model of the spec interpreter, not of "
                 f"{data.interpreter}: use synth.decode"
             )
         self._shapes = data.shapes
@@ -174,16 +208,17 @@ def decode_rf(data: SequenceData) -> Mapping[int, RfEvent]:
         mag = shapes[int(row["mag_id"])]
         phase = shapes[int(row["phase_id"])]
         time_id = int(row["time_id"])
-        dwell = raster
+        dwell: float | None = raster
         if time_id > 0:
-            step = _rf_time_step(data.shapes[time_id])
-            if step is not None:
-                dwell = step * raster
-            else:
-                played = _rf_resample(shapes[time_id])
-                mag, phase = mag[played], phase[played]
-        t = (np.arange(mag.size) + 0.5) * dwell
-        shape_dur = mag.size * dwell
+            times = shapes[time_id]
+            step = rf_time_step(times)
+            dwell = None if step is None else step * raster
+        if dwell is None:
+            t = shapes[time_id] * raster
+            shape_dur = float(t[-1])
+        else:
+            t = (np.arange(mag.size) + 0.5) * dwell
+            shape_dur = mag.size * dwell
         events[int(row["id"])] = RfEvent(
             id=int(row["id"]),
             amplitude=amplitude,
@@ -193,6 +228,7 @@ def decode_rf(data: SequenceData) -> Mapping[int, RfEvent]:
             magnitude=amplitude * mag,
             phase=2 * np.pi * phase,
             t=t,
+            dwell=dwell,
             shape_dur=shape_dur,
             center=None if data.version < (1, 5, 0) else float(row["center"]),
             delay=float(row["delay"]),
