@@ -554,6 +554,17 @@ def test_a_shape_ends_only_at_a_blank_line(tmp_path):
     assert all(lines[v.line - 1].startswith("shape_id") for v in error.violations)
 
 
+def test_sample_lines_of_two_values_are_syntax_number(tmp_path):
+    """A sample line is one finite number, also when every sample line of the file has two
+    values (`numpy.loadtxt` read such lines as a table of two columns before the reader was
+    built on the "as written" reading, and the decompression failed with numpy's message)."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    two = re.sub(r"^(-?[0-9.]+)$", r"\1 0", text, flags=re.MULTILINE)
+    error = violations_of(_write(tmp_path, two, "two.seq"))
+    assert {v.rule for v in error.violations} == {"syntax.number"}
+    assert error.violations[0].message.endswith("is not one finite number")
+
+
 def test_a_repeated_block_id_is_id_unique_and_not_blocks_order(tmp_path):
     text = (SEQFILES / "valid_no_signature.seq").read_text()
     row = "3  50  0  0  0  3  0  0\n"
