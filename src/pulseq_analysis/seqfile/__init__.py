@@ -8,6 +8,8 @@ of the package.
   replaces it, or `cpp-siemens` (`cpp_siemens`, the C++ reader of the scanner's interpreter on
   Siemens systems), by name. It returns a `SequenceData`, or raises
   `SeqFileError` (with a code for each reason) or `NotSupported`.
+- `read_pypulseq(seq, interpreter="strict")`: a `pypulseq.Sequence` in memory, written with
+  pypulseq's writer and read as `read_seqfile` reads the file (`from_pypulseq`, task R15).
 
 These readings are the contract with pulseq-checks (section 7.3 of
 `docs/plans/parser-redesign.md`); a change to them is noted in `CHANGELOG.md`.
@@ -15,6 +17,7 @@ These readings are the contract with pulseq-checks (section 7.3 of
 
 from .as_written import AsWritten, Column, Line, Section, ShapeWritten, Table, read_as_written
 from .errors import NotSupported, SeqFileError, Violation
+from .from_pypulseq import read_pypulseq
 from .interpreters import (
     INTERPRETERS,
     OVERSAMPLING,
@@ -46,5 +49,6 @@ __all__ = [
     "Violation",
     "interpreter",
     "read_as_written",
+    "read_pypulseq",
     "read_seqfile",
 ]

@@ -370,6 +370,7 @@ The measurements (R14) take the waveforms of one interpreter.
 ```python
 seqfile.read_as_written(path) -> AsWritten  # the "as written" reading (P13), with line numbers
 seqfile.read_seqfile(path, interpreter="strict") -> SequenceData  # .interpreter; "spec" from R11
+seqfile.read_pypulseq(seq, interpreter="strict") -> SequenceData  # a pypulseq.Sequence, written (R15)
 synth.decode(data) -> ...  # the events and the waveform of each block, by data.interpreter
 analyses.load(path, interpreter="strict") -> ...  # the measurements (R14); "spec" from R11
 
