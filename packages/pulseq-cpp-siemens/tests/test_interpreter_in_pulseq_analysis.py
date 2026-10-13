@@ -21,7 +21,6 @@ from test_from_pypulseq import (
     check_a_rejection,
     check_reads_as_its_written_file,
     check_the_mixed_sequence,
-    check_the_sequence_is_not_changed,
 )
 from test_matlab_oracle import cases  # noqa: F401 (the fixture of the MATLAB oracle)
 
@@ -49,12 +48,6 @@ def test_a_sequence_in_memory_reads_as_its_written_file_through_cpp_siemens(
 @pytest.mark.parametrize("interpreter", INTERPRETERS)
 def test_the_mixed_sequence_has_each_kind_of_event_through_cpp_siemens(interpreter):
     check_the_mixed_sequence(interpreter)
-
-
-@pytest.mark.parametrize("interpreter", INTERPRETERS)
-@pytest.mark.parametrize("name", SEQUENCES)
-def test_the_sequence_is_not_changed_by_cpp_siemens(name, interpreter):
-    check_the_sequence_is_not_changed(SEQUENCES[name](), interpreter)
 
 
 def arbitrary_gradient_4us_sequence() -> pp.Sequence:

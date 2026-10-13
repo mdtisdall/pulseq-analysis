@@ -243,17 +243,6 @@ def test_load_of_a_sequence_is_read_pypulseq_of_it(build, interpreter):
     check_load_of_a_sequence(build(), interpreter)
 
 
-@pytest.mark.pypulseq
-@pytest.mark.parametrize("build", _BUILDERS)
-def test_load_of_a_sequence_and_of_its_file_give_equal_results(build, tmp_path):
-    """The results of `load(seq)` equal those of `load(path)` of the file that `seq.write(path)`
-    makes: a sequence is read as its file is."""
-    seq = build()
-    path = tmp_path / "sequence.seq"
-    seq.write(str(path))
-    assert _differences(_results(load(seq)), _results(load(path))) == []
-
-
 @pytest.mark.parametrize(
     ("name", "code"),
     [

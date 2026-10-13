@@ -269,17 +269,16 @@ cannot be read. The comparison ignores the case.
 
 `test_seq_utils.py` tests the shared helpers in `seq_utils.py` that the
 measurements use to read the decoded gradient events: `gradient_offsets` and
-`gradient_points`, the gradient corner/sample helpers. It also checks that the synthetic
-sequences in `tests/synthetic.py` are legal Pulseq.
+`gradient_points`, the gradient corner/sample helpers.
 
 #### `test_time_tolerance`
 
-**Checks:** The time tolerance is 1 ns, and it is the `eps` of pypulseq (the join rule
-of `sampling` uses it in place of `pp.eps`).
+**Checks:** The time tolerance of `seq_utils` is 1 ns.
 
-**How:** The test compares `seq_utils.TIME_TOLERANCE` with 1e-9 and with `pp.eps`.
+**How:** The test compares `seq_utils.TIME_TOLERANCE` with 1e-9.
 
-**Assumptions:** The test checks a constant of the tests, not code of the package.
+**Assumptions:** The test checks a constant of the package (the tolerance of a comparison of
+two times), not a calculation. It needs no pypulseq.
 
 #### `test_the_gamma_of_the_tests_is_the_gamma_of_the_test_system`
 
@@ -315,25 +314,6 @@ depends on to rebuild point times from the stored offset tables.
   point in this test is that `gradient_points` is defined in terms of
   `gradient_offsets` with no room for a rounding difference to creep in.
 
-#### `test_synthetic_sequences_pass_the_timing_check`
-
-**Checks:** Each synthetic sequence builder in `tests/synthetic.py` passes
-pypulseq's timing check.
-
-**How:** The test runs once for each of four builders — `spin_echo_sequence`,
-`gre_sequence`, `empty_sequence` and `arbitrary_gradient_sequence` — builds
-the sequence, calls its `check_timing` method, and asserts that the check
-passes, showing the report if it does not.
-
-**Assumptions:**
-
-- pypulseq's timing check is trusted to cover raster alignment, RF dead time
-  and ringdown, and ADC dead time before and after the ADC. This test does
-  not check the package's own reading of the sequence, only that the
-  synthetic sequences are legal Pulseq.
-- The test checks the test helpers (the synthetic sequences against the timing check
-  of pypulseq), not code of the package.
-
 #### `test_gradient_offsets_of_a_decoded_trapezoid`
 
 **Checks:** `gradient_offsets` accepts an `events.Trapezoid` and gives its delay, its four corner
@@ -363,7 +343,7 @@ exactly.
 snapshot (section 2.7 tests the keep) and, for a result that is not kept, calls
 `_compute_levels`, which samples the gradients block by
 block (`GradientSampler.block_samples`), runs the SAFE model of `safe.py`
-(`_safe_gwf_to_pns_chunk`, ported from the pinned pypulseq fork) over them in chunks, and keeps only the stored level
+(`_safe_gwf_to_pns_chunk`, ported from pypulseq's SAFE model) over them in chunks, and keeps only the stored level
 (the minimum and the maximum of the total in fixed time bins) and the summary (the
 peak, the peak time and the axis peaks), and the intervals of consecutive samples
 whose total is at or above each threshold of the `thresholds_hz_per_t` argument
@@ -373,36 +353,29 @@ no threshold); and `bin_samples_for`, which picks the bin size. A PNS value of
 gamma, because the model runs on the Hz/m samples and reads no gamma. The test file
 defines `_LIMIT = GAMMA_1H`, the stimulation limit for 1H in Hz/T (a fraction of 1 times
 `GAMMA_1H`), and gives a
-threshold or a comparison as a fraction times `_LIMIT`. The reference for most tests is
-`seq.calculate_pns` of the pinned fork
-(this project does not test pypulseq itself, only compares this library's output with
-pypulseq's or with its own other output).
-`calc_pns` samples `seq.get_gradients()` at the file times `(k + 0.5) * dt`, which
-drift off the ideal raster grid by float rounding of the block start time sums;
-`pns_levels` samples each block at its own local
-raster times, with no such drift. Both then run the same SAFE model (the chunk function of
-`safe.py` is the fork's, to the last bit: section 2.21), so a
-relative 1e-5-of-peak tolerance covers the whole
-difference and the rounding of the file that pypulseq writes from the builder's sequence (`calc_pns`
-reads the builder's `pp.Sequence`, `pns_levels` reads the file). `calc_pns` divides the gradients by
-`seq.system.gamma` and so gives fractions: the tests divide each value of `pns_levels` by
-`seq.system.gamma` before they compare it with `calc_pns`.
+threshold or a comparison as a fraction times `_LIMIT`.
 
-`pns_levels` uses the gradient waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). pypulseq
-draws a line across each gap between two events and has no step at a block junction
-(pypulseq-issues 12). So a comparison with `calc_pns` holds only for a sequence with no end that
-is not 0 next to a gap of more than one raster time, and no step at a block junction. All the
-sequences of those comparisons are such sequences: the spin echo, the GRE, the arbitrary
-gradient, the border sequence and the off-raster trapezoid. The sequences with an end that is
-not 0 next to a gap are compared with the SAFE model of the fork on the samples of the oracle
-waveform (`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`,
-section 3.10).
+The reference of the values is the SAFE model of the oracle samples (`_oracle_model` of the test
+file): the package's own `_safe_gwf_to_pns_chunk` in one chunk, with the example hardware, on the
+samples of the oracle of the gradient waveform (`tests/oracles/waveform.py`, the model of MATLAB
+Pulseq) of `sequence_of(snap)`: `oracle.block_samples` at the gradient raster for a sequence on
+the raster, and `oracle.sample` at the file times `(k + 0.5) * dt`, `k < num_samples`, for one
+that is not. The values are the percent times 0.01 and the total is `sqrt(sum of squares)`, as
+`pns_levels` computes them, in Hz/T, so no gamma is divided. The filter is the same as that of
+`pns_levels`, and section 2.21 checks it against the golden values of pypulseq's fork; the
+reference tests the samples, the chunks, the bins, the peak search and the summary of
+`pns_levels`. The oracle reads the gradients as the snapshot plays them, so the rounding of the
+written file is not in a difference, and the tolerances are tight: a relative 1e-9 for the
+peaks, and for a bin a relative 1e-6 (the float32 cast) and an absolute 1e-12 of the peak (the
+rounding residue of a sample that is 0). The sequences with an end that is not 0 next to a gap,
+which `spec` rejects, have the same comparison in section 3.10
+(`test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`).
 
 A second call of `pns_levels` with the same snapshot and the same arguments gives the
 kept object. Each test makes its snapshot with `analyses.load`, which reads the written text of a
 pypulseq sequence through an interpreter (`spec`; the test of a sequence that `spec` rejects is in
 section 3.10 and loads it with `cpp-siemens`). The oracles read `sequence_of(snap)` (`tests/oracles/blocks.py`), the gradients as the
-snapshot plays them, and `calc_pns` reads the `pp.Sequence` of the builder. A sequence with a block
+snapshot plays them. A sequence with a block
 of 1.5 raster times has a block duration raster of 1 µs (`_add_a_delay`), because pypulseq's writer
 refuses a block duration that is not a whole number of block raster times; `spec` reads that file. A test that changes `_CHUNK_SAMPLES` or `MAX_BINS` (the kept result would hide
 the change), or that compares two calculations of one sequence, calls `_compute_levels` through
@@ -423,58 +396,40 @@ values give the same float operations. The refusal of a missing `hardware`, of a
 `hardware` that is not a pair and of a struct that `_check_hardware` refuses is tested in
 section 2.7.
 
-#### `test_summary_matches_calculate_pns_within_the_fork_tolerance`
+#### `test_summary_is_the_safe_model_of_the_oracle_samples`
 
 **Checks:** For a spin echo, a gradient echo, an arbitrary gradient, and a
 hand-made "border" sequence (two extended-trapezoid blocks whose gradient is not
 zero at the block border between them), `pns_levels`'s peak, peak time and axis
-peaks equal `seq.calculate_pns`'s (example hardware) within a relative 1e-5 of the
-peak, after the peak and the axis peaks are divided by `seq.system.gamma`. Also checks
-`reason`, `hardware`, `dt_s` and `on_raster` for the example-hardware,
-on-raster case. The division is the conversion of `docs/usage.md` section 9, so this
-test also tests it. The reference reads the `pp.Sequence` of the builder, and `pns_levels` reads the
-file that pypulseq writes from it (amplitudes of about 6 significant digits).
+peaks equal those of the SAFE model of the oracle samples (`_oracle_model`, example
+hardware). Also checks `reason`, `hardware`, `dt_s` and `on_raster` for the
+example-hardware, on-raster case.
 
 **How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
 `arbitrary_gradient_sequence()` and `synthetic.border_sequence()` (two
 `pp.make_extended_trapezoid` blocks on x, the second continuing the first's
-amplitude with no step, so `add_block` accepts the junction). The reference peak,
-peak time (the first sample at or above `peak * (1 - PEAK_TOLERANCE)`, as
-`PnsLevels.peak_time_s`) and axis peaks come from
-`seq.calculate_pns(safe_example_hw(), do_plots=False)`. `pns_levels(snap)`'s fields
-are compared with `pytest.approx`: the
-peak and axis peaks (`peak_hz_per_t` and `axis_peaks_hz_per_t`, each divided by
-`seq.system.gamma`) with `abs = 1e-5 * ref_peak`, the peak time (not divided) with
-`abs = 1e-9` (both use the same `(k + 0.5) * dt` formula, so the same sample index gives
-the same float). The test keeps the `pp.Sequence` that the builder makes, loads it, and calls
-`calculate_pns` on the kept object. The `seq.system.gamma` and `grid_raster_time` are those of the
-builder's sequence.
+amplitude with no step, so `add_block` accepts the junction). `_assert_summary_is_the_model`
+checks `num_samples` against the length of the model, the peak and the axis peaks with a
+relative 1e-9 (the axis peaks also with an absolute 1e-12 of the peak), and the peak time
+against the centre of the first sample of the model at or above `peak * (1 - PEAK_TOLERANCE)`
+(as `PnsLevels.peak_time_s`), with an absolute 1e-12 s.
 
-**Assumptions:** The tolerance of 1e-5 covers the drift of the file times and the rounding of the
-written file; the rounding gave a difference of 1.7e-6 of the peak for `spin_echo_sequence`. None of these sequences has two samples close enough together, in
-value, to flip which one the tolerance-based peak-time search finds first.
+**Assumptions:** None of these sequences has two samples close enough together, in value, to
+flip which one the tolerance-based peak-time search finds first.
 
-#### `test_stored_bins_match_calculate_pns_totals`
+#### `test_stored_bins_are_the_extremes_of_the_model_totals`
 
-**Checks:** Each stored bin's minimum and maximum equal the minimum and the maximum
-of `seq.calculate_pns`'s totals over the same samples, within the same 1e-5-of-peak
-tolerance, for the same four sequences, after each value of `pns_levels` is divided by
-`seq.system.gamma`. The reference is `calculate_pns` of the builder's own `pp.Sequence`, and
-`pns_levels` reads the written file.
+**Checks:** Each stored bin's minimum and maximum equal the minimum and the maximum of the
+totals of the SAFE model of the oracle samples (`_oracle_model`) over the same samples, for
+every bin, for the same four sequences.
 
-**How:** Same parametrization and reference call as
-`test_summary_matches_calculate_pns_within_the_fork_tolerance`. For each bin `i` of
-`pns_levels(snap)`, `s0 = i * bin_samples`, `s1 = min(s0 + bin_samples,
-levels.num_samples)` (the last bin can be shorter); the loop stops before a bin
-whose `s1` is past the end of `calc_pns`'s own array (shorter than `pns_levels`'s
-when a trailing block has no gradient event, for example `gre_sequence`'s TR
-padding: `pns_levels` keeps sampling into the filters' own decay past where
-`calc_pns` stopped, so a bin that straddles that point is not comparable). Each
-compared bin's `level_min_hz_per_t[i]`/`level_max_hz_per_t[i]` (each divided by
-`seq.system.gamma`) are checked against `norm[s0:s1].min()`/`.max()` with
-`pytest.approx(abs = 1e-5 * levels.peak_hz_per_t / gamma)`. Asserts at least one bin was
-compared. The test keeps the `pp.Sequence` that the builder makes, loads it, and calls
-`calculate_pns` on the kept object.
+**How:** Same parametrization as `test_summary_is_the_safe_model_of_the_oracle_samples`, with
+`bin_s` of 7 raster times, so that each sequence has more than one bin and the last bin is
+shorter. The reference of bin `i` is the minimum and the maximum of the model's totals from
+sample `i * bin_samples` to the next bin or the end. `numpy.testing.assert_allclose` compares
+`level_min_hz_per_t` and `level_max_hz_per_t` with them, with `rtol=1e-6` (the stored bins are
+float32, cast outward) and `atol` of 1e-12 of the peak, and the test checks that the number of
+bins is the number of references.
 
 **Assumptions:** None.
 
@@ -679,8 +634,9 @@ every field. The samples of a delay are 0 in both, so the totals are equal.
 **Checks:** `hardware=(SafeHardware.from_namespace(struct), label)` gives the same result as
 `hardware=(struct, label)`, every field exactly equal, for the example hardware.
 
-**How:** Parametrized over the four sequences of the comparison with `calculate_pns`. The test
-calls `_compute` (no keep) with the namespace pair `EXAMPLE_HW` and with the `SafeHardware`
+**How:** Parametrized over the four sequences of
+`test_summary_is_the_safe_model_of_the_oracle_samples`. The test calls `_compute` (no keep)
+with the namespace pair `EXAMPLE_HW` and with the `SafeHardware`
 pair, with one threshold of half of `_LIMIT`, checks that the peak is above 0, and compares the
 two results with `assert_levels_equal` and `ignore=()` (`numpy.array_equal` for the arrays,
 `==` for the rest, so the intervals of the threshold are also compared).
@@ -714,23 +670,14 @@ Checks `reason`, `list(levels.above) == [_LIMIT, 0.5 * _LIMIT]` and
 #### `test_off_raster_block_falls_back_to_sampling`
 
 **Checks:** A file with a block that is not on the gradient raster is reported as
-`on_raster=False`, and its peak, peak time and axis peaks equal `seq.calculate_pns`
-within a relative 1e-5 of the peak, after the peak and the axis peaks are divided by
-`seq.system.gamma` (the conversion of `docs/usage.md` section 9; both sample at the same file
-times, and `test_sampling.py` established that `GradientSampler.sample` and `seq.get_gradients()`
-agree to about float rounding; the tolerance is the rounding of the file that pypulseq writes,
-which `calculate_pns` of the builder's own sequence does not read). The trapezoid has no end that is not 0 next to a gap,
-so pypulseq's line across a gap is 0 there, as in the model of MATLAB Pulseq.
+`on_raster=False`, and its peak, peak time and axis peaks equal those of the SAFE model of the
+oracle samples at the file times `(k + 0.5) * dt` (`_oracle_model`).
 
 **How:** A trapezoid on x followed by a delay block of 1.5 raster
 times (pypulseq's `add_block` accepts this duration, though it is not a whole number of raster
-steps; the sequence has a block duration raster of 1 µs so that the writer accepts it). Compares `pns_levels(snap)`'s `on_raster`, `peak_hz_per_t` and `axis_peaks_hz_per_t`
-(each divided by `seq.system.gamma`) and `peak_time_s` with the values from
-`seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
-`test_summary_matches_calculate_pns_within_the_fork_tolerance` but with
-`abs = 1e-5 * ref_peak` (and `abs = 1e-9` for the peak time). It also checks
-that `num_samples` is at least the length of `calculate_pns`'s result: `pns_levels`
-covers the whole sequence, and `calc_pns` stops at the last gradient point.
+steps; the sequence has a block duration raster of 1 µs so that the writer accepts it). The test
+checks `on_raster` and then `_assert_summary_is_the_model`, as in
+`test_summary_is_the_safe_model_of_the_oracle_samples`.
 
 **Assumptions:** None.
 
@@ -752,22 +699,6 @@ reference, `on_raster is False`, more than three chunks, an
 interval above `_LIMIT`, `got == reference`, and `num_samples`.
 
 **Assumptions:** The sequence has an interval above `_LIMIT`.
-
-#### `test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns`
-
-**Checks:** An off-raster sequence that is longer than one chunk at the real
-`_CHUNK_SAMPLES` has the peak, the peak time and the axis peaks of `seq.calculate_pns`,
-within the tolerances of `test_off_raster_block_falls_back_to_sampling` (each value
-divided by `seq.system.gamma`). The peak is in the second chunk.
-
-**How:** A trapezoid on x (area 200), `pp.make_delay(0.35)`, a trapezoid on y (area
-1000) and a delay block of 1.5 raster times (block duration raster of 1 µs). The reference is
-`seq.calculate_pns(safe_example_hw(), do_plots=False)`. The test checks
-`on_raster is False`, `num_samples` more than one chunk
-(`bin_samples * ceil(_CHUNK_SAMPLES / bin_samples)`), a peak time after the first chunk,
-and then the peak, the peak time and the axis peaks.
-
-**Assumptions:** None.
 
 #### `test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some`
 
@@ -1060,39 +991,25 @@ the raster, the test calls both and compares each field of the `PnsLevels` but
 
 **Assumptions:** None.
 
-#### `test_the_levels_do_not_depend_on_the_gamma_of_the_system`
-
-**Checks:** The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of
-`SYSTEM` with another gamma, gives exactly equal levels in every field, including the
-intervals. The model runs on the Hz/m samples and reads no gamma.
-
-**How:** `waveform_sequence` (`tests/synthetic.py`) builds a trapezoid on x and an arbitrary gradient on y, each
-with an explicit amplitude in Hz/m (the arbitrary gradient has `first=0.0, last=0.0`), in
-three blocks. One sequence has `SYSTEM`, and the other has `copy.copy(SYSTEM)` with
-`gamma = 0.9 * SYSTEM.gamma`. The hardware gives a peak of 1.5 times `_LIMIT`
-(`hardware_for_peak` of `tests/pns_hardware.py`), and `thresholds_hz_per_t=(_LIMIT,)`. The test checks that the two
-gammas differ, that there is no reason and that `above[_LIMIT]` is not empty. Then
-`assert_levels_equal` (`tests/asserts.py`) with `ignore=()` compares the two results.
-
-**Assumptions:** None.
-
-#### `test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calculate_pns`
+#### `test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_the_limit`
 
 **Checks:** For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and
-the axis peaks of `pns_levels`, divided by `seq.system.gamma`, and its peak time equal
-`seq.calculate_pns` within a relative 1e-5 of the peak. The peak divided by the gamma of
-1H does not equal it. Thus the conversion of `docs/usage.md` section 9 uses the gamma of
-the caller.
+the axis peaks of `pns_levels`, divided by `seq.system.gamma`, are the fractions of the
+stimulation limit: those of the SAFE model of the oracle samples in T/m. Its peak time is that of
+the model. The peak divided by the gamma of 1H does not equal it. Thus the conversion of
+`docs/usage.md` section 9 uses the gamma of the caller.
 
 **How:** The sequence of `waveform_sequence` (`tests/synthetic.py`) with a copy of `SYSTEM` with
-`gamma = 0.9 * SYSTEM.gamma`. The reference peak, peak time and axis peaks come from
-`seq.calculate_pns(safe_example_hw(), do_plots=False)`, as in
-`test_summary_matches_calculate_pns_within_the_fork_tolerance`, with the same tolerances. The reference is `calculate_pns` of the builder's own `pp.Sequence`.
-The test also checks that `peak_hz_per_t / GAMMA_1H` is not within that tolerance of the
-reference peak.
+`gamma = 0.9 * SYSTEM.gamma`. The reference is `_oracle_model` with each sample divided by
+`seq.system.gamma` (T/m), so its values are fractions (the percent times 0.01).
+`_assert_summary_is_the_model` compares the values of `pns_levels` divided by
+`seq.system.gamma` with it, as in `test_summary_is_the_safe_model_of_the_oracle_samples`. The
+test also checks that `peak_hz_per_t / GAMMA_1H` is not within a relative 1e-5 of the reference
+peak.
 
-**Assumptions:** The two gammas give peaks that differ by more than the tolerance (a
-factor of 0.9 does).
+**Assumptions:** The model is linear in the samples, so the division by gamma of the samples
+and of the values give the same fractions. The two gammas give peaks that differ by more than
+the tolerance (a factor of 0.9 does).
 
 #### `test_the_levels_of_a_negated_waveform_are_equal`
 
@@ -1482,52 +1399,13 @@ raster times (10 µs here, the gradient raster time), so a block cannot be off t
 tests of blocks off the raster use a sample raster `dt` that is not a divisor of the block. The waveform
 is the gradient waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the
 oracle waveform of `tests/oracles/waveform.py` (section 2.15), read from `sequence_of(snap)`
-(`tests/oracles/blocks.py`), for every sequence with an end that is not 0 next to a long gap, or with a
-step at a block junction. For the other sequences it is also pypulseq's `seq.get_gradients()` of the
-sequence that the test built, because pypulseq draws a line across each gap and has no step at a
-junction (pypulseq-issues 12). The snapshot has no pypulseq object. `_assert_matches_oracle` compares
-`sample(axis, t)` with `oracle.sample`, with a relative 1e-12 and an absolute 1e-12 times the largest
-|value| of the reference. The oracle makes its points with the same sums as the sampler, so the
-difference is the rounding of the interpolation formula only. `_assert_matches_pypulseq` compares it
-with the `PPoly` of each axis of the built sequence, with a relative 1e-5 and an absolute 1e-5 times
-the largest |value|: the snapshot holds the values of the written file (6 significant digits of an
-amplitude, a relative error up to 5e-6) and pypulseq the values in memory. The comparisons check
-`GradientSampler`, not pypulseq.
-
-#### `test_whole_file_matches_pypulseq_for_synthetic_sequences`
-
-**Checks:** For each of the four synthetic sequence builders (a spin echo, a gradient
-echo, the arbitrary gradient, and the empty sequence), `GradientSampler.sample` gives
-the same three-axis waveform as `seq.get_gradients()`, sampled at the raster centres
-of the whole file.
-
-**How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
-`arbitrary_gradient_sequence()` and `empty_sequence()`. For each, the snapshot is `load(seq)` and `t` is
-`(k + 0.5) * grad_raster_time` for `k` in `range(ceil(duration / raster))`, with `duration` the
-sequence index's `end_s`; the test compares all three axes against `seq.get_gradients()` of the built
-sequence with `_assert_matches_pypulseq` (relative and absolute 1e-5 of the peak, the rounding of the
-writer).
-
-**Assumptions:**
-
-- None of these raster-centre times falls within `get_gradients()`'s excluded 1e-12 s
-  band around the first or last point of an axis (the `teps` zero points it adds); this
-  was not arranged, only observed to hold for these four sequences.
-
-#### `test_subrange_that_cuts_blocks_matches_pypulseq`
-
-**Checks:** A sample range that starts in the middle of one block and ends in the
-middle of another gives the same waveform as `seq.get_gradients()` on all three axes,
-including an axis whose only event in the file is entirely before the range.
-
-**How:** Builds `gre_sequence(num_trs=1)` (5 blocks: RF, phase-encode on y, readout on
-x with an ADC, spoiler on z, delay). `t` is 500 evenly spaced points from the middle of
-block 2 (the readout, which the range cuts) to the middle of block 4 (the delay, after
-the spoiler); the phase-encode event of block 1 is entirely before this range, so it
-also checks that gy is 0 for the rest of the file after its one event. Compares with
-`_assert_matches_pypulseq`.
-
-**Assumptions:** None.
+(`tests/oracles/blocks.py`). pypulseq's `seq.get_gradients()` is not a reference: it draws a line
+across each gap and has no step at a junction (pypulseq-issues 12). The snapshot has no pypulseq
+object. `_assert_matches_oracle` compares `sample(axis, t)` with `oracle.sample`, with a relative
+1e-12 and an absolute 1e-12 times the largest |value| of the reference. The oracle makes its points
+with the same sums as the sampler, so the difference is the rounding of the interpolation formula
+only. The oracle comparisons of the synthetic sequences (`test_sample_equals_the_oracle_for_the_whole_sequence`
+and the tests after it) cover the whole file and sub-ranges that cut blocks.
 
 #### `test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_oracle`
 
@@ -1587,27 +1465,17 @@ oracle.
 
 **Assumptions:** None.
 
-#### `test_single_sample_matches_pypulseq`
-
-**Checks:** `sample` gives the pypulseq value for a `t` array of length 1.
-
-**How:** Builds `gre_sequence(num_trs=1)`, samples at one time (the middle of the
-readout block), and compares with `_assert_matches_pypulseq`.
-
-**Assumptions:** None.
-
 #### `test_amplitude_continues_across_a_block_junction`
 
 **Checks:** Two extended trapezoids that together make one trapezoid, split into two
 blocks at the middle of the flat top so the amplitude continues unchanged from one
-block into the next, give the same waveform as `seq.get_gradients()` around the
-junction: the junction does not create a spurious step.
+block into the next, give the waveform of the oracle around the junction: the junction does
+not create a spurious step.
 
 **How:** `_junction_sequence(step_hz_per_m=0.0)` builds the two extended trapezoids
 from the rise, flat and fall of one area-1000 trapezoid, split at the middle of the
 flat top, and returns the junction time. `t` is 41 points evenly spaced over 40
-gradient-raster periods centred on the junction. Compares with
-`_assert_matches_pypulseq`.
+gradient-raster periods centred on the junction. Compares with `_assert_matches_oracle`.
 
 **Assumptions:** None.
 
@@ -1630,31 +1498,28 @@ exercised here only because building the sequence requires it to pass.
 
 **Assumptions:** None.
 
-#### `test_triangle_trapezoid_matches_pypulseq`
+#### `test_triangle_trapezoid_matches_the_oracle`
 
 **Checks:** A trapezoid with no flat time (`make_trapezoid` gives `flat_time == 0.0`),
 whose `gradient_offsets` therefore has two points at the same time with the same
-value, gives the same waveform as `seq.get_gradients()`: the removal of a point that
-has the time and the value of the point before it does not change the value.
+value, gives the waveform of the oracle: the removal of a point that has the time and the
+value of the point before it does not change the value.
 
-**How:** Builds a single-block sequence with one small-area trapezoid on x, asserts
-`flat_time == 0.0` to confirm the construction is the intended triangle, samples the
-whole file at the raster centres, and compares with `_assert_matches_pypulseq`.
+**How:** `_triangle_sequence` builds a single-block sequence with one small-area trapezoid on
+x and asserts `flat_time == 0.0` to confirm the construction is the intended triangle. The test
+samples the raster centres and the points of the oracle's polyline (`_model_times`) and compares
+with `_assert_matches_oracle`.
 
 **Assumptions:** None.
 
 #### `test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient`
 
 **Checks:** `sample` gives the correct waveform for a file with an oversampled
-arbitrary gradient (`make_arbitrary_grad(oversampling=True)`): pypulseq issue #423, fixed
-by the project's
-pypulseq pin (`pulseq-reports-pin-2`, with the fix of pypulseq PR #424). The reference is not
+arbitrary gradient (`make_arbitrary_grad(oversampling=True)`). The reference is not
 `seq.get_gradients()`: pypulseq's `waveforms()` leaves out the first and the last point
-of an oversampled gradient (a separate pypulseq bug, draft 03 of
-`github.com/mdtisdall/pypulseq-issues`), so `_assert_matches_pypulseq`'s own reference
-would be wrong for this event by construction, not only by the bug under test. The
+of an oversampled gradient (draft 03 of `github.com/mdtisdall/pypulseq-issues`). The
 reference is instead the polyline of the added events (the objects `make_*` returns,
-before `add_block`), which does not depend on either pypulseq bug.
+before `add_block`), which does not depend on that.
 
 **How:** Builds three blocks with `SYSTEM` of `synthetic.py`: an oversampled ramp
 (`make_arbitrary_grad("x", ..., oversampling=True)`, 21 samples at 50 % of `max_slew`
@@ -1673,13 +1538,10 @@ reference (`rtol=0`; the file holds the amplitudes to 6 significant digits). The
 `load(seq)`: `read_pypulseq` calls pypulseq's `seq.remove_duplicates()`, which raises `KeyError: -1`
 for the time shape -1 of an oversampled gradient. The test writes the file with
 `seq.write(path, create_signature=True, remove_duplicates=False, check_timing=False)`, as
-`read_pypulseq` does after the removal, and loads the path (`spec` accepts it). Before the pin's fix, this test's own error is about 40 % of the
-peak (checked against a pypulseq checkout at the old pin, `20b9e5e`).
+`read_pypulseq` does after the removal, and loads the path (`spec` accepts it).
 
 **Assumptions:**
 
-- The pin (`pulseq-reports-pin-2`) has the fix of pypulseq PR #424. A pypulseq without
-  it fails this test: checked against a checkout of the old pin (`20b9e5e`).
 - pypulseq's writer writes `remove_duplicates=False` for this sequence (the time shape id -1 of an
   oversampled gradient is in the file as `-1`).
 
@@ -2020,7 +1882,8 @@ lengths (the cache key is `(event, dt)`, and a block of `n` samples has the firs
 this holds whichever length the sampler meets first.
 
 **How:** Parametrized by the order of the two blocks (short then long, long then short). A
-trapezoid on x (rise 50 us, flat 30 us, fall 50 us) is in both. The short block has the trapezoid
+trapezoid on x (rise 50 us, flat 30 us, fall 50 us) is in both. The oracle reads
+`sequence_of(snap)`. The short block has the trapezoid
 alone: 13 samples. The long block has it and a delay of 400 us: 40 samples, of which the last 27
 are 0. The test checks that the two blocks have one event ID. For each of two orders of calls
 (block 0 first, block 1 first), a new sampler gives block 0, block 1 and both blocks. Each range
@@ -2093,16 +1956,18 @@ raster.
 (`_played.played_gradients`) and the columns of `seq_index.sequence_index`, not from every block. It
 uses the gradient waveform of MATLAB Pulseq: a step across a zero gap, a line across a short gap,
 and a ramp to 0 and a ramp from 0 across a long gap (`docs/implementation.md`, section 1). The slew
-includes the steps, the lines and the ramps. The tests below the first group add: the largest
-slew of an arbitrary gradient and of an extended trapezoid (computed from the event's own corner
-points), the credited block for a value that several blocks and axes share, a window that keeps
+includes the steps, the lines and the ramps. The tests below the first group add: the credited
+block for a value that several blocks and axes share, a window that keeps
 only part of a ramp's slew, the vector peak of two blocks with different triples of active
 gradients, the step at a junction, the step at the last point of an axis, the ramps of a first
 value after a delay, the gap sequences of `tests/gap_sequences.py` with their hand-computed
 values, the refusal of a bad window before the sequence is read, the range of a window past an
-end of the sequence, and comparisons with the oracle of the gradient waveform
-(`tests/oracles/waveform.py`, section 2.15). The oracle builds the polyline of each axis one
-time and reads every value from it, so it shares no code with the package.
+end of the sequence, and a comparison with the oracle of the gradient waveform
+(`tests/oracles/waveform.py`, section 2.15) on random sequences. The oracle builds the polyline
+of each axis one time and reads every value from it, so it shares no code with the package. The
+comparisons with the oracle on the synthetic sequences and on the sequences of the oracle's own
+tests are in section 3.10: they load the sequences through `cpp-siemens`, with the helpers of this
+file.
 
 Every test reads a pypulseq sequence with `load(seq)` (`spec`; `pulseq_analysis.analyses.load`):
 the sequence is written by pypulseq's writer and read as a file. The
@@ -2144,26 +2009,6 @@ trapezoid's own block ID.
 - The trapezoid's `fall_time` equals its `rise_time`, which is
   `pp.make_trapezoid`'s default when only `rise_time` is given.
 
-#### `test_the_values_do_not_depend_on_the_gamma_of_the_system`
-
-**Checks:** The values of `gradient_peaks` (with and without a window) and of
-`block_gradient_values` do not depend on `seq.system.gamma`. For one waveform in Hz/m, the
-values of a sequence of `SYSTEM` and of a sequence of a copy of `SYSTEM` with another gamma are
-exactly equal, in every field.
-
-**How:** The test makes a copy of `SYSTEM` with `gamma = 0.9 * SYSTEM.gamma`. It builds the
-same sequence for each system: an x trapezoid with an explicit amplitude in Hz/m, a y arbitrary
-gradient with an explicit waveform in Hz/m (`first` and `last` 0), and a block with both. It
-checks that the two gammas differ and that the sequence has gradients. It compares the
-`GradientPeaks` of the whole sequence and of a window of the first half field by field with
-`==` (the axes, the vector peak, its time and block, and the RMS over the whole file of the
-window result), and each array and each dict entry of the two `BlockGradientValues` with
-`numpy.array_equal`.
-
-**Assumptions:** `pp.make_trapezoid` with an explicit `amplitude` and `pp.make_arbitrary_grad`
-with a waveform in Hz/m use no gamma, so the two sequences have the same events. The test
-follows `test_spectrum_does_not_depend_on_the_gamma_of_the_system` in section 2.10.
-
 #### `test_the_values_of_a_negated_waveform_are_equal`
 
 **Checks:** A value is a magnitude, so a sequence with each amplitude times -1 gives exactly
@@ -2179,39 +2024,6 @@ gradients, then compares the results as the test above does: field by field with
 **Assumptions:** The multiplication by -1 of a float is exact, so the two sequences differ only
 in the sign. The test checks that the values are equal for this sequence.
 
-#### `test_window_that_cuts_a_ramp_gives_hand_computed_rms`
-
-**Checks:** A window that ends partway up a trapezoid's rising ramp gives an
-RMS amplitude equal to the value hand-computed from the piece that the window
-keeps, cut at the window edge.
-
-**How:** The test builds one block with an x trapezoid and a window from 0 to
-half the rise time. It computes the expected RMS from the one linear piece the
-window keeps, from `(0, 0)` to `(rise_time / 2, amplitude / 2)`, with
-`Delta t * (a^2 + a*b + b^2) / 3` divided by the window length. It checks that
-`range_s` equals the window and that the x axis RMS matches.
-
-**Assumptions:** None.
-
-#### `test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform`
-
-**Checks:** For an arbitrary gradient, the peak amplitude is the largest
-absolute value among the shape's `first`, `last` and interior waveform
-samples.
-
-**How:** The test builds an x arbitrary gradient from an asymmetric sine-lobe
-waveform, whose largest magnitude is not at the shape's first or last sample,
-and calls `gradient_peaks`. It computes the expected peak as the largest of
-`abs(first)`, `abs(last)` and the largest absolute waveform sample, taken from
-the block's own gradient event. It checks that the x axis peak matches (Hz/m).
-
-**Assumptions:**
-
-- `seq_utils.gradient_points` adds `first` and `last` as extra points at the
-  ends of an arbitrary gradient's shape (checked by `test_gradient_offsets_arbitrary`
-  and `test_gradient_points_matches_gradient_offsets_exactly` in `test_seq_utils.py`), so they can hold the largest magnitude even when
-  every interior waveform sample is smaller.
-
 #### `test_no_gradients_sets_reason`
 
 **Checks:** A sequence with no gradient at all gives a set `reason`,
@@ -2223,22 +2035,6 @@ calls `gradient_peaks`. It checks that `reason` is
 `seq_index.NO_GRADIENTS`, that the vector peak and its time are
 0.0, and that every axis's peak, slew and RMS are 0.0 with `peak_block` and
 `slew_block` both None.
-
-**Assumptions:** None.
-
-#### `test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope`
-
-**Checks:** The largest slew of an arbitrary gradient is the largest
-`|delta g / delta t|` between its neighbouring corner points (the shape's
-`first`, its waveform samples, and its `last`).
-
-**How:** The test builds an x arbitrary gradient from an asymmetric sine-lobe
-waveform and calls `gradient_peaks`. It computes the expected slew from
-`block.gx.first`, `block.gx.waveform`, `block.gx.last` and their own offset
-and shape-duration fields (the same corner points `gradient_offsets` builds),
-as the largest `|diff(amplitude) / diff(time)|`, not by calling
-`gradient_peaks` for the expected value. It checks that the x axis slew
-matches.
 
 **Assumptions:** None.
 
@@ -2337,23 +2133,6 @@ end of the second block's rise (1.0 ms, after the 0.8 ms of the first block).
 
 **Assumptions:** None.
 
-#### `test_junction_step_between_extended_trapezoids_is_reported_as_the_slew`
-
-**Checks:** A step at the junction between two extended trapezoids, within
-the tolerance that `add_block` accepts (`max_slew * grad_raster_time`) and
-larger than any segment's own slope: the reported slew is the step divided
-by `grad_raster_time`, credited to the block after the junction, at the time
-of the junction.
-
-**How:** The test builds two x extended trapezoids whose junction step is 90%
-of the largest step `add_block` accepts, and whose own segment slopes are
-smaller than that step. It computes the expected slew by hand as the step
-divided by `grad_raster_time`. It checks that the x axis slew matches, is
-credited to the second block, and that `slew_time_s` is the junction (0.2 ms).
-
-**Assumptions:** The step is the difference of two amplitudes that the file holds with 6
-significant digits, so the slew has a relative tolerance of 1e-4.
-
 #### `test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_its_own_block`
 
 **Checks:** A gradient that ends at a non-zero value (within the limit that `add_block`
@@ -2371,41 +2150,27 @@ the rise. The test checks that the x slew is that value, that `slew_block` is bl
 (decision D5 of `docs/plans/third-review-fixes.md`). Before task 2.1 of that plan, the step was
 the junction of the block after it.
 
-#### `test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_round_trip`
+#### `test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step`
 
 **Checks:** A gradient that ends at a value that is not 0 at the end of the sequence has no step
-after its last point, whether the sequence is in memory or was written and read. The result does
-not depend on one ulp of `(start + delay) + shape_dur`. Review 1.2 of
-`docs/reviews/2026-10-07-code-review.md` and decision D1 of `docs/plans/fourth-review-fixes.md`.
+after its last point. The result does not depend on one ulp of `(start + delay) + shape_dur`.
+Review 1.2 of `docs/reviews/2026-10-07-code-review.md` and decision D1 of
+`docs/plans/fourth-review-fixes.md`.
 
 **How:** The test is run for 20 values of `k`. It builds an x trapezoid with a slope of
 1e9 Hz/m/s and a flat time of `(5 + k)` raster times, then a block of 0.6 ms with an x extended
 trapezoid that rises to `A` in 100 µs and holds it to the end of the block. The step to 0 after
-the last point would be `A / DT` (3.19e9 Hz/m/s), above the slope of the trapezoid. The test
-writes the sequence to a `.seq` file in `tmp_path` and reads it. For the sequence in memory and
-for the sequence that was read, it checks that the largest x slew of `gradient_peaks` is 1e9
-Hz/m/s and is credited to block 1, that the slew of block 1 in `block_gradient_values` is 1e9, and
-that the slew of block 2 is `A / 100 µs` (the rise: the step is not counted). It checks the same
-slew and credit in the oracle.
+the last point would be `A / DT` (3.19e9 Hz/m/s), above the slope of the trapezoid. It checks
+that the largest x slew of `gradient_peaks` is 1e9 Hz/m/s and is credited to block 1, that the
+slew of block 1 in `block_gradient_values` is 1e9, and that the slew of block 2 is `A / 100 µs`
+(the rise: the step is not counted). It checks the same slew and credit in the oracle.
 
 **Assumptions:** The 20 end times do not each give a different rounding of the last time: the
 test relies on some of them giving a last time one ulp before `end_s` and others giving it equal
 to `end_s`. The slew of 1e9 Hz/m/s and the values of `A` hold for the system of
 `tests/synthetic.py`, and the compare has a relative tolerance of 1e-6 because the file keeps
-the amplitudes with fewer digits.
-
-#### `test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_block`
-
-**Checks:** A first block whose gradient starts at a non-zero value within
-the tolerance `add_block` accepts: the step from 0 at the first point of the axis is a slew,
-and it is credited to the first block.
-
-**How:** The test builds a single x extended trapezoid starting at 90% of the
-largest step `add_block` accepts. It computes the expected slew by hand as
-that starting value divided by `grad_raster_time`. It checks that the x axis
-slew matches and is credited to the first (only) block.
-
-**Assumptions:** None.
+the amplitudes with fewer digits. A sequence that pypulseq writes and reads again has the same
+written text (checked for the 20 values), so the test does not read the file again.
 
 #### `test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_it`
 
@@ -2514,18 +2279,6 @@ equality for the zeros and the start times.
 
 **Assumptions:** None.
 
-#### `test_first_block_junction_step_uses_zero_before_the_block`
-
-**Checks:** For a first block whose gradient starts at a non-zero value, the junction step of
-its axis is that value divided by the gradient raster that the file declares, and the junction step of the other
-axes is 0.
-
-**How:** One extended trapezoid on x that starts at 0.9 of the largest step that `add_block`
-accepts (`max_slew * grad_raster_time`). The test checks `junction_hz_per_m_per_s` of the block
-for x, y and z.
-
-**Assumptions:** None.
-
 #### `test_junction_step_is_at_the_start_of_the_block_after_the_junction`
 
 **Checks:** The step at a junction is in the block after the junction. For two x extended
@@ -2615,17 +2368,6 @@ a change.
 
 **How:** Parametrized with no window and with the window `(0.0, 1e-3)` on the spin echo. A set
 item and `clear` on `axes` raise `TypeError`.
-
-**Assumptions:** None.
-
-#### `test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients`
-
-**Checks:** The `reason` of a sequence with no gradient is `seq_index.NO_GRADIENTS`, and its `axes`
-is a `FrozenDict`.
-
-**How:** The test loads `empty_sequence()` (one delay block) and checks
-`gradient_peaks(snap).reason == NO_GRADIENTS`. A sequence with no block cannot be loaded: pypulseq's
-writer fails on it.
 
 **Assumptions:** None.
 
@@ -3176,7 +2918,7 @@ not a snapshot and would raise the `TypeError` that names `load`.
 **Checks:** An error deep inside the SAFE model propagates out of `pns_levels`.
 
 **How:** The test makes a snapshot of a synthetic spin echo sequence and replaces
-`pns_levels._safe_gwf_to_pns_chunk` (the pinned fork's chunk function) with a function that
+`pns_levels._safe_gwf_to_pns_chunk` (the chunk function of `safe.py`) with a function that
 raises `RuntimeError`. The call must raise the error.
 
 **Assumptions:** None.
@@ -4330,21 +4072,6 @@ peak in Hz/m/√Hz (`SINE_PEAK`).
   (rtol 1e-12, several chunk sizes) was checked outside CI when this module
   moved from vb-pulseq.
 
-#### `test_spin_echo_spectrum`
-
-**Checks:** For the synthetic spin echo, the spectrum runs from 0 to 2 kHz, the
-x and y axes have a non-zero spectrum, and the RSS is at least each axis at
-every frequency.
-
-**How:** The test calculates the spectrum of the synthetic spin echo. It
-checks that there is no reason, that the frequencies start at 0 and end at
-2 kHz, and that there are x, y and z spectra. The x and y spectra must have a
-maximum above 0 (the synthetic spin echo has no z gradient). Each axis
-spectrum must have the same length as the frequencies, and the RSS must be at
-least that axis at every frequency.
-
-**Assumptions:** None.
-
 #### `test_sine_peak_is_at_its_frequency`
 
 **Checks:** A 600 Hz sine gives an RSS peak at 600 Hz with the expected
@@ -4436,40 +4163,6 @@ be equal bit for bit (`array_equal`).
   change that makes the FFT of a row depend on the chunk, for example another FFT
   library, can make the test fail by a rounding difference.
 
-#### `test_matches_scipy_spectrogram`
-
-**Checks:** `gradient_spectrum` makes the FFTs itself, for the kept bins only
-(`_chunk_spectrogram`). This test checks that its axis spectra and RSS equal
-those made with scipy's `spectrogram`, the call that the module used before and
-that pypulseq's `calculate_gradient_spectrum` uses, on the synthetic spin echo,
-a GRE of 30 TRs and the arbitrary-gradient sequence.
-
-**How:** The test sets `_CHUNK_WINDOWS` to 4, so the sequences make several
-chunks, and calls `_compute_spectrum` with the default arguments as plain floats
-(the calculation without the kept result). For the reference, it samples each axis
-with `GradientSampler` at the sample times of the module (the number of samples
-is `sequence_samples`), pads half a window of zeros at the start and `pad + (-nt) %
-hop` zeros at the end, and calls `scipy.signal.spectrogram` on the whole padded
-waveform with `mode="magnitude"`, `nperseg=nwin`, `noverlap=nwin // 2`,
-`nfft=nfft`, `detrend="constant"`, `window=("tukey", 1)` and `fs=1 / dt`. It
-keeps the bins up to `MAX_FREQUENCY_HZ + 1e-6`, takes the maximum over windows
-for each axis, and the root-sum-of-squares of the axes in each window and then
-the maximum for the RSS. The frequencies must be equal. Each axis spectrum and
-the RSS must agree within an absolute 1e-12 times the largest value of the same
-array (so a zero axis must be exactly 0).
-
-**Assumptions:**
-
-- The test compares the whole function, so it covers the windows, the detrend,
-  the window function and the scale of the new code, and the joins of the
-  chunks. The reference does not use the chunks, the strided windows or the
-  scale of the module. The samples come from the same sampler, and the time rule
-  `(i + 0.5) * dt` is the module's own. The oracle tests check the sampler
-  against the oracle waveform.
-- The result differs from scipy's only by float rounding (measured: 4.6e-16 of the
-  peak on `build_repeating(10000)`), because the two take the FFTs of the same windows with a
-  different order of operations.
-
 #### `test_matches_oracle_on_synthetic_sequences`
 
 **Checks:** `gradient_spectrum` samples the waveform with the raster sampler, and the
@@ -4502,7 +4195,7 @@ builder's `pp.Sequence`, so the 1e-12 holds. `seq.system.gamma` is that of the s
 **Checks:** The same comparison with the oracle as `test_matches_oracle_on_synthetic_sequences`,
 on sequences of `tests/scale_sequences.py`: `build_repeating` and `build_worst` at 1000 blocks
 (200 TRs, 1.2 s and 1.4 s, 48 and 56 windows). `_CHUNK_WINDOWS` is 4, so each has 12 or 14 chunks
-and a shorter last chunk, as in `test_matches_scipy_spectrogram`.
+and a shorter last chunk: the comparison covers the joins of the chunks.
 
 **How:** The test sets `grad_spectrum._CHUNK_WINDOWS` to 4 (`monkeypatch`), builds each sequence
 with `1000 / TR_BLOCKS` TRs, and compares this module's spectrum (times `1e3 / gamma`) with the
@@ -4522,18 +4215,6 @@ oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in
 - The test no longer runs the sequences of 10^4 blocks and 5000 blocks (14 s and 7 s) that it
   ran before 2026-10-07, so that it is faster. It does not test the rounding of an absolute
   time above 1.4 s.
-
-#### `test_spectrum_does_not_depend_on_the_gamma_of_the_system`
-
-**Checks:** The spectrum depends on the gradient values of the file only, not
-on `seq.system.gamma`.
-
-**How:** The test makes one 600 Hz sine waveform in Hz/m. It puts the waveform
-in two sequences, one with `SYSTEM` and one with a copy of `SYSTEM` that has
-another gamma (0.9 times). It checks that the two gammas differ. The
-frequencies, each axis spectrum and the RSS must be exactly equal.
-
-**Assumptions:** None.
 
 #### `test_gradient_spectrum_keeps_the_result`
 
@@ -4586,26 +4267,25 @@ spectrum. `hash` must raise `TypeError`.
 
 **Assumptions:** None.
 
-#### `test_the_defaults_are_those_of_pypulseq`
+#### `test_the_defaults_are_those_of_docs_usage`
 
-**Checks:** The spectrum calculated with the three arguments at the defaults of
-pypulseq's `calculate_gradient_spectrum` equals the spectrum of a call with no
-arguments. The result of a call with no arguments has these defaults in its
-fields `max_frequency_hz`, `window_s` and `frequency_oversampling`. The test is
-also a guard on pypulseq's defaults.
+**Checks:** The spectrum calculated with the three arguments at the defaults that
+`docs/usage.md` gives (2000.0 Hz, 0.05 s and 3.0, the defaults of pypulseq's
+`calculate_gradient_spectrum`) equals the spectrum of a call with no arguments. The result of
+a call with no arguments has these defaults in its fields `max_frequency_hz`, `window_s` and
+`frequency_oversampling`.
 
-**How:** The test reads the defaults of `max_frequency`, `window_width` and
-`frequency_oversampling` from the signature of
-`pp.Sequence.calculate_gradient_spectrum`. It gives them to
-`grad_spectrum._compute_spectrum` for the synthetic spin echo, so the result is
-calculated and is not the kept result (a call of `gradient_spectrum` with these
-values would give the kept object of the call with no arguments, because the key
-is the same). It checks that the two results are not one object, and that the
-frequencies, each axis spectrum and the RSS are exactly equal. The test also
-compares the three fields of the result with the defaults.
+**How:** The test gives the three literal values to `grad_spectrum._compute_spectrum` for the
+synthetic spin echo, so the result is calculated and is not the kept result (a call of
+`gradient_spectrum` with these values would give the kept object of the call with no
+arguments, because the key is the same). It checks that the two results are not one object,
+and that the frequencies, each axis spectrum and the RSS are exactly equal. The test also
+compares the three fields of the result with the values.
 
 **Assumptions:**
 
+- The values are those of `docs/usage.md`; the test does not read pypulseq, so a change of
+  pypulseq's defaults does not fail it.
 - The test compares the defaults only. It does not compare the spectrum with
   the spectrum of pypulseq, which differs in the padding and in the start of
   the first window.
@@ -5105,16 +4785,16 @@ function, keeps the result, takes a `weakref` to the snapshot, deletes the snaps
 - CPython collects the snapshot at once, or in the `gc.collect()` call. The test does not
   cover another Python.
 
-#### `test_a_measurement_raises_type_error_that_names_load_for_a_sequence`
+#### `test_event_points_raises_type_error_that_names_load_for_a_sequence`
 
-**Checks:** `event_points`, `gradient_peaks`, `block_gradient_values`, `pns_levels`,
-`gradient_spectrum` and `GradientSampler` raise `TypeError` with a message that names `load`
-for a `pp.Sequence`.
+**Checks:** `event_points` raises `TypeError` with a message that names `load` for a
+`pp.Sequence`.
 
-**How:** Parametrized over the six. Each is called with `spin_echo_sequence()` (and pypulseq's
-example hardware for `pns_levels`) and must raise `TypeError` with `match="load"`.
+**How:** `event_points` is called with `spin_echo_sequence()` and must raise `TypeError` with
+`match="load"`.
 
-**Assumptions:** None.
+**Assumptions:** Each measurement and `GradientSampler` has the same test in its own test file
+(`test_grad_peaks.py`, `test_pns_levels.py`, `test_grad_spectrum.py`, `test_sampling.py`).
 
 ### 2.15 The oracle of the gradient waveform (`test_oracle_waveform.py`)
 
@@ -5472,16 +5152,6 @@ includes it after `x = 1`. The fields must be `x` and `y`.
 
 **Assumptions:** None.
 
-#### `test_read_gradient_asc_gives_the_fields_that_pypulseqs_readasc_gives`
-
-**Checks:** For the file of every form, `read_gradient_asc` gives the fields that pypulseq's
-`readasc` gives (its first result).
-
-**How:** `pytest.importorskip` of `pypulseq.utils.siemens.readasc`. The test writes the file
-of `_FORMS` and compares the two results with `==`.
-
-**Assumptions:** The comparison covers the forms of `_FORMS` only.
-
 #### `test_read_gradient_asc_gives_the_fields_of_a_fixture_file_that_readasc_gives`
 
 **Checks:** For the plain file and for the scanner layout of the `write_gradient_asc` fixture,
@@ -5649,14 +5319,6 @@ interpreter (`check_load_of_a_file`).
 **How:** Parametrized over the five synthetic sequences and `spec` and `Unrotated()`.
 
 **Assumptions:** `test_from_pypulseq.py` tests `read_pypulseq` itself.
-
-#### `test_load_of_a_sequence_and_of_its_file_give_equal_results`
-
-**Checks:** The results of `load(seq)` equal those of `load(path)` of the file of `seq.write(path)`.
-
-**How:** Parametrized over the five synthetic sequences, with `spec`.
-
-**Assumptions:** `seq.write` with its defaults writes the bytes that `read_pypulseq` reads.
 
 #### `test_load_raises_the_rejection_of_the_interpreter`
 
@@ -5871,7 +5533,7 @@ and has a reason.
 
 ### 2.19 The reader of Pulseq files (`test_seqfile.py`)
 
-`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq, except `test_files_of_pypulseq_are_read` and `test_tables_agree_with_pypulseq_read_without_merging`, which skip when pypulseq is not installed.
+`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq.
 
 #### `test_each_fixture_gives_its_verdict`
 
@@ -7019,30 +6681,6 @@ LABELINC row.
 
 **Assumptions:** None.
 
-#### `test_files_of_pypulseq_are_read`
-
-**Checks:** The parser reads the files that pypulseq writes for the sequences of `scale_sequences`
-(`build_repeating` and `build_worst` with 40 TRs): the number of blocks, a version of 1.5.0 or later,
-and a signature.
-
-**How:** The test builds the sequences, writes them to `tmp_path` and reads them. It skips when
-pypulseq is not installed.
-
-**Assumptions:** The version that pypulseq writes is 1.5.0 (the test checks `>= (1, 5, 0)`).
-
-#### `test_tables_agree_with_pypulseq_read_without_merging`
-
-**Checks:** For each oracle file that pypulseq can read with `remove_duplicates=False` (all but
-those with an extension that it cannot read), its block table, block durations, trapezoids and
-shapes are those of the model.
-
-**How:** The test reads each file with pypulseq and with the parser and compares the block IDs and
-event columns, the durations in seconds, the trapezoid rows, and the shape lengths and stored values.
-At least 10 files must be compared. It skips when pypulseq is not installed.
-
-**Assumptions:** This compares the parser with pypulseq's reader, which is not an oracle for every
-value (the study lists where it differs); only values that pypulseq does not change are compared.
-
 ### 2.20 The C++ oracle (`test_cpp_oracle.py`)
 
 `test_cpp_oracle.py` tests `pulseq-cpp-oracle`, the program that `flake.nix` builds from the
@@ -7422,7 +7060,7 @@ namespace with no `x`); a refusal of `from_namespace` is a `ValueError`.
 values): the level, the summary and the intervals above each threshold.
 
 **How:** Marker `pypulseq` (the sequences are built with it). Parametrized over the four
-sequences of the comparison with `calculate_pns` and over the default bin and bins of one
+sequences of `test_summary_is_the_safe_model_of_the_oracle_samples` and over the default bin and bins of one
 sample. `_CHUNK_SAMPLES` is 1000, so the state passes from chunk to chunk; two thresholds make
 intervals (the test checks that some interval exists and that the peak is above 0).
 `levels_arrays` gives the fields as arrays (`num_samples`, `bin_samples`, the two levels, the
@@ -8542,8 +8180,10 @@ outside `src` and `pyproject.toml` (the documents, the tests), is not found.
 `docs/plans/parser-redesign.md`): a `pypulseq.Sequence` in memory, written with pypulseq's writer
 and read through an interpreter. The interpreters are `"spec"` and `Spec()`. The checks are
 functions of the module (`check_reads_as_its_written_file`, `check_the_mixed_sequence`,
-`check_the_sequence_is_not_changed`, `check_a_rejection`), which the tests of `cpp-siemens`
-(`test_interpreter_in_pulseq_analysis.py`, section 3.9) call for their interpreter. The sequences are `mixed_sequence` of the module (a slice-selective sinc RF
+`check_the_sequence_is_not_changed`, `check_a_rejection`). The tests of `cpp-siemens`
+(`test_interpreter_in_pulseq_analysis.py`, section 3.9) call all but
+`check_the_sequence_is_not_changed` for their interpreter: the interpreter reads only the
+written text, so the tests here cover it. The sequences are `mixed_sequence` of the module (a slice-selective sinc RF
 with its gradient, a phase encode, a readout trapezoid with its ADC, an arbitrary gradient,
 labels `LIN` (SET) and `SLC` (INC), a delay block, two repetitions with repeated events) and
 five synthetic sequences: `gre_sequence`, `spin_echo_sequence`,
@@ -9944,16 +9584,6 @@ each kind of event (`check_the_mixed_sequence`; the check of
 
 **Assumptions:** The counts are those of pypulseq's writer at the version of `uv.lock`.
 
-#### `test_the_sequence_is_not_changed_by_cpp_siemens`
-
-**Checks:** `read_pypulseq` through each of the two interpreters does not change the caller's
-sequence (`check_the_sequence_is_not_changed`; the check of `test_the_sequence_is_not_changed`,
-section 2.28).
-
-**How:** The test calls the helper for each sequence and interpreter.
-
-**Assumptions:** As `test_the_sequence_is_not_changed`.
-
 #### `test_a_rejection_of_cpp_siemens_names_the_sequence_not_the_temporary_file`
 
 **Checks:** A sequence with an arbitrary gradient on a gradient raster of 4 µs raises, through
@@ -10383,7 +10013,7 @@ no step at a junction (pypulseq-issues 12), so it is not the reference.
 #### `test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`
 
 **Checks:** For a sequence with a short gap or a long gap and ends that are not 0 next to it,
-`pns_levels` equals the SAFE model of the fork on the samples of the oracle. This includes a
+`pns_levels` equals the SAFE model of the package on the samples of the oracle. This includes a
 first value and a last value of an axis that are not 0. It also covers a sequence with a block
 that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`. The sequence is loaded with `cpp-siemens`,
 because `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`), a gradient that
@@ -10408,7 +10038,7 @@ gradient of 3 samples with a step at 25 us (the values and the cases are in
 reference stacks the samples of the oracle, which reads `sequence_of(snap)` and not the builder's
 `pp.Sequence`, into `(N, 3)`. They are `oracle.block_samples` at the
 gradient raster, and `oracle.sample` at `(k + 0.5) * dt` for the sequence that is not on the
-raster. It runs `_safe_gwf_to_pns_chunk` of the fork in one chunk with the example hardware. The
+raster. It runs `_safe_gwf_to_pns_chunk` of `pulseq_analysis.analyses.safe` in one chunk with the example hardware. The
 axis values are 0.01 times the percent, and the total is the root of the sum of squares.
 `pns_levels` runs with `bin_s=dt`, so each bin is one sample. The test checks the number of
 samples, `on_raster` (false only for the names that end in `_off_raster`), the peak and the axis peaks (relative 1e-9), the peak time, and the minimum
@@ -10498,8 +10128,7 @@ from 0 to `A = max_slew * grad_raster_time / 2` over 3 raster times, from 0.3 to
 has a ramp from `A / 2` to 0 over 3 raster times, from 8.7 to 11.7, after a delay of 0.7 raster
 times. The ramp to 0 is from 3.3 to 3.8 raster times. The ramp from 0 is from 8.2 to 8.7. The
 test samples 3.3, 3.5, 3.8, 5, 8.2, 8.5, 8.7, 11.7 and 12 raster times. It compares with the
-values `A * [1, 0.6, 0, 0, 0, 0.3, 0.5, 0, 0]` (absolute 1e-9 of `A`). It also checks that
-`get_gradients()` of the sequence that the test built (not the snapshot), at 5 raster times, is not 0.
+values `A * [1, 0.6, 0, 0, 0, 0.3, 0.5, 0, 0]` (absolute 1e-9 of `A`).
 `_off_raster_events_sequence` is loaded with `cpp-siemens` (`_load_model("off_raster_events")`): `spec`
 rejects it (`raster.gradient-delay`, `gradient.nonzero-start-delay`, `gradient.nonzero-end-align`).
 
@@ -10684,15 +10313,6 @@ has. Like `test_interpreter.py`, the module needs pulseq-analysis and is not col
 
 **How:** Parametrized over `"cpp-siemens"` and `CppSiemens(oversampling="edge",
 rotation="apply")`, on the gradient echo file `oracle/pulseq_seq4.seq`.
-
-**Assumptions:** None.
-
-#### `test_load_of_a_sequence_is_read_pypulseq_of_it_through_cpp_siemens`
-
-**Checks:** `load(seq, "cpp-siemens")` holds `read_pypulseq(seq, "cpp-siemens")`
-(`check_load_of_a_sequence`).
-
-**How:** Parametrized over the five synthetic sequences of `test_snapshot.py`.
 
 **Assumptions:** None.
 

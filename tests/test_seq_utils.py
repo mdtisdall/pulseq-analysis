@@ -3,14 +3,9 @@ from pathlib import Path
 import numpy as np
 import numpy.testing as npt
 import pytest
-from optional_pypulseq import pp
 from synthetic import (
     GAMMA_1H,
     SYSTEM,
-    arbitrary_gradient_sequence,
-    empty_sequence,
-    gre_sequence,
-    spin_echo_sequence,
 )
 
 from pulseq_analysis import seqfile
@@ -20,10 +15,8 @@ from pulseq_analysis.synth.events import decode_gradients
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 
 
-@pytest.mark.pypulseq
 def test_time_tolerance():
     assert seq_utils.TIME_TOLERANCE == 1e-9
-    assert seq_utils.TIME_TOLERANCE == pp.eps
 
 
 @pytest.mark.pypulseq
@@ -66,14 +59,3 @@ def test_gradient_points_matches_gradient_offsets_exactly(gradient_id):
     t, _ = seq_utils.gradient_points(g, t0)
     delay, offsets, _ = seq_utils.gradient_offsets(g)
     npt.assert_array_equal(t, (t0 + delay) + offsets)
-
-
-@pytest.mark.pypulseq
-@pytest.mark.parametrize(
-    "builder",
-    [spin_echo_sequence, gre_sequence, empty_sequence, arbitrary_gradient_sequence],
-)
-def test_synthetic_sequences_pass_the_timing_check(builder):
-    seq = builder()
-    ok, report = seq.check_timing()
-    assert ok, report

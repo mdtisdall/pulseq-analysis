@@ -1199,7 +1199,7 @@ values. An RMS is the root of a mean of squares. The spectrum is linear. The
 SAFE model is a sum of linear filters and absolute values of the slew, divided
 by the stimulation limit. Thus the value divided by |γ| is the value of the
 same measurement in tesla, to the float rounding. The tests compare it with
-the oracles and with pypulseq's `calculate_pns`.
+the oracles.
 
 **The limits of a scanner.** Convert the values to the unit of the limits, or
 convert the limits to the unit of the values. pypulseq's `Opts` keeps
