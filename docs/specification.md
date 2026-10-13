@@ -93,7 +93,7 @@ section 6 of the plan chose (Q5).
 | D2.7 | a definition or a hash that reads as a number | the text; only the four rasters are numbers | `<value>` is "any" (spec:247) and the hash a "string" (spec:230); a double cannot hold the 32 digits of a hash |
 | D2.8 | an RF magnitude below 0 | played as written: a signed amplitude | the specification allows [-1, 1] for an amplitude shape (spec:624) |
 | D2.9 | an RF phase outside [0, 1) | played as written: 2π times the value, as MATLAB does | the specification gives no range for the phase |
-| D2.10 | an RF time shape whose times are `(i + 0.5) d` | cells of `d`: each sample held for one dwell, and the pulse lasts `N d` | slide 9 places the samples of a regular pulse at the centres of their dwell periods; every regular pulse of MATLAB Pulseq and pypulseq has this form (the user's choice). The split does not depend on how the shape is stored (spec:602) |
+| D2.10 | an RF time shape whose times are `(i + 0.5) d`, or one sample `t0` above 0 (`d = 2 t0`, D3.9) | cells of `d`: each sample held for one dwell, and the pulse lasts `N d` | slide 9 places the samples of a regular pulse at the centres of their dwell periods; every regular pulse of MATLAB Pulseq and pypulseq has this form (the user's choice). The split does not depend on how the shape is stored (spec:602) |
 | D2.11 | any other RF time shape | points at its times, joined by straight lines of the complex signal; the pulse ends at its last time (`bad_shape_rf_time_end.seq`) | slide 9: a pulse "defined by vertices", which need not be on the raster (slide 4); the straight line of the complex signal is the C++ reader's stated intent (`cpp:2033`) and MATLAB's for RF power, bandwidth and simulation (the user's choice) |
 | D2.12 | where a pulse with a time shape ends | `N d` for cells, the last time for points | slide 9 (N dwell periods from the start), and the last vertex |
 | D2.13 | an arbitrary gradient between its samples (time ID 0) | straight lines between the cell centres, and to `first` and `last` at the edges | spec:290 puts the samples at the centres and is silent between them; slide 7 draws lines |
@@ -114,9 +114,9 @@ message of each such rejection says that the specification does not state the
 rule, and why `spec` rejects the file (`Rule.choice` in `spec.RULES`). Runs of
 2026-10-13 found three exceptions, which the user decided the same day: the
 writers write NaN (D3.5) and negative times (D3.6) when a script passes them, and
-`spec` keeps rejecting them because they give no waveform; MATLAB Pulseq writes
-an RF time shape of one sample (D3.9), which `spec` is to read as one cell (a
-follow-up task; until then it rejects it).
+`spec` keeps rejecting them because they give no waveform (the messages give
+this reason); MATLAB Pulseq writes an RF time shape of one sample (D3.9), which
+`spec` reads as one cell of twice its time when that time is above 0.
 
 | ID | Code | Condition | Why |
 |---|---|---|---|
@@ -128,7 +128,7 @@ follow-up task; until then it rejects it).
 | D3.6 | `syntax.negative` | a negative time or count | spec:176 stores integers as unsigned, but defines negative values elsewhere (time ID -1, a soft delay offset); a negative time or count has no waveform; the writers' makers do not check the sign |
 | D3.7 | `shape.empty` | an event uses a shape with no sample | an event with no samples has no waveform |
 | D3.8 | `shape.event-length` | the shapes of one event with different numbers of samples | the shapes of an event pair up by sample (spec:349, spec:443); some samples would have no partner |
-| D3.9 | `shape.time-order` | an RF time shape of one sample, times that do not increase, or a first time below 0 | such time points define no step, no line, or no waveform; a time shape of one sample is to be read as one cell (decided 2026-10-13, a follow-up task) |
+| D3.9 | `shape.time-order` | an RF time shape of one sample at 0 or before, times that do not increase, or a first time below 0 | such time points define no cell, no line, or no waveform; a time shape of one sample above 0 is read as one cell (D2.10; the user, 2026-10-13) |
 | D3.10 | `rotation.zero` | a quaternion of norm 0 | `spec` divides each quaternion by its norm (spec:567: "a normalized rotation quaternion"), and one of norm 0 is no rotation |
 | D3.11 | `syntax.shape` | a shape with no blank line after it | spec:602 declares the end of a shape with a blank line, and does not say what a shape without one is |
 | D1.3 | `raster.gradient-vertex` | a vertex of a gradient time shape off the gradient raster | section 2.3 |
@@ -207,7 +207,7 @@ the package's choice.
 | `shape.range` | — | an amplitude shape outside [-1, 1] (within `spec.RANGE_TOLERANCE`) | spec:624 |
 | `shape.empty` | D3.7 | an event that uses a shape with no sample | choice |
 | `shape.event-length` | D3.8 | the shapes of one event with different numbers of samples, or an ADC phase shape without one sample for each ADC sample | spec:349, spec:443, spec:120; choice |
-| `shape.time-order` | D3.9 | an RF time shape of one sample, times that do not increase, or an RF first time below 0 | spec:349, spec:395; choice |
+| `shape.time-order` | D3.9 | an RF time shape of one sample at 0 or before, times that do not increase, or an RF first time below 0 | spec:349, spec:395; choice |
 | `shape.oversampled-length` | — | an oversampled gradient with an even number of samples | spec:420, slides 4 and 8 |
 | `rotation.zero` | D3.10 | a quaternion of norm 0 | spec:567; choice |
 | `extension.required-unknown` | — | a required extension that `spec` does not know | spec:460 |

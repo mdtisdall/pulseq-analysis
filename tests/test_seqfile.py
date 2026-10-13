@@ -1189,13 +1189,16 @@ def test_nan_and_inf_in_a_float_column_are_syntax_number_with_the_choice(
     tmp_path, old, new, section
 ):
     """D3.5: spec:176 types each column as an integer or a float; it does not say whether NaN and
-    infinity are floats of a file, and no writer writes them. `spec` rejects them in every
-    float column (`syntax.number`, the package's choice, which the message says)."""
+    infinity are floats of a file. `spec` rejects them in every float column (`syntax.number`,
+    the package's choice, which the message says): they give no waveform. MATLAB Pulseq writes NaN
+    when a script passes it, so the message does not give the writers as the reason."""
     text = _text("valid_no_signature.seq")
     assert text.count(old) == 1
     (violation,) = violations_of(_write(tmp_path, text.replace(old, new), "nan.seq")).violations
     assert (violation.rule, violation.section) == ("syntax.number", section)
     assert carries_choice(violation)
+    assert "give no waveform" in violation.message
+    assert "no current writer" not in violation.message
 
 
 @pytest.mark.parametrize(
@@ -1233,13 +1236,17 @@ def test_a_negative_time_or_count_is_syntax_negative_with_the_choice(tmp_path, o
     """D3.6, spec:176 ("integer types are stored as 64-bit unsigned integers"): `spec` rejects a
     negative block duration, delay, rise, flat or fall time, number of samples, dwell time and
     trigger delay or duration. This is not literally the specification (it defines negative values
-    elsewhere, and the dwell is a float): the package's choice, which the message says."""
+    elsewhere, and the dwell is a float): the package's choice, which the message says. Both
+    writers write a negative delay when a script passes one, so the message gives as the reason
+    that a negative time or count gives no waveform, not the writers."""
     text = _text("valid_no_signature.seq")
     assert text.count(old) == 1
     path = _write(tmp_path, text.replace(old, new), "neg.seq")
     violations = [v for v in violations_of(path).violations if v.rule == "syntax.negative"]
     (violation,) = violations
     assert carries_choice(violation)
+    assert "gives no waveform" in violation.message
+    assert "no current writer" not in violation.message
     assert violation.message.startswith(column)
     assert path.read_text().split("\n")[violation.line - 1].strip()
 
@@ -1859,18 +1866,19 @@ def test_the_end_of_an_rf_event_with_a_time_shape_is_n_dwells_or_the_last_time(
 @pytest.mark.parametrize(
     ("packed", "n", "why"),
     [
-        (["5"], 1, "one sample"),
+        (["0"], 1, "one sample"),
+        (["-5"], 1, "one sample"),
         (["3", "1"], 2, "do not increase"),
         (["0", "0"], 2, "do not increase"),
         (["-5", "-3"], 2, "before the start"),
     ],
-    ids=["one-sample", "decreasing", "equal", "negative-start"],
+    ids=["one-sample-at-0", "one-sample-below-0", "decreasing", "equal", "negative-start"],
 )
 def test_an_rf_time_shape_that_defines_no_line_is_shape_time_order(tmp_path, packed, n, why):
-    """D2.10-D2.12, spec:349: the specification does not define such time sampling points, and no
-    writer writes them: a time shape of one sample (no step and no line), times that do not
-    increase, or a first time below 0 are `shape.time-order` (the package's choice; the message
-    says so). `bad_shape_time_order.seq` has `100 -1 -1 97`."""
+    """D2.10-D2.12, D3.9, spec:349: the specification does not define such time sampling points,
+    and no writer writes them: a time shape of one sample at 0 or before (no cell), times that do
+    not increase, or a first time below 0 are `shape.time-order` (the package's choice; the
+    message says so). `bad_shape_time_order.seq` has `100 -1 -1 97`."""
     path = _with_rf_time_shape(tmp_path, None, packed, n=n)
     (violation,) = violations_of(path).violations
     assert (violation.rule, violation.section) == ("shape.time-order", "SHAPES")
@@ -1878,6 +1886,19 @@ def test_an_rf_time_shape_that_defines_no_line_is_shape_time_order(tmp_path, pac
     assert carries_choice(violation)
     (violation,) = violations_of(SEQFILES / "bad_shape_time_order.seq").violations
     assert "do not increase" in violation.message
+
+
+def test_an_rf_time_shape_of_one_sample_above_0_is_one_cell(tmp_path):
+    """D3.9, D2.10: MATLAB Pulseq writes the time shape `5` for an arbitrary pulse of one sample
+    with a dwell of 10 us (`makeArbitraryRf`, run of 2026-10-13). `spec` reads a time shape of one
+    sample `t0` above 0 as one cell of `d = 2 t0`, the form `(i + 0.5) d` with N = 1 (the user,
+    2026-10-13): the pulse plays its sample for one dwell of 10 us, centred at 5 us."""
+    data = read_seqfile(_with_rf_time_shape(tmp_path, None, ["5"], n=1))
+    assert rf_time_step(data.shapes[12].samples()) == pytest.approx(10.0)
+    rf = events.decode_rf(data)[1]
+    assert rf.dwell == pytest.approx(10e-6)
+    assert rf.shape_dur == pytest.approx(10e-6)
+    assert rf.t.tolist() == pytest.approx([5e-6])
 
 
 def test_a_gradient_time_shape_must_increase_and_have_its_vertices_on_the_raster(tmp_path):

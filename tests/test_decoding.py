@@ -451,15 +451,18 @@ def test_the_signal_of_points_is_0_before_the_first_point_and_after_the_last():
         (2, [0, 100], None),  # a block pulse as MATLAB writes it
         (5, [1, 2, 4, 7, 10], None),  # vertices
         (4, [0.5, 1, 2, 4], None),  # unequal steps
-        (1, [0.5], None),  # one sample
+        (1, [0.5], 1.0),  # one sample t0 above 0: one cell of 2 t0 (D3.9)
+        (1, [5], 10.0),  # MATLAB's arbitrary pulse of one sample on a dwell of 10 rasters
+        (1, [0], None),  # one sample at 0: no cell
+        (1, [-1], None),  # one sample below 0
         (3, [2.5, 1.5, 0.5], None),  # decreasing times
         (2, [0.5, 0.5], None),  # a step of 0
     ],
 )
 def test_rf_time_step_of_a_time_shape(num_samples, packed, step):
-    """A regular RF time shape (2 or more samples, equal steps, the first time half a step)
-    gives its step in RF rasters: cells; any other shape gives `None`: points (slide 9, D2.10 to
-    D2.12). The shape is stored as in a file and decompressed."""
+    """A regular RF time shape (2 or more samples, equal steps, the first time half a step, or one
+    sample above 0, D3.9) gives its step in RF rasters: cells; any other shape gives `None`:
+    points (slide 9, D2.10 to D2.12). The shape is stored as in a file and decompressed."""
     shape = model.Shape(num_samples=num_samples, packed=np.array(packed, dtype=float))
     result = model.rf_time_step(shape.samples())
     if step is None:
