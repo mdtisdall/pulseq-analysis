@@ -20,6 +20,7 @@ import pytest
 
 from pulseq_analysis import seqfile
 from pulseq_analysis.seqfile import as_written
+from pulseq_analysis.seqfile.spec import RULES
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 ORACLE = shutil.which("pulseq-cpp-oracle")
@@ -52,60 +53,61 @@ RadiofrequencyRasterTime 1e-06
 # The files of `tests/seqfiles` that `spec` rejects and that the oracle accepts, or accepts on one
 # of its builds, because it does not check the rule that they break: so the comparison of the
 # verdicts lets the oracle accept them. The value is the entry of `docs/discrepancies.md` that
-# explains the difference, and what the oracle did with the file when it is not that it accepted
+# explains the difference, or the code of the rule of `spec.RULES` where the record has no entry
+# (the specification states the rule), and what the oracle did with the file when it is not that it accepted
 # it. A crash can depend on the build (the macOS clang build and the Linux gcc build of CI differ
 # on some fixtures), so a file is here when either build accepts it. A file that `spec` rejects and
 # that is not here is one that the oracle rejected or crashed on, on each build.
 NOT_CHECKED_BY_THE_READER = {
-    "bad_block_event_too_long_adc.seq": "D25",
-    "bad_block_event_too_long_rf.seq": "D25",
-    "bad_block_event_too_long_trigger.seq": "D25",
-    "bad_blocks_empty.seq": "D24",
-    "bad_extension_per_block.seq": "D48",
-    "bad_gradient_nonzero_end_align.seq": "D27",
-    "bad_gradient_nonzero_start_delay.seq": "D27",
-    "bad_id_gradient_unique.seq": "D19",
-    "bad_id_positive.seq": "D19",
-    "bad_id_unique.seq": "D19",
-    "bad_id_unique_block.seq": "D19",
-    "bad_layer1_gradient_ends.seq": "D39",
-    "bad_raster_adc_delay.seq": "D26",
-    "bad_raster_adc_dwell.seq": "D26",
-    "bad_raster_gradient_delay.seq": "D26",
-    "bad_raster_gradient_end.seq": "D26",
-    "bad_raster_gradient_flat.seq": "D26",
-    "bad_raster_gradient_ramp.seq": "D26",
-    "bad_raster_gradient_vertex.seq": "D26",
-    "bad_raster_rf_delay.seq": "D26",
-    "bad_ref_extension_entry.seq": "D21",
-    "bad_ref_extension_object.seq": "D21",
-    "bad_ref_extension_type.seq": "D21",
-    "bad_ref_shape.seq": "D21 (accepted by the Linux build; the macOS build crashes: the reader takes "
+    "bad_block_event_too_long_adc.seq": "block.event-too-long",
+    "bad_block_event_too_long_rf.seq": "block.event-too-long",
+    "bad_block_event_too_long_trigger.seq": "block.event-too-long",
+    "bad_blocks_empty.seq": "blocks.empty",
+    "bad_extension_per_block.seq": "extension.per-block",
+    "bad_gradient_nonzero_end_align.seq": "gradient.nonzero-end-align",
+    "bad_gradient_nonzero_start_delay.seq": "gradient.nonzero-start-delay",
+    "bad_id_gradient_unique.seq": "id.gradient-unique",
+    "bad_id_positive.seq": "id.positive",
+    "bad_id_unique.seq": "D3.4",
+    "bad_id_unique_block.seq": "D3.4",
+    "bad_layer1_gradient_ends.seq": "D4.4",
+    "bad_raster_adc_delay.seq": "raster.adc-delay",
+    "bad_raster_adc_dwell.seq": "raster.adc-dwell",
+    "bad_raster_gradient_delay.seq": "raster.gradient-delay",
+    "bad_raster_gradient_end.seq": "raster.gradient-end",
+    "bad_raster_gradient_flat.seq": "raster.gradient-flat",
+    "bad_raster_gradient_ramp.seq": "raster.gradient-ramp",
+    "bad_raster_gradient_vertex.seq": "D1.3",
+    "bad_raster_rf_delay.seq": "raster.rf-delay",
+    "bad_ref_extension_entry.seq": "ref.unresolved",
+    "bad_ref_extension_object.seq": "ref.unresolved",
+    "bad_ref_extension_type.seq": "ref.unresolved",
+    "bad_ref_shape.seq": "ref.unresolved (accepted by the Linux build; the macOS build crashes: the reader takes "
     "a null reference to the missing shape, ExternalSequence.cpp:1995 and 2177)",
-    "bad_ref_time_id_minus_1_in_1_4.seq": "D22",
-    "bad_section_duplicate.seq": "D10",
-    "bad_section_duplicate_extension.seq": "D10",
-    "bad_section_duplicate_signature.seq": "D10",
-    "bad_shape_adc_phase_length.seq": "D44",
-    "bad_shape_empty.seq": "D33 (accepted by the Linux build; the macOS build crashes: it indexes "
+    "bad_ref_time_id_minus_1_in_1_4.seq": "D4.3",
+    "bad_section_duplicate.seq": "D3.3",
+    "bad_section_duplicate_extension.seq": "D3.3",
+    "bad_section_duplicate_signature.seq": "D3.3",
+    "bad_shape_adc_phase_length.seq": "D3.8",
+    "bad_shape_empty.seq": "D3.7 (accepted by the Linux build; the macOS build crashes: it indexes "
     "an empty vector, ExternalSequence.cpp:1995 and 2203)",
-    "bad_shape_length.seq": "D29",
-    "bad_shape_oversampled_length.seq": "D43",
-    "bad_shape_range.seq": "D30",
-    "bad_shape_time_order.seq": "D36",
-    "bad_signature_invalid.seq": "D54",
-    "bad_syntax_columns.seq": "D14",
-    "bad_syntax_encoding.seq": "D14",
-    "bad_syntax_line.seq": "D06",
-    "bad_syntax_negative.seq": "D14",
-    "bad_syntax_number.seq": "D14",
-    "bad_syntax_shape_no_blank_line.seq": "D07 (accepted by the Linux build; the macOS build "
+    "bad_shape_length.seq": "shape.length",
+    "bad_shape_oversampled_length.seq": "shape.oversampled-length",
+    "bad_shape_range.seq": "shape.range",
+    "bad_shape_time_order.seq": "D3.9",
+    "bad_signature_invalid.seq": "signature.invalid",
+    "bad_syntax_columns.seq": "D1.2",
+    "bad_syntax_encoding.seq": "D3.1",
+    "bad_syntax_line.seq": "D3.2",
+    "bad_syntax_negative.seq": "D3.6",
+    "bad_syntax_number.seq": "D3.5",
+    "bad_syntax_shape_no_blank_line.seq": "D3.11 (accepted by the Linux build; the macOS build "
     "crashes on its unknown extension)",
-    "bad_syntax_use.seq": "D17",
-    "bad_version_invalid.seq": "D04",
-    "oracle/koma_v1.4_gr-uniformly-shaped.seq": "D39",
-    "oracle/pypulseq_simple_mprage140.seq": "D39",
-    "undefined/shape_decompress_longer.seq": "D29 (the macOS build accepts it; the sanitized "
+    "bad_syntax_use.seq": "syntax.use",
+    "bad_version_invalid.seq": "version.invalid",
+    "oracle/koma_v1.4_gr-uniformly-shaped.seq": "D4.4",
+    "oracle/pypulseq_simple_mprage140.seq": "D4.4",
+    "undefined/shape_decompress_longer.seq": "shape.length (the macOS build accepts it; the sanitized "
     "build finds a heap buffer overflow, `tests/test_cpp_oracle_sanitized.py`)",
 }
 
@@ -115,28 +117,28 @@ NOT_CHECKED_BY_THE_READER = {
 # does not. The comparison test skips them. Each entry has the entry of `docs/discrepancies.md`
 # and the reason.
 ORACLE_KNOWN_WRONG = {
-    "bad_shape_rf_time_end.seq": "D36: the oracle crashes on the macOS build and accepts on the "
+    "bad_shape_rf_time_end.seq": "D2.11: the oracle crashes on the macOS build and accepts on the "
     "Linux build: its resampling loop reads past the stored samples, ExternalSequence.cpp:2039-"
     "2045. `spec` reads the shape as points",
-    "bad_syntax_line_after_comment.seq": "D06: the oracle reads a `#` line inside a table as a "
+    "bad_syntax_line_after_comment.seq": "D2.5: the oracle reads a `#` line inside a table as a "
     "row, its decoding fails and `load` returns false (`cpp-siemens`: `syntax.comment-row`); "
     "`spec` skips it",
-    "oracle/koma_v1.5_unknown_ext.seq": 'D46: the oracle fails with "failed find the end of the '
+    "oracle/koma_v1.5_unknown_ext.seq": 'D2.3: the oracle fails with "failed find the end of the '
     'section while reading EXTENSIONS" because `[EXTENSIONS]` is the last section that starts '
     "with `[` (its index of sections has only those lines, ExternalSequence.cpp:1762-1769, "
     "1202-1211); the same file with a `[SIGNATURE]` section at the end is accepted. The "
     "specification does not fix the order of the sections",
-    "undefined/version_last.seq": "D05: with `[VERSION]` as the last section, the oracle reads no "
+    "undefined/version_last.seq": "D2.1: with `[VERSION]` as the last section, the oracle reads no "
     "shape (the stream stays failed after it reads `[VERSION]` to the end of the file), and the "
     "RF event names shape 1: undefined behaviour (ExternalSequence.cpp:1995, "
     "`tests/test_cpp_oracle_sanitized.py`). The specification does not fix the order of the "
     "sections",
-    "valid_comment_in_shape.seq": "D06: the oracle reads a `#` line inside a shape's samples as "
+    "valid_comment_in_shape.seq": "D2.5: the oracle reads a `#` line inside a shape's samples as "
     "a sample and fails to decode it (`cpp-siemens`: `syntax.comment-row`); `spec` skips it",
-    "valid_last_section_no_blank.seq": "D56: the last section has no blank line after its row, so "
+    "valid_last_section_no_blank.seq": "D2.2: the last section has no blank line after its row, so "
     "the oracle's stream fails at the end of the file and it skips [DEFINITIONS] "
     "(`cpp-siemens`: `definitions.skipped`); `spec` reads it",
-    "valid_rf_time_shapes.seq": "D36: the oracle crashes on the macOS build, and `cpp-siemens` "
+    "valid_rf_time_shapes.seq": "D2.10: the oracle crashes on the macOS build, and `cpp-siemens` "
     "rejects it with `ub.rf-time-overrun`: the resampling of the pulse with the uncompressed "
     "time shape `0.5 1.5 2.5` reads past the stored samples; `spec` reads it as cells of 1 us",
 }
@@ -145,7 +147,7 @@ ORACLE_KNOWN_WRONG = {
 # The reason why the comparison of the accept/reject verdicts skips a file that `spec`
 # accepts and that has an arbitrary gradient on a gradient raster other than 10 us: `decodeBlock`
 # returns false for the block (ExternalSequence.cpp:2114-2119, "Shape is on a raster that is
-# different from the system raster"). The entry of the difference is D28.
+# different from the system raster"). The specification states the raster (spec section 2.5; slide 11).
 SKIPPED_ARBITRARY_GRADIENT_RASTER = (
     "an arbitrary gradient on a gradient raster other than 10 us: decodeBlock fails"
 )
@@ -237,7 +239,7 @@ def test_the_oracle_rejects_an_arbitrary_gradient_on_a_5_us_raster_and_accepts_i
     tmp_path,
 ):
     """The skip of the comparison is needed: the oracle rejects the file that `spec` reads
-    because of the raster (D28), and accepts the same file on the raster of 10 us."""
+    because of the raster (spec section 2.5; slide 11), and accepts the same file on the raster of 10 us."""
     fixture = SEQFILES / "valid_arbitrary_gradient_5us_raster.seq"
     verdict, messages = run_oracle(fixture)
     assert verdict == "reject", messages
@@ -345,7 +347,7 @@ def test_the_oracle_and_spec_check_the_same_signature_hash_of_an_lf_file(
 def test_spec_hashes_the_bytes_before_the_newline_before_signature_where_the_oracle_does_not(
     tmp_path, before, hashed, newline
 ):
-    """D53: `spec` uses the rule of the specification (spec:223): the hash covers the bytes
+    """The `spec` interpreter uses the rule of the specification (spec:223): the hash covers the bytes
     before the `\\n` that precedes `[SIGNATURE]`. The oracle drops an empty line only, and keeps
     the `\\r` of a CRLF line end, so the two hashes differ."""
     by_the_specification = before[:-1]
@@ -363,7 +365,7 @@ def test_spec_hashes_the_bytes_before_the_newline_before_signature_where_the_ora
 
 
 def test_the_signature_of_a_crlf_file_matches_in_the_oracle_and_not_in_spec():
-    """D53: `valid_crlf.seq` is signed by the rule of the C++ reader. The hash that `spec`
+    """`valid_crlf.seq` is signed by the rule of the C++ reader. The hash that `spec`
     computes is that of the bytes before the `\\n` before `[SIGNATURE]`, which keep the `\\r` of
     the empty line. Both read the file."""
     path = SEQFILES / "valid_crlf.seq"
@@ -414,7 +416,7 @@ def test_the_oracle_and_spec_accept_and_reject_the_same_files_but_those_of_the_t
 def test_the_tables_of_differences_name_files_that_spec_rejects_or_reads():
     """A file of `NOT_CHECKED_BY_THE_READER` is one that `spec` rejects and a file of
     `ORACLE_KNOWN_WRONG` one that `spec` reads, so no entry is out of date. Each has an entry
-    of `docs/discrepancies.md`."""
+    of `docs/discrepancies.md`, or the code of a rule of `spec.RULES`."""
     for name, table, rejects in [
         *((n, NOT_CHECKED_BY_THE_READER, True) for n in NOT_CHECKED_BY_THE_READER),
         *((n, ORACLE_KNOWN_WRONG, False) for n in ORACLE_KNOWN_WRONG),
@@ -425,4 +427,6 @@ def test_the_tables_of_differences_name_files_that_spec_rejects_or_reads():
             assert rejects, f"{name}: spec rejects it, but the table names it as read"
         else:
             assert not rejects, f"{name}: spec reads it, but the table names it as rejected"
-        assert re.match(r"D\d+", table[name]), name
+        label = re.match(r"D\d\.\d+|[a-z0-9]+\.[a-z0-9-]+", table[name])
+        assert label, name
+        assert label.group().startswith("D") or label.group() in RULES, name

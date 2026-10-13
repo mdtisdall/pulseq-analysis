@@ -12,7 +12,7 @@ values.
 
 Where the package decodes a file otherwise than MATLAB, the tests do not compare that part, and
 say why: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and of one of
-points whose last time is not a whole number of RF rasters (D37: MATLAB rounds the last time up
+points whose last time is not a whole number of RF rasters (D2.12: MATLAB rounds the last time up
 to the RF raster), `first` of a 1.4 gradient with a time shape (U23), the polyline of an arbitrary
 gradient of time ID 0 away from its samples and its ends (U21), and the waveform of a file in
 which a block plays a rotation (U22).
@@ -71,11 +71,11 @@ RF_USE = {
 MATLAB_CANNOT_READ = {
     "valid_comment_in_shape.seq": (
         "MATLAB ends a section at a line that starts with `#` (read.m), so it cannot read a shape "
-        "with a comment inside (D06)"
+        "with a comment inside (D2.5)"
     ),
     "valid_label_unknown.seq": (
         "MATLAB looks up the name of a label in `mr.getSupportedLabels` (read.m:165) and fails "
-        "for a name that it does not know (D50)"
+        "for a name that it does not know (D2.19)"
     ),
 }
 
@@ -253,7 +253,7 @@ def _same_end_as_matlab(rf, raster):
     with no time shape, for cells of one RF raster (the last time is `(n - 0.5)` rasters, which
     rounds up to `n`) and for points whose last time is a whole number of RF rasters. They differ
     for cells of a dwell of more than one raster (the pulse ends at `n d`, MATLAB's at its last
-    time rounded up) and for points whose last time is not a whole number (D37)."""
+    time rounded up) and for points whose last time is not a whole number (D2.12)."""
     if rf.dwell is not None:
         return rf.dwell == raster
     last = rf.t[-1] / raster
@@ -500,7 +500,7 @@ def compare_rotated_gradients(case, data):
     the midpoint of each segment of MATLAB's polyline, on each axis, where MATLAB does not guess
     the edges of an arbitrary gradient (U21), and on a segment with no end at a block boundary:
     there MATLAB can join the last point of one block to the first sample of the next, and each
-    interpreter gives each block alone (D42). The unrotated gradients do not agree where a block
+    interpreter gives each block alone (D2.14). The unrotated gradients do not agree where a block
     plays a rotation. The tests of a plugin interpreter call it too."""
     from pulseq_analysis import synth
 

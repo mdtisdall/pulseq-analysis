@@ -25,39 +25,39 @@ and the codes; `docs/discrepancies.md` gives, entry by entry, what `spec` does a
 **Lines and sections.** The reader reads the file through its "as written" reading
 (`as_written.read_as_written`). A blank line and a line that starts with `#` are skipped anywhere,
 also inside a table and inside a shape (spec:171: "Comments are specified by a line starting with
-a hash"; D06); inside a shape, a blank line ends the shape (spec:602, D07). A data line before the
+a hash"); inside a shape, a blank line ends the shape (spec:602, D3.11). A data line before the
 first header is `syntax.line`. A section that the format does not have and a `[DELAYS]` section
-are ignored (D08, D09). A section that appears more than once, or two `extension` sections with
-one STRING_ID, is `section.duplicate`, and only its first copy is read (D10). A definition that
-appears twice is the last (D12). Blocks play in file order, whatever their IDs (D20). A check that
+are ignored (D2.4). A section that appears more than once, or two `extension` sections with
+one STRING_ID, is `section.duplicate`, and only its first copy is read (D3.3). A definition that
+appears twice is the last (D2.6). Blocks play in file order, whatever their IDs. A check that
 needs a table with a violation of syntax is skipped, so the error has every violation of the
 tables that read, and every violation of syntax.
 
 **Values.** Each field is read by the type of its column in the tables of the specification
-(D14): an integer is an optional sign and digits (`+30` is 30), a float a decimal number. NaN and
+(spec:176, spec:293-455): an integer is an optional sign and digits (`+30` is 30), a float a decimal number. NaN and
 infinite floats are rejected, and so are the negative times and counts of `syntax.negative`. The
-RF `use` is one of `e r i s p o u`. The ADC dwell time is a float in ns (D15), the soft delay
-offset a float in µs and its hint the whole text (D16).
+RF `use` is one of `e r i s p o u`. The ADC dwell time is a float in ns (spec:437), the soft delay
+offset a float in µs and its hint the whole text (D2.16).
 
 **Versions.** Each mechanism of the format is read from the revision that introduced it (the
 user, 2026-10-12): the soft delays (`extension DELAYS`) from 1.5.0 (spec:545), the extensions
 ROTATIONS and RF_SHIMS from 1.5.1 (spec:567, spec:584), the definition `RequiredExtensions` from
 1.5.1 (spec:460), and the time ID -1 of an oversampled gradient from 1.5.0 (slide 4). In an older
 file such an extension is an extension that the interpreter does not know: it is ignored, its
-STRING_ID is in `SequenceData.skipped_extensions` (D45), and a `model.Record` says why (D58).
+STRING_ID is in `SequenceData.skipped_extensions` (D2.17), and a `model.Record` says why (D4.6).
 
 **Records** (P20, rule 4). `SequenceData.records` has a `model.Record` for each thing that `spec`
-ignored: an extension that it does not know (D45) or that the version does not have yet (D58), a
-section that the format does not have or removed (D08, D09), and a label that the specification
-does not list (D50; `NOSCL`, which the specification spells `NOSLC`, D57) or that the version
+ignored: an extension that it does not know (D2.17) or that the version does not have yet (D4.6), a
+section that the format does not have or removed (D2.4), and a label that the specification
+does not list (D2.19; `NOSCL`, which the specification spells `NOSLC`) or that the version
 does not have yet (the flags PMC, NOROT, NOPOS, NOSLC and ONCE of 1.4.1, spec:526). The row of
 such a label stays in `Extensions.labelset` or `labelinc`, as written.
 
-**Rotations** (D49). From 1.5.1, each quaternion of ROTATIONS is divided by its norm (spec:567:
+**Rotations** (D2.18, D3.10). From 1.5.1, each quaternion of ROTATIONS is divided by its norm (spec:567:
 "a normalized rotation quaternion"), and a quaternion of norm 0 is rejected. The decoding of
 `spec` rotates each block's gradients by its quaternion (`synth.decoding.SpecDecoding`).
 
-**Time shapes.** An RF time shape (D35 to D37) is regular when its times are `(i + 0.5) d` for a
+**Time shapes.** An RF time shape (D2.10 to D2.12) is regular when its times are `(i + 0.5) d` for a
 step `d` (`model.rf_time_step`): its samples are cells of `d` from the start of the pulse
 (slide 9), and the pulse lasts `N d`. Any other RF time shape is points at its times, joined by
 straight lines (slide 4: explicit times; slide 9: a pulse "defined by vertices"); the pulse ends
@@ -145,19 +145,19 @@ RULES: Mapping[str, Rule] = MappingProxyType(
     {
         "version.missing": Rule(
             "no [VERSION] section",
-            'spec:201 ("It is recommended to reject Pulseq files without [VERSION] section"); D02',
+            'spec:201 ("It is recommended to reject Pulseq files without [VERSION] section"); D1.1',
         ),
         "version.invalid": Rule(
             "a line of [VERSION] is not major, minor or revision with an integer, or a key is "
             "missing or repeated",
-            "spec:193-198 (three lines, each an integer); D04",
+            "spec:193-198 (three lines, each an integer)",
         ),
         "definitions.raster-missing": Rule(
-            "a required raster is not defined", "spec:267-276 (required from 1.4.0); D11"
+            "a required raster is not defined", "spec:267-276 (required from 1.4.0)"
         ),
         "definitions.raster-invalid": Rule(
             "a raster is not one finite number above 0",
-            "spec:267-276 (a raster time in seconds); D11",
+            "spec:267-276 (a raster time in seconds)",
         ),
         "definitions.raster-commensurate": Rule(
             "RadiofrequencyRasterTime or GradientRasterTime is neither an integer multiple nor "
@@ -167,7 +167,7 @@ RULES: Mapping[str, Rule] = MappingProxyType(
         ),
         "section.duplicate": Rule(
             "a section that appears twice, or two `extension` sections with one STRING_ID",
-            "D10",
+            "D3.3",
             choice="the specification is silent on a section that appears twice, the readers "
             "disagree on what it means (the C++ reader keeps the last copy; MATLAB Pulseq and "
             "pypulseq add the copies of some sections and keep the last copy of others), and "
@@ -175,39 +175,39 @@ RULES: Mapping[str, Rule] = MappingProxyType(
         ),
         "syntax.encoding": Rule(
             "the file is not UTF-8",
-            "D14",
+            "D3.1",
             choice="the specification gives no encoding; MATLAB Pulseq and pypulseq fail on a "
             "byte that is not UTF-8, and the text of the model must be UTF-8",
         ),
         "syntax.line": Rule(
             "a data line before the first section",
-            "D06",
+            "D3.2",
             choice="the specification has no line outside a section; MATLAB Pulseq and pypulseq "
             "reject one, and " + _NO_WRITER,
         ),
         "syntax.columns": Rule(
             "a row does not have the number of fields of its table for the version",
-            "the tables and examples of spec:293-455 and spec:476-596; D01a-c, D14",
+            "the tables and examples of spec:293-455 and spec:476-596; D1.2, D4.2",
         ),
         "syntax.integer": Rule(
             "a value of an integer column is not an integer",
-            "the types of the tables (spec:176, spec:293-455); D14",
+            "the types of the tables (spec:176, spec:293-455)",
         ),
         "syntax.number": Rule(
             "a value of a float column is not a finite number",
-            "the types of the tables (spec:176, spec:293-455); D14",
+            "the types of the tables (spec:176, spec:293-455); D3.5",
             choice="the specification types the column as a float and does not say whether NaN "
             "and infinity are floats of the file; " + _NO_WRITER,
             partial=True,
         ),
         "syntax.use": Rule(
             "the use of an RF event is not one of e r i s p o u",
-            'spec:356-357 ("the initial of one of" seven words); D17',
+            'spec:356-357 ("the initial of one of" seven words)',
         ),
         "syntax.negative": Rule(
             "a block duration, delay, rise, flat or fall time, number of samples, dwell time or "
             "trigger duration is negative",
-            'spec:176 ("integer types are stored as 64-bit unsigned integers"); D14',
+            'spec:176 ("integer types are stored as 64-bit unsigned integers"); D3.6',
             choice="this is not literally the specification: it stores integers as unsigned "
             "(spec:176) but defines negative values elsewhere (the time ID -1, a soft delay "
             "offset), and the ADC dwell time is a float; a negative time or count has no "
@@ -217,40 +217,40 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "a shape without its shape_id and num_samples lines, a line of [SHAPES] outside a "
             "shape, or a shape with no blank line after it",
             'spec:602-612 (the header of a shape; "The end of the shape definition is declared '
-            'with a blank line"); D07',
+            'with a blank line"); D3.11',
             choice="the specification declares the end of a shape with a blank line and does not "
             "say what a shape without one is; " + _NO_WRITER,
             partial=True,
         ),
-        "id.positive": Rule("an ID is not positive", 'spec:181 ("IDs must be positive"); D19'),
+        "id.positive": Rule("an ID is not positive", 'spec:181 ("IDs must be positive")'),
         "id.unique": Rule(
             "an ID is used twice in one class",
-            "spec:182-183 (shapes, and events of one class); D19",
+            "spec:182-183 (shapes, and events of one class); D3.4",
             choice="the specification states uniqueness for shapes and events, not for blocks, "
             "which nothing refers to; both writers number the blocks 1, 2, ..., and MATLAB "
             "Pulseq stores them by ID",
             partial=True,
         ),
         "id.gradient-unique": Rule(
-            "a gradient ID is in [GRADIENTS] and in [TRAP]", "spec:183, spec:403; D19"
+            "a gradient ID is in [GRADIENTS] and in [TRAP]", "spec:183, spec:403"
         ),
         "ref.unresolved": Rule(
             "a reference names something that is not defined, a list of extensions does not "
             "end, or a time ID of -1 where it is not defined",
             "spec:178-186 (IDs refer to the objects one level below), spec:478 (a zero-terminated "
             "list), spec:349 and spec:395 (time ID -1 for gradients only), slide 4 (-1 from "
-            "1.5.0); D21, D22, D23",
+            "1.5.0); D4.3",
         ),
         "blocks.empty": Rule(
             "the file has no block",
-            'spec:318 ("The sequence must declare at least one block"); D24',
+            'spec:318 ("The sequence must declare at least one block")',
         ),
         "block.event-too-long": Rule(
             "an event lasts longer than its block",
-            'spec:318 ("The interpreters must to throw an error"); D25',
+            'spec:318 ("The interpreters must to throw an error")',
         ),
         "raster.adc-dwell": Rule(
-            "an ADC dwell time is not a multiple of AdcRasterTime", "spec:275; slide 10; D26"
+            "an ADC dwell time is not a multiple of AdcRasterTime", "spec:275; slide 10"
         ),
         "raster.adc-delay": Rule(
             "an ADC does not start on an edge of the RF raster",
@@ -262,43 +262,43 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "spec:290",
         ),
         "raster.gradient-delay": Rule(
-            "a gradient starts off the gradient raster", "spec:290; slide 5; D26"
+            "a gradient starts off the gradient raster", "spec:290; slide 5"
         ),
         "raster.gradient-end": Rule(
-            "a gradient with a time shape ends off the gradient raster", "spec:290; slide 5; D26"
+            "a gradient with a time shape ends off the gradient raster", "spec:290; slide 5"
         ),
         "raster.gradient-ramp": Rule(
-            "a rise or fall time is not a multiple of the gradient raster", "spec:290; slide 5; D26"
+            "a rise or fall time is not a multiple of the gradient raster", "spec:290; slide 5"
         ),
         "raster.gradient-flat": Rule(
-            "a flat time is not a multiple of the gradient raster", "spec:290; slide 5; D26"
+            "a flat time is not a multiple of the gradient raster", "spec:290; slide 5"
         ),
         "raster.gradient-vertex": Rule(
             "a vertex of a gradient time shape is off the gradient raster",
-            'slide 6 ("all aligned on raster edges") against slide 4 ("not a requirement")',
+            'slide 6 ("all aligned on raster edges") against slide 4 ("not a requirement"); D1.3',
             choice="the slides conflict (slide 6 puts the vertices of an extended trapezoid on "
             "the raster edges, slide 4 does not require it of a time shape); the makers of both "
             "writers refuse a vertex off the raster, and " + _NO_WRITER,
         ),
         "gradient.nonzero-start-delay": Rule(
             "a gradient that starts above 0 has a delay",
-            'spec:420 ("the start delay of such gradients must be 0"); slide 6; D27',
+            'spec:420 ("the start delay of such gradients must be 0"); slide 6',
         ),
         "gradient.nonzero-end-align": Rule(
             "a gradient that ends above 0 does not end with its block",
-            'spec:420 ("they need to be aligned to the end of the block"); slide 6; D27',
+            'spec:420 ("they need to be aligned to the end of the block"); slide 6',
         ),
         "shape.length": Rule(
             "a shape does not have the number of samples that it declares",
-            'spec:626 ("must be equal the number declared"); D29',
+            'spec:626 ("must be equal the number declared")',
         ),
         "shape.range": Rule(
             "an amplitude shape is outside [-1, 1]",
-            'spec:624 ("must be in the normalised range of [-1, 1]"); D30',
+            'spec:624 ("must be in the normalised range of [-1, 1]")',
         ),
         "shape.empty": Rule(
             "an event uses a shape with no sample",
-            "D33",
+            "D3.7",
             choice="the specification is silent on a shape with no sample; an event with no "
             "samples has no waveform, and " + _NO_WRITER,
         ),
@@ -306,45 +306,45 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "the shapes of one event have different numbers of samples, or an ADC phase shape "
             "has not one sample for each ADC sample",
             "spec:349 and spec:443 (the shapes of an event pair up by sample); spec:120 "
-            "(an ADC phase offset per sample); D34, D44",
+            "(an ADC phase offset per sample); D3.8",
             choice="the specification does not say what an event of shapes of different lengths "
             "plays: some samples have no partner, and " + _NO_WRITER,
         ),
         "shape.time-order": Rule(
             "an RF time shape of one sample, or a time shape whose times do not increase, or an "
             "RF time shape whose first time is below 0",
-            "spec:349, spec:395 (the time sampling points); D35-D37",
+            "spec:349, spec:395 (the time sampling points); D2.10-D2.12, D3.9",
             choice="the specification does not define such time sampling points, and " + _NO_WRITER,
         ),
         "shape.oversampled-length": Rule(
             "an oversampled gradient (time ID -1) has an even number of samples",
             'spec:420 ("N-1 additional points"), slides 4 and 8 (the samples alternate between '
-            'centres and edges, and the shape "starts and ends at the cell centers"); D43',
+            'centres and edges, and the shape "starts and ends at the cell centers")',
         ),
         "rotation.zero": Rule(
             "a quaternion of ROTATIONS has a norm of 0",
-            'spec:567 ("a normalized rotation quaternion"); D49',
+            'spec:567 ("a normalized rotation quaternion"); D3.10',
             choice="`spec` divides each quaternion by its norm, as the specification describes a "
             "normalized one, and a quaternion of norm 0 is no rotation; " + _NO_WRITER,
         ),
         "extension.required-unknown": Rule(
             "a required extension is not known",
-            'spec:460 ("it MUST generate an error"); D47',
+            'spec:460 ("it MUST generate an error")',
         ),
         "extension.per-block": Rule(
             "a block has more than one ROTATIONS or RF_SHIMS object",
-            'spec:567, spec:584 ("Only one ... object can be specified per block"); D48',
+            'spec:567, spec:584 ("Only one ... object can be specified per block")',
         ),
         "layer1.gradient-ends": Rule(
             "a 1.4.x arbitrary gradient has no value at its start or end",
-            "spec:290 (default sampling at the cell centres; a 1.4 file has no first and last); D39, D40",
+            "spec:290 (default sampling at the cell centres; a 1.4 file has no first and last); D4.4, D4.5",
             choice="a 1.4 file does not define the values at the ends of an arbitrary gradient "
             "on the default raster, or of one whose time shape starts after 0, and the readers "
             "guess them differently; Pulseq 1.5 stores them",
         ),
         "signature.invalid": Rule(
             "[SIGNATURE] has not one Type and one Hash",
-            'spec:223-232 ("must contain two following fields"); D54',
+            'spec:223-232 ("must contain two following fields")',
         ),
     }
 )
@@ -382,7 +382,7 @@ _KNOWN_EXTENSIONS = {
 }
 # The labels of LABELSET and LABELINC that the specification lists (spec:519-520), and those of
 # them that revision 1.4.1 introduced (spec:526). The C++ reader, MATLAB Pulseq and pypulseq
-# spell NOSLC as NOSCL (D57); `spec` follows the specification.
+# spell NOSLC as NOSCL (D2.19); `spec` follows the specification.
 _LABELS = frozenset(
     [
         "LIN",
@@ -535,7 +535,7 @@ def _sections(
 ) -> tuple[dict[str, list[as_written.Section]], list[as_written.Section]]:
     """The sections of the file: each named section of the format (a list of its one copy; a
     second copy is `section.duplicate`), and the `extension` sections, in file order. A section that the format does not have and `[DELAYS]`
-    are ignored and recorded (D08, D09). Reports a data line before the first header."""
+    are ignored and recorded (D2.4). Reports a data line before the first header."""
     for n in written.preamble.rows.lines.tolist():
         report.add("syntax.line", None, n, "this line is before the first section")
     named: dict[str, list[as_written.Section]] = {}
@@ -613,7 +613,7 @@ def _read_definitions(
     sections: list[as_written.Section],
 ) -> dict[str, tuple[tuple[str, ...], int]]:
     """The `key value ...` lines of a section (as a list of its copy): key -> (tokens, line). A key that
-    appears twice has its last value (D12)."""
+    appears twice has its last value (D2.6)."""
     found: dict[str, tuple[tuple[str, ...], int]] = {}
     for section in sections:
         rows = section.rows
@@ -1051,7 +1051,7 @@ def _read_extensions(
 
 def _record_labels(table: _Table, version: tuple[int, int, int], records: list[Record]) -> None:
     """A record for each label of `table` that `spec` does not apply: a name that the
-    specification does not list (D50, D57), or a flag of 1.4.1 in an older file (D58). The row
+    specification does not list (D2.19), or a flag of 1.4.1 in an older file (D4.6). The row
     stays in the table."""
     for name, line in zip(table.data["name"].tolist(), table.nums.tolist(), strict=True):
         if name not in _LABELS:
@@ -1413,7 +1413,7 @@ def _event_ends(f: _File) -> _Ends | None:
             )
 
     # ADC: the dwell on its raster, the start on the RF raster, and a phase shape of one sample
-    # for each ADC sample (D44).
+    # for each ADC sample (D2.15).
     a = f.adc.data
     if r_adc is not None:
         rep.rows(
@@ -1664,7 +1664,7 @@ def _check_trigger_ends(
 
 
 def _check_rotations(f: _File) -> None:
-    """`rotation.zero` for a quaternion of norm 0 (D49). ROTATIONS is read from 1.5.1 only."""
+    """`rotation.zero` for a quaternion of norm 0 (D3.10). ROTATIONS is read from 1.5.1 only."""
     table = f.ext.tables.get("ROTATIONS")
     if table is None:
         return
@@ -1679,7 +1679,7 @@ def _check_rotations(f: _File) -> None:
 
 
 def _normalized(rotations: np.ndarray) -> np.ndarray:
-    """The quaternions of `rotations` (the model's table) divided by their norm (D49)."""
+    """The quaternions of `rotations` (the model's table) divided by their norm (D2.18)."""
     out = rotations.copy()
     q = ("q0", "qx", "qy", "qz")
     norm = np.sqrt(sum(out[c] ** 2 for c in q))

@@ -37,21 +37,21 @@ reason.
 
 **The model from the libraries.** Where the reader holds a value, the model has it, in the units
 of the model (s, Hz, Hz/m) from the reader's float32 values (P6), so a value can differ from the
-file in the last digits of float32 (D18). Where the reader differs from `spec`:
+file in the last digits of float32 (D7.2). Where the reader differs from `spec`:
 
 - `blocks`: the reader keeps no block ID, so `id` is the position in play order, from 1. Play
-  order is file order (D20).
-- `rf`: a 1.4 event has `center` NaN (the reader holds -1, D38); `use` is the character that the
-  reader holds, any character (D17).
+  order is file order (D7.3).
+- `rf`: a 1.4 event has `center` NaN (the reader holds -1, D7.5); `use` is the character that the
+  reader holds, any character.
 - `grad` and `trap`: the reader keeps `[GRADIENTS]` and `[TRAP]` in one library; a shape ID of 0
   is a trapezoid. `first` and `last` are the reader's values; NaN where it leaves them unset.
-- `adc`: the dwell time is the integer that the reader reads (D15).
+- `adc`: the dwell time is the integer that the reader reads.
 - `definitions`: in the order of the keys (the reader keeps a sorted map), each value split at
-  white space; a key defined twice has its last value (D12).
-- `extensions`: `rotations` are the reader's quaternions, divided by their norm (D49; the rotation
+  white space; a key defined twice has its last value (D2.6 in `spec`).
+- `extensions`: `rotations` are the reader's quaternions, divided by their norm (D6.2; the rotation
   of each block, as `GetBlock` attaches it, is `reading.block_rotations()`);
-  `skipped_extensions` the extensions that the reader does not know (D45).
-- `signature`: `matches` is the reader's check of its MD5 hash (D53).
+  `skipped_extensions` the extensions that the reader does not know (D2.17 in `spec`).
+- `signature`: `matches` is the reader's check of its MD5 hash.
 """
 
 import dataclasses
@@ -88,7 +88,7 @@ __all__ = [
 OVERSAMPLING = cs.OVERSAMPLING
 
 # What the `cpp-siemens` decoding does with the rotation of a block (the ROTATIONS extension,
-# D49): the reader's own output, whose gradients are not rotated (the reader leaves the rotation
+# D6.2): the reader's own output, whose gradients are not rotated (the reader leaves the rotation
 # to the scanner's interpreter), or the simulation of the scanner, which rotates them.
 ROTATION = ("reader", "apply")
 
@@ -100,12 +100,12 @@ class CppSiemens:
     reads and rejects what it rejects. It decodes every block of a file with the C++ reader,
     about six times as long as `spec`, so pulseq-analysis reads it by name.
 
-    `oversampling` is the reader's mode for an oversampled arbitrary gradient (D43): `"center"`
+    `oversampling` is the reader's mode for an oversampled arbitrary gradient (D6.1): `"center"`
     (the default, `SetArbGradCenterSampling(true)`) keeps the samples at the centres of the
     raster, `"edge"` (`SetArbGradCenterSampling(false)`) those at its edges, and `"preserve"`
     (`SetArbGradPreserveOversampling()`) all of them.
 
-    `rotation` is what the decoding does with each block's rotation (D49): `"reader"` (the
+    `rotation` is what the decoding does with each block's rotation (D6.2): `"reader"` (the
     default) gives the reader's output, the logical gradients with the block's quaternion beside
     them (the reader never rotates them); `"apply"` rotates the gradients of each block to which
     the reader attached a rotation by its quaternion, with the reader's own
@@ -148,55 +148,56 @@ class CppSiemens:
 # The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
 _MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
 
-# The codes of the rejections of `cpp-siemens`: each code, the ID of its condition ("—" for
-# none; section 2.5 of docs/specification.md), and what the reader rejects. The `ub.*` codes are those of the checks of this
+# The codes of the rejections of `cpp-siemens`: each code, the ID of its entry ("—" for none: the
+# reader rejects it and `cpp-siemens` follows the rule; section 2.5 of docs/specification.md), and
+# what the reader rejects. The `ub.*` codes are those of the checks of this
 # package (`pulseq_cpp_siemens.CODES`, section 5.3 of the plan).
 CODES: MappingProxyType[str, tuple[str, str]] = MappingProxyType(
     {
-        "version.missing": ("D02", "the file has no [VERSION] section"),
-        "version.invalid": ("D04", "a line of [VERSION] does not decode, or has an unknown key"),
-        "definitions.raster-missing": ("D11", "a required raster is not defined"),
+        "version.missing": ("—", "the file has no [VERSION] section"),
+        "version.invalid": ("—", "a line of [VERSION] does not decode, or has an unknown key"),
+        "definitions.raster-missing": ("—", "a required raster is not defined"),
         "definitions.raster-invalid": (
-            "D11",
+            "—",
             "a required raster has no value that the reader reads",
         ),
         "definitions.skipped": (
-            "D56",
+            "—",
             "the reader skips [DEFINITIONS], after a section that it read to the end of the file",
         ),
-        "extension.required-unknown": ("D47", "a required extension is unknown to the reader"),
-        "section.extensions-last": ("D46", "[EXTENSIONS] is the last section of the file"),
+        "extension.required-unknown": ("—", "a required extension is unknown to the reader"),
+        "section.extensions-last": ("—", "[EXTENSIONS] is the last section of the file"),
         "blocks.missing": ("—", "the file has no [BLOCKS] section"),
-        "syntax.row": ("D14", "a row does not decode with the reader's sscanf format"),
-        "syntax.comment-row": ("D06", "a `#` line inside a table, which the reader reads as a row"),
-        "syntax.shape": ("D07", "a line of [SHAPES] does not decode"),
-        "ref.unresolved": ("D21", "a block names an event that the reader did not read"),
-        "rotation.norm": ("D49", "a quaternion's norm is more than 1e-3 from 1"),
+        "syntax.row": ("—", "a row does not decode with the reader's sscanf format"),
+        "syntax.comment-row": ("—", "a `#` line inside a table, which the reader reads as a row"),
+        "syntax.shape": ("—", "a line of [SHAPES] does not decode"),
+        "ref.unresolved": ("—", "a block names an event that the reader did not read"),
+        "rotation.norm": ("—", "a quaternion's norm is more than 1e-3 from 1"),
         "gradient.raster": (
-            "D28",
+            "—",
             "an arbitrary gradient in a file whose gradient raster is not 10 us",
         ),
-        "shape.decompression": ("D29", "a shape whose compression the reader cannot decode"),
+        "shape.decompression": ("—", "a shape whose compression the reader cannot decode"),
         "shape.ext-trap-lengths": (
             "—",
             "the time shape and the waveform of an extended trapezoid differ in length",
         ),
         "cpp.exception": ("—", "the reader throws a C++ exception"),
         "cpp.rejected": ("—", "the reader rejects the file for another reason"),
-        "ub.shape-missing": ("D21", "a block uses a shape that the reader did not read"),
-        "ub.rf-time-id-minus-1": ("D22", "an RF event with time ID -1"),
-        "ub.extension-cycle": ("D23", "a cycle in an extension list"),
-        "ub.shape-decompression": ("D29", "a shape decompresses past its buffer"),
-        "ub.shape-empty": ("D33", "an event uses a shape with no sample"),
-        "ub.rf-shape-lengths": ("D34", "an RF phase shape shorter than its magnitude"),
-        "ub.rf-time-overrun": ("D36", "the RF resampling reads past the time shape"),
-        "ub.rf-time-range": ("D36", "an RF time shape's last time does not fit an int"),
-        "ub.gradient-time-range": ("D60", "an extended trapezoid time does not fit a long"),
+        "ub.shape-missing": ("D5.1", "a block uses a shape that the reader did not read"),
+        "ub.rf-time-id-minus-1": ("D5.3", "an RF event with time ID -1"),
+        "ub.extension-cycle": ("D5.4", "a cycle in an extension list"),
+        "ub.shape-decompression": ("D5.5", "a shape decompresses past its buffer"),
+        "ub.shape-empty": ("D5.6", "an event uses a shape with no sample"),
+        "ub.rf-shape-lengths": ("D5.7", "an RF phase shape shorter than its magnitude"),
+        "ub.rf-time-overrun": ("D5.8", "the RF resampling reads past the time shape"),
+        "ub.rf-time-range": ("D5.9", "an RF time shape's last time does not fit an int"),
+        "ub.gradient-time-range": ("D5.11", "an extended trapezoid time does not fit a long"),
         "ub.gradient-one-point": (
-            "D59",
+            "D5.10",
             "gradientsAt reads past an extended trapezoid of one point",
         ),
-        "ub.gradient-shape-0": ("D21", "a [GRADIENTS] row of shape 0, which load leaves unset"),
+        "ub.gradient-shape-0": ("D5.2", "a [GRADIENTS] row of shape 0, which load leaves unset"),
     }
 )
 
@@ -244,7 +245,7 @@ _LOAD_MESSAGES = (
 )
 
 # The reader's messages of a rejection by `decodeBlock`: the text, the code and the section. A
-# gradient raster other than 10 us (D28) has no message (`_classify`).
+# gradient raster other than 10 us (`gradient.raster`) has no message (`_classify`).
 _DECODE_MESSAGES = (
     ("exception: ", "cpp.exception", "BLOCKS"),
     ("compressed shape format error", "shape.decompression", "SHAPES"),
@@ -455,7 +456,7 @@ def _model(sequence: Any, interpreter: CppSiemens, written: AsWritten) -> Sequen
             "phase_offset": "phase_offset",
         },
     )
-    # The `use` of an RF event: the character that the reader holds, any character (D17).
+    # The `use` of an RF event: the character that the reader holds, any character.
     rf["use"] = [_text(e["use"])[:1] for e in lib.rf.values()]
     arbitrary = {i: e for i, e in lib.grad.items() if e["wave_shape"] != 0}
     trapezoids = {i: e for i, e in lib.grad.items() if e["wave_shape"] == 0}
@@ -560,8 +561,8 @@ def _model(sequence: Any, interpreter: CppSiemens, written: AsWritten) -> Sequen
             for i, s in lib.shapes.items()
         },
         extensions=extensions,
-        # The reader keeps no trace of an extension that it does not know (D45): it ignores its
-        # section. These are the STRING_IDs of those sections, as written.
+        # The reader keeps no trace of an extension that it does not know (D2.17 in `spec`): it
+        # ignores its section. These are the STRING_IDs of those sections, as written.
         skipped_extensions=tuple(
             dict.fromkeys(
                 s.extension[0]
@@ -638,9 +639,9 @@ class CppSiemensDecoding:
 
     def rotations(self) -> tuple[np.ndarray, np.ndarray]:
         """The rotation of each block, as the reader gives it: the play indices (from 0) of the
-        blocks to which `GetBlock` attaches a rotation (the first of the block's extension list,
-        D48), and their quaternions, an array (n, 4) of q0, qx, qy and qz, as the reader divided
-        them by their norm (D49). The same in each setting."""
+        blocks to which `GetBlock` attaches a rotation (the first of the block's extension list),
+        and their quaternions, an array (n, 4) of q0, qx, qy and qz, as the reader divided them by
+        their norm (D6.2). The same in each setting."""
         return self._reading.block_rotations()
 
     @property
@@ -687,7 +688,7 @@ class CppSiemensDecoding:
 def _points(grad: Mapping[str, Any], raster_s: float) -> Points:
     """`CppSiemensDecoding.gradient_points` of a `grad` entry of `CppSiemensDecoding.block`, with
     `raster_s` the gradient raster of the file (s)."""
-    # A time in us divided by 1e6, as the model gives it (D51).
+    # A time in us divided by 1e6, as the model gives it.
     delay = grad["delay_us"] / 1e6
     amplitude = np.float32(grad["amplitude"])
     kind = grad["kind"]
@@ -704,7 +705,8 @@ def _points(grad: Mapping[str, Any], raster_s: float) -> Points:
         first = values[0]
         if times_us[0] > 0 and times_us.size > 1:
             # Between the delay and the first time, `gradientsAt` carries the first segment
-            # backwards (its binary search, cpp:3634-3645; D40): the value at the delay.
+            # backwards (its binary search, cpp:3634-3645; D4.5 in `spec`): the value at the
+            # delay.
             t1, t2, v1, v2 = times_us[0], times_us[1], float(shape[0]), float(shape[1])
             first = (v1 * (t2 - 0.0) + v2 * (0.0 - t1)) / (t2 - t1) * float(amplitude)
         # The layout of `gradient_offsets`: the value at the delay, the vertices, and the value

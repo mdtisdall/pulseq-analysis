@@ -26,27 +26,27 @@ pytestmark = pytest.mark.skipif(
 UNDEFINED_BEHAVIOUR = 3
 
 # Each fixture of `tests/seqfiles` on which the reader has undefined behaviour: the entry of
-# section 5.3 of `docs/plans/parser-redesign.md`, and the line of ExternalSequence.cpp where the
+# `packages/pulseq-cpp-siemens/docs/specification.md`, and the line of ExternalSequence.cpp where the
 # sanitized build stops (found with a build that has the line numbers).
 UNDEFINED = {
-    "undefined/version_last.seq": ("D05", "1995: the reader reads no shape after [VERSION]"),
-    "bad_ref_shape.seq": ("D21", "1995: the RF magnitude shape 99 does not exist"),
-    "bad_ref_time_shape.seq": ("D21", "2177: the gradient time shape 99 does not exist"),
+    "undefined/version_last.seq": ("D5.1", "1995: the reader reads no shape after [VERSION]"),
+    "bad_ref_shape.seq": ("D5.1", "1995: the RF magnitude shape 99 does not exist"),
+    "bad_ref_time_shape.seq": ("D5.1", "2177: the gradient time shape 99 does not exist"),
     "bad_syntax_shape_no_blank_line.seq": (
-        "D21",
-        "2177: the shapes after the one with no blank line are not read (D07), and a gradient "
+        "D5.1",
+        "2177: the shapes after the one with no blank line are not read (D3.11), and a gradient "
         + "names one",
     ),
-    "undefined/rf_time_id_minus_1.seq": ("D22", "2026: an RF event with time ID -1"),
+    "undefined/rf_time_id_minus_1.seq": ("D5.3", "2026: an RF event with time ID -1"),
     "undefined/shape_decompress_longer.seq": (
-        "D29",
+        "D5.5",
         "2231: heap-buffer-overflow; the RF shapes decompress to 100 samples, num_samples 99",
     ),
-    "bad_shape_empty.seq": ("D33", "1995: element 0 of an empty shape"),
-    "bad_shape_event_length.seq": ("D34", "2288: a phase shape shorter than the magnitude"),
-    "bad_shape_rf_time_end.seq": ("D36 (2)", "2044: the resampling reads one sample too far"),
+    "bad_shape_empty.seq": ("D5.6", "1995: element 0 of an empty shape"),
+    "bad_shape_event_length.seq": ("D5.7", "2288: a phase shape shorter than the magnitude"),
+    "bad_shape_rf_time_end.seq": ("D5.8", "2044: the resampling reads one sample too far"),
     "valid_rf_time_shapes.seq": (
-        "D36 (2)",
+        "D5.8",
         "decodeBlock indexes past the stored samples: the RF 3 time shape 0.5 1.5 2.5 (the "
         + "stack trace has no line number)",
     ),
@@ -57,7 +57,7 @@ UNDEFINED = {
 # each turn, so it is not undefined behaviour, and the memory grows with no end (about 3 GB in
 # 10 s in this build).
 NO_END = {
-    "bad_ref_extension_cycle.seq": "D23",
+    "bad_ref_extension_cycle.seq": "D5.4",
 }
 
 # Each fixture that the reader rejects (exit status 1) without undefined behaviour.
@@ -136,11 +136,11 @@ def test_the_sanitized_verdict_of_each_fixture(name):
 
 
 def test_each_case_of_undefined_behaviour_of_the_plan_has_a_fixture():
-    """Section 5.3 of the plan: each entry has a fixture with the verdict "undefined", except
-    D23, which has a fixture with no end."""
+    """Each entry of the undefined behaviour has a fixture with the verdict "undefined", except
+    D5.4, which has a fixture with no end."""
     entries = {entry for entry, _ in UNDEFINED.values()}
-    assert entries == {"D05", "D21", "D22", "D29", "D33", "D34", "D36 (2)"}
-    assert set(NO_END.values()) == {"D23"}
+    assert entries == {"D5.1", "D5.3", "D5.5", "D5.6", "D5.7", "D5.8"}
+    assert set(NO_END.values()) == {"D5.4"}
 
 
 @pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
@@ -159,7 +159,7 @@ def test_the_ordinary_oracle_gives_the_same_verdict_where_the_reader_has_no_unde
 
 
 def test_the_sanitized_oracle_reports_a_missing_shape_built_in_the_test(tmp_path):
-    """The minimal file with an RF event whose phase shape 2 is not in `[SHAPES]` (D21)."""
+    """The minimal file with an RF event whose phase shape 2 is not in `[SHAPES]` (D5.1)."""
     text = MINIMAL_SEQ.replace("1 100 0 0 0 0 0 0", "1 11 1 0 0 0 0 0") + (
         "\n[RF]\n1 1000 1 2 0 0 10 0 0 0 0 u\n\n[SHAPES]\nshape_id 1\nnum_samples 6\n"
         + "0.5\n" * 6

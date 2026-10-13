@@ -25,7 +25,7 @@ SEQFILES = REPO / "tests" / "seqfiles"
 UB_FIXTURES = HERE / "fixtures"
 DIGESTS = HERE / "expected_digests.json"
 # The time that the driver gets for one file. A file with a cycle in an extension list never
-# ends (D23).
+# ends (D5.4).
 TIMEOUT = 20
 
 INT_KEYS = {

@@ -1,17 +1,16 @@
 """The figures of `docs/discrepancies.md`, as SVG files in `docs/figures/discrepancy-*.svg`.
 
-Each figure draws what the readers give for a small Pulseq file that this script writes: MATLAB
-Pulseq (the JSON of `pulseq-matlab-oracle`, `tests/matlab_oracle`), the C++ reader of the
-scanner (`pulseq-cpp-oracle --dump` and `--sample`, `tests/cpp_oracle`) and the package
-(`seqfile.read_seqfile`, the `spec` interpreter, and `synth.events`). The values are the outputs
-of the readers, not a copy of their rules. Run it in the devShell, where both oracles are on the
-PATH:
+Each figure draws what the `spec` interpreter of the package (`seqfile.read_seqfile` and
+`synth.events`) and the C++ reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`,
+`tests/cpp_oracle`) give for a small Pulseq file that this script writes. The values are the
+outputs of the readers, not a copy of their rules. Run it in the devShell, where the oracle is
+on the PATH:
 
     nix develop --command uv run python scripts/discrepancy_figures.py
 
-`--cpp` and `--matlab` give the path of an oracle that is not on the PATH. The SVG files are
-reproducible: the same outputs give the same bytes. The style is that of
-`scripts/doc_figures.py`.
+`--cpp` gives the path of the oracle if it is not on the PATH. The SVG files are reproducible:
+the same outputs give the same bytes. With `DOC_FIGURES_PREVIEW=<dir>`, a PNG of each figure
+goes to <dir> too. The style is that of `scripts/doc_figures.py`.
 """
 
 import argparse
@@ -36,7 +35,6 @@ OUT = ROOT / "docs" / "figures"
 # With `DOC_FIGURES_PREVIEW=<dir>`, a PNG of each figure goes to <dir> too, to look at.
 PREVIEW = Path(os.environ["DOC_FIGURES_PREVIEW"]) if os.environ.get("DOC_FIGURES_PREVIEW") else None
 OURS = "#1f5fa8"
-MATLAB = "#d9480f"
 CPP = "#2b8a3e"
 BLOCK = "#868e96"
 
@@ -112,11 +110,6 @@ FILES = {
 }
 
 
-def run_matlab(oracle: str, paths: list[Path], out: Path) -> dict[str, dict]:
-    subprocess.run([oracle, str(out), *map(str, paths)], capture_output=True, check=True)
-    return {p.stem: json.loads((out / f"{p.stem}.json").read_text()) for p in paths}
-
-
 def cpp_dump(oracle: str, path: Path) -> dict:
     result = subprocess.run(
         [oracle, "--dump", str(path)], capture_output=True, text=True, check=True, timeout=10
@@ -154,10 +147,6 @@ def save(fig, name: str) -> None:
     print(f"wrote docs/figures/{name}")
 
 
-def matlab_rf(result: dict) -> dict:
-    return next(b["rf"] for b in result["blocks"] if b["rf"])
-
-
 def cpp_cells(ax, dump: dict, label: str) -> float:
     """The RF magnitude that the C++ reader plays: each sample for one dwell time, from the
     delay. Returns the end of the pulse (us)."""
@@ -169,28 +158,26 @@ def cpp_cells(ax, dump: dict, label: str) -> float:
     return delay + rf["shape_dur_us"]
 
 
-def rf_panel(ax, name: str, path: Path, matlab: dict, cpp: str, title: str) -> None:
-    rf = matlab_rf(matlab[name])
-    t_matlab = (np.asarray(rf["t"]) + rf["delay"]) * 1e6
-    end_matlab = (rf["delay"] + rf["shape_dur"]) * 1e6
+def rf_panel(ax, path: Path, cpp: str, title: str) -> None:
     end_cpp = cpp_cells(ax, cpp_dump(cpp, path), "C++ reader: plays each sample for one dwell")
-    ax.plot(t_matlab, rf["signal_abs"], "o", ms=3.5, color=MATLAB, label="MATLAB Pulseq: rf.t")
     model = package(path)
     if isinstance(model, list):
         verdict = "pulseq-analysis rejects the file: " + ", ".join(model)
+        end_ours = None
     else:
         event = decode_rf(model)[1]
         t = (event.delay + event.t) * 1e6
-        ax.plot(t, event.magnitude, "x", ms=4, color=OURS, label="pulseq-analysis: RfEvent.t")
-        verdict = f"pulseq-analysis: shape_dur {event.shape_dur * 1e6:g} µs"
+        ax.plot(t, event.magnitude, "x", ms=4, color=OURS, label="spec: RfEvent.t")
+        verdict = f"spec: shape_dur {event.shape_dur * 1e6:g} µs"
+        end_ours = (event.delay + event.shape_dur) * 1e6
     top = 1150
-    if abs(end_matlab - end_cpp) < 1e-9:
-        ends = [(end_cpp, CPP, f"MATLAB and C++ end\n{end_cpp:g} µs", "center")]
+    if end_ours is None or abs(end_ours - end_cpp) < 1e-9:
+        ends = [(end_cpp, CPP, f"spec and C++ end\n{end_cpp:g} µs", "center")]
     else:
         # The label of the earlier end goes to its left, the other to its right.
-        left, right = ("right", "left") if end_matlab < end_cpp else ("left", "right")
+        left, right = ("right", "left") if end_ours < end_cpp else ("left", "right")
         ends = [
-            (end_matlab, MATLAB, f"MATLAB end\n{end_matlab:g} µs ", left),
+            (end_ours, OURS, f"spec end\n{end_ours:g} µs ", left),
             (end_cpp, CPP, f" C++ end\n {end_cpp:g} µs", right),
         ]
     for x, color, text, align in ends:
@@ -202,29 +189,23 @@ def rf_panel(ax, name: str, path: Path, matlab: dict, cpp: str, title: str) -> N
     ax.set_ylabel("|B1| (Hz)")
 
 
-def rf_time_shapes(paths: dict[str, Path], matlab: dict, cpp: str) -> None:
+def rf_time_shapes(paths: dict[str, Path], cpp: str) -> None:
     fig, axes = plt.subplots(3, 1, figsize=(7.5, 9.6))
     rf_panel(
         axes[0],
-        "rf_regular_step_2",
         paths["rf_regular_step_2"],
-        matlab,
         cpp,
         "Cells: step 2 µs, times 1, 3, …, 39 µs (stored 1 2 2 17)",
     )
     rf_panel(
         axes[1],
-        "rf_regular_offset",
         paths["rf_regular_offset"],
-        matlab,
         cpp,
         "Points for spec, cells for C++: times 10, 11, …, 29 µs (stored 10 1 1 17)",
     )
     rf_panel(
         axes[2],
-        "rf_resampled",
         paths["rf_resampled"],
-        matlab,
         cpp,
         "Points: times 1, 2, 4, 7, 10 µs (stored uncompressed)",
     )
@@ -234,24 +215,14 @@ def rf_time_shapes(paths: dict[str, Path], matlab: dict, cpp: str) -> None:
     save(fig, "discrepancy-rf-time-shapes.svg")
 
 
-def gradient_edges(path: Path, matlab: dict, cpp: str) -> None:
-    wave = matlab["gradient_half_sine"]["waveforms"]["gx"]
+def gradient_edges(path: Path, cpp: str) -> None:
     event = decode_gradients(package(path))[1]
     t_ours = np.concatenate([[0.0], event.tt, [event.shape_dur]]) * 1e6
     v_ours = np.concatenate([[event.first], event.waveform, [event.last]])
     t_fine = np.linspace(0.0, 100.0, 401)
     v_cpp = cpp_sample(cpp, path, 0, t_fine)[:, 0]
     fig, ax = plt.subplots(figsize=(7.5, 3.4))
-    ax.plot(
-        np.asarray(wave["t"]) * 1e6,
-        wave["v"],
-        "-o",
-        ms=3,
-        color=MATLAB,
-        lw=1.2,
-        label="MATLAB Pulseq waveforms_and_times: values restored at the raster edges",
-    )
-    ax.plot(t_ours, v_ours, color=OURS, lw=1.8, label="pulseq-analysis: lines between the samples")
+    ax.plot(t_ours, v_ours, color=OURS, lw=1.8, label="spec: lines between the samples")
     ax.plot(t_fine, v_cpp, color=CPP, lw=1.0, ls="--", label="C++ reader gradientsAt")
     ax.plot(event.tt * 1e6, event.waveform, "o", ms=4, color=OURS, mfc="white")
     for e in np.arange(11) * 10.0:
@@ -273,20 +244,18 @@ def gradient_edges(path: Path, matlab: dict, cpp: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--cpp", default=shutil.which("pulseq-cpp-oracle"))
-    parser.add_argument("--matlab", default=shutil.which("pulseq-matlab-oracle"))
     args = parser.parse_args()
-    if args.cpp is None or args.matlab is None:
-        parser.error("both oracles are needed: run it in the devShell, or give --cpp and --matlab")
+    if args.cpp is None:
+        parser.error("the oracle is needed: run it in the devShell, or give --cpp")
+    if PREVIEW:
+        PREVIEW.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         paths = {}
         for name, text in FILES.items():
             paths[name] = Path(tmp) / f"{name}.seq"
             paths[name].write_text(text)
-        out = Path(tmp) / "matlab"
-        out.mkdir()
-        matlab = run_matlab(args.matlab, list(paths.values()), out)
-        rf_time_shapes(paths, matlab, args.cpp)
-        gradient_edges(paths["gradient_half_sine"], matlab, args.cpp)
+        rf_time_shapes(paths, args.cpp)
+        gradient_edges(paths["gradient_half_sine"], args.cpp)
 
 
 if __name__ == "__main__":

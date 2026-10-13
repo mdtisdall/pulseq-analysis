@@ -388,8 +388,7 @@ def test_block_rotations_of_a_file_with_no_rotation_are_empty():
 
 
 def test_a_block_with_two_rotations_has_the_first(tmp_path):
-    # Block 1's list now goes on to the entry of rotation 3: GetBlock keeps rotation 1 and warns
-    # (D48).
+    # Block 1's list now goes on to the entry of rotation 3: GetBlock keeps rotation 1 and warns.
     text = ROTATED.read_bytes().replace(b"\n1 1 1 0\n", b"\n1 1 1 3\n")
     assert text != ROTATED.read_bytes()
     sequence = cs.load(text)

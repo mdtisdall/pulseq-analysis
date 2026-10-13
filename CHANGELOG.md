@@ -90,7 +90,7 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
     undefined behaviour). Its model is built from the reader's own libraries,
     and `SequenceData.reading` keeps the reader's object.
     `CppSiemens(oversampling="center" | "edge" | "preserve")` sets the
-    reader's sampling mode of an oversampled arbitrary gradient (D43).
+    reader's sampling mode of an oversampled arbitrary gradient (D6.1).
   - `spec`, the default (`spec.read_spec`): as true as possible to the Pulseq
     specification (1.5.3 draft) and, for timing, to the slide set that its
     section 2.6 cites (`doc/pulseq_shapes_and_times.pdf`). It rejects a file
@@ -113,25 +113,23 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `gradientsAt`, `pulseq_cpp_siemens.interpreter.CppSiemensDecoding`).
   `gradient_points(key, block, axis)` gives the points of one gradient event
   (`decoding.Points`), as the decoding draws it, not rotated.
-- `docs/discrepancies.md` has a new entry, D56: the last section of a file
+- `docs/discrepancies.md` has a new entry, D2.2: the last section of a file
   with no blank line after it.
 - The record is split by interpreter. `docs/discrepancies.md` gives, entry by
-  entry, the sources (the specification, the C++ reader, MATLAB Pulseq,
-  pypulseq) and what `spec` does and why; its review of the former strict
+  entry, the sources (the specification and the C++ reader) and what `spec`
+  does and why; its review of the former strict
   reader (section 4) is removed (commit `49a7e2c` has it last), and it keeps
   the scripts of the acceptance matrix, not the matrix. What `cpp-siemens`
   does is in `packages/pulseq-cpp-siemens/docs/specification.md`: its rule (do
-  what the C++ reader does) and each exception, with the same IDs. Its new IDs
-  D59 (an extended trapezoid of one point) and D60 (an extended trapezoid time
+  what the C++ reader does) and each exception. Its entries
+  D5.10 (an extended trapezoid of one point) and D5.11 (an extended trapezoid time
   out of range) name two cases of undefined behaviour that had none. The IDs
   of `pulseq_cpp_siemens.interpreter.CODES` and `UndefinedBehaviour.entry`
-  change: `version.invalid` D04 (was D02), `syntax.shape` D07 (was D14),
-  `ub.gradient-shape-0` D21, `ub.gradient-one-point` D59 (both were "—"), and
-  `ub.gradient-time-range` D60 (was D29).
+  are those of the regrouped record (the next entry).
 - `docs/specification.md` gives what `spec` does and why, by rule, as the
   record of `cpp-siemens` does: its rule, each place where the rule does not
-  decide, and the codes of its rejections, with the same IDs.
-- Rotations in `cpp-siemens` (D49, task R9). `CppSiemens(rotation="reader" |
+  decide, and the codes of its rejections, with the IDs of the records.
+- Rotations in `cpp-siemens` (D6.2, task R9). `CppSiemens(rotation="reader" |
   "apply")` (`pulseq_cpp_siemens.interpreter.ROTATION`): `"reader"`, the default, gives the
   reader's gradients, which it never rotates; `"apply"` rotates the gradients
   of each block to which the reader attaches a rotation by its quaternion,
@@ -149,7 +147,7 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
   does not have (`Spec(rotation="apply")`) raises `TypeError`. These are part
   of the contract with pulseq-checks.
-- Rotations in `spec` (D49, the `spec` part of task R9), and the gradients of
+- Rotations in `spec` (D2.18, the `spec` part of task R9), and the gradients of
   `spec`'s decoding. `SpecDecoding` has the blocks (`blocks`,
   `block_durations`, `block_count`) and `gradients_at(block_index, time_us,
   rotated=None)`, the gradients in Hz/m as `CppSiemensDecoding` gives them.
@@ -180,6 +178,25 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
 
 ### Changed
 
+- The record is regrouped by kind of decision (the user, 2026-10-13). The IDs
+  are D1.1 to D7.6: D1 to D4 in `docs/discrepancies.md` (the specification is
+  unclear, D1; silent and `spec` reads the file, D2; silent and `spec` rejects
+  by choice, D3; versions, D4) and D5 to D7 in the record of `cpp-siemens`
+  (the undefined behaviour of the C++ reader, D5; the settings of the scanner,
+  D6; the reader's values in the model, D7). An ID names a decision of an
+  interpreter, so a condition on which each interpreter decides has two IDs.
+  An entry exists only for a decision of `spec` where the specification is
+  unclear or silent, or for a departure of `cpp-siemens` from the C++ reader;
+  where the specification states a rule and each interpreter follows its own,
+  there is none. The rows of MATLAB Pulseq and pypulseq left the source tables
+  (the MATLAB oracle stays for the waveform tests), and mechanism M5 of the
+  hand-off (a catalogue of MATLAB Pulseq and pypulseq) left
+  `docs/findings-for-pulseq-checks.md`. The old IDs, numbered in the order of
+  discovery, are mapped to the new ones in the appendix of the record and by
+  `scripts/record_ids.py`.
+  The values of `pulseq_cpp_siemens.interpreter.CODES` and
+  `UndefinedBehaviour.entry` change to the new IDs ("—" for a code with no
+  entry). The released entries below keep the old IDs.
 - The modules are in three subpackages, in layers, and their import paths
   change. There are no aliases for the old paths:
   - `pulseq_analysis.seqfile` (the files): `seqfile` becomes
@@ -228,24 +245,24 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `\n` right before it (`AsWritten.signed_bytes()`). For `cpp-siemens` it is
   the reader's own check, which drops an empty line `\r\n` before the header:
   `tests/seqfiles/valid_crlf.seq` matches for `cpp-siemens` and not for
-  `spec` (D53). A mismatch is not a rejection.
+  `spec`. A mismatch is not a rejection.
 - `read_seqfile` reads the file through `read_as_written`, and through the
   interpreter `spec` by default, which replaces the reader of the package from
   before the interpreters (`strict`). Among the fixtures of `tests/seqfiles`,
   `spec` reads ten files that the former reader rejected:
-  `bad_blocks_order.seq` (block IDs out of order: file order, D20),
-  `bad_definitions_duplicate.seq` (the last definition, D12),
-  `bad_section_delays.seq` and `bad_section_unknown.seq` (ignored, D08, D09),
+  `bad_blocks_order.seq` (block IDs out of order: file order),
+  `bad_definitions_duplicate.seq` (the last definition, D2.6),
+  `bad_section_delays.seq` and `bad_section_unknown.seq` (ignored, D2.4),
   `bad_shape_rf_magnitude_negative.seq` and `bad_shape_rf_phase_range.seq`
-  (played as written, D31, D32), `bad_shape_rf_time_grid.seq` and
-  `bad_shape_rf_time_end.seq` (RF time shapes read as points, D35, D36),
-  `bad_syntax_integer_plus.seq` (`+30` is 30, D14) and
+  (played as written, D2.8, D2.9), `bad_shape_rf_time_grid.seq` and
+  `bad_shape_rf_time_end.seq` (RF time shapes read as points, D2.10, D2.11),
+  `bad_syntax_integer_plus.seq` (`+30` is 30) and
   `bad_syntax_line_after_comment.seq` (a `#` line inside a table is skipped,
-  D06). It rejects one that the former reader read:
+  D2.5). It rejects one that the former reader read:
   `valid_arbitrary_gradient_4us_raster.seq`, whose gradient raster (4 µs) is
   neither a multiple nor a divisor of its block duration raster (10 µs), which
-  slide 11 of the slide set requires (`definitions.raster-commensurate`); D28
-  has a new fixture on 5 µs, `valid_arbitrary_gradient_5us_raster.seq`, which
+  slide 11 of the slide set requires (`definitions.raster-commensurate`); a new
+  fixture on 5 µs, `valid_arbitrary_gradient_5us_raster.seq`, which
   `spec` reads and `cpp-siemens` rejects. On an Apple M1 Max, `spec` reads a file of
   20 MB with 900 000 blocks in 0.5 s, and `cpp-siemens` in 2.9 s.
 - The rules of `spec` that the former reader did not have:
@@ -253,20 +270,20 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   (slides 9 to 11), `shape.oversampled-length` (an even number of samples
   with time ID -1), `raster.gradient-vertex`, `shape.time-order` and
   `rotation.zero` (a quaternion of norm 0; from 1.5.1 `spec` divides each
-  quaternion by its norm, D49). `section.duplicate` rejects any section that
+  quaternion by its norm, D2.18). `section.duplicate` rejects any section that
   appears twice, also `[SIGNATURE]`, and two `extension` sections with one
-  `STRING_ID` (D10). `shape.empty` also covers the phase shape of an ADC, and
+  `STRING_ID` (D3.3). `shape.empty` also covers the phase shape of an ADC, and
   `shape.event-length` an ADC phase shape whose length is not the number of
-  ADC samples (D44). A shape with no blank line after it before a header or
-  the end of the section is `syntax.shape` (D07). `RequiredExtensions` is read
+  ADC samples (D3.8). A shape with no blank line after it before a header or
+  the end of the section is `syntax.shape` (D3.11). `RequiredExtensions` is read
   from 1.5.1, `extension DELAYS` from 1.5.0, ROTATIONS and RF_SHIMS from 1.5.1:
   in an older file such an extension is unknown, ignored and listed in
   `SequenceData.skipped_extensions`.
 - The decoding of an RF event with a time shape (`events.decode_rf`) follows
   `spec`, not the C++ reader: a shape whose times are `(i + 0.5) d` is cells of
   `d`, any other is points at its times, joined by straight lines of the
-  complex signal (D35 to D37). `events.AdcEvent.phase_modulation` is in rad,
-  one value for each ADC sample (D44).
+  complex signal (D2.10 to D2.12). `events.AdcEvent.phase_modulation` is in rad,
+  one value for each ADC sample (D2.15).
 - `SeqFileError` and `Violation` are in `errors`; a `SeqFileError` has
   `interpreter` and `codes`, and its message names the interpreter.
 - A version outside 1.4.0 to 1.5.x raises `NotSupported` in both interpreters.

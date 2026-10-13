@@ -881,7 +881,7 @@ class Reader {
     }
 
     // The rotation of each block, as GetBlock attaches it (cpp:1871-1879: the first defined
-    // rotation of the block's extension list, D48): the play index of each block for which
+    // rotation of the block's extension list): the play index of each block for which
     // SeqBlock::isRotation is true, and its quaternion, which load divided by its norm. GetBlock
     // runs only for a block with an extension list; no block is decoded or kept, and the
     // reader's messages (its warnings for a second rotation) are dropped.

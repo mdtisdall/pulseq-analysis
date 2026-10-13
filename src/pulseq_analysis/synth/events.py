@@ -19,15 +19,15 @@ section 2.6 cites.
 **Gradients.** An arbitrary gradient with time ID 0 has a sample at the centre of each cell of
 the gradient raster `dt` (spec:290; slide 7): `tt = (i + 0.5) dt`, `shape_dur = n dt`. With time
 ID -1 (oversampled, from 1.5.0) all the samples are kept, half a raster apart, the first and the
-last at cell centres (spec:420; slides 4 and 8; D43): `tt = (i + 1) / 2 dt`,
+last at cell centres (spec:420; slides 4 and 8): `tt = (i + 1) / 2 dt`,
 `shape_dur = (n + 1) / 2 dt`. With a time shape, the samples are the vertices of an extended
 trapezoid (slide 6): `tt` is the shape times `dt`, and `shape_dur` is the last time. Between its
 points a gradient is a straight line, from `first` at the start to `last` at the end
-(`seq_utils.gradient_offsets` gives the points; D41: the C++ reader and pypulseq draw the same
+(`seq_utils.gradient_offsets` gives the points; D2.13: the C++ reader and pypulseq draw the same
 lines, MATLAB Pulseq restores values at the raster edges).
 
 **RF.** Without a time shape, each sample is a cell of the RF raster: `t = (i + 0.5) dwell`,
-`shape_dur = n dwell`, `dwell` the RF raster (spec:290). With a time shape (D35 to D37):
+`shape_dur = n dwell`, `dwell` the RF raster (spec:290). With a time shape (D2.10 to D2.12):
 
 - a regular shape, whose times are `(i + 0.5) d` (`model.rf_time_step`), is cells of `d`: each
   sample is held for one dwell around its time, from the start of the pulse (slide 9), and the
@@ -40,14 +40,14 @@ lines, MATLAB Pulseq restores values at the raster edges).
   magnitude&phase"), and that MATLAB Pulseq uses for the RF power, bandwidth and simulation
   (`calcRfPower.m`, `calcRfBandwidth.m`, `simRf.m`). The C++ reader itself holds each sample for
   whole RF raster cells (nearest neighbour), and plays a regular-looking shape that does not start
-  at half a step as cells from 0 (`docs/discrepancies.md`, D35, D36).
+  at half a step as cells from 0 (`docs/discrepancies.md`, D2.10, D2.11).
 
 `RfEvent.dwell` is the dwell of cells, or `None` for points, and `RfEvent.signal(times)` gives the
 complex signal at any times. The magnitude is the amplitude times the magnitude shape as written,
-a negative sample included (a phase of pi, D31); the phase is 2 pi times the phase shape as
-written, with no wrap (D32).
+a negative sample included (a phase of pi, D2.8); the phase is 2 pi times the phase shape as
+written, with no wrap (D2.9).
 
-**ADC.** The phase modulation shape is in rad, one value for each ADC sample (D44): the reader
+**ADC.** The phase modulation shape is in rad, one value for each ADC sample (D2.15, D3.8): the reader
 rejects a shape of another length.
 """
 
@@ -165,7 +165,7 @@ class AdcEvent:
     """An ADC event (`[ADC]`).
 
     `phase_modulation` is the shape `phase_shape_id`, decompressed, in rad: one value for each
-    ADC sample (D44), or `None` when `phase_shape_id` is 0.
+    ADC sample (D2.15), or `None` when `phase_shape_id` is 0.
     """
 
     id: int

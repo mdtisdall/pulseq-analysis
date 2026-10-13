@@ -24,7 +24,7 @@ at 1, and a file that ends with `\\n` has one more, empty, line after it. Each l
 **Sections.** A section runs from its header to the line before the next header. A blank or
 comment line does not end it: the section records it (`Section.blank`, `Section.comments`), and
 the data lines after it belong to the section too. Which lines a reader takes is the reader's
-choice (D06, D07). The lines before the first header are `AsWritten.preamble`, a section with no
+choice (D2.5, D3.11). The lines before the first header are `AsWritten.preamble`, a section with no
 header.
 
 **Fields.** The data lines of a section are the rows of its `Table`, in file order, each split
@@ -71,12 +71,12 @@ convert the units and check the values.
 (`ShapeWritten`), and the data line right after it is its `num_samples` line when the first field
 of that line is `num_samples`. Every other data line of the section is a row of
 `Section.rows`, with one column `sample` (float); a shape's rows run to the next `shape_id`
-line or to the end of the section (a blank line does not end them here: D07 is a reader's
+line or to the end of the section (a blank line does not end them here: D3.11 is a reader's
 choice), and the rows before the first `shape_id` line belong to no shape.
 
 **The signature.** `AsWritten.signed_bytes()` gives the bytes that the hash of `[SIGNATURE]`
 covers by the specification (section 2.4): every byte before the first `[SIGNATURE]` header,
-without the `\\n` right before it. The C++ reader hashes other bytes for a CRLF file (D53).
+without the `\\n` right before it. The C++ reader hashes other bytes for a CRLF file.
 
 Every array of the reading is read-only. Nothing of the reading is shared with another reading.
 """

@@ -74,7 +74,7 @@ def test_the_resampling_jumps_over_the_cells_where_it_stays():
 
 
 def test_the_resampling_reads_past_the_times_at_the_cell_centres():
-    # D36 (2): MATLAB's short pulses, times at the cell centres; nSamples = int(0.5 + 3.5) = 4.
+    # D5.8: MATLAB's short pulses, times at the cell centres; nSamples = int(0.5 + 3.5) = 4.
     case = _checks._resampling("RF", f32(0.5, 1.5, 2.5, 3.5), 4, 4, 4)
     assert case is not None and case.code == "ub.rf-time-overrun"
     assert _checks._resampling("RF", f32(1, 2, 3, 4), 4, 4, 4) is None

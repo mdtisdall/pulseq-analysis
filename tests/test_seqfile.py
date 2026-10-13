@@ -591,8 +591,8 @@ def test_extension_tables_of_a_file_without_extensions_are_empty():
 
 
 def test_valid_1_4_fixtures_have_the_1_5_layout_with_the_values_of_the_format():
-    """D38: a 1.4 file has no `center` (spec:350 adds it to the 1.5 table), so it is NaN; the
-    other columns that the 1.4 table lacks have the values that the format defines. D40: the
+    """D4.2: a 1.4 file has no `center` (spec:350 adds it to the 1.5 table), so it is NaN; the
+    other columns that the 1.4 table lacks have the values that the format defines. D4.5: the
     `first` and `last` of a gradient with a time shape are the amplitude times its first and
     last sample (the package's choice, see `test_a_1_4_gradient_...`)."""
     for name in ("valid_1_4_0.seq", "valid_1_4_1.seq"):
@@ -621,7 +621,7 @@ def test_signature_matches_is_reported_and_is_not_a_rule():
 def _signature_variants():
     """(name, the bytes of a file up to the line `[SIGNATURE]`, the bytes that the scanner's
     reader hashes, the line end of the signature section). Each has a blank line after the last
-    shape (D07). The scanner's reader hashes each line with its line end, holds back a line that
+    shape (D3.11). The scanner's reader hashes each line with its line end, holds back a line that
     is only a line end, and drops it when the next line is `[SIGNATURE]`; `spec` hashes every
     byte before the `\\n` before `[SIGNATURE]`."""
     text = _text("valid_no_signature.seq").rstrip("\n")
@@ -644,7 +644,7 @@ def _signature_variants():
 def test_signature_matches_hashes_the_bytes_before_the_newline_that_precedes_the_signature(
     tmp_path, before, scanner, newline
 ):
-    """D53, spec:223: "The new line character preceding the keyword [SIGNATURE] is part of the
+    """spec:223: "The new line character preceding the keyword [SIGNATURE] is part of the
     signature and needs to be stripped away": the hash covers every byte before the `\\n` that
     precedes the first `[SIGNATURE]` line (so a `\\r` stays). The hash of the bytes that the
     scanner's reader hashes matches only where the two rules hash the same bytes."""
@@ -702,7 +702,7 @@ def test_the_default_interpreter_is_spec():
 def test_a_row_with_another_number_of_fields_than_its_table_is_syntax_columns(
     tmp_path, old, new, section
 ):
-    """D01a-c: the tables of the specification have 12 fields for an RF event (spec:341-359), 7
+    """D1.2, D4.2: the tables of the specification have 12 fields for an RF event (spec:341-359), 7
     for an arbitrary gradient (spec:386-399), 6 for a trapezoid (spec:379-381) and 9 for an ADC
     event (spec:431-445). The prose before each (7, 4 and 6 numbers, spec:334-336, spec:375,
     spec:424) disagrees with them and with the examples; `spec` follows the tables and the
@@ -715,7 +715,7 @@ def test_a_row_with_another_number_of_fields_than_its_table_is_syntax_columns(
 
 
 def test_a_1_4_file_has_the_rows_of_the_1_4_tables_and_not_those_of_1_5(tmp_path):
-    """D01a-c, D38: a 1.4 file has 8 fields in an RF row, 5 in a gradient row and 6 in an ADC row
+    """D1.2, D4.2: a 1.4 file has 8 fields in an RF row, 5 in a gradient row and 6 in an ADC row
     (the 1.4.x tables have no `center`, `freq_ppm`, `phase_ppm`, `use`, `first`, `last` and
     `phase_shape_id`); a row of the 1.5 layout in a 1.4 file is `syntax.columns`."""
     text = _text("valid_1_4_1.seq")
@@ -733,7 +733,7 @@ def test_a_1_4_file_has_the_rows_of_the_1_4_tables_and_not_those_of_1_5(tmp_path
 
 
 def test_a_file_without_a_version_section_is_version_missing(tmp_path):
-    """D02, spec:201: "It is recommended to reject Pulseq files without [VERSION] section"; `spec`
+    """D1.1, spec:201: "It is recommended to reject Pulseq files without [VERSION] section"; `spec`
     rejects it (section 6 of the plan)."""
     (violation,) = violations_of(SEQFILES / "bad_version_missing.seq").violations
     assert (violation.rule, violation.section, violation.line) == ("version.missing", None, None)
@@ -747,7 +747,7 @@ def test_a_file_without_a_version_section_is_version_missing(tmp_path):
     [("bad_version_unsupported_1_3.seq", "1.3"), ("bad_version_unsupported_1_6.seq", "1.6")],
 )
 def test_a_version_outside_1_4_to_1_5_is_not_supported(name, version):
-    """D03: the specification has no rule for a version that the reader does not know. Q1 of the
+    """D4.1: the specification has no rule for a version that the reader does not know. Q1 of the
     plan: every interpreter raises `NotSupported` for a version outside 1.4.0 to 1.5.x."""
     with pytest.raises(NotSupported, match="outside 1.4.0 to 1.5.x") as caught:
         read_seqfile(SEQFILES / name)
@@ -757,7 +757,7 @@ def test_a_version_outside_1_4_to_1_5_is_not_supported(name, version):
 
 @pytest.mark.parametrize("revision", [0, 9])
 def test_the_versions_1_5_0_to_1_5_x_are_read(tmp_path, revision):
-    """D03: the boundaries of `NotSupported`: a version from 1.4.0 up to, not including, 1.6.0
+    """D4.1: the boundaries of `NotSupported`: a version from 1.4.0 up to, not including, 1.6.0
     is read (the fixtures `bad_version_unsupported_1_3.seq` and `..._1_6.seq` are outside)."""
     text = _text("valid_no_signature.seq").replace("revision 1", f"revision {revision}")
     data = read_seqfile(_write(tmp_path, text, "r.seq"))
@@ -765,8 +765,8 @@ def test_the_versions_1_5_0_to_1_5_x_are_read(tmp_path, revision):
 
 
 def test_a_version_line_that_is_not_an_integer_is_version_invalid():
-    """D04, spec:193-198: the three lines `major`, `minor` and `revision` hold integers, so
-    `minor 5.0` is not an integer and is rejected (as a fraction in an integer column, D14)."""
+    """spec:193-198: the three lines `major`, `minor` and `revision` hold integers, so
+    `minor 5.0` is not an integer and is rejected (as a fraction in an integer column)."""
     error = violations_of(SEQFILES / "bad_version_invalid.seq")
     assert {v.rule for v in error.violations} == {"version.invalid"}
     assert 6 in {v.line for v in error.violations}  # the line `minor 5.0`
@@ -774,7 +774,7 @@ def test_a_version_line_that_is_not_an_integer_is_version_invalid():
 
 
 def test_a_file_may_have_its_sections_in_any_order(tmp_path):
-    """D05, spec:213: the specification says that a file "may end with" `[SIGNATURE]` and is
+    """D2.1, spec:213: the specification says that a file "may end with" `[SIGNATURE]` and is
     silent on the order of the other sections; `spec` takes any order (`[VERSION]` last in
     `undefined/version_last.seq`, `[SHAPES]` first below)."""
     plain = read_seqfile(SEQFILES / "valid_no_signature.seq")
@@ -788,10 +788,10 @@ def test_a_file_may_have_its_sections_in_any_order(tmp_path):
 
 
 def test_a_comment_or_blank_line_in_a_table_is_skipped_and_the_rows_after_it_are_read():
-    """D06, spec:171 ("Comments are specified by a line starting with a hash"): `spec` skips a
+    """D2.5, spec:171 ("Comments are specified by a line starting with a hash"): `spec` skips a
     blank line and a `#` line anywhere, so the rows after one are rows of the table (the package's
     choice: the specification is silent on a blank or comment line inside a section, except in
-    a shape, D07). `cpp-siemens` does not read such a file as `spec` does."""
+    a shape, D3.11). `cpp-siemens` does not read such a file as `spec` does."""
     plain = read_seqfile(SEQFILES / "valid_no_signature.seq")
     assert same_values(read_seqfile(SEQFILES / "bad_syntax_line_after_comment.seq"), plain)
 
@@ -820,7 +820,7 @@ def test_a_comment_or_blank_line_in_a_table_is_skipped_and_the_rows_after_it_are
     ],
 )
 def test_the_rows_after_a_comment_or_blank_line_of_any_section_are_read(tmp_path, after, line):
-    """D06: as above, in a table of each kind."""
+    """D2.5: as above, in a table of each kind."""
     text = _text("valid_no_signature.seq")
     assert text.count(after) == 1
     path = _write(tmp_path, text.replace(after, after + line), "split.seq")
@@ -828,7 +828,7 @@ def test_the_rows_after_a_comment_or_blank_line_of_any_section_are_read(tmp_path
 
 
 def test_comments_and_blank_lines_are_skipped_after_the_header_of_any_section(tmp_path):
-    """D06: a comment or blank line right after a header, also in `[VERSION]`, `[DEFINITIONS]`
+    """D2.5: a comment or blank line right after a header, also in `[VERSION]`, `[DEFINITIONS]`
     and `[SIGNATURE]` (the package's choice, as above)."""
     text = _text("valid_1_5_1.seq")
     expected = read_seqfile(SEQFILES / "valid_1_5_1.seq")
@@ -842,7 +842,7 @@ def test_comments_and_blank_lines_are_skipped_after_the_header_of_any_section(tm
 
 
 def test_a_comment_in_a_shape_is_skipped_and_a_blank_line_ends_it(tmp_path):
-    """D06, D07: a `#` line among the samples of a shape, and between its `shape_id` and
+    """D2.5, D3.11: a `#` line among the samples of a shape, and between its `shape_id` and
     `num_samples` lines, is a comment (spec:171) and is skipped
     (`valid_comment_in_shape.seq` has the shapes of `valid_1_5_1.seq`). A blank line ends the
     shape (spec:602), so the samples after it are outside a shape."""
@@ -856,7 +856,7 @@ def test_a_comment_in_a_shape_is_skipped_and_a_blank_line_ends_it(tmp_path):
 
 
 def test_a_blank_line_between_shape_id_and_num_samples_ends_the_shape(tmp_path):
-    """D06, D07, spec:602 ("The end of the shape definition is declared with a blank line"): a
+    """D2.5, D3.11, spec:602 ("The end of the shape definition is declared with a blank line"): a
     blank line right after `shape_id` ends the shape, so it has no `num_samples` line
     (`syntax.shape`, which the specification states: no choice in the message) and its other lines
     are outside a shape. A `#` line there is skipped (the test above)."""
@@ -875,7 +875,7 @@ def test_a_blank_line_between_shape_id_and_num_samples_ends_the_shape(tmp_path):
 
 
 def test_a_data_line_before_the_first_header_is_syntax_line():
-    """D06: the one place where a line outside a table is rejected: a data line before the first
+    """D3.2: the one place where a line outside a table is rejected: a data line before the first
     section header (the package's choice: the specification has no line outside a section, and no
     writer writes one)."""
     (violation,) = violations_of(SEQFILES / "bad_syntax_line.seq").violations
@@ -884,7 +884,7 @@ def test_a_data_line_before_the_first_header_is_syntax_line():
 
 
 def test_a_shape_with_no_blank_line_after_it_is_syntax_shape(tmp_path):
-    """D07, spec:602: the end of a shape is a blank line. A shape followed by the next
+    """D3.11, spec:602: the end of a shape is a blank line. A shape followed by the next
     `shape_id` line (`bad_syntax_shape_no_blank_line.seq`) or by the end of its section
     (`bad_syntax_shape_end.seq`) has none: `spec` rejects it (the package's choice: the
     specification does not say what such a shape is, and writers always write the blank line;
@@ -906,7 +906,7 @@ def test_a_shape_with_no_blank_line_after_it_is_syntax_shape(tmp_path):
 
 
 def test_a_shape_ends_only_at_a_blank_line(tmp_path):
-    """D07: every `shape_id` line right after the samples of a shape, with no blank line, is
+    """D3.11: every `shape_id` line right after the samples of a shape, with no blank line, is
     `syntax.shape` at that line; the shapes are still read, so there is no second violation."""
     text = _text("valid_no_signature.seq")
     path = _write(tmp_path, text.replace("\n\nshape_id", "\nshape_id"), "tight.seq")
@@ -919,7 +919,7 @@ def test_a_shape_ends_only_at_a_blank_line(tmp_path):
 
 
 def test_a_section_that_the_format_does_not_have_is_ignored(tmp_path):
-    """D08: the specification lists its sections and has no rule for another one; `spec` ignores
+    """D2.4: the specification lists its sections and has no rule for another one; `spec` ignores
     it, whatever its lines are (the user's choice, section 6 of the plan: the C++ reader ignores
     it too, MATLAB Pulseq and pypulseq reject it)."""
     plain = read_seqfile(SEQFILES / "valid_no_signature.seq")
@@ -931,7 +931,7 @@ def test_a_section_that_the_format_does_not_have_is_ignored(tmp_path):
 
 
 def test_a_delays_section_is_ignored(tmp_path):
-    """D09: 1.4.0 removed `[DELAYS]` (spec:114) and the binary format lists it as legacy: "Current
+    """1.4.0 removed `[DELAYS]` (spec:114) and the binary format lists it as legacy: "Current
     readers ignore this section for compatibility with old files" (spec:772, spec:743). `spec`
     ignores it in the text format too (the user's choice, section 6 of the plan); `extension
     DELAYS` (soft delays) is another thing."""
@@ -942,7 +942,7 @@ def test_a_delays_section_is_ignored(tmp_path):
 
 
 def test_a_section_that_appears_twice_is_section_duplicate_and_only_the_first_is_read():
-    """D10: the specification is silent on a section that appears twice, the readers disagree (the
+    """D3.3: the specification is silent on a section that appears twice, the readers disagree (the
     C++ reader keeps the last copy; MATLAB Pulseq and pypulseq add the copies of some sections and
     keep the last of others), and no writer writes one: `spec` rejects it with
     `section.duplicate` at the header of the second copy (the user's choice, 2026-10-13; the
@@ -988,7 +988,7 @@ def test_a_section_that_appears_twice_is_section_duplicate_and_only_the_first_is
 def test_any_named_section_and_any_extension_that_appears_twice_is_section_duplicate(
     tmp_path, old, new, section
 ):
-    """D10: the rejection is for every named section (`[VERSION]` included, also when the second
+    """D3.3: the rejection is for every named section (`[VERSION]` included, also when the second
     copy holds one key of its own) and for two `extension` sections with one STRING_ID, with the
     same type ID or another. The violation is at the second header, with the choice in the
     message. The test inserts the second header in a valid fixture; the other violations that
@@ -1005,7 +1005,7 @@ def test_any_named_section_and_any_extension_that_appears_twice_is_section_dupli
 
 
 def test_a_second_signature_section_and_an_extension_with_two_types_are_section_duplicate():
-    """D10: a second `[SIGNATURE]` section (`bad_section_duplicate_signature.seq`) and an
+    """D3.3: a second `[SIGNATURE]` section (`bad_section_duplicate_signature.seq`) and an
     `extension` STRING_ID with two type IDs (`bad_section_duplicate_extension.seq`) give
     `section.duplicate` at the second header, with the choice in the message."""
     for name, section, line in (
@@ -1022,7 +1022,7 @@ def test_a_second_signature_section_and_an_extension_with_two_types_are_section_
 
 
 def test_a_version_key_repeated_in_one_section_is_version_invalid(tmp_path):
-    """D04, spec:193-198: `[VERSION]` has one line for each of `major`, `minor` and `revision`;
+    """spec:193-198: `[VERSION]` has one line for each of `major`, `minor` and `revision`;
     a key repeated inside one copy of the section is `version.invalid` (a key in a second copy of
     the section is `section.duplicate`)."""
     text = _text("valid_no_signature.seq")
@@ -1033,7 +1033,7 @@ def test_a_version_key_repeated_in_one_section_is_version_invalid(tmp_path):
 
 
 def test_a_last_section_with_no_blank_line_after_it_is_read():
-    """D56: the specification is silent on a blank line after a section, and on the end of the file
+    """D2.2: the specification is silent on a blank line after a section, and on the end of the file
     (it declares the end of a shape with a blank line, spec:602). `valid_last_section_no_blank.seq`
     ends with `[TRAP]` and no line end after its row; `spec` reads it."""
     data = read_seqfile(SEQFILES / "valid_last_section_no_blank.seq")
@@ -1048,7 +1048,7 @@ def test_a_last_section_with_no_blank_line_after_it_is_read():
 
 @pytest.mark.parametrize("value", ["0", "-1e-6", "nan", "inf", "abc", "1e-6 2e-6", ""])
 def test_a_raster_that_is_not_one_finite_number_above_0_is_rejected(tmp_path, value):
-    """D11, spec:267-276: the four rasters are required, in seconds. A raster that is not one
+    """spec:267-276: the four rasters are required, in seconds. A raster that is not one
     finite number above 0 has no meaning as a raster time: `definitions.raster-invalid`."""
     text = _text("valid_no_signature.seq")
     old = "RadiofrequencyRasterTime 1e-06"
@@ -1059,7 +1059,7 @@ def test_a_raster_that_is_not_one_finite_number_above_0_is_rejected(tmp_path, va
 
 
 def test_a_missing_raster_is_definitions_raster_missing(tmp_path):
-    """D11, spec:267-276: each of the four rasters is "required" from 1.4.0."""
+    """spec:267-276: each of the four rasters is "required" from 1.4.0."""
     text = _text("valid_no_signature.seq")
     for key in (
         "GradientRasterTime",
@@ -1074,7 +1074,7 @@ def test_a_missing_raster_is_definitions_raster_missing(tmp_path):
 
 
 def test_a_definition_that_appears_twice_has_its_last_value(tmp_path):
-    """D12: the specification is silent ("a list of user-specified key/value pairs", spec:240);
+    """D2.6: the specification is silent ("a list of user-specified key/value pairs", spec:240);
     `spec` takes the last definition of a key (the package's choice, as the C++ reader, MATLAB
     Pulseq and pypulseq do). `bad_definitions_duplicate.seq` has `Name` twice."""
     data = read_seqfile(SEQFILES / "bad_definitions_duplicate.seq")
@@ -1091,7 +1091,7 @@ def test_a_definition_that_appears_twice_has_its_last_value(tmp_path):
 
 
 def test_a_definition_and_a_signature_hash_are_text_even_when_they_read_as_a_number(tmp_path):
-    """D13: the value of a definition has the type "any" (spec:247) and `Hash` is a string
+    """D2.7: the value of a definition has the type "any" (spec:247) and `Hash` is a string
     (spec:230): `spec` keeps the text, with its digits, signs and exponent as written."""
     text = _text("valid_1_5_1.seq")
     digits = "12345678901234567890123456789012"
@@ -1110,7 +1110,7 @@ def test_a_definition_and_a_signature_hash_are_text_even_when_they_read_as_a_num
 
 
 def test_syntax_of_numbers_in_a_table(tmp_path):
-    """D14, spec:176: each field is read by the type of its column. An integer is an optional sign
+    """spec:176: each field is read by the type of its column. An integer is an optional sign
     and digits (so `+30` is 30); `3e1`, `0x1e` and `30.0` are not integers. A float takes an
     exponent and a sign; `inf`, `1,5` and `1e999` are not finite numbers (`syntax.number`)."""
     base = _text("valid_no_signature.seq")
@@ -1141,7 +1141,7 @@ def test_syntax_of_numbers_in_a_table(tmp_path):
 
 
 def test_an_integer_column_rejects_a_fraction_in_a_time(tmp_path):
-    """D14, spec:351, spec:396-399, spec:438: the delay of an RF event, the times of a trapezoid
+    """spec:351, spec:396-399, spec:438: the delay of an RF event, the times of a trapezoid
     and the delay of an ADC event are integers (in us), so `100.5` is `syntax.integer`
     (`bad_syntax_integer.seq` has `30.5` as a block duration)."""
     text = _text("valid_no_signature.seq")
@@ -1188,7 +1188,7 @@ def test_an_integer_column_rejects_a_fraction_in_a_time(tmp_path):
 def test_nan_and_inf_in_a_float_column_are_syntax_number_with_the_choice(
     tmp_path, old, new, section
 ):
-    """D14: spec:176 types each column as an integer or a float; it does not say whether NaN and
+    """D3.5: spec:176 types each column as an integer or a float; it does not say whether NaN and
     infinity are floats of a file, and no writer writes them. `spec` rejects them in every
     float column (`syntax.number`, the package's choice, which the message says)."""
     text = _text("valid_no_signature.seq")
@@ -1230,7 +1230,7 @@ def test_nan_and_inf_in_a_float_column_are_syntax_number_with_the_choice(
     ],
 )
 def test_a_negative_time_or_count_is_syntax_negative_with_the_choice(tmp_path, old, new, column):
-    """D14, spec:176 ("integer types are stored as 64-bit unsigned integers"): `spec` rejects a
+    """D3.6, spec:176 ("integer types are stored as 64-bit unsigned integers"): `spec` rejects a
     negative block duration, delay, rise, flat or fall time, number of samples, dwell time and
     trigger delay or duration. This is not literally the specification (it defines negative values
     elsewhere, and the dwell is a float): the package's choice, which the message says."""
@@ -1245,7 +1245,7 @@ def test_a_negative_time_or_count_is_syntax_negative_with_the_choice(tmp_path, o
 
 
 def test_a_byte_that_is_not_utf8_is_syntax_encoding_at_its_line(tmp_path):
-    """D14: the specification gives no encoding. `spec` rejects a file with a byte that is not
+    """D3.1: the specification gives no encoding. `spec` rejects a file with a byte that is not
     UTF-8, at the line of the first one (the package's choice, which the message says: MATLAB
     Pulseq and pypulseq fail on such a byte, and the text of the model is UTF-8)."""
     (violation,) = violations_of(SEQFILES / "bad_syntax_encoding.seq").violations
@@ -1260,9 +1260,9 @@ def test_a_byte_that_is_not_utf8_is_syntax_encoding_at_its_line(tmp_path):
 
 
 def test_an_adc_dwell_time_is_a_float_in_ns_and_a_multiple_of_the_adc_raster(tmp_path):
-    """D15, spec:437 (a float in ns), spec:275 (an integer multiple of AdcRasterTime): `25000.0`
+    """spec:437 (a float in ns), spec:275 (an integer multiple of AdcRasterTime): `25000.0`
     reads as 25 us; a dwell with a fraction of a ns reads when it is a multiple of the raster, and
-    is `raster.adc-dwell` (D26) when it is not."""
+    is `raster.adc-dwell` when it is not."""
     text = _text("valid_no_signature.seq")
     row = "1 8 25000 100 0 0 0 0 0"
     data = read_seqfile(_write(tmp_path, text.replace(row, "1 8 25000.0 100 0 0 0 0 0"), "a.seq"))
@@ -1278,7 +1278,7 @@ def test_an_adc_dwell_time_is_a_float_in_ns_and_a_multiple_of_the_adc_raster(tmp
 
 
 def test_a_soft_delay_offset_is_a_float_in_us_and_its_hint_is_kept_whole(tmp_path):
-    """D16, spec:550-558: the example gives the offset in us (integers) and has no table of types:
+    """D2.16, spec:550-558: the example gives the offset in us (integers) and has no table of types:
     `spec` reads the offset as a float, as MATLAB Pulseq writes and reads it (the package's choice):
     `valid_soft_delay_fraction.seq` has -100.5 us. The whole hint is kept."""
     data = read_seqfile(SEQFILES / "valid_soft_delay_fraction.seq")
@@ -1290,7 +1290,7 @@ def test_a_soft_delay_offset_is_a_float_in_us_and_its_hint_is_kept_whole(tmp_pat
 
 
 def test_the_rf_use_is_one_of_seven_letters(tmp_path):
-    """D17, spec:356-357: "the initial of one of" excitation, refocusing, inversion, saturation,
+    """spec:356-357: "the initial of one of" excitation, refocusing, inversion, saturation,
     preparation, other or undefined: `e r i s p o u`. Another letter, also a capital, is
     `syntax.use`."""
     text = _text("valid_no_signature.seq")
@@ -1305,7 +1305,7 @@ def test_the_rf_use_is_one_of_seven_letters(tmp_path):
 
 
 def test_values_are_float64_with_all_their_digits(tmp_path):
-    """D18, spec:176 ("Shapes are stored as 32-bit single-precision floats"; the plan reads this
+    """spec:176 ("Shapes are stored as 32-bit single-precision floats"; the plan reads this
     as the binary format): `spec` reads float64 from the text and does not round to 32 bits."""
     text = _text("valid_no_signature.seq")
     text = text.replace(
@@ -1318,7 +1318,7 @@ def test_values_are_float64_with_all_their_digits(tmp_path):
 
 
 def test_ids_that_are_not_positive_or_not_unique_are_rejected(tmp_path):
-    """D19, spec:181-183: "IDs must be positive integers"; the ID of a shape, and of an event of
+    """spec:181-183: "IDs must be positive integers"; the ID of a shape, and of an event of
     one class, must be unique. `bad_id_positive.seq` (an RF ID), `bad_id_unique.seq` (an ADC ID);
     here a shape ID. No choice in the messages."""
     text = _text("valid_no_signature.seq").rstrip("\n")
@@ -1334,14 +1334,14 @@ def test_ids_that_are_not_positive_or_not_unique_are_rejected(tmp_path):
 
 
 def test_a_gradient_id_is_unique_across_gradients_and_trapezoids():
-    """D19, spec:183, spec:403: `[GRADIENTS]` and `[TRAP]` share one set of IDs
+    """spec:183, spec:403: `[GRADIENTS]` and `[TRAP]` share one set of IDs
     (`bad_id_gradient_unique.seq`)."""
     (violation,) = violations_of(SEQFILES / "bad_id_gradient_unique.seq").violations
     assert (violation.rule, violation.section) == ("id.gradient-unique", "TRAP")
 
 
 def test_a_repeated_block_id_is_id_unique_with_the_choice(tmp_path):
-    """D19: the specification states uniqueness for shapes and events, not for blocks, which
+    """D3.4: the specification states uniqueness for shapes and events, not for blocks, which
     nothing refers to; `spec` rejects a repeated block ID (the package's choice: both writers
     number the blocks 1, 2, ..., and the message says so)."""
     text = _text("valid_no_signature.seq")
@@ -1360,7 +1360,7 @@ def test_a_repeated_block_id_is_id_unique_with_the_choice(tmp_path):
 
 
 def test_blocks_play_in_file_order_whatever_their_ids(tmp_path):
-    """D20, spec:185 ("There are no restrictions on the ordering of IDs") and spec:318 ("The
+    """spec:185 ("There are no restrictions on the ordering of IDs") and spec:318 ("The
     blocks are executed sequentially"): `spec` reads the blocks in file order.
     `bad_blocks_order.seq` has block 3 before block 2."""
     data = read_seqfile(SEQFILES / "bad_blocks_order.seq")
@@ -1407,7 +1407,7 @@ def test_blocks_play_in_file_order_whatever_their_ids(tmp_path):
     ],
 )
 def test_a_reference_to_something_that_is_not_defined_is_ref_unresolved(tmp_path, old, new):
-    """D21, spec:178-186 (IDs refer to the objects one level below), spec:478 (a list of extensions
+    """spec:178-186 (IDs refer to the objects one level below), spec:478 (a list of extensions
     ends with 0): a block's event or extension list, an event's shape, and an entry of
     `[EXTENSIONS]` (its next entry, its type, its object) that name nothing are rejected."""
     text = _text("valid_no_signature.seq")
@@ -1417,7 +1417,7 @@ def test_a_reference_to_something_that_is_not_defined_is_ref_unresolved(tmp_path
 
 
 def test_time_id_minus_1_is_for_a_gradient_from_1_5_0_only():
-    """D22, spec:349 (an RF time ID: 0 means the default, nothing else is defined), spec:395 (-1:
+    """D4.3, spec:349 (an RF time ID: 0 means the default, nothing else is defined), spec:395 (-1:
     "1/2 of the default time raster (gradient oversampling case)"), slide 4 ("Updated in v1.5.0"):
     `ref.unresolved` for an RF event with time ID -1 (`undefined/rf_time_id_minus_1.seq`) and for
     a gradient with -1 in a 1.4 file (`bad_ref_time_id_minus_1_in_1_4.seq`); a 1.5 gradient has
@@ -1432,7 +1432,7 @@ def test_time_id_minus_1_is_for_a_gradient_from_1_5_0_only():
 
 
 def test_a_cycle_in_an_extension_list_is_ref_unresolved():
-    """D23, spec:478 ("zero-terminated single-linked list"): a list that never ends is rejected at
+    """spec:478 ("zero-terminated single-linked list"): a list that never ends is rejected at
     the block that starts it."""
     (violation,) = violations_of(SEQFILES / "bad_ref_extension_cycle.seq").violations
     assert (violation.rule, violation.section) == ("ref.unresolved", "BLOCKS")
@@ -1440,13 +1440,13 @@ def test_a_cycle_in_an_extension_list_is_ref_unresolved():
 
 
 def test_a_file_with_no_block_is_blocks_empty():
-    """D24, spec:318: "The sequence must declare at least one block"."""
+    """spec:318: "The sequence must declare at least one block"."""
     (violation,) = violations_of(SEQFILES / "bad_blocks_empty.seq").violations
     assert (violation.rule, violation.section) == ("blocks.empty", "BLOCKS")
 
 
 def test_an_event_that_lasts_longer_than_its_block_is_block_event_too_long():
-    """D25, spec:318: "No event comprising this block is allowed to last longer than the
+    """spec:318: "No event comprising this block is allowed to last longer than the
     specified block duration. The interpreters must to throw an error": an RF event, an ADC event
     and a trigger that end after their block."""
     for name, text in (
@@ -1470,7 +1470,7 @@ def test_an_event_that_lasts_longer_than_its_block_is_block_event_too_long():
     ],
 )
 def test_a_time_that_is_not_a_multiple_of_its_raster_is_rejected(name, rule):
-    """D26, spec:290 (a gradient starts and ends on the gradient raster; the ramps and the flat
+    """spec:290 (a gradient starts and ends on the gradient raster; the ramps and the flat
     time of a trapezoid are multiples of it), spec:275 (the ADC dwell time "must be integer
     multiple" of AdcRasterTime), slide 5: each is a rejection. No choice in the message."""
     (violation,) = violations_of(SEQFILES / name).violations
@@ -1486,7 +1486,7 @@ def test_a_time_that_is_not_a_multiple_of_its_raster_is_rejected(name, rule):
     ],
 )
 def test_a_gradient_that_is_not_aligned_to_its_block_is_rejected(name, rule):
-    """D27, spec:420: "Gradients that start at non-zero values must be aligned to the beginning of
+    """spec:420: "Gradients that start at non-zero values must be aligned to the beginning of
     the block, meaning that the start delay of such gradients must be 0", and a gradient that ends
     above 0 needs "to be aligned to the end of the block"; slide 6 ("Vertices with non-zero
     amplitude must touch block boundary")."""
@@ -1496,7 +1496,7 @@ def test_a_gradient_that_is_not_aligned_to_its_block_is_rejected(name, rule):
 
 
 def test_an_arbitrary_gradient_plays_on_the_raster_of_the_file():
-    """D28: the specification accepts any gradient raster (spec:273: "Default raster time"). The
+    """The specification accepts any gradient raster (spec:273: "Default raster time"). The
     raster must divide or be a multiple of the block raster (slide 11, in
     `test_a_raster_that_is_not_commensurate_with_the_block_raster_is_rejected`):
     `valid_arbitrary_gradient_5us_raster.seq` has 5 us and a block raster of 10 us, and reads;
@@ -1513,7 +1513,7 @@ def test_a_raster_that_is_not_commensurate_with_the_block_raster_is_rejected(tmp
     """slide 11: "rfRasterTime and gradRasterTime must be integer-multiples of blockDurationRaster
     or vise versa", and "Edges of all types of rasters coincide at the beginning of the block".
     The 4 us gradient raster of `valid_arbitrary_gradient_4us_raster.seq` (block raster 10 us)
-    breaks it (its name is historical, D28: the file was valid before); so does an RF raster of
+    breaks it (its name is historical: the file was valid before); so does an RF raster of
     3 us. The rule is stated by the slide: no choice in the message."""
     (violation,) = violations_of(SEQFILES / "valid_arbitrary_gradient_4us_raster.seq").violations
     assert (violation.rule, violation.section) == ("definitions.raster-commensurate", "DEFINITIONS")
@@ -1565,7 +1565,7 @@ def test_an_rf_or_adc_event_must_start_on_an_edge_of_the_rf_raster(tmp_path, nam
 
 
 def test_a_shape_that_does_not_have_its_declared_number_of_samples_is_shape_length(tmp_path):
-    """D29, spec:626: "The number of points after decompressing all samples defined in a shape
+    """spec:626: "The number of points after decompressing all samples defined in a shape
     must be equal the number declared in `<num_samples>`": a shape that decompresses to more
     (`undefined/shape_decompress_longer.seq`) or fewer samples (`bad_shape_length.seq`, and one
     of 10 uncompressed values that declares 11)."""
@@ -1620,7 +1620,7 @@ def _with_shape(directory, shape_id, samples):
 def test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance(
     tmp_path, shape_id, samples, rule
 ):
-    """D30, spec:624: "When used as amplitude shapes for gradient or RF objects, the decompressed
+    """spec:624: "When used as amplitude shapes for gradient or RF objects, the decompressed
     samples must be in the normalised range of [-1, 1]": the magnitude shape of an RF event and
     the waveform of an arbitrary gradient. A sample beyond 1 in absolute value by more than
     `RANGE_TOLERANCE` (1e-9: the rounding of the 9 digits that MATLAB Pulseq writes) is
@@ -1635,7 +1635,7 @@ def test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance(
 
 
 def test_a_negative_rf_magnitude_plays_as_written():
-    """D31, spec:624 (the range of an amplitude shape is [-1, 1], so a negative magnitude is
+    """D2.8, spec:624 (the range of an amplitude shape is [-1, 1], so a negative magnitude is
     allowed): `bad_shape_rf_magnitude_negative.seq` has a magnitude of -0.5, which `spec` reads
     and decodes as written, a negative magnitude (a phase of pi)."""
     data = read_seqfile(SEQFILES / "bad_shape_rf_magnitude_negative.seq")
@@ -1645,7 +1645,7 @@ def test_a_negative_rf_magnitude_plays_as_written():
 
 
 def test_an_rf_phase_shape_plays_as_written_with_no_range():
-    """D32: the specification is silent on the range of the phase shape; `spec` reads the phase as
+    """D2.9: the specification is silent on the range of the phase shape; `spec` reads the phase as
     written and decodes 2 pi times the value with no wrap (a phase of 1.5 turns is 3 pi), as MATLAB
     does. `bad_shape_rf_phase_range.seq` has a phase of 1.5."""
     data = read_seqfile(SEQFILES / "bad_shape_rf_phase_range.seq")
@@ -1667,7 +1667,7 @@ def test_an_unused_shape_id_0_is_not_taken_for_the_time_shape_of_the_default_ras
 
 
 def test_the_phase_shapes_have_no_range_and_a_gradient_shape_may_be_negative(tmp_path):
-    """D31, D32, D44: the phase shape of an RF event and the phase modulation shape of an ADC
+    """D2.8, D2.9, D2.15: the phase shape of an RF event and the phase modulation shape of an ADC
     event are not amplitude shapes (spec:624), so any value reads; a negative gradient waveform
     is in [-1, 1]."""
     gradient = read_seqfile(_with_shape(tmp_path, 4, [-0.5] * 10))
@@ -1700,7 +1700,7 @@ def test_the_phase_shapes_have_no_range_and_a_gradient_shape_may_be_negative(tmp
 def test_a_shape_with_no_sample_that_an_event_uses_is_shape_empty(
     tmp_path, old, new, empty, length
 ):
-    """D33: the specification is silent on a shape with no sample. `spec` rejects it where an
+    """D3.7: the specification is silent on a shape with no sample. `spec` rejects it where an
     event uses it, an RF, gradient or ADC phase shape (the package's choice: an event with no
     samples has no waveform; the message says so). `empty` is the number of violations (one for
     each empty shape that an event uses); an empty ADC phase shape is also not one value for each
@@ -1717,7 +1717,7 @@ def test_a_shape_with_no_sample_that_an_event_uses_is_shape_empty(
 
 
 def test_an_unused_empty_shape_is_read(tmp_path):
-    """D33: only a shape that an event uses is rejected (the rule is about an event with no
+    """D3.7: only a shape that an event uses is rejected (the rule is about an event with no
     samples)."""
     text = _text("valid_no_signature.seq").rstrip("\n")
     text += "\n\nshape_id 10\nnum_samples 0\n"
@@ -1742,7 +1742,7 @@ def test_an_unused_empty_shape_is_read(tmp_path):
     ],
 )
 def test_the_shapes_of_one_event_must_have_one_number_of_samples(tmp_path, old, new):
-    """D34, spec:349, spec:443 (an RF event's magnitude, phase and time shape, and a gradient's
+    """D3.8, spec:349, spec:443 (an RF event's magnitude, phase and time shape, and a gradient's
     waveform and time shape, pair up by sample): the specification does not say what an event
     plays when they differ, so `spec` rejects it (the package's choice: some samples have no
     partner; the message says so). `bad_shape_event_length.seq` is the RF phase of 8 samples
@@ -1756,7 +1756,7 @@ def test_the_shapes_of_one_event_must_have_one_number_of_samples(tmp_path, old, 
 
 
 def test_the_shapes_of_one_event_with_one_number_of_samples_read():
-    """D34: the shapes of `valid_1_5_1.seq` (a time shape of 5 samples for a waveform of 5) read."""
+    """D3.8: the shapes of `valid_1_5_1.seq` (a time shape of 5 samples for a waveform of 5) read."""
     data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
     (row,) = data.grad[data.grad["time_id"] == 6]
     assert data.shapes[row["shape_id"]].num_samples == data.shapes[row["time_id"]].num_samples
@@ -1779,7 +1779,7 @@ def _with_rf_time_shape(directory, time_samples, packed, n=100):
 
 
 def test_a_regular_rf_time_shape_is_cells_and_any_other_is_points():
-    """D35, spec:349 ("the time sampling points, specified in the units of
+    """D2.10, spec:349 ("the time sampling points, specified in the units of
     RadiofrequencyRasterTime"), slide 9 ("Dwell time for regularly-sampled pulses: multiple of
     rfRasterTime"; "Sampling points of RF pulses are aligned to the centers of the dwell time
     periods"), slide 4 (explicit times "are (typically) on raster edges, but this is not a
@@ -1800,7 +1800,7 @@ def test_a_regular_rf_time_shape_is_cells_and_any_other_is_points():
 
 
 def test_an_rf_time_shape_of_points_is_joined_by_straight_lines_of_the_complex_signal():
-    """D36, slide 9 ("defined by vertices"), slide 4: points are joined by straight lines: the
+    """D2.11, slide 9 ("defined by vertices"), slide 4: points are joined by straight lines: the
     package's choice (the user, 2026-10-12: linear interpolation of the complex signal, as the
     FIXME of the C++ reader intends). RF 5 of `valid_rf_time_shapes.seq` has the points 1, 2, 4,
     7, 10 us, magnitudes 0.2 0.6 1 0.6 0.2 and phases 0 0.25 0.5 0.25 0 turns: halfway between the
@@ -1814,7 +1814,7 @@ def test_an_rf_time_shape_of_points_is_joined_by_straight_lines_of_the_complex_s
 
 
 def test_an_rf_time_shape_that_other_tools_write_is_read(tmp_path):
-    """D35, D36: `bad_shape_rf_time_grid.seq` (a step of 1 and a first time of 1: `1 1 98`) and
+    """D2.10, D2.11: `bad_shape_rf_time_grid.seq` (a step of 1 and a first time of 1: `1 1 98`) and
     `bad_shape_rf_time_end.seq` (the times 0 and 99.6) were rejected by the interim reader; `spec`
     reads them as points (the package's choice: the form `1 1 N-2` is what pypulseq's sigpy pulses
     and the MATLAB UTE demo write). Such a shape ends at its last time."""
@@ -1844,7 +1844,7 @@ def test_an_rf_time_shape_that_other_tools_write_is_read(tmp_path):
 def test_the_end_of_an_rf_event_with_a_time_shape_is_n_dwells_or_the_last_time(
     tmp_path, packed, n, rule
 ):
-    """D37, slide 9: a regular pulse lasts `N d` (every sample is a cell of `d` from the start of
+    """D2.12, slide 9: a regular pulse lasts `N d` (every sample is a cell of `d` from the start of
     the pulse), and a pulse of points ends at its last time (the package's choice: both makers of
     vertex pulses set the duration to the last time). The RF event starts at 100 us in a block of
     300 us (`block.event-too-long`, spec:318): 100 cells of 2 us end at 300 us, 100 cells of 4 us
@@ -1867,7 +1867,7 @@ def test_the_end_of_an_rf_event_with_a_time_shape_is_n_dwells_or_the_last_time(
     ids=["one-sample", "decreasing", "equal", "negative-start"],
 )
 def test_an_rf_time_shape_that_defines_no_line_is_shape_time_order(tmp_path, packed, n, why):
-    """D35-D37, spec:349: the specification does not define such time sampling points, and no
+    """D2.10-D2.12, spec:349: the specification does not define such time sampling points, and no
     writer writes them: a time shape of one sample (no step and no line), times that do not
     increase, or a first time below 0 are `shape.time-order` (the package's choice; the message
     says so). `bad_shape_time_order.seq` has `100 -1 -1 97`."""
@@ -1910,7 +1910,7 @@ def test_a_gradient_time_shape_must_increase_and_have_its_vertices_on_the_raster
     ],
 )
 def test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0(tmp_path, first_time, codes):
-    """D40: a 1.4 file has no `first` column. A gradient with a time shape that starts at time 0
+    """D4.5: a 1.4 file has no `first` column. A gradient with a time shape that starts at time 0
     (within 1e-6 gradient rasters) has the first sample of its shape for its start value; one that
     starts later has no value at its start: `layer1.gradient-ends` (the package's choice: the
     readers guess the value differently), and its vertex is off the raster. A 1.5 file has the
@@ -1932,7 +1932,7 @@ def test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0(tmp_path, first_t
 
 
 def test_a_1_4_gradient_with_no_values_at_its_ends_is_layer1_gradient_ends():
-    """D39, spec:290 (the default samples are at the centres of the raster cells): a 1.4 file has
+    """D4.4, spec:290 (the default samples are at the centres of the raster cells): a 1.4 file has
     no `first` and `last`, so the values at the two ends of an arbitrary gradient on the default
     raster are not in the file; `spec` rejects it (the package's choice: the readers guess them
     differently, Pulseq 1.5 stores them; the message says so). `cpp-siemens` reads it."""
@@ -1947,7 +1947,7 @@ def test_a_1_4_gradient_with_no_values_at_its_ends_is_layer1_gradient_ends():
 
 
 def test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_centre():
-    """D41, spec:290 ("sampling points of arbitrary-shape gradients are aligned to the centers"),
+    """D2.13, spec:290 ("sampling points of arbitrary-shape gradients are aligned to the centers"),
     slide 7: the sample `i` of a gradient on the default raster is at `(i + 0.5) dt`, between
     `first` at the start and `last` at the end of the event (the file's columns). The straight
     lines between the points are drawn by `seq_utils.gradient_offsets`."""
@@ -1959,7 +1959,7 @@ def test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_c
 
 
 def test_an_oversampled_gradient_has_its_samples_half_a_raster_apart_and_an_odd_count():
-    """D43, spec:395 and spec:420 ("N-1 additional points"), slides 4 and 8 (the shape "starts and
+    """spec:395 and spec:420 ("N-1 additional points"), slides 4 and 8 (the shape "starts and
     ends at the cell centers"): the samples of a gradient with time ID -1 are half a raster apart,
     the first and the last at cell centres, so their number is odd (derived: the slides do not
     state a count); `shape.oversampled-length` rejects an even count
@@ -1974,7 +1974,7 @@ def test_an_oversampled_gradient_has_its_samples_half_a_raster_apart_and_an_odd_
 
 
 def test_the_phase_modulation_of_an_adc_event_is_in_rad_one_value_for_each_sample(tmp_path):
-    """D44, spec:443 (the phase shape "of the phase modulation", no unit), spec:120 (an ADC phase
+    """D2.15, D3.8, spec:443 (the phase shape "of the phase modulation", no unit), spec:120 (an ADC phase
     offset per sample): `spec` reads it in rad, one value for each ADC sample (the package's
     choice: as C++ and MATLAB, and `makeAdc` requires); a shape of another length is
     `shape.event-length` (`bad_shape_adc_phase_length.seq`: 9 samples for 8)."""
@@ -1994,7 +1994,7 @@ def test_the_phase_modulation_of_an_adc_event_is_in_rad_one_value_for_each_sampl
 
 
 def test_an_unknown_extension_that_is_not_required_is_skipped():
-    """D45, spec:460 ("The interpreter MUST detect unknown extensions and MAY chose to ignore
+    """D2.17, spec:460 ("The interpreter MUST detect unknown extensions and MAY chose to ignore
     them"): `spec` ignores the rows of an extension that it does not know and lists its STRING_ID
     in `skipped_extensions`; its type ID stays in `type_ids`. `valid_1_5_1.seq` has one with rows
     that are not a table, `koma_v1.5_unknown_ext.seq` has two."""
@@ -2005,7 +2005,7 @@ def test_an_unknown_extension_that_is_not_required_is_skipped():
 
 
 def test_a_file_whose_last_header_is_extensions_is_read():
-    """D46: the specification is silent on the order of the sections; `spec` takes any order.
+    """D2.3: the specification is silent on the order of the sections; `spec` takes any order.
     `koma_v1.5_unknown_ext.seq` has `[EXTENSIONS]` as its last section that starts with `[` (its
     `extension` sections follow), which the C++ reader rejects."""
     path = ORACLE / "koma_v1.5_unknown_ext.seq"
@@ -2015,7 +2015,7 @@ def test_a_file_whose_last_header_is_extensions_is_read():
 
 
 def test_a_required_extension_that_is_not_known_is_extension_required_unknown():
-    """D47, spec:460 ("If any of the declared required extensions are unknown to the interpreter,
+    """spec:460 ("If any of the declared required extensions are unknown to the interpreter,
     it MUST generate an error and MUST not attempt executing the sequence"): from 1.5.1."""
     (violation,) = violations_of(SEQFILES / "bad_extension_required_unknown.seq").violations
     assert (violation.rule, violation.section) == ("extension.required-unknown", "DEFINITIONS")
@@ -2024,7 +2024,7 @@ def test_a_required_extension_that_is_not_known_is_extension_required_unknown():
 
 
 def test_a_block_with_two_rotations_or_two_rf_shims_is_extension_per_block(tmp_path):
-    """D48, spec:567 and spec:584 ("Only one rotation extension object can be specified per
+    """spec:567 and spec:584 ("Only one rotation extension object can be specified per
     block"; the same for RF shimming): `bad_extension_per_block.seq` has two blocks with two
     ROTATIONS objects each; below, a block with two RF_SHIMS objects."""
     error = violations_of(SEQFILES / "bad_extension_per_block.seq")
@@ -2041,7 +2041,7 @@ def test_a_block_with_two_rotations_or_two_rf_shims_is_extension_per_block(tmp_p
 
 
 def test_rotation_quaternions_are_normalized_and_a_quaternion_of_norm_0_is_rejected(tmp_path):
-    """D49, P20, spec:567 ("a normalized rotation quaternion"): from 1.5.1 `spec` divides each
+    """D2.18, D3.10, P20, spec:567 ("a normalized rotation quaternion"): from 1.5.1 `spec` divides each
     quaternion of the `ROTATIONS` extension by its norm, so the model holds a quaternion of norm 1
     (`1 1.01 0 0 0` is `1 1 0 0 0`, `0 3 4 0` is `0 0.6 0.8 0`). A quaternion of norm 0 has no
     rotation: `rotation.zero` (the package's choice, which the message says). Applying the rotation
@@ -2068,7 +2068,7 @@ def _line_of(path, text):
 
 
 def test_what_spec_ignores_is_in_the_records_in_file_order(tmp_path):
-    """P20, D08, D09, D45, D50, D57, D58: `SequenceData.records` has a `Record` (kind, subject,
+    """P20, D2.4, D2.17, D2.19, D4.6: `SequenceData.records` has a `Record` (kind, subject,
     reason, line) for each extension, section and label that `spec` ignores. An unknown extension
     (`valid_1_5_1.seq`), an extension of a later revision (`valid_1_5_0_extensions_of_1_5_1.seq`:
     ROTATIONS and RF_SHIMS from 1.5.1), an unknown section (`bad_section_unknown.seq`), the
@@ -2102,8 +2102,8 @@ def test_what_spec_ignores_is_in_the_records_in_file_order(tmp_path):
 
 
 def test_the_records_of_labels_and_of_an_extension_of_a_later_revision(tmp_path):
-    """D50, D57, D58, spec:519-520, spec:526, spec:545: a label name that the specification does
-    not list is `unknown` (`NOSCL`, a misspelling of `NOSLC`, D57); a flag of 1.4.1 (PMC, NOROT,
+    """D2.19, D4.6, spec:519-520, spec:526, spec:545: a label name that the specification does
+    not list is `unknown` (`NOSCL`, a misspelling of `NOSLC`); a flag of 1.4.1 (PMC, NOROT,
     NOPOS, NOSLC, ONCE) in a 1.4.0 file is `version`, and none in a 1.4.1 file; `extension DELAYS`
     in a 1.4.1 file is `version`. The label rows stay in the label table."""
     text = _text("valid_1_4_1.seq")
@@ -2126,7 +2126,7 @@ def test_the_records_of_labels_and_of_an_extension_of_a_later_revision(tmp_path)
 
 
 def test_a_label_that_is_not_known_is_kept_as_text(tmp_path):
-    """D50, spec:519-520 (the counters and flags "supported at the moment"): `spec` keeps the name
+    """D2.19, spec:519-520 (the counters and flags "supported at the moment"): `spec` keeps the name
     of any label as text, with no check (`valid_label_unknown.seq` has `FOO`). The labels PMC,
     NOROT, NOPOS, NOSLC and ONCE are new in 1.4.1 (spec:526); the name PMC is kept as text in a
     1.4.0 file, where it is not a label of the format, and in a 1.4.1 file."""
@@ -2141,7 +2141,7 @@ def test_a_label_that_is_not_known_is_kept_as_text(tmp_path):
 
 
 def test_two_events_with_equal_values_and_different_ids_are_both_kept():
-    """D51, spec:183 ("The ID of events within a single class must be unique"; no rule on equal
+    """spec:183 ("The ID of events within a single class must be unique"; no rule on equal
     events): `spec` keeps both, with their IDs. `pypulseq_simple_mprage150.seq` has the trapezoids
     39 and 40 with the amplitudes 0 and -0."""
     data = read_seqfile(ORACLE / "pypulseq_simple_mprage150.seq")
@@ -2153,7 +2153,7 @@ def test_two_events_with_equal_values_and_different_ids_are_both_kept():
 
 
 def test_the_model_has_no_value_of_a_scanner():
-    """D52: the file has no dead time, ringdown time or default raster of a scanner, and the
+    """The file has no dead time, ringdown time or default raster of a scanner, and the
     model has none either (see `test_model_without_values_of_a_target`): no change."""
     data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
     assert {f.name for f in dataclasses.fields(data.rasters)} == {
@@ -2165,7 +2165,7 @@ def test_the_model_has_no_value_of_a_scanner():
 
 
 def test_a_signature_hash_covers_the_bytes_before_the_newline_that_precedes_it():
-    """D53, spec:223: "The new line character preceding the keyword [SIGNATURE] is part of the
+    """spec:223: "The new line character preceding the keyword [SIGNATURE] is part of the
     signature and needs to be stripped away": `spec` strips one `\\n`. `valid_crlf.seq` (CRLF line
     ends) was signed by the rule of the C++ reader, which drops its `\\r\\n` empty line, so its
     hash does not match here (and the file is read); `valid_1_5_1.seq` matches."""
@@ -2176,10 +2176,10 @@ def test_a_signature_hash_covers_the_bytes_before_the_newline_that_precedes_it()
 
 
 def test_a_signature_section_must_have_a_type_and_a_hash(tmp_path):
-    """D54, spec:223-232: "The [SIGNATURE] section must contain two following fields", `Type`
+    """spec:223-232: "The [SIGNATURE] section must contain two following fields", `Type`
     and `Hash`, "along with any additional information in the format identical to that of
     [DEFINITIONS]": a missing field, or a field of two values, is `signature.invalid`; an
-    additional key reads. The last of a key repeated wins (the package's choice, D10)."""
+    additional key reads. The last of a key repeated wins (the package's choice, D3.3)."""
     (violation,) = violations_of(SEQFILES / "bad_signature_invalid.seq").violations
     assert (violation.rule, violation.section) == ("signature.invalid", "SIGNATURE")
     text = _text("valid_1_5_1.seq")
@@ -2202,7 +2202,7 @@ def test_a_signature_section_must_have_a_type_and_a_hash(tmp_path):
 
 
 def test_an_extension_header_has_a_word_and_a_type_id(tmp_path):
-    """D55, spec:493 (the table types `<STRING_ID>` as "integer"), spec:498, spec:507 (each
+    """D1.4, spec:493 (the table types `<STRING_ID>` as "integer"), spec:498, spec:507 (each
     example has a word, `extension TRIGGERS 1`, and the interpreter uses only the STRING_ID): `spec`
     reads the word as the STRING_ID and the integer as the type ID; a type that is not an integer
     is `syntax.integer`, and a header with another number of words is `syntax.columns`."""
@@ -2222,7 +2222,7 @@ def test_the_extensions_of_a_later_revision_are_skipped_in_an_older_file(tmp_pat
     """The version gate (the user, 2026-10-12): `spec` reads each extension from the revision that
     introduced it: `extension DELAYS` from 1.5.0 (spec:545), ROTATIONS and RF_SHIMS from 1.5.1
     (spec:567, spec:584). In an older file such an extension is one that `spec` does not know:
-    ignored (D45) and listed in `skipped_extensions`, its rows not read.
+    ignored (D2.17) and listed in `skipped_extensions`, its rows not read.
     `valid_1_5_0_extensions_of_1_5_1.seq` is a 1.5.0 file with all of them."""
     data = read_seqfile(SEQFILES / "valid_1_5_0_extensions_of_1_5_1.seq")
     assert data.skipped_extensions == ("ROTATIONS", "RF_SHIMS", "UNKNOWN")
@@ -2289,7 +2289,7 @@ def test_sample_lines_of_two_values_are_syntax_number(tmp_path):
 
 
 def test_a_nan_or_inf_shape_sample_is_syntax_number_with_the_choice(tmp_path):
-    """D14: a shape sample that is NaN or infinite is a number that the specification does not rule
+    """D3.5: a shape sample that is NaN or infinite is a number that the specification does not rule
     on (the package's choice, in the message); a sample that is not a number (`1,5`) is not."""
     text = _text("valid_no_signature.seq")
     for sample, choice in (("nan", True), ("inf", True), ("1,5", False), ("+0.4", None)):
@@ -2475,7 +2475,7 @@ def test_model_mappings_and_fields_cannot_be_changed():
 
 
 def test_model_without_values_of_a_target():
-    """The model has no dead time, gamma, B0 or limit field (they are layer 2; D52)."""
+    """The model has no dead time, gamma, B0 or limit field (they are layer 2)."""
     names = {f.name for f in dataclasses.fields(SequenceData)}
     assert names == {
         "version",

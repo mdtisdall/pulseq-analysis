@@ -1,6 +1,6 @@
 # Pulseq sequence file
 # Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
-# valid_no_signature.seq with [VERSION] as the last section (D05). The C++ reader reads
+# valid_no_signature.seq with [VERSION] as the last section (D5.1). The C++ reader reads
 # no shape, and the RF event names shape 1 (undefined behaviour, ExternalSequence.cpp:1995).
 
 [DEFINITIONS]
