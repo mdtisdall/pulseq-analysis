@@ -24,6 +24,9 @@ sequence.gradients_at(
 sequence.first_rejected_block()  # the driver's first mode, with no block kept: an index or None
 sequence.block_rotations()  # the blocks with a rotation, and their quaternions
 sequence.gradients_at([1], [100.0], rotated=True)  # turned by each block's rotation
+sequence.block_soft_delays()  # the blocks with a soft delay, as GetBlock attaches it
+sequence.block_label_sets()  # the LABELSET events of each block that decodeLabel knows
+cs.rotate_vec3_by_quat([[1, 0, 0, 0]], [[1.0, 0, 0]])  # the reader's rotation of vectors
 cs.load("tests/seqfiles/valid_1_5_1.seq", oversampling="edge")  # the reader's other modes
 ```
 
@@ -78,7 +81,17 @@ attaches a rotation (the first one of its extension list, cpp:1871-1879) and its
 rotated=True)` turns the values of each such block by its quaternion with the reader's own
 helper `rotate_vec3_by_quat` (cpp:2666-2684, the active rotation, `c = +1`), which the reader
 calls only on its position offsets: a simulation of a scanner that applies the rotation, with the
-reader's arithmetic. A block with no rotation is not changed.
+reader's arithmetic. A block with no rotation is not changed. `rotate_vec3_by_quat(quaternions,
+vectors)` gives that rotation of any vectors, bit for bit as `gradients_at(..., rotated=True)`.
+
+**Soft delays and labels.** `block_soft_delays()` gives the soft delay that `GetBlock` attaches to
+each block (the first of its list, cpp:1900-1907), as `load` read it: the play index, the numeric
+ID, the offset (an int in us), the factor and the hint (bytes). `block_durations_ru(actual_ru)`
+gives `GetDuration_ru` of each block after the reader's hook `setActualSoftDelay_ru` with the value
+of `actual_ru` for that block (-1 for none: the stored duration), and `gradients_at(...,
+actual_ru=...)` sets the hook for the call, so that `gradientsAt` ends the block there. The reader
+never sets it: the scanner's interpreter does. `block_label_sets()` gives the LABELSET events of
+each block that `decodeLabel` knows (it leaves out an unknown name, for example `NOSLC`).
 
 A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode, and
 loading it reads and checks the file again; `copy.copy` and `copy.deepcopy` return the same
@@ -239,7 +252,16 @@ reader's units), `gradients_at(block_index, time_us, rotated=None)` is `SeqBlock
 Hz/m, and `gradient_points(key, block, axis)` gives the points between which `gradientsAt` draws
 its straight lines (not rotated; the values are those that `gradientsAt` gives at the points). It
 has the other members of the protocol `pulseq_analysis.synth.Decoding`: `interpreter`,
-`block_count`, `rotations()` and `rotation_record`.
+`session`, `block_count`, `block_durations`, `stored_block_durations`, `rotations()`,
+`rotation_record`, `soft_delay_record`, `fov_record` and `fov_flags()`.
+
+**The scanner session.** `CppSiemens` implements version 1 of the plugin protocol of
+pulseq-analysis (`protocol`, P22): `decode(data, session)` takes a `pulseq_analysis.synth.Session`
+(the neutral one by default). A soft delay with a value in the session sets its block's duration
+with the reader's hook `setActualSoftDelay_ru`, by the shared rule of pulseq-analysis (D6.3);
+the field of view scales the logical axes (except where `NOSCL` is set), and turns them after the
+block's rotation (except where `NOROT` is set), with the reader's `rotate_vec3_by_quat` (D6.4).
+The reader drops `NOSLC`, the specification's spelling, so it has no effect here.
 
 **Rotations.** The C++ reader stores each block's rotation and applies it to nothing: its
 gradients are the file's logical gradients, and it leaves the rotation to the scanner's

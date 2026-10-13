@@ -441,8 +441,9 @@ Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 0.
 ### 2.5 The block table
 
 `sequence_index` reads the block table of the snapshot's data
-(`SequenceData.blocks`) and its durations (`SequenceData.block_durations_s`)
-as arrays. It numbers the unique events of each kind from 1, in the order of
+(`SequenceData.blocks`) and the actual durations of its decoding
+(`Decoding.block_durations`: the stored ones, except for a block whose soft
+delay the scanner session sets) as arrays. It numbers the unique events of each kind from 1, in the order of
 their first use: block by block in play order, and in one block in the order
 gx, gy, gz. The three gradient axes share one number space, so one event that
 plays on x and on y has one number. The event columns use the smallest of
@@ -451,8 +452,8 @@ uint8, uint16 and uint32 that holds the number of unique events.
 The gradient events are those of section 1.2: the file IDs of the events of
 the file, and for a block whose gradients come from `gradients_at`, a key for
 each axis above the largest file ID (one set of keys for each distinct such
-block: the same events, rotation and duration). So in a rotated block the
-three axes have events of their own. The IDs of the file are kept: two equal
+block: the same events, rotation, flags of the field of view and duration). So
+in a rotated block the three axes have events of their own. The IDs of the file are kept: two equal
 rows with different IDs are two events (pypulseq's reading merged them).
 
 ## 3. Algorithms and cost
@@ -830,11 +831,45 @@ the `Analysis.spec.id`).
 
 ## 7. What `load` does
 
-`load(source, interpreter="spec")` reads a path with `reading.read_seqfile`, and
-a `pp.Sequence` with `from_pypulseq.read_pypulseq` (the text of its writer, read
-as a file). It raises what they raise: `SeqFileError` for a file that the
-interpreter rejects, and `NotSupported` for a file outside the package's scope.
-Then `Snapshot(data, source)` decodes the data (`decoding.decode`).
+`load(source, interpreter="spec", session=None)` reads a path with
+`reading.read_seqfile`, and a `pp.Sequence` with `from_pypulseq.read_pypulseq`
+(the text of its writer, read as a file). It raises what they raise:
+`SeqFileError` for a file that the interpreter rejects, and `NotSupported` for a
+file outside the package's scope. Then `Snapshot(data, source, session)` decodes
+the data under the scanner session (`decoding.decode(data, session)`), which
+raises `scanner.SettingError` for a setting that addresses something the file
+does not have.
+
+### 7.0 The scanner session
+
+`scanner.Session` holds the inputs of the scanner session (rule 3 of section
+7.8 of `docs/plans/parser-redesign.md`): soft delays by hint, and the rotation
+(a quaternion) and gradient scaling of the field of view. `decoding.decode`
+gives it to `spec`'s decoder, and to a plugin through `Plugin.decode(data,
+session)` (P22). The simulation of each mechanism is in `scanner`, shared by
+the interpreters (rule 6), and a plugin may import it:
+
+- `scanner.soft_delay_durations(session, soft_delays, stored_ticks, raster,
+  pure_delay, interpreter=..., version=..., unavailable=None)` takes the soft
+  delays that the interpreter attaches to the blocks (`scanner.SoftDelay`: the
+  play index, numeric ID, offset in s, factor and hint) and gives the duration
+  of each block in units of the raster, `value / factor + offset` rounded half
+  away from 0, and the `SoftDelayRecord`. It raises `SettingError` where the
+  setting does not apply (`docs/usage.md`, "The scanner session").
+- `scanner.fov_flags(block_count, label_sets, scaling_flag)` gives the flag
+  NOROT and the scaling flag of each block from the (block, name, value) of the
+  LABELSET objects: a state across blocks, set by the LABELSET of a block for
+  it and the blocks after it. `searchsorted` over the events: O(N + K log K).
+- `scanner.physical_gradients(logical, session, scale_rows, block_rows,
+  block_quaternions, fov_rows, rotate)` scales the logical axes, then rotates
+  by the block's quaternion, then by the field of view, with the interpreter's
+  `rotate` (MATLAB Pulseq's order, D2.20). `scanner.fov_record` gives the
+  `FovRecord`.
+
+`SpecDecoding.gradients_at` applies `physical_gradients` to its logical values,
+and stops each block at its actual duration. The measurements take the actual
+durations (`seq_index`, `_played`) and, for each block that the field of view
+rotates or scales, its events from `gradients_at` (section 1.2).
 
 `load` does not refuse the rotation extension. The snapshot keeps the
 decoding's rotation record (`Snapshot.rotation_record`, rule 4 of section 7.8

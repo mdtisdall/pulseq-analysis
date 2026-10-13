@@ -15,6 +15,7 @@ ANALYSIS_TESTS = [
     "test_interpreter_in_pulseq_analysis.py",
     "test_load_in_pulseq_analysis.py",
     "test_measurements_in_pulseq_analysis.py",
+    "test_session_in_pulseq_analysis.py",
 ]
 
 ROOT_TESTS = Path(__file__).resolve().parents[3] / "tests"

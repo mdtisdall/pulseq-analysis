@@ -79,12 +79,13 @@ class Unrotated:
     (`cpp-siemens`'s does, D6.2). `load` takes it as an object; it is not installed."""
 
     name: ClassVar[str] = "unrotated"
+    protocol: ClassVar[int] = 1
 
     def read(self, path: pathlib.Path) -> SequenceData:
         return dataclasses.replace(read_seqfile(path, "spec"), interpreter=self)
 
-    def decode(self, data: SequenceData) -> "UnrotatedDecoding":
-        spec = decode(dataclasses.replace(data, interpreter=Spec()))
+    def decode(self, data: SequenceData, session=None) -> "UnrotatedDecoding":
+        spec = decode(dataclasses.replace(data, interpreter=Spec()), session)
         assert isinstance(spec, SpecDecoding)
         return UnrotatedDecoding(self, spec)
 
@@ -95,14 +96,38 @@ class Unrotated:
 @dataclasses.dataclass(frozen=True, eq=False)
 class UnrotatedDecoding:
     """The decoding of `Unrotated`: the methods of the protocol `Decoding`, from `spec`'s
-    decoding, with the gradients not rotated."""
+    decoding, with the gradients not rotated (the session's field of view is not applied
+    either)."""
 
     interpreter: Unrotated
     spec: SpecDecoding
 
     @property
+    def session(self):
+        return self.spec.session
+
+    @property
     def block_count(self) -> int:
         return self.spec.block_count
+
+    @property
+    def block_durations(self):
+        return self.spec.block_durations
+
+    @property
+    def stored_block_durations(self):
+        return self.spec.stored_block_durations
+
+    @property
+    def soft_delay_record(self):
+        return self.spec.soft_delay_record
+
+    @property
+    def fov_record(self):
+        return self.spec.fov_record
+
+    def fov_flags(self):
+        return self.spec.fov_flags()
 
     def rotations(self):
         return self.spec.rotations()

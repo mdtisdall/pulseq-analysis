@@ -153,6 +153,9 @@ specification does not state, which its message says.
 | [D2.17](#d217-an-unknown-extension-that-the-file-does-not-require) | Unknown extension, not required | may ignore | ignores | ignores; records it |
 | [D2.18](#d218-a-rotation-quaternion-divided-by-its-norm) | Quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3 | normalizes |
 | [D2.19](#d219-a-label-that-the-specification-does-not-list) | Unknown label name | lists labels | ignores the label | reads; records it |
+| [D2.20](#d220-the-order-of-the-gradient-scaling-the-blocks-rotation-and-the-field-of-view) | A session's field of view and a block's rotation | silent on the order | no field-of-view code | scales, then the block's rotation, then the field of view |
+| [D2.21](#d221-a-soft-delay-value-of-the-session) | A session's soft delay value | `input / factor + offset`; pure delay blocks | a hook; never computes | MATLAB's rounding; `SettingError` where it does not apply |
+| [D2.22](#d222-the-flag-noslc-and-the-writers-noscl) | `NOSLC` against `NOSCL` | `NOSLC` | `NOSCL`; drops `NOSLC` | `NOSLC` from 1.4.1; `NOSCL` unknown |
 | [D3.1](#d31-a-byte-that-is-not-utf-8) | Byte that is not UTF-8 | silent | does not check | rejects (choice) |
 | [D3.2](#d32-a-data-line-before-the-first-section) | Data line before the first section | silent | never reads it | rejects (choice) |
 | [D3.3](#d33-a-section-that-appears-twice) | A section twice | silent | reads the last | rejects (choice) |
@@ -731,11 +734,108 @@ the specification does not list in `SequenceData.records` (`"label"`, reason
 `"unknown"`; `valid_label_unknown.seq`: `FOO`). So is `NOSCL`, the spelling of the
 C++ reader (`cpp:825`) and of both writers (`getSupportedLabels.m:17`,
 `supported_labels_rf_use.py:31`) for the flag that the specification spells
-`NOSLC` (spec:520).
+`NOSLC` (spec:520). Under a scanner session, `NOSCL` therefore does
+not turn off the gradient scaling of the field of view (D2.22).
 
 Reason: the specification lists the labels "supported at the moment"
 (spec:519-520); `spec` keeps an unknown one, since labels do not change the
 waveforms (section 6 of the plan).
+
+#### D2.20: The order of the gradient scaling, the block's rotation and the field of view
+
+| Source | What it does |
+|---|---|
+| Specification | X, Y and Z "refer to physical scanner gradient channels" (section 2.4, `spec:318`), and the format "omits ... logical coordinate-frame transformations" (`spec:136`). The flags `NOROT` and `NOSLC` tell the interpreter to ignore the rotation, or the "FOV / gradient scaling", applied through the UI (`spec:530-537`), so the scanner turns and scales the field of view; the specification does not say in which order, nor before or after a block's rotation (`spec:567`). |
+| C++ reader | Has no code for the field of view: no function turns or scales `gradientsAt`. It uses a block's quaternion only to turn the position offset of the field of view by the conjugate rotation (`cpp:2766-2777`, `cpp:3024`). |
+
+Example: block 2 of `tests/session/scanner_session.seq` plays 1e6 Hz/m on x and
+a rotation of 90 degrees about z. With
+`Session(fov_rotation=(0.7071068, 0.7071068, 0, 0), gradient_scaling=(2, 3, 4))`
+(90 degrees about x), `spec` gives 2e6 Hz/m on z: x scaled by 2, then turned to
+y by the block, then to z by the field of view.
+
+`spec`: the gradients of a block on the physical axes are R_fov R_block S g: the
+session's gradient scaling S of the logical axes, then the block's rotation
+R_block (D2.18, from 1.5.1), then the rotation of the field of view R_fov
+(`scanner.physical_gradients`). A block whose flag `NOROT` is set is not turned
+by the field of view, and a block whose flag `NOSLC` is set is not scaled
+(D2.22); the flags are a state that a LABELSET sets for its block and the
+blocks after it (`spec:522`), from 1.4.1 (D4.7). The session's rotation is a
+quaternion of norm 1 within 1e-6, divided by its norm. The record is
+`fov_record` (`synth.FovRecord`).
+
+Reason: the only written order is that of MATLAB Pulseq's `mr.TransformFOV`,
+which places a field of view when a sequence is designed: "scale, translation,
+rotation" (`TransformFOV.m:58-60`): it scales the logical axes
+(`TransformFOV.m:188-200`), applies the block's rotation
+(`TransformFOV.m:261-263`), then the rotation of the field of view, except with
+`NOROT` (`TransformFOV.m:416-427`). The user chose this order (2026-10-13); the
+order of the scanner's interpreter is not known.
+
+The same condition in `cpp-siemens`: [D6.4](../packages/pulseq-cpp-siemens/docs/specification.md#d64-the-field-of-view-of-a-session)
+
+#### D2.21: A soft delay value of the session
+
+| Source | What it does |
+|---|---|
+| Specification | Soft delays came in 1.5.0. They rewrite at run time the duration of a pure delay block, "blocks of non-zero duration containing no RF, gradient or ADC events", by `D = input / factor + offset`, and a UI value that gives a negative delay is not allowed (section 2.8.4, `spec:545-563`). It does not say how `D` is rounded to the block duration raster, what a block with two soft delays does, or whether one hint can have two numeric IDs. |
+| C++ reader | Stores each soft delay and attaches the first of a block's list to the block, with a warning for a second (`cpp:1900-1907`). It never computes `D`: the scanner's interpreter sets it with the hook `SeqBlock::setActualSoftDelay_ru`, and `GetDuration` then gives it (`h:601-610`, `h:705-708`). It does not check that the block is a pure delay block. |
+
+Example: in `tests/session/scanner_session.seq`, `Session(soft_delays={"TE":
+2e-3, "TR": 10e-3})` gives block 1 (`-100 2 TE`) 2e-3 / 2 - 100 µs = 900 µs,
+block 6 (`5000 -1 TE`) 3 ms and block 7 (`0 1 TR`) 10 ms. `{"TE": 20e-3}` gives
+block 6 -15 ms: a `SettingError`.
+
+`spec`: from 1.5.0, a block whose soft delay has a value in the session lasts
+`value / factor + offset`, divided by the block duration raster and rounded
+half away from 0; the others keep their stored duration
+(`scanner.soft_delay_durations`). The decoding gives the actual and the stored
+durations; the measurements use the actual ones. `SettingError` (rule 8 of P20)
+is raised for a hint that no block has, and for a file older than 1.5.0 (D4.6);
+for a hint whose soft delays have two numeric IDs, or whose numeric ID another
+hint has too; for a block with that hint that has an RF, gradient or ADC event,
+or two soft delays; and for a duration below 0 or not finite. The record is
+`soft_delay_record` (`synth.SoftDelayRecord`); a hint with no value is recorded
+at its stored duration, not warned about.
+
+Reason: MATLAB Pulseq's `applySoftDelay` is the only written rule: it rounds to
+the raster with `round` (half away from 0) and raises an error for a negative
+duration, an unknown hint, and a hint and a numeric ID that disagree
+(`Sequence.m:2518-2587`); pypulseq's `apply_soft_delay` does the same
+(`sequence.py:1416-1521`). The user chose (2026-10-13) a `SettingError` for a
+soft delay outside a pure delay block (the specification defines it only
+there; MATLAB and the reader would shorten the block and cut its events), for a
+block with two soft delays (two rules would give two durations), and for a hint
+with two numeric IDs, as MATLAB.
+
+The same condition in `cpp-siemens`: [D6.3](../packages/pulseq-cpp-siemens/docs/specification.md#d63-the-soft-delays-of-a-session)
+
+#### D2.22: The flag NOSLC, and the writers' NOSCL
+
+| Source | What it does |
+|---|---|
+| Specification | Lists the flag `NOSLC` (`spec:520`), from 1.4.1 (`spec:526`): it "instructs the interpreter to ignore FOV / gradient scaling parameters applied through the UI on the scanner (EXPERIMENTAL)" (`spec:537`). A flag keeps its value until a LABELSET changes it (`spec:522`). |
+| C++ reader | Spells the flag `NOSCL` (`cpp.h:249-262`, `cpp:2378-2380`): `decodeLabel` does not know `NOSLC`, prints "unknown label specification" and leaves the label out. No function of the reader reads either flag. |
+
+Example: `tests/session/scanner_session.seq`: block 4 sets `NOSLC 1`, block 5
+`NOSCL 1` and `NOSLC 0`. With `Session(gradient_scaling=(2, 3, 4))`, `spec`
+does not scale block 4 and scales blocks 5 to 8; `cpp-siemens` scales block 4
+and not blocks 5 to 8.
+
+`spec`: from 1.4.1, `NOSLC` turns off the gradient scaling of the session for
+its block and the blocks after it, until a LABELSET sets it to 0 (D2.20).
+`NOSCL` is a label that the specification does not list: kept, recorded, and
+without effect (D2.19).
+
+Reason: `spec` follows the specification's spelling (the user, 2026-10-13).
+MATLAB Pulseq and pypulseq spell the flag `NOSCL` (`getSupportedLabels.m:17`,
+`supported_labels_rf_use.py:31`), so neither writer can write `NOSLC`, and a
+`NOSCL` of their files has no effect under `spec`. MATLAB's `mr.TransformFOV`
+stores `NOSCL` and never checks it when it scales (`TransformFOV.m:147`,
+`188-200`). The spelling is an upstream report to consider (section 12 of the
+plan).
+
+The same condition in `cpp-siemens`: [D6.4](../packages/pulseq-cpp-siemens/docs/specification.md#d64-the-field-of-view-of-a-session)
 
 ### D3. The specification is silent, and `spec` rejects the file by choice
 
@@ -1136,7 +1236,9 @@ record in `SequenceData.records` (`"extension"`, reason `"version"`).
 `RequiredExtensions` is read from 1.5.1. Before 1.5.1 no block is rotated, where
 `CppSiemens(rotation="apply")` rotates; the measurements (`load`, R14) take the
 unrotated gradients, with no warning, since `spec` applies all the content of
-the file's version (rule 4 of P20).
+the file's version (rule 4 of P20). A session's soft delay value for a file
+older than 1.5.0 is a `SettingError` (D2.21): the file has no soft delays under
+`spec`.
 
 Reason: the specification gives the revision of each mechanism (above), and a
 reader of a version has only the mechanisms of that version (the user,
@@ -1159,7 +1261,8 @@ records the label with the reason `"version"` when the file says `revision 0`.
 
 `spec`: keeps a flag of 1.4.1 (`PMC`, `NOROT`, `NOPOS`, `NOSLC`, `ONCE`) in an
 older file as text, and records it in `SequenceData.records` (`"label"`, reason
-`"version"`).
+`"version"`). Under a scanner session, `NOROT` and `NOSLC` of an
+older file do not change the field of view of a block (D2.20).
 
 Reason: as D4.6: a reader of a version has only the mechanisms of that version
 (the user, 2026-10-12; rule 2 of P20), and labels do not change the waveforms.

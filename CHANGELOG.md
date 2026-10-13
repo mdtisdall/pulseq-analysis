@@ -175,7 +175,56 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   times), and `model.rf_time_step` (the step of a regular RF time shape, or
   None).
 
+- The scanner session (task R16 of `docs/plans/parser-redesign.md`, P20
+  section 7.8, P22). `synth.Session` holds the inputs of the scanner session,
+  the same for every interpreter: `soft_delays` (s, by hint), `fov_rotation`
+  (a quaternion) and `gradient_scaling` (x, y, z). The default is the neutral
+  session. `analyses.load(source, interpreter, session=...)` and
+  `synth.decode(data, session=...)` take it. A soft delay with a value sets the
+  duration of its block to `value / factor + offset`, rounded half away from 0
+  on the block duration raster (`spec` from 1.5.0; D2.21). The field of view
+  scales the logical axes, then the block's rotation applies, then the rotation
+  of the field of view (the order of MATLAB's `mr.TransformFOV`, D2.20); a
+  block with `NOROT` is not turned, and a block with the scaling flag (`NOSLC`
+  for `spec` from 1.4.1, `NOSCL` for `cpp-siemens`; D2.22, D6.4) is not scaled.
+  - `synth.SettingError` (a `ValueError` with `setting`, `interpreter`,
+    `version` and `reason`): a setting that addresses something the file does
+    not have under the interpreter (rule 8): an unknown hint, a file before
+    1.5.0 under `spec`, a hint with two numeric IDs, a soft delay in a block
+    with an event or with two soft delays, a negative duration.
+  - `synth.SoftDelayRecord` and `synth.FovRecord`: what a decoding applied
+    (`soft_delay_record` and `fov_record` of each decoding and snapshot).
+  - The shared simulation in `synth.scanner` (`soft_delay_durations`,
+    `fov_flags`, `physical_gradients`, `fov_record`, `SoftDelay`), which a
+    plugin may import (rule 6).
+  - `tests/session/scanner_session.seq`, a fixture of the session, outside
+    `tests/seqfiles`.
+  - The record's entries D2.20, D2.21 and D2.22 (`docs/discrepancies.md`), and
+    D6.3 and D6.4 of `cpp-siemens`.
+- pulseq-cpp-siemens: `Sequence.block_soft_delays()`,
+  `Sequence.block_label_sets()`, `Sequence.block_durations_ru(actual_ru)` (the
+  reader's hook `setActualSoftDelay_ru`), `gradients_at(..., actual_ru=...)`,
+  and `rotate_vec3_by_quat(quaternions, vectors)`, the reader's rotation.
+  `CppSiemens.decode(data, session)` applies the session with them (D6.3,
+  D6.4).
+
 ### Changed
+
+- The contract with pulseq-checks changes (R16, P22;
+  `docs/findings-for-pulseq-checks.md`, 2.8):
+  - The plugin protocol has a version: `seqfile.PROTOCOL` is 1, a plugin class
+    has `protocol = 1`, and its `decode` is `decode(data, session=None)`. A
+    plugin of another version, or of none (the protocol before R16), is a
+    `TypeError` when it is chosen. `CppSiemens.protocol` is 1.
+  - The protocol `synth.Decoding` gains `session`, `block_durations` (the
+    actual durations), `stored_block_durations`, `soft_delay_record`,
+    `fov_record` and `fov_flags()`. `SpecDecoding.block_durations` is now the
+    actual duration (the stored one with the neutral session, so no value
+    changes by default). `gradients_at` is 0 after the actual end of a block.
+  - The block table and the measurements use the actual durations.
+  - `SequenceData.records` of `cpp-siemens` is no longer empty: it records an
+    extension that the reader does not know and a label row that the reader
+    leaves out (for example `NOSLC`, D6.4).
 
 - The record is regrouped by kind of decision (the user, 2026-10-13). The IDs
   are D1.1 to D7.6: D1 to D4 in `docs/discrepancies.md` (the specification is

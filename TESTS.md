@@ -5561,7 +5561,8 @@ The tests run without any plugin interpreter installed. A fake plugin of the mod
 stands for one: it reads with `spec`, under its own name, and its decoding (`UnrotatedDecoding`)
 gives `spec`'s decoding through the methods of the protocol `synth.Decoding`, with the rotations
 left unapplied (setting `"unrotated"`, a hint, no block rotated), as `cpp-siemens`'s default
-leaves them. The `check_*` helpers of the module take the interpreter; the plugin's tests run
+leaves them. It implements version 1 of the plugin protocol (P22): its `decode` takes the session,
+and its decoding gives `spec`'s durations, records and flags. The `check_*` helpers of the module take the interpreter; the plugin's tests run
 them for `cpp-siemens` (section 3.11).
 
 #### `test_load_of_a_file_is_the_reading_of_the_interpreter`
@@ -8382,8 +8383,10 @@ distribution (`seqfile.interpreters`, P21 of `docs/plans/parser-redesign.md`): t
 group `pulseq_analysis.interpreters`, the protocol `Plugin`, and `synth.decode` of a plugin's
 model. It needs no plugin: a fake plugin (the class `Fake` of the module, a frozen dataclass
 that reads with `spec` and decodes to a tuple) stands for one, and the tests give its entry point
-by replacing `importlib.metadata.entry_points` in the module `interpreters` (`monkeypatch`). The
-interpreter `cpp-siemens` is tested with its distribution (sections 3.8 and 3.9).
+by replacing `importlib.metadata.entry_points` in the module `interpreters` (`monkeypatch`). `Fake`
+implements version 1 of the protocol (`protocol`, and `decode(data, session=None)`); the version
+is tested in section 2.29. The interpreter `cpp-siemens` is tested with its distribution (sections
+3.8 and 3.9).
 
 #### `test_no_plugin_is_installed_with_the_package`
 
@@ -8535,6 +8538,206 @@ written file with `read_seqfile`, and compares the two errors.
 sequence (a path) raises `TypeError` that names `pypulseq.Sequence`.
 
 **How:** The test calls `read_pypulseq` with each.
+
+**Assumptions:** None.
+
+### 2.29 The scanner session (`test_session.py`)
+
+`test_session.py` tests the scanner session of task R16 (`synth.scanner`, section 7.8 of
+`docs/plans/parser-redesign.md`, P20 and P22): `Session`, the shared simulation
+(`soft_delay_durations`, `fov_flags`, `physical_gradients`), `SettingError`, the records
+(`SoftDelayRecord`, `FovRecord`), the stored and actual durations of `spec`'s decoding, `load` with
+a session, and the version of the plugin protocol. Most tests use `tests/session/scanner_session.seq`
+(1.5.1), outside `tests/seqfiles` so that the tests of every fixture do not read it. In play order
+from 0 it has: 0 gx; 1 a soft delay TE (num 0, offset -100 us, factor 2); 2 gx rotated by 90 degrees
+about z; 3 gx with NOROT 1; 4 gy with NOROT 0 and NOSLC 1; 5 gz with NOSCL 1 and NOSLC 0; 6 a soft
+delay TE (num 0, offset 5000 us, factor -1); 7 a soft delay TR (num 1, offset 0, factor 1); 8 gx.
+Each trapezoid has a delay of 50 us, ramps of 100 us and a flat top of 200 us, in a block of 500
+us. Edited copies of it are written to `tmp_path`. The tests through `cpp-siemens` are in section
+3.12.
+
+#### `test_the_default_session_is_neutral_and_a_session_compares_by_value`
+
+**Checks:** `Session()` is neutral (no soft delay, the identity rotation (1, 0, 0, 0), the scaling
+(1, 1, 1)) and its `str` is "session: neutral". A session keeps its soft delays as (hint, value)
+pairs sorted by hint, whatever order and form (a dict or pairs) they are given in; two sessions
+with the same values are equal and one is the key of the other in a dict; `str` names each
+setting that is not its default. A quaternion within 1e-6 of norm 1 is divided by its norm. A
+session is frozen and survives `pickle`.
+
+**How:** The test makes sessions and compares them.
+
+**Assumptions:** None.
+
+#### `test_a_session_refuses_a_value_that_is_not_a_setting`
+
+**Checks:** An empty or non-text hint, a value that is not a real number (a text, a bool), a value
+that is NaN, a hint given twice, soft delays that are a text, a quaternion of 3 values or whose
+norm is not 1 within 1e-6 (also 0), a scaling of 2 values, of 0 or below, or infinite: each raises
+`TypeError` or `ValueError` with a message that names the problem.
+
+**How:** Parametrized over the cases, with the error type and a part of the message.
+
+**Assumptions:** None.
+
+#### `test_a_setting_that_the_session_does_not_have_is_a_type_error`
+
+**Checks:** Rule 8: `Session(repetitions=2)` raises `TypeError`, and so do `synth.decode` and
+`load` given a session that is not a `Session` (a dict); their message names `Session`.
+
+**How:** The test calls each.
+
+**Assumptions:** None.
+
+#### `test_a_soft_delay_is_the_rule_of_the_specification_rounded_half_away_from_zero`
+
+**Checks:** `soft_delay_durations` gives `value / factor + offset` in units of the raster, rounded
+half away from 0 (as MATLAB's `round`): with a 10 us raster, the value 0 and the offset 25 us give 3
+(2.5 rounds up); the value 1 ms gives 103 and the value 14 us 1 (1.4 rounds down). A block whose
+hint has no value keeps its stored duration. The record has the values, the two hints, 2 blocks,
+the blocks applied, and `unset` the hint with no value.
+
+**How:** The test calls the function on two `SoftDelay` values, each in a pure delay block.
+
+**Assumptions:** None.
+
+#### `test_the_flags_of_the_field_of_view_are_a_state_across_blocks`
+
+**Checks:** `fov_flags` sets a flag for the block of its LABELSET and the blocks after it, until a
+LABELSET sets it to 0; in one block the last LABELSET of a name wins, and any value that is not 0
+sets it. With no scaling flag, or another name, the scaling flag is never set.
+
+**How:** Five LABELSET events on six blocks; the test compares the two bool arrays with the
+expected ones.
+
+**Assumptions:** None.
+
+#### `test_spec_decodes_with_the_neutral_session_by_default`
+
+**Checks:** `synth.decode(data)` of the fixture has the session `Session()`; its actual and stored
+durations equal the model's (read-only); its `soft_delay_record` has no value, the hints TE and TR,
+3 blocks and 0 applied, and says so in `str`; its flags are NOROT in block 3 and NOSLC in block 4
+(not NOSCL in block 5, which `spec` does not know); its `fov_record` has the identity, the scaling
+flag "NOSLC", one block with each flag, and 0 blocks rotated or scaled. `synth.decode(data,
+Session())` gives the same record.
+
+**How:** The test decodes the fixture and compares each field.
+
+**Assumptions:** None.
+
+#### `test_spec_sets_the_duration_of_each_soft_delay_by_its_hint`
+
+**Checks:** With TE = 2 ms and TR = 10 ms, block 1 lasts 900 us (2e-3 / 2 - 100 us), block 6 3 ms
+(2e-3 / -1 + 5000 us) and block 7 10 ms; the other blocks and the stored durations do not change;
+the record has 3 blocks applied. With TE only, `unset` is TR and block 7 keeps its stored
+duration. `gradients_at` is 0 after the actual end of a block (a decoding whose block 0 ends at
+400 us gives 0 at 450 us).
+
+**How:** The test decodes the fixture under the sessions, and changes `block_durations` of a
+decoding with `dataclasses.replace` for the last check.
+
+**Assumptions:** The last check makes the actual duration by hand, since a soft delay sets only a
+pure delay block, which has no gradient.
+
+#### `test_a_soft_delay_that_the_file_does_not_have_is_a_setting_error`
+
+**Checks:** Rule 8: the hint TX (no block has it) and TE = 20 ms (block 6 gets -15 ms) raise
+`SettingError`, a `ValueError` whose `reason`, `interpreter` ("spec"), `version` (1, 5, 1) and
+`setting` (`soft_delays['TX']`) are those expected, whose message is "the setting ... does not
+apply to this file (version 1.5.1) under the interpreter spec: REASON", and which survives `pickle`.
+`load` raises it too.
+
+**How:** Parametrized over the two sessions.
+
+**Assumptions:** None.
+
+#### `test_a_soft_delay_that_is_not_one_value_of_a_pure_delay_block_is_a_setting_error`
+
+**Checks:** The user's decisions (2026-10-13), each a `SettingError` for the hint of the session,
+while the file decodes with the neutral session: TR in block 2, which plays gx ("has an RF,
+gradient or ADC event"); TR after TE in block 1 ("more than one soft delay"); the second TE with the
+numeric ID 2 ("the numeric IDs [0, 2], not one"); TR with the numeric ID 0 of TE ("its numeric ID 0
+is also that of the hints ['TE']").
+
+**How:** Parametrized over four edits of the fixture, each with an extension list entry 10 for the
+soft delay TR.
+
+**Assumptions:** None.
+
+#### `test_soft_delays_in_a_file_older_than_1_5_0_are_a_setting_error`
+
+**Checks:** In the fixture as 1.4.2, the soft delays are an extension that `spec` does not know
+(D4.6): the neutral session decodes with a record of no soft delay, and a value for TE raises
+`SettingError` that names the version and says that soft delays came in 1.5.0.
+
+**How:** The test edits the version of the fixture.
+
+**Assumptions:** None.
+
+#### `test_spec_turns_and_scales_the_field_of_view_in_the_order_of_matlab_pulseq`
+
+**Checks:** With the field of view turned 90 degrees about x and the scaling (2, 3, 4), the
+gradients of blocks 0, 2, 3, 4, 5 and 8 at 300 us are R_fov R_block S g of their logical values
+(D2.20): block 2 also turned by its rotation about z, block 3 (NOROT) not turned by the field of
+view, block 4 (NOSLC) not scaled, block 5 (NOSCL, unknown to `spec`) scaled. `rotated=False` gives
+the logical values of the neutral session, and `rotated=True` the same as None. The record has 8
+blocks rotated and 8 scaled.
+
+**How:** The test computes the expected values with rotation matrices in numpy, to 1e-6 Hz/m.
+
+**Assumptions:** None.
+
+#### `test_the_flags_of_1_4_1_have_no_effect_in_an_older_file`
+
+**Checks:** In the fixture as 1.4.0, NOROT and NOSLC are labels that `spec` does not apply (D4.7):
+no block has a flag, all 9 blocks are rotated and scaled, and block 3 (NOROT in the file) gives
+2e6 Hz/m on x.
+
+**How:** The test edits the version of the fixture.
+
+**Assumptions:** None.
+
+#### `test_load_decodes_under_the_session_and_the_snapshot_records_it`
+
+**Checks:** `load(path, session=...)` gives a snapshot whose `session`, decoding's session,
+`soft_delay_record` and `fov_record` are those of the decoding; the block table has the actual
+durations, and its end is their sum; a copy (`pickle`, `copy.deepcopy`) keeps the session; `load`
+with no session has `Session()`.
+
+**How:** The test loads the fixture with soft delays and a scaling.
+
+**Assumptions:** None.
+
+#### `test_the_measurements_take_the_gradients_of_the_session`
+
+**Checks:** `gradient_peaks` under the scaling (2, 1, 1) has twice the peak of x of the neutral
+session, and under the field of view turned 90 degrees about x the peak of z is the neutral peak
+of y.
+
+**How:** The test measures three snapshots of the fixture.
+
+**Assumptions:** None.
+
+#### `test_the_points_of_the_played_events_are_the_gradients_under_a_session`
+
+**Checks:** Under the neutral session, soft delays, a rotation, a scaling, and both, the played
+gradients of the fixture are the decoding's `gradients_at`
+(`test_played.check_the_points_are_the_gradients`, section 2.3).
+
+**How:** Parametrized over the five sessions; `test_played.load` is replaced (`monkeypatch`) by
+`load` with the session.
+
+**Assumptions:** None.
+
+#### `test_the_plugin_protocol_has_a_version_and_decode_takes_the_session`
+
+**Checks:** P22: `seqfile.PROTOCOL` is `interpreters.PROTOCOL`, 1. A plugin of version 1 (the
+class `SessionPlugin` of the module) is found by name, and `synth.decode` gives it `Session()` by
+default and the session given; `load` gives it the session. A plugin of the protocol before R16
+(`OldPlugin`: no version, `decode(data)`) raises `TypeError` ("implements the plugin protocol
+version None, and this pulseq-analysis uses version 1") by name and as an object.
+
+**How:** The test installs the entry points as `test_interpreters` does.
 
 **Assumptions:** None.
 
@@ -8806,6 +9009,48 @@ in the other blocks and turns each rotated block by its matrix.
 **Checks:** For `valid_1_5_0.seq`, `rotated=True` gives the reader's values exactly.
 
 **How:** The test samples the file at the points of `sample_points`.
+
+**Assumptions:** None.
+
+#### `test_rotate_vec3_by_quat_is_the_rotation_of_rotated_gradients`
+
+**Checks:** `rotate_vec3_by_quat` of each block's quaternion and the reader's logical values is
+`gradients_at(..., rotated=True)` bit for bit; it takes no row, and raises `ValueError` for
+quaternions and vectors of different lengths.
+
+**How:** `koma_v1.5_rotation_radial_tiny.seq`, every block sampled every 10 us.
+
+**Assumptions:** None.
+
+#### `test_block_soft_delays_are_those_that_getblock_attaches`
+
+**Checks:** In `tests/session/scanner_session.seq` the blocks with a soft delay are 1, 6 and 7,
+with the numeric IDs, offsets (int, us), factors and hints of the file. In
+`valid_soft_delay_fraction.seq` the row `1 0 -100.5 1 TE` is the offset -100, the factor 0.5 and
+the hint `1 TE` in block 7, as `load` misreads it (D2.16 of pulseq-analysis). `valid_1_4_0.seq` has
+none.
+
+**How:** The test calls `block_soft_delays` on the three files.
+
+**Assumptions:** None.
+
+#### `test_block_label_sets_are_the_labels_that_decodelabel_knows`
+
+**Checks:** The LABELSET events of `tests/session/scanner_session.seq` are NOROT 1 (block 3), NOROT
+0 (block 4) and NOSCL 1 (block 5): the reader leaves out the two `NOSLC` rows.
+
+**How:** The test calls `block_label_sets`.
+
+**Assumptions:** None.
+
+#### `test_the_soft_delay_hook_sets_the_duration_and_the_end_of_gradients_at`
+
+**Checks:** `block_durations_ru` with -1 everywhere is the stored durations; with 40 for block 0
+and 90 for block 1 it is the reader's `GetDuration_ru` after `setActualSoftDelay_ru`. `gradients_at`
+with `actual_ru` is 0 at 420 us in block 0 (cut at 400 us), where the next call without it is not,
+and gives the flat top at 300 us. A wrong length raises `ValueError` in both.
+
+**How:** `tests/session/scanner_session.seq`.
 
 **Assumptions:** None.
 
@@ -9577,14 +9822,6 @@ section 2.28).
 `test_a_rejection_is_the_file_s_and_names_the_sequence_not_the_temporary_file`, section 2.28).
 
 **How:** The test builds the sequence and calls the helper.
-
-**Assumptions:** None.
-
-#### `test_cpp_siemens_has_no_records`
-
-**Checks:** `cpp-siemens` gives `records == ()` (until task R16).
-
-**How:** The test reads `valid_1_5_1.seq` with `cpp-siemens`.
 
 **Assumptions:** None.
 
@@ -10488,5 +10725,86 @@ gradient event, and its result is kept: a second call decodes nothing.
 **How:** `tests/seqfiles/oracle/pulseq_epi_rs.seq`. `CppSiemensDecoding.block` is replaced by a
 counting wrapper; the count after the first call is the number of unique nonzero gradient IDs of
 the block table, and stays so after the second call, which returns the same object.
+
+**Assumptions:** None.
+
+### 3.12 The scanner session through `cpp-siemens` (`test_session_in_pulseq_analysis.py`)
+
+`test_session_in_pulseq_analysis.py` tests the scanner session of pulseq-analysis (section 2.29)
+through `cpp-siemens`: `CppSiemens.decode(data, session)` (P22), with the reader's hook
+`setActualSoftDelay_ru` and its `rotate_vec3_by_quat`, and the records of what the reader ignores.
+Like `test_interpreter.py`, the module needs pulseq-analysis and is not collected without it. It
+uses `tests/session/scanner_session.seq` of pulseq-analysis.
+
+#### `test_cpp_siemens_implements_the_protocol_version_of_pulseq_analysis`
+
+**Checks:** `CppSiemens.protocol` is `seqfile.PROTOCOL`, 1, and `seqfile.interpreter("cpp-siemens")`
+is `CppSiemens()`.
+
+**How:** The test compares them.
+
+**Assumptions:** None.
+
+#### `test_cpp_siemens_records_what_the_reader_ignored`
+
+**Checks:** The model of the session fixture records the two `NOSLC` rows (lines 61 and 63) as
+labels with the reason "unknown"; `valid_1_5_1.seq` records the extension `UNKNOWN`; and
+`valid_label_unknown.seq` the label `FOO`.
+
+**How:** The test reads the three files with `cpp-siemens`.
+
+**Assumptions:** None.
+
+#### `test_the_soft_delays_of_cpp_siemens_are_those_of_spec_through_the_reader_s_hook`
+
+**Checks:** Rule 3: under TE = 2 ms and TR = 10 ms, the actual and stored durations of
+`cpp-siemens` equal those of `spec` exactly, and the two `soft_delay_record`s are equal. The neutral
+session keeps the stored durations.
+
+**How:** The test decodes the session fixture with both interpreters.
+
+**Assumptions:** The durations are whole rasters in both, so they are equal exactly.
+
+#### `test_a_soft_delay_that_the_reader_did_not_attach_is_a_setting_error`
+
+**Checks:** In `valid_soft_delay_fraction.seq` the reader reads the hint `1 TE` (D2.16), so the hint
+`TE` raises `SettingError` (interpreter `cpp-siemens`, version 1.5.1) that lists the hint `1 TE`;
+`1 TE` = 1 ms gives block 7 1e-3 / 0.5 - 100 us = 1.9 ms; and `1 TE` = 0 a negative duration.
+
+**How:** The test decodes the file under each session.
+
+**Assumptions:** None.
+
+#### `test_the_field_of_view_of_cpp_siemens_is_that_of_spec_where_the_flags_agree`
+
+**Checks:** With `rotation="apply"`, the field of view turned 90 degrees about x and the scaling
+(2, 3, 4), `cpp-siemens` gives `spec`'s gradients to float32 precision in blocks 0, 2 and 3, and
+other values in blocks 4, 5 and 8, where the flags differ (`NOSLC` dropped by the reader, `NOSCL`
+never set back; D2.22, D6.4). Its flags are NOROT in block 3 and NOSCL in blocks 5 to 8, and its
+`fov_record` says so. With the default `rotation="reader"`, block 2 is scaled and turned by the
+field of view but not by its rotation, and `rotated=True` gives the values of `"apply"`.
+
+**How:** The test samples five times in each of six blocks.
+
+**Assumptions:** None.
+
+#### `test_load_through_cpp_siemens_takes_the_session`
+
+**Checks:** `load(path, "cpp-siemens", session=...)` has the session, 3 soft delays applied, the
+scaling flag "NOSCL", and a block table with the decoding's actual durations; it still warns for
+the rotation of block 2 that the default leaves unapplied.
+
+**How:** The test loads the session fixture.
+
+**Assumptions:** None.
+
+#### `test_the_points_of_the_played_events_are_the_gradients_of_cpp_siemens_under_a_session`
+
+**Checks:** Under soft delays, and under a field of view, with `rotation="reader"` and `"apply"`,
+the played gradients of the session fixture are the decoding's `gradients_at`
+(`test_played.check_the_points_are_the_gradients`).
+
+**How:** Parametrized over the two sessions and the two settings; `test_played.load` is replaced
+(`monkeypatch`) by `load` with the session.
 
 **Assumptions:** None.

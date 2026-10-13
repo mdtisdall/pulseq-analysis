@@ -11,7 +11,11 @@ its x86_64 build.
     sequence.gradients_at([0], [5.0]) # SeqBlock::gradientsAt (Hz/m)
     sequence.gradients_at([0], [5.0], rotated=True)  # turned by each block's rotation
     sequence.block_rotations()        # the blocks with a rotation, and their quaternions
+    sequence.block_soft_delays()      # the blocks with a soft delay, and its fields
+    sequence.block_label_sets()       # the LABELSET events of each block
+    sequence.block_durations_ru(actual)  # GetDuration_ru after setActualSoftDelay_ru
     sequence.first_rejected_block()   # the driver's first mode, keeping no block
+    rotate_vec3_by_quat(q, v)         # the reader's rotation of vectors by quaternions
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
 and it rejects each case of undefined behaviour of the reader before any block is decoded
@@ -43,8 +47,10 @@ __all__ = [
     "Rejected",
     "Sequence",
     "Shape",
+    "SoftDelays",
     "UndefinedBehaviour",
     "load",
+    "rotate_vec3_by_quat",
 ]
 
 PULSEQ_COMMIT: str = _reader.PULSEQ_COMMIT
@@ -151,6 +157,30 @@ class Libraries:
         return cls(**raw)
 
 
+class SoftDelays(NamedTuple):
+    """The soft delay of each block, as `GetBlock` attaches it (`Sequence.block_soft_delays`):
+    one entry for each block with a soft delay, in play order."""
+
+    blocks: np.ndarray  # int64: the play index of the block, from 0
+    num: np.ndarray  # int64: the numeric ID
+    offset_us: np.ndarray  # int64: the offset in us, an int as load reads it (cpp:1330)
+    factor: np.ndarray  # float64: the factor, a float32 of the reader
+    hint: tuple[bytes, ...]  # the hint, the bytes up to the first zero, at most 31
+
+
+def rotate_vec3_by_quat(quaternions, vectors) -> np.ndarray:
+    """Each vector of `vectors` (n, 3) turned by the quaternion of the same row of `quaternions`
+    (n, 4: q0, qx, qy, qz) with the reader's own `rotate_vec3_by_quat` (cpp:2666-2684) and the
+    sign +1, the active rotation: the arithmetic of `Sequence.gradients_at(..., rotated=True)`.
+    The reader uses it only on its position offsets; this package uses it for the simulation of
+    the scanner."""
+    q = np.ascontiguousarray(quaternions, dtype=np.float64).reshape(-1, 4)
+    v = np.ascontiguousarray(vectors, dtype=np.float64).reshape(-1, 3)
+    if q.shape[0] != v.shape[0]:
+        raise ValueError("quaternions and vectors differ in length")
+    return _reader.rotate_vec3_by_quat(q, v)
+
+
 class Sequence:
     """A file that `load` read and checked. Blocks are decoded on request; each decoded block is
     kept for `gradients_at`. `oversampling` is the reader's sampling mode of an oversampled
@@ -177,6 +207,8 @@ class Sequence:
         # The reader's messages for the block that `first_rejected_block` last found rejected.
         self.rejection_messages = ""
         self._block_rotations: tuple[np.ndarray, np.ndarray] | None = None
+        self._block_soft_delays: SoftDelays | None = None
+        self._block_label_sets: tuple[np.ndarray, tuple[str, ...], np.ndarray] | None = None
 
     def __reduce__(self):
         return _load_again, (self._data, self.oversampling)
@@ -237,7 +269,42 @@ class Sequence:
         indices, quaternions = self._block_rotations
         return indices.copy(), quaternions.copy()
 
-    def gradients_at(self, block_index, time_us, rotated: bool = False) -> np.ndarray:
+    def block_soft_delays(self) -> SoftDelays:
+        """The soft delay of each block as `GetBlock` attaches it (the first soft delay of the
+        block's extension list, cpp:1900-1907), for each block for which `SeqBlock::isSoftDelay`
+        is true, as `load` read it. No block is decoded; the result is kept."""
+        if self._block_soft_delays is None:
+            blocks, num, offset, factor, hint = self._reader.block_soft_delays()
+            self._block_soft_delays = SoftDelays(
+                np.asarray(blocks), np.asarray(num), np.asarray(offset), np.asarray(factor),
+                tuple(hint),
+            )  # fmt: skip
+        return self._block_soft_delays
+
+    def block_label_sets(self) -> tuple[np.ndarray, tuple[str, ...], np.ndarray]:
+        """The LABELSET events of each block as `GetBlock` attaches them (the labels that
+        `decodeLabel` knows, in the order of each block's list): the play index of the block
+        (int64), the name and the value (int64; a flag is 0 or 1) of each, in play order. No block
+        is decoded; the result is kept."""
+        if self._block_label_sets is None:
+            blocks, names, values = self._reader.block_label_sets()
+            self._block_label_sets = (np.asarray(blocks), tuple(names), np.asarray(values))
+        blocks, names, values = self._block_label_sets
+        return blocks.copy(), names, values.copy()
+
+    def block_durations_ru(self, actual_ru) -> np.ndarray:
+        """`SeqBlock::GetDuration_ru` of each block (int64, in units of BlockDurationRaster)
+        after the reader's hook `SeqBlock::setActualSoftDelay_ru` with the value of `actual_ru`
+        for that block (one int for each block; below 0 sets nothing, and the block keeps its
+        stored duration, `GetStoredDuration_ru`). No block is decoded."""
+        actual = np.ascontiguousarray(actual_ru, dtype=np.int64).reshape(-1)
+        if actual.size != self.block_count:
+            raise ValueError("actual_ru has one value for each block")
+        return self._reader.block_durations_ru(actual)
+
+    def gradients_at(
+        self, block_index, time_us, rotated: bool = False, actual_ru=None
+    ) -> np.ndarray:
         """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index (play order from 0) and a
         time in us from the start of that block, as an array (n, 3): gx, gy, gz. A block that is
         not decoded yet is decoded first (`Rejected` if it does not decode). A NaN time raises
@@ -246,7 +313,12 @@ class Sequence:
         With `rotated`, the values of a block that has a rotation (`block_rotations`) are turned
         by its quaternion with the reader's own `rotate_vec3_by_quat` (cpp:2666-2684, the active
         rotation): the gradients that the scanner plays if it applies the rotation. The reader
-        never does this; it is a simulation, with the reader's arithmetic."""
+        never does this; it is a simulation, with the reader's arithmetic.
+
+        `actual_ru` None leaves each block at its stored duration. Otherwise it has one int for
+        each block: the actual soft delay that the reader's hook `setActualSoftDelay_ru` sets on
+        the block for the call (below 0 for none), so that `gradientsAt` is 0 after
+        `GetDuration`."""
         block_index = np.ascontiguousarray(block_index, dtype=np.int64).reshape(-1)
         time_us = np.ascontiguousarray(time_us, dtype=np.float64).reshape(-1)
         if block_index.shape != time_us.shape:
@@ -255,10 +327,16 @@ class Sequence:
             raise ValueError("a time is NaN")
         if block_index.size and (block_index.min() < 0 or block_index.max() >= self.block_count):
             raise IndexError("a block index is not a block of the sequence")
+        if actual_ru is None:
+            actual = np.zeros(0, dtype=np.int64)
+        else:
+            actual = np.ascontiguousarray(actual_ru, dtype=np.int64).reshape(-1)
+            if actual.size != self.block_count:
+                raise ValueError("actual_ru has one value for each block")
         failed = self._reader.ensure_decoded(np.unique(block_index))
         if failed >= 0:
             raise Rejected(f"decodeBlock rejects block {failed}", self._reader.messages)
-        return self._reader.gradients_at(block_index, time_us, bool(rotated))
+        return self._reader.gradients_at(block_index, time_us, bool(rotated), actual)
 
 
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:

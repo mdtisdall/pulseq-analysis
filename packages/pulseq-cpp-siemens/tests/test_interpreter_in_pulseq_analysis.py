@@ -72,12 +72,6 @@ def test_a_rejection_of_cpp_siemens_names_the_sequence_not_the_temporary_file(tm
     check_a_rejection(arbitrary_gradient_4us_sequence(), "cpp-siemens", "gradient.raster", tmp_path)
 
 
-def test_cpp_siemens_has_no_records():
-    """The records are `spec`'s: `cpp-siemens` gives an empty tuple (until task R16)."""
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
-    assert data.records == ()
-
-
 def test_the_events_of_spec_refuse_a_model_of_cpp_siemens():
     """`decode_rf`, `decode_gradients` and `decode_adc` of pulseq-analysis decode the model of
     `spec` only: they raise `TypeError` for the model of `cpp-siemens`, and name

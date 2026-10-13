@@ -1,7 +1,8 @@
 """The block table of one sequence, in play order, with dense event indexes.
 
-`sequence_index` reads the block table of the snapshot's data (`SequenceData.blocks`) and its
-durations (`SequenceData.block_durations_s`) as arrays, so it costs O(N) for N blocks. It numbers
+`sequence_index` reads the block table of the snapshot's data (`SequenceData.blocks`) and the
+actual durations of its decoding (`Decoding.block_durations`: the stored ones, except where the
+scanner session sets a soft delay) as arrays, so it costs O(N) for N blocks. It numbers
 the unique RF, gradient and ADC events from 1, in the order of their first use in play order. The
 three gradient axes share one index space: in one block, gx comes before gy and gz. The gradient
 events are those that the measurements play (`_played`): the events of the file, and in a block
@@ -82,7 +83,9 @@ def sequence_index(snap: Snapshot) -> SequenceIndex:
     kept = _kept_results(snap)
     if "index" not in kept:
         played = played_gradients(snap)
-        kept["index"] = _index_from_data(snap.data, (played.gx, played.gy, played.gz))
+        kept["index"] = _index_from_data(
+            snap.data, (played.gx, played.gy, played.gz), snap.decoding.block_durations
+        )
     return kept["index"]
 
 
@@ -193,12 +196,15 @@ def _index_from_columns(
 
 
 def _index_from_data(
-    data: SequenceData, gradients: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+    data: SequenceData,
+    gradients: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    durations: np.ndarray | None = None,
 ) -> SequenceIndex:
-    """The `SequenceIndex` of `data`: the blocks of `data.blocks` with the durations
-    `data.block_durations_s`. The event IDs are those of the file, or for the gradients those of
-    `gradients` (gx, gy and gz, one key for each block) when it is given. Raises ValueError that
-    names the ID when a block ID does not fit in uint32."""
+    """The `SequenceIndex` of `data`: the blocks of `data.blocks` with the durations `durations`
+    (s), or the stored ones (`data.block_durations_s`) when it is None. The event IDs are those of
+    the file, or for the gradients those of `gradients` (gx, gy and gz, one key for each block)
+    when it is given. Raises ValueError that names the ID when a block ID does not fit in
+    uint32."""
     blocks = data.blocks
     ids = blocks["id"]
     outside = (ids < 0) | (ids > np.iinfo(np.uint32).max)
@@ -206,7 +212,7 @@ def _index_from_data(
         raise ValueError(f"block ID {int(ids[outside][0])} does not fit in uint32")
     return _index_from_columns(
         ids.astype(np.uint32),
-        data.block_durations_s,
+        data.block_durations_s if durations is None else durations,
         blocks["rf"],
         *(gradients if gradients is not None else (blocks[axis] for axis in _GRAD_COLUMNS)),
         blocks["adc"],

@@ -442,3 +442,66 @@ def test_rotated_gradients_of_a_file_with_no_rotation_are_the_reader_s():
         sequence.gradients_at(block_index, time_us, rotated=True),
         sequence.gradients_at(block_index, time_us),
     )
+
+
+# The fixture of the scanner session of pulseq-analysis (task R16): soft delays TE (blocks 1 and 6)
+# and TR (block 7), and the labels NOROT (blocks 3, 4), NOSLC (blocks 4, 5) and NOSCL (block 5).
+SESSION = SEQFILES.parent / "session" / "scanner_session.seq"
+
+
+def test_rotate_vec3_by_quat_is_the_rotation_of_rotated_gradients():
+    """`rotate_vec3_by_quat` is the reader's rotation of `gradients_at(..., rotated=True)`, bit
+    for bit."""
+    sequence = cs.load(ROTATED)
+    block_index = np.repeat(np.arange(sequence.block_count), 41)
+    time_us = np.tile(np.arange(0.0, 410.0, 10.0), sequence.block_count)
+    logical = sequence.gradients_at(block_index, time_us)
+    _, quaternions = sequence.block_rotations()
+    turned = cs.rotate_vec3_by_quat(quaternions[block_index], logical)
+    assert np.array_equal(turned, sequence.gradients_at(block_index, time_us, rotated=True))
+    assert cs.rotate_vec3_by_quat(np.zeros((0, 4)), np.zeros((0, 3))).shape == (0, 3)
+    with pytest.raises(ValueError, match="differ in length"):
+        cs.rotate_vec3_by_quat(quaternions[:2], logical[:3])
+
+
+def test_block_soft_delays_are_those_that_getblock_attaches():
+    """The soft delay of each block, as `load` read it: the offset is an int, so `-100.5 1 TE` is
+    the offset -100, the factor 0.5 and the hint `1 TE` (D2.16 of pulseq-analysis)."""
+    found = cs.load(SESSION).block_soft_delays()
+    assert found.blocks.tolist() == [1, 6, 7]
+    assert found.num.tolist() == [0, 0, 1]
+    assert found.offset_us.tolist() == [-100, 5000, 0]
+    assert found.factor.tolist() == [2.0, -1.0, 1.0]
+    assert found.hint == (b"TE", b"TE", b"TR")
+    misread = cs.load(SEQFILES / "valid_soft_delay_fraction.seq").block_soft_delays()
+    assert misread.blocks.tolist() == [7] and misread.offset_us.tolist() == [-100]
+    assert misread.factor.tolist() == [0.5] and misread.hint == (b"1 TE",)
+    assert cs.load(SEQFILES / "valid_1_4_0.seq").block_soft_delays().blocks.size == 0
+
+
+def test_block_label_sets_are_the_labels_that_decodelabel_knows():
+    """The LABELSET events of each block: the reader leaves out `NOSLC`, the specification's
+    spelling of its `NOSCL`."""
+    blocks, names, values = cs.load(SESSION).block_label_sets()
+    assert blocks.tolist() == [3, 4, 5]
+    assert names == ("NOROT", "NOROT", "NOSCL")
+    assert values.tolist() == [1, 0, 1]
+
+
+def test_the_soft_delay_hook_sets_the_duration_and_the_end_of_gradients_at():
+    """`block_durations_ru` is `GetDuration_ru` after the hook `setActualSoftDelay_ru`; -1 keeps
+    the stored duration. `gradients_at` with `actual_ru` ends a block at that duration (block 0,
+    a trapezoid that ends at 450 us, cut at 400 us), and the next call without it does not."""
+    sequence = cs.load(SESSION)
+    stored = sequence.block_durations_ru(np.full(9, -1))
+    assert stored.tolist() == [50, 10, 50, 50, 50, 50, 20, 30, 50]
+    actual = np.full(9, -1)
+    actual[[0, 1]] = [40, 90]
+    assert sequence.block_durations_ru(actual).tolist() == [40, 90, 50, 50, 50, 50, 20, 30, 50]
+    assert sequence.gradients_at([0], [420.0], actual_ru=actual)[0, 0] == 0
+    assert sequence.gradients_at([0], [420.0])[0, 0] != 0
+    assert sequence.gradients_at([0], [300.0], actual_ru=actual)[0, 0] == 1e6
+    with pytest.raises(ValueError, match="one value for each block"):
+        sequence.block_durations_ru(actual[:3])
+    with pytest.raises(ValueError, match="one value for each block"):
+        sequence.gradients_at([0], [1.0], actual_ru=actual[:3])
