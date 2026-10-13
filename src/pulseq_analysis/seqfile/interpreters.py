@@ -5,7 +5,9 @@
   Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), run in the process
   through the package pulseq-cpp-siemens (the extra `pulseq-analysis[cpp-siemens]`). It reads
   what that reader reads and rejects what it rejects. Its setting `oversampling` is the reader's
-  sampling mode of an oversampled arbitrary gradient (D43).
+  sampling mode of an oversampled arbitrary gradient (D43); its setting `rotation` says whether
+  the decoding gives the reader's unrotated gradients or simulates the scanner's rotation of each
+  block (D49, P20).
 - `Strict` (`"strict"`, the default): the strict reader of the package before the interpreters
   (`seqfile.reader`), with its rules. It is interim: the `spec` interpreter (task R11) replaces
   it, as the default too. The default is the fast interpreter: `cpp-siemens` decodes every block
@@ -14,18 +16,33 @@
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
 An interpreter is a frozen dataclass: two with the same settings are equal, and a result
-records the interpreter that made it.
+records the interpreter that made it. A setting that the interpreter does not have (for example
+`Strict(rotation="apply")`) is a `TypeError` when the object is made (rule 8 of section 7.8 of
+`docs/plans/parser-redesign.md`).
 """
 
 import dataclasses
 from typing import ClassVar
 
-__all__ = ["INTERPRETERS", "OVERSAMPLING", "CppSiemens", "Interpreter", "Strict", "interpreter"]
+__all__ = [
+    "INTERPRETERS",
+    "OVERSAMPLING",
+    "ROTATION",
+    "CppSiemens",
+    "Interpreter",
+    "Strict",
+    "interpreter",
+]
 
 # The sampling modes of an oversampled arbitrary gradient (time shape -1) of the C++ reader
 # (`ExternalSequence::m_ArbGradSamplingMode`): the samples at the centres of the gradient raster
 # (the reader's default), those at its edges, or all of them.
 OVERSAMPLING = ("center", "edge", "preserve")
+
+# What the `cpp-siemens` decoding does with the rotation of a block (the ROTATIONS extension,
+# D49): the reader's own output, whose gradients are not rotated (the reader leaves the rotation
+# to the scanner's interpreter), or the package's simulation of the scanner, which rotates them.
+ROTATION = ("reader", "apply")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -35,21 +52,38 @@ class CppSiemens:
     `oversampling` is the reader's mode for an oversampled arbitrary gradient (D43): `"center"`
     (the default, `SetArbGradCenterSampling(true)`) keeps the samples at the centres of the
     raster, `"edge"` (`SetArbGradCenterSampling(false)`) those at its edges, and `"preserve"`
-    (`SetArbGradPreserveOversampling()`) all of them."""
+    (`SetArbGradPreserveOversampling()`) all of them.
+
+    `rotation` is what the decoding does with each block's rotation (D49): `"reader"` (the
+    default) gives the reader's output, the logical gradients with the block's quaternion beside
+    them (the reader never rotates them); `"apply"` rotates the gradients of each block to which
+    the reader attached a rotation by its quaternion, with the reader's own
+    `rotate_vec3_by_quat`, in any version of the file. `"apply"` is the package's simulation of
+    the scanner: the scanner's behaviour for a file older than 1.5.1, the revision that defines
+    the extension, is not known (the user, 2026-10-12). It is valid on a file with no rotation,
+    and then rotates no block."""
 
     name: ClassVar[str] = "cpp-siemens"
     oversampling: str = "center"
+    rotation: str = "reader"
 
     def __post_init__(self) -> None:
         if self.oversampling not in OVERSAMPLING:
             raise ValueError(
                 f"oversampling is {self.oversampling!r}, not one of {', '.join(OVERSAMPLING)}"
             )
+        if self.rotation not in ROTATION:
+            raise ValueError(f"rotation is {self.rotation!r}, not one of {', '.join(ROTATION)}")
 
     def __str__(self) -> str:
-        if self == CppSiemens():
-            return self.name
-        return f"{self.name}(oversampling={self.oversampling!r})"
+        """The name, with each setting that is not its default."""
+        default = CppSiemens()
+        settings = [
+            f"{field}={getattr(self, field)!r}"
+            for field in ("oversampling", "rotation")
+            if getattr(self, field) != getattr(default, field)
+        ]
+        return f"{self.name}({', '.join(settings)})" if settings else self.name
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

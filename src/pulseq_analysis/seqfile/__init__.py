@@ -15,13 +15,22 @@ These readings are the contract with pulseq-checks (section 7.3 of
 
 from .as_written import AsWritten, Column, Line, Section, ShapeWritten, Table, read_as_written
 from .errors import NotSupported, SeqFileError, Violation
-from .interpreters import INTERPRETERS, OVERSAMPLING, CppSiemens, Interpreter, Strict, interpreter
+from .interpreters import (
+    INTERPRETERS,
+    OVERSAMPLING,
+    ROTATION,
+    CppSiemens,
+    Interpreter,
+    Strict,
+    interpreter,
+)
 from .model import SequenceData
 from .reading import read_seqfile
 
 __all__ = [
     "INTERPRETERS",
     "OVERSAMPLING",
+    "ROTATION",
     "AsWritten",
     "Column",
     "CppSiemens",

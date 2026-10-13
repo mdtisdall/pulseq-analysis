@@ -41,7 +41,8 @@ file in the last digits of float32 (D18). Where the reader differs from `strict`
 - `adc`: the dwell time is the integer that the reader reads (D15).
 - `definitions`: in the order of the keys (the reader keeps a sorted map), each value split at
   white space; a key defined twice has its last value (D12).
-- `extensions`: `rotations` are the reader's quaternions, divided by their norm (D49);
+- `extensions`: `rotations` are the reader's quaternions, divided by their norm (D49; the rotation
+  of each block, as `GetBlock` attaches it, is `reading.block_rotations()`);
   `skipped_extensions` the extensions that the reader does not know (D45).
 - `signature`: `matches` is the reader's check of its MD5 hash (D53).
 """

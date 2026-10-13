@@ -14,7 +14,7 @@ __all__ = ["read_seqfile"]
 def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "strict") -> SequenceData:
     """Read the Pulseq text file `path` through `interpreter`, a name (`"strict"`, the default
     until the `spec` interpreter replaces it, or `"cpp-siemens"`) or an interpreter object
-    (`CppSiemens(oversampling="edge")`). The default is the fast interpreter; `cpp-siemens`, the
+    (`CppSiemens(oversampling="edge")`, `CppSiemens(rotation="apply")`). The default is the fast interpreter; `cpp-siemens`, the
     C++ reader of the scanner, is read by name (the user, 2026-10-12).
 
     Returns the `SequenceData` of the interpreter; its `interpreter` field records the

@@ -108,6 +108,9 @@ guide writes a module by the last part of its path: `snapshot.load` is
   measurements do not check it again. A sequence with the Pulseq rotation
   extension raises `NotImplementedError` (`extensions.refuse_rotations`),
   because the gradients of the file are not the gradients on the scanner.
+  This lasts until `load` runs on the interpreters (task R14); the decoding of
+  `cpp-siemens` already gives the rotated gradients with
+  `CppSiemens(rotation="apply")` ([The interpreters](#the-interpreters)).
   `load` does not read the `[SIGNATURE]` hash, because no result uses it: a
   sequence built in memory and a file with no `[SIGNATURE]` section load. A
   caller who requires a hash checks `seq.signature_value` of the source before
@@ -687,6 +690,11 @@ edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
 cpp = decode(data)  # the C++ reader's own decoding
 cpp.block(0)  # GetBlock and decodeBlock of the first block
 cpp.gradients_at([0, 0], [10.0, 20.0])  # SeqBlock::gradientsAt (Hz/m), times in us
+cpp.rotations()  # the blocks with a rotation, and their quaternions
+cpp.rotation_record  # rotation: reader, ... not applied
+
+rotated = decode(read_seqfile("sequence.seq", interpreter=CppSiemens(rotation="apply")))
+rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotation
 ```
 
 **`reading.read_seqfile(path, interpreter="strict")`** (also
@@ -713,11 +721,15 @@ file in four steps: the version gate on the "as written" reading (before the
 C++ reader runs); `ExternalSequence::load` and the checks of pulseq-cpp-siemens
 for the reader's undefined behaviour; `decodeBlock` of every block, as the C++
 oracle does (a block that it rejects rejects the file, and no decoded block is
-kept); and the model from the reader's own libraries. Its one setting,
-`CppSiemens(oversampling=...)`, is the reader's sampling mode of an oversampled
+kept); and the model from the reader's own libraries. It has two settings.
+`CppSiemens(oversampling=...)` is the reader's sampling mode of an oversampled
 arbitrary gradient (time shape -1, D43): `"center"` (the reader's default, the
 samples at the centres of the gradient raster), `"edge"` (those at its edges)
-or `"preserve"` (all of them); `interpreters.OVERSAMPLING` lists them. On an
+or `"preserve"` (all of them); `interpreters.OVERSAMPLING` lists them.
+`CppSiemens(rotation=...)` is what the decoding does with each block's rotation
+(the ROTATIONS extension, D49), below; `interpreters.ROTATION` lists `"reader"`
+(the default) and `"apply"`. A setting that an interpreter does not have
+(`Strict(rotation="apply")`) raises `TypeError`. On an
 Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for
 the "as written" reading, 1.4 s for `load` and the checks, and 2.2 s for
 `decodeBlock` of every block (`strict` takes 0.6 s).
@@ -774,6 +786,39 @@ reader's units), and `gradients_at(block_index, time_us)` is
 `cpp-siemens` (`TypeError`). `load` does not use the interpreters yet (task
 R14).
 
+**Rotations in `cpp-siemens`.** The C++ reader stores each block's rotation and
+applies it to nothing: its gradients are the file's logical gradients, and it
+leaves the rotation to the scanner's interpreter (D49). The decoding gives
+what the reader gives, and simulates the scanner by a setting (section 7.8 of
+`docs/plans/parser-redesign.md`):
+
+- `rotations()` gives the play index of each block to which the reader
+  attaches a rotation (the first of its extension list, D48) and its
+  quaternion (q0, qx, qy, qz), divided by its norm, in either setting.
+- With `CppSiemens(rotation="reader")`, the default, `gradients_at` gives the
+  reader's values, not rotated.
+- With `CppSiemens(rotation="apply")`, `gradients_at` turns the values of each
+  block with a rotation by its quaternion, with the reader's own helper
+  `rotate_vec3_by_quat` (the active rotation), so that the arithmetic is the
+  reader's. It follows the reader: it rotates each rotation that the reader
+  attaches, in any version of the file. The specification defines ROTATIONS
+  from 1.5.1, and what the scanner does with a rotation in an older file is not
+  known. On a file with no rotation, `"apply"` is valid and rotates nothing.
+  This is the package's simulation of the scanner, and MATLAB's
+  `waveforms_and_times` gives the same gradients on each fixture with
+  rotations.
+- `gradients_at(..., rotated=False)` or `rotated=True` overrides the setting
+  for one call; the reader's own values stay available.
+- `rotation_record` (a `scanner.RotationRecord`, also `synth.RotationRecord`)
+  records what was applied: `setting`, `blocks` (with a rotation),
+  `not_identity` (whose rotation is not the identity: the blocks that play a
+  rotation) and `rotated`; `str` gives, for example, "rotation: apply, 5
+  block(s) rotated". Its `warning()` is a `scanner.ScannerSettingWarning` (a
+  `UserWarning`) when the default leaves a rotation unapplied, and None
+  otherwise. The decoding does not emit it; the measurements will, when `load`
+  runs on the interpreters (task R14). Until then `load` refuses a sequence
+  with rotations, as before.
+
 **`strict`.** `reader.read_strict(path)` reads with the rules of
 `reader.RULES`, and its `SeqFileError` has every violation (at most
 `reader.MAX_LOCATIONS` for each rule). The model is made of `model.Rasters`,
@@ -785,8 +830,8 @@ its rules. Section 5.4 of `docs/plans/parser-redesign.md` says what becomes of e
 
 **The contract with pulseq-checks.** The "as written" reading, the
 `cpp-siemens` reading (`SequenceData.reading`) and its decoding
-(`gradients_at` included), the codes of the rejections, and the model of each
-interpreter are public, and kept stable for pulseq-checks (section 7.3 of the
+(`gradients_at`, `rotations` and `rotation_record` included), the codes of the
+rejections, and the model of each interpreter are public, and kept stable for pulseq-checks (section 7.3 of the
 plan). A change to any of them is noted in `CHANGELOG.md`.
 
 ### The "as written" reading

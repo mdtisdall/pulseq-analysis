@@ -21,6 +21,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
 
+#include <algorithm>
 #include <clocale>
 #include <cmath>
 #include <cstdio>
@@ -40,6 +41,14 @@
 #endif
 
 #include "ExternalSequence.h"
+
+// The reader's helper that turns a vector by a quaternion (cpp:2666-2684): q[0] is the scalar
+// part, and c = +1 is the active rotation of the vector, c = -1 that of the conjugate. It is a
+// function of ExternalSequence.cpp with external linkage that the header does not declare; the
+// reader calls it only on its position offsets (cpp:2773, 3024). gradients_at calls it with
+// c = +1 to rotate a block's gradients by the block's rotation, so that the arithmetic of the
+// rotation is the reader's own.
+void rotate_vec3_by_quat(double* out, const double* q, const double* v, double c);
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -821,9 +830,15 @@ class Reader {
     // as an array (n, 3) of Hz/m: the driver's --sample. Each block must be decoded first. Its
     // messages are dropped, as the driver drops them. A NaN time is refused: gradientsAt would
     // convert it to an int (cpp:3666), which is undefined behaviour.
+    //
+    // With `rotated`, the values of each block that has a rotation (SeqBlock::isRotation) are
+    // turned by its quaternion with the reader's rotate_vec3_by_quat (c = +1): the gradients
+    // that the scanner plays when it applies the rotation. The reader itself never does this
+    // (gradientsAt never reads the rotation); it is the package's simulation.
     nb::ndarray<nb::numpy, double, nb::shape<-1, 3>> gradients_at(
         nb::ndarray<const int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> block_index,
-        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> time_us) {
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> time_us,
+        bool rotated) {
         require_checked();
         if (block_index.shape(0) != time_us.shape(0)) {
             throw std::invalid_argument("block_index and time_us differ in length");
@@ -849,14 +864,58 @@ class Reader {
                 // none in the "edge" mode (cpp:3673-3677) and leaves the channels after it as
                 // they were.
                 std::vector<double> g;
-                blocks_[static_cast<int>(block_index(i))]->gradientsAt(time_us(i), g);
-                out[3 * i] = g[0];
-                out[3 * i + 1] = g[1];
-                out[3 * i + 2] = g[2];
+                SeqBlock* block = blocks_[static_cast<int>(block_index(i))].get();
+                block->gradientsAt(time_us(i), g);
+                if (rotated && block->isRotation()) {
+                    rotate_vec3_by_quat(out + 3 * i, block->GetRotationEvent().rotQuaternion,
+                                        g.data(), 1.0);
+                } else {
+                    out[3 * i] = g[0];
+                    out[3 * i + 1] = g[1];
+                    out[3 * i + 2] = g[2];
+                }
             }
         }
         if (!decoded) throw std::out_of_range("a block index is not a decoded block");
         return nb::ndarray<nb::numpy, double, nb::shape<-1, 3>>(out, {n, 3}, owner);
+    }
+
+    // The rotation of each block, as GetBlock attaches it (cpp:1871-1879: the first defined
+    // rotation of the block's extension list, D48): the play index of each block for which
+    // SeqBlock::isRotation is true, and its quaternion, which load divided by its norm. GetBlock
+    // runs only for a block with an extension list; no block is decoded or kept, and the
+    // reader's messages (its warnings for a second rotation) are dropped.
+    nb::tuple block_rotations() {
+        require_checked();
+        std::vector<int64_t> indices;
+        std::vector<double> quaternions;
+        {
+            nb::gil_scoped_release release;
+            std::string dropped;
+            ReaderCall call(dropped, block_raster_us_);
+            const BlockList& list = *sequence_.*get(m_blocks_tag());
+            for (size_t index = 0; index < list.size(); index++) {
+                if (list[index].id[EXT] <= 0) continue;
+                std::unique_ptr<SeqBlock> block(sequence_->GetBlock(static_cast<int>(index)));
+                if (!block->isRotation()) continue;
+                const double* q = block->GetRotationEvent().rotQuaternion;
+                indices.push_back(static_cast<int64_t>(index));
+                quaternions.insert(quaternions.end(), q, q + 4);
+            }
+        }
+        const size_t n = indices.size();
+        int64_t* out_indices = new int64_t[n > 0 ? n : 1];
+        double* out_quaternions = new double[4 * (n > 0 ? n : 1)];
+        std::copy(indices.begin(), indices.end(), out_indices);
+        std::copy(quaternions.begin(), quaternions.end(), out_quaternions);
+        nb::capsule owns_indices(
+            out_indices, [](void* p) noexcept { delete[] static_cast<int64_t*>(p); });
+        nb::capsule owns_quaternions(
+            out_quaternions, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+        return nb::make_tuple(
+            nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(out_indices, {n}, owns_indices),
+            nb::ndarray<nb::numpy, double, nb::shape<-1, 4>>(out_quaternions, {n, 4},
+                                                              owns_quaternions));
     }
 
     // GetBlock and decodeBlock of every block in play order, as the driver's first mode does:
@@ -954,7 +1013,9 @@ NB_MODULE(_reader, m) {
         .def("block_count", &Reader::block_count)
         .def("decode_block", &Reader::decode_block, "index"_a)
         .def("ensure_decoded", &Reader::ensure_decoded, "indices"_a)
-        .def("gradients_at", &Reader::gradients_at, "block_index"_a, "time_us"_a)
+        .def("gradients_at", &Reader::gradients_at, "block_index"_a, "time_us"_a,
+             "rotated"_a = false)
+        .def("block_rotations", &Reader::block_rotations)
         .def("first_rejected_block", &Reader::first_rejected_block)
         .def_prop_ro("oversampling", &Reader::oversampling)
         .def_prop_ro("messages", &Reader::messages);

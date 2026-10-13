@@ -389,6 +389,99 @@ def test_synth_decode_gives_the_readers_decoding_or_the_strict_events():
         synth.events.decode_rf(data)
 
 
+RADIAL = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"
+
+
+def test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_lacks_is_typeerror():
+    assert CppSiemens().rotation == "reader" and seqfile.ROTATION == ("reader", "apply")
+    assert str(CppSiemens(rotation="apply")) == "cpp-siemens(rotation='apply')"
+    both = CppSiemens(oversampling="edge", rotation="apply")
+    assert str(both) == "cpp-siemens(oversampling='edge', rotation='apply')"
+    assert read_seqfile(RADIAL, both).interpreter == both
+    with pytest.raises(ValueError, match="rotation"):
+        CppSiemens(rotation="scanner")
+    # Rule 8 of P20: a setting that the interpreter does not have.
+    with pytest.raises(TypeError):
+        Strict(rotation="apply")
+    with pytest.raises(TypeError):
+        CppSiemens(rotate="apply")
+
+
+def test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches():
+    for path in (RADIAL, SEQFILES / "valid_1_5_1.seq"):
+        for setting in seqfile.ROTATION:
+            data = read_seqfile(path, CppSiemens(rotation=setting))
+            decoding = synth.decode(data)
+            indices, quaternions = decoding.rotations()
+            attached = {
+                block["index"]: block["rotation"]
+                for block in decoding.blocks()
+                if block["rotation"] is not None
+            }
+            assert indices.tolist() == sorted(attached)
+            assert [tuple(q) for q in quaternions] == [attached[i] for i in sorted(attached)]
+            ids = {tuple(q) for q in data.extensions.rotations[["q0", "qx", "qy", "qz"]].tolist()}
+            assert {tuple(q) for q in quaternions} <= ids
+
+
+def test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation():
+    block_index = np.repeat(np.arange(5), 4)
+    time_us = np.tile([50.0, 150.0, 200.0, 350.0], 5)
+    reader = synth.decode(read_seqfile(RADIAL, "cpp-siemens"))
+    applied = synth.decode(read_seqfile(RADIAL, CppSiemens(rotation="apply")))
+    logical = reader.gradients_at(block_index, time_us)
+    assert np.array_equal(logical, applied.gradients_at(block_index, time_us, rotated=False))
+    rotated = applied.gradients_at(block_index, time_us)
+    assert np.array_equal(rotated, reader.gradients_at(block_index, time_us, rotated=True))
+    assert np.array_equal(logical[:, 1:], np.zeros((20, 2)))  # the file's gradients are on x
+    # Blocks 1 to 5 are rotated by 0, 45, 90, 45 and 0 degrees about z.
+    angle = np.radians(np.repeat([0, 45, 90, 45, 0], 4))
+    expected = logical[:, :1] * np.stack([np.cos(angle), np.sin(angle), 0 * angle], axis=1)
+    np.testing.assert_allclose(rotated, expected, rtol=0, atol=1e-3)
+
+
+def test_the_rotation_record_and_the_warning_for_rotations_left_unapplied(tmp_path):
+    reader = synth.decode(read_seqfile(RADIAL, "cpp-siemens")).rotation_record
+    assert reader == synth.RotationRecord("reader", blocks=5, not_identity=3, rotated=0)
+    assert reader.unapplied == 3
+    assert str(reader) == "rotation: reader, 5 block(s) with a rotation (3 not the identity), " + (
+        "not applied"
+    )
+    warning = reader.warning()
+    assert isinstance(warning, synth.ScannerSettingWarning)
+    assert "3 block(s) play a rotation" in str(warning) and "rotation='apply'" in str(warning)
+    applied = synth.decode(read_seqfile(RADIAL, CppSiemens(rotation="apply"))).rotation_record
+    assert applied == synth.RotationRecord("apply", blocks=5, not_identity=3, rotated=5)
+    assert applied.warning() is None and str(applied) == "rotation: apply, 5 block(s) rotated"
+    # Rule 8 of P20: "apply" on a file with no rotation is valid, and rotates 0 blocks.
+    for name in ("valid_1_5_0.seq", "valid_1_5_1_rotation_not_played.seq"):
+        for setting in seqfile.ROTATION:
+            data = read_seqfile(SEQFILES / name, CppSiemens(rotation=setting))
+            record = synth.decode(data).rotation_record
+            assert record == synth.RotationRecord(setting, 0, 0, 0)
+            assert record.warning() is None
+    assert str(synth.RotationRecord("apply", 0, 0, 0)) == "rotation: apply, 0 block(s) rotated"
+    # Rotations that are all the identity play no rotation: no warning.
+    identity = (
+        RADIAL.read_bytes()
+        .replace(b"\n2  0.92388 0 0 0.382683\n", b"\n2  1 0 0 0\n")
+        .replace(b"\n3  0.707107 0 0 0.707107\n", b"\n3  1 0 0 0\n")
+    )
+    assert identity.count(b"  1 0 0 0\n") == 3
+    path = tmp_path / "identity.seq"
+    path.write_bytes(identity)
+    record = synth.decode(read_seqfile(path, "cpp-siemens")).rotation_record
+    assert record == synth.RotationRecord("reader", blocks=5, not_identity=0, rotated=0)
+    assert record.warning() is None
+
+
+def test_the_decoding_emits_no_warning_for_rotations(recwarn):
+    decoding = synth.decode(read_seqfile(RADIAL, "cpp-siemens"))
+    decoding.gradients_at([1], [200.0])
+    assert decoding.rotation_record.unapplied == 3
+    assert not [w for w in recwarn if issubclass(w.category, synth.ScannerSettingWarning)]
+
+
 def test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install(monkeypatch):
     monkeypatch.setitem(sys.modules, "pulseq_cpp_siemens", None)
     assert read_seqfile(SEQFILES / "valid_1_5_1.seq").interpreter == Strict()

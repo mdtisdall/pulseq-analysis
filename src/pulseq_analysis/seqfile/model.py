@@ -404,7 +404,8 @@ class SequenceData:
       (`interpreters.CppSiemens` or `interpreters.Strict`).
     - `reading`: for `cpp-siemens`, the C++ reader's own reading of the file, a
       `pulseq_cpp_siemens.Sequence`: its libraries as it read them (`reading.libraries`), its
-      decoding of each block (`reading.decode_block`) and `reading.gradients_at`. `None` for
+      decoding of each block (`reading.decode_block`), the rotation that it attaches to each
+      block (`reading.block_rotations()`) and `reading.gradients_at`. `None` for
       `strict`. It is not compared by `==`; `pickle` carries the bytes of the file and reads them
       again.
 

@@ -103,6 +103,23 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   of `events` (`decoding.StrictDecoding`).
 - `docs/discrepancies.md` has a new entry, D56: the last section of a file
   with no blank line after it.
+- Rotations in `cpp-siemens` (D49, task R9). `CppSiemens(rotation="reader" |
+  "apply")` (`interpreters.ROTATION`): `"reader"`, the default, gives the
+  reader's gradients, which it never rotates; `"apply"` rotates the gradients
+  of each block to which the reader attaches a rotation by its quaternion,
+  with the reader's own `rotate_vec3_by_quat`, in any version of the file (a
+  simulation of the scanner). `CppSiemensDecoding.rotations()` gives each
+  block's quaternion as the reader attaches it, `gradients_at(...,
+  rotated=...)` overrides the setting for one call, and `rotation_record` (a
+  `synth.RotationRecord`) records the setting and the blocks with a rotation,
+  not the identity, and rotated. `RotationRecord.warning()` gives a
+  `synth.ScannerSettingWarning` where the default leaves a rotation
+  unapplied; the decoding does not emit it, and `load` will when it runs on
+  the interpreters (task R14). `load` still refuses a sequence with rotations
+  until then. pulseq-cpp-siemens has `Sequence.block_rotations()` and
+  `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
+  does not have (`Strict(rotation="apply")`) raises `TypeError`. These are part
+  of the contract with pulseq-checks.
 
 ### Changed
 

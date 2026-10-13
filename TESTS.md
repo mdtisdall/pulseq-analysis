@@ -7824,8 +7824,8 @@ where MATLAB has no point has no event in the package's model.
 **How:**
 
 - The test (one case for each file) skips a file in which the extension list of a block reaches a
-  `ROTATIONS` object: the measurements do not support rotations and `load` refuses such a file (U18,
-  U22), while MATLAB rotates the gradients of the block.
+  `ROTATIONS` object: MATLAB rotates the gradients of the block and `strict` does not (U18, U22).
+  `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq` compares such files.
 - It builds the sampler from the model with `_index_from_data`, `_dense_ids`, `decode_gradients`,
   `_points_from_events` and `GradientSampler._from_parts`, and samples it at MATLAB's times.
 - Where MATLAB has several points at one time (a step), the expected value is the first of them: the
@@ -7858,6 +7858,31 @@ and `decode_adc`, joins them in play order and compares them with `t_adc`.
 
 **Assumptions:** The block start is the sum in play order of the block durations (`_index_from_data`).
 The test does not check the phase or frequency of the samples.
+
+#### `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
+
+**Checks:** For each file with a `ROTATIONS` section, the gradients of
+`CppSiemens(rotation="apply")` (each block turned by its quaternion with the reader's
+`rotate_vec3_by_quat`) equal MATLAB's rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on
+each axis, to 1e-6 of the axis's largest value. Its record has as many blocks rotated as blocks with
+a rotation (0 for `valid_1_5_1_rotation_not_played.seq`). Where a block plays a rotation that is not
+the identity, the reader's own gradients (`rotated=False`) differ from MATLAB's.
+
+**How:**
+
+- The test (one case for each file) reads the file with `cpp-siemens` and `rotation="apply"`, and
+  samples `CppSiemensDecoding.gradients_at` at the midpoint of each segment of MATLAB's polyline,
+  with the block and the time in it from the cumulative block durations.
+- It leaves out the segments where MATLAB guesses the edges of an arbitrary gradient (U21, as the
+  test of the waveform), and each segment with an end within 1e-12 s of a block boundary: there
+  MATLAB can join the last point of one block to the first sample of the next (in
+  `valid_1_5_1.seq`, from a gradient that ends at 282 842 Hz/m to an oversampled gradient whose
+  first sample is 5 µs later), and the reader decodes each block alone (D42).
+
+**Assumptions:** The tolerance of 1e-6 covers the reader's float32 amplitudes (P6) against MATLAB's
+float64. `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are the radial cases of
+`docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds an extended
+trapezoid in a rotated block.
 
 ### 2.25 The sanitized C++ oracle (`test_cpp_oracle_sanitized.py`)
 
@@ -8337,6 +8362,65 @@ the number of blocks, each block in play order, and the reader's `gradients_at`;
 
 **Assumptions:** None.
 
+#### `test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_lacks_is_typeerror`
+
+**Checks:** `CppSiemens().rotation` is `"reader"`, `seqfile.ROTATION` is `("reader", "apply")`,
+`str` names each setting that is not its default (one or both), and a read records the setting.
+Another value raises `ValueError`; a setting that the interpreter does not have
+(`Strict(rotation=...)`, `CppSiemens(rotate=...)`) raises `TypeError` (rule 8 of P20).
+
+**How:** The test makes the objects and reads `koma_v1.5_rotation_radial_tiny.seq` with both
+settings.
+
+**Assumptions:** None.
+
+#### `test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches`
+
+**Checks:** `CppSiemensDecoding.rotations()` gives the blocks whose decoded block (`GetBlock`) has a
+rotation, in play order, with the same quaternions, in both settings; each is one of the model's
+normalized quaternions.
+
+**How:** The test reads `koma_v1.5_rotation_radial_tiny.seq` and `valid_1_5_1.seq` (some blocks
+with a rotation) in each setting, and compares `rotations()` with the `rotation` of each block of
+`blocks()`.
+
+**Assumptions:** pulseq-cpp-siemens's tests check the first of two rotations in a block (D48).
+
+#### `test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation`
+
+**Checks:** With `rotation="apply"`, `gradients_at` gives the reader's gradients of
+`koma_v1.5_rotation_radial_tiny.seq` (all on x) turned by 0, 45, 90, 45 and 0 degrees about z in
+blocks 1 to 5; `rotated=False` gives the reader's values, and the default setting with
+`rotated=True` gives the same values as `"apply"`.
+
+**How:** The test samples each block at four times in both settings and compares with
+`(cos, sin, 0)` times the x values, to 1e-3 Hz/m (the quaternions have six digits).
+
+**Assumptions:** None.
+
+#### `test_the_rotation_record_and_the_warning_for_rotations_left_unapplied`
+
+**Checks:** The record of `koma_v1.5_rotation_radial_tiny.seq` is 5 blocks with a rotation, 3 not
+the identity, 0 rotated with `"reader"` and 5 with `"apply"`, with its text; `"reader"` gives a
+`ScannerSettingWarning` for 3 blocks that names `rotation='apply'`, and `"apply"` none. A file with
+no rotation, and one with a rotation that no block plays, record 0 blocks in both settings with no
+warning (rule 8: `"apply"` is valid there). A file whose rotations are all the identity records 5
+blocks, 0 not the identity, and no warning.
+
+**How:** The test reads the fixtures, and a copy of the radial file with its two other quaternions
+replaced by `1 0 0 0`.
+
+**Assumptions:** None.
+
+#### `test_the_decoding_emits_no_warning_for_rotations`
+
+**Checks:** Decoding and sampling a file whose rotations the default leaves unapplied emits no
+`ScannerSettingWarning`: the measurements emit it (task R14), not the decoding.
+
+**How:** The test decodes the radial file with `recwarn`.
+
+**Assumptions:** None.
+
 #### `test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install`
 
 **Checks:** Without pulseq-cpp-siemens, `read_seqfile` with `cpp-siemens` raises `ImportError`
@@ -8553,6 +8637,63 @@ that block only. It keeps no block: `gradients_at` still decodes and rejects blo
 **How:** The test calls it on the three files.
 
 **Assumptions:** The comparison with the driver's first mode is in `test_driver_parity.py`.
+
+#### `test_block_rotations_are_the_quaternions_that_getblock_attaches`
+
+**Checks:** `block_rotations()` of `koma_v1.5_rotation_radial_tiny.seq` gives blocks 0 to 4 (int64)
+with the quaternions of rotations 1, 2, 3, 2 and 1 of the libraries, the same as each decoded
+block's `rotation`, of norm 1. The result is a copy.
+
+**How:** The test compares with `libraries.rotations` by the file's extension lists, and changes a
+result.
+
+**Assumptions:** None.
+
+#### `test_block_rotations_of_a_file_with_no_rotation_are_empty`
+
+**Checks:** For `valid_1_5_0.seq`, `block_rotations()` gives arrays of shape (0,) and (0, 4).
+
+**How:** The test calls it.
+
+**Assumptions:** None.
+
+#### `test_a_block_with_two_rotations_has_the_first`
+
+**Checks:** A block whose extension list has two rotations gets the first, as `GetBlock` does (D48).
+
+**How:** The test links the list entry of block 1 of the radial file to the entry of rotation 3,
+and reads the bytes.
+
+**Assumptions:** None.
+
+#### `test_rotated_gradients_are_the_reader_s_turned_by_each_block_s_quaternion`
+
+**Checks:** `gradients_at(..., rotated=True)` of the radial file equals the reader's values times
+the matrix of the active rotation of each block's quaternion, to 1e-9 of the largest value; it keeps
+the length of each vector, changes nothing for the identity, turns x into y at 90 degrees, and
+leaves the reader's own values unchanged.
+
+**How:** The test samples each block every 10 us and computes the matrices in numpy.
+
+**Assumptions:** The convention (q0 the scalar part, the active rotation) is that of
+`rotate_vec3_by_quat` with `c = +1`; pulseq-analysis's MATLAB test checks it against `mr.rotate3D`.
+
+#### `test_rotated_gradients_turn_only_the_blocks_with_a_rotation`
+
+**Checks:** In `valid_1_5_1.seq`, where some blocks have a rotation, `rotated=True` changes nothing
+in the other blocks and turns each rotated block by its matrix.
+
+**How:** The test samples the file at the points of `sample_points`.
+
+**Assumptions:** None.
+
+#### `test_rotated_gradients_of_a_file_with_no_rotation_are_the_reader_s`
+
+**Checks:** For `valid_1_5_0.seq`, `rotated=True` gives the reader's values exactly.
+
+**How:** The test samples the file at the points of `sample_points`.
+
+**Assumptions:** None.
 
 ### 3.2 The checks of undefined behaviour (`test_checks.py`)
 

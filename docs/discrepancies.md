@@ -152,7 +152,7 @@ The last two columns are the package's interpreters. "As C++" means that
 | [D46](#d46-a-file-whose-last-section-that-starts-with--is-extensions) | `[EXTENSIONS]` last | silent | rejects | reads | reads | rejects (`section.extensions-last`) | accepts |
 | [D47](#d47-an-unknown-extension-that-the-file-requires) | Unknown required extension | must reject | rejects | reads | reads | rejects (`extension.required-unknown`) | rejects |
 | [D48](#d48-a-block-with-more-than-one-rotations-or-rf_shims-object) | Two ROTATIONS or RF_SHIMS in a block | one only | warns, uses the first | rejects | rejects any ROTATIONS | the first, as C++ | rejects |
-| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3 | normalizes, rotates | rejects | normalizes; rejects off by 1e-3 (`rotation.norm`) | reads as written |
+| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3; does not rotate | normalizes, rotates | rejects | normalizes; rejects off by 1e-3 (`rotation.norm`); rotates with `rotation="apply"` | reads as written |
 | [D50](#d50-a-labelset-or-labelinc-row-with-a-label-name-that-a-reader-does-not-know) | Unknown label name | lists labels | ignores the label | rejects | rejects | ignores the label | reads |
 | [D51](#d51-two-event-rows-with-equal-values-and-different-ids-such-as-amplitudes-0-and--0) | Equal events, different IDs | silent | keeps | keeps | merges, renumbers | keeps | keeps |
 | [D52](#d52-any-file-it-holds-no-dead-time-ringdown-time-or-default-raster-of-a-scanner) | No values of a target in the file | not in the file | none | dead times | dead times, default rasters | none | none |
@@ -1490,7 +1490,7 @@ specification says "can", and `strict` enforces it as "must".
 | Source | What it does |
 |---|---|
 | Specification | A rotation is "a normalized rotation quaternion" applied to the whole block (section 2.8.4, `spec:567`). |
-| C++ reader | Rejects a quaternion whose norm is more than 1e-3 from 1, and divides the others by their norm (`cpp:1286-1292`). |
+| C++ reader | Rejects a quaternion whose norm is more than 1e-3 from 1, and divides the others by their norm (`cpp:1286-1292`). `GetBlock` attaches the block's first rotation (`cpp:1871-1879`, D48), in any version of the file. It never rotates the gradients: `gradientsAt` does not read the rotation (`cpp:3558-3698`), and its helper `rotate_vec3_by_quat` (`cpp:2666-2684`) turns only the position offsets, with the conjugate rotation (`cpp:3024`). It leaves the rotation to the scanner's interpreter. |
 | MATLAB Pulseq | Divides each quaternion by its norm (`read.m:182-184`), and rotates the gradients of the block in `waveforms_and_times` (`Sequence.m:1988-1999`). |
 | pypulseq | Rejects every file with ROTATIONS (`read_seq.py:229-230`). |
 
@@ -1503,15 +1503,28 @@ reader accepts it. `tests/seqfiles/oracle/pulseq_make_radial.seq` and
 Package (`cpp-siemens`): divides a quaternion whose norm is within 1e-3 of 1 by
 its norm, as the C++ reader does (`1 1.0005 0 0 0` is read as `1 1 0 0 0`), and
 rejects another with `rotation.norm` (`1 1.01 0 0 0`, and a quaternion of norm
-0). The rotation is not applied to the gradients yet (task R9, decision Q3).
+0). Its decoding gives each block's quaternion as the reader attaches it
+(`CppSiemensDecoding.rotations`). With the default `CppSiemens(rotation="reader")`
+the gradients are the reader's, not rotated. With `CppSiemens(rotation="apply")`,
+`gradients_at` rotates the gradients of each block with a rotation by its
+quaternion, with the reader's own `rotate_vec3_by_quat` (the active rotation), in
+any version of the file: a simulation of the scanner, whose behaviour for a file
+older than 1.5.1 is not known. It agrees with MATLAB's `waveforms_and_times` on
+each fixture with rotations. `rotation_record` records the setting and the blocks
+with a rotation, not the identity, and rotated (P20, rule 4); its `warning()` is
+a `ScannerSettingWarning` where the default leaves a rotation unapplied, which
+the measurements emit (task R14).
 
 Package (`strict`): `read_seqfile` reads the quaternions as the file writes
 them, with no check of the norm (`SequenceData.extensions.rotations`). The
 measurements do not support rotations.
 
-Reason: `cpp-siemens` rejects what the C++ reader rejects (P2). `strict` does
-not check the norm, and `load` refuses a sequence with the rotation extension
-(`extensions.refuse_rotations`).
+Reason: `cpp-siemens` rejects what the C++ reader rejects (P2), and gives the
+reader's output by default (P20). The rotation is a setting because the scanner
+applies it and the reader does not (rule 2 of P20); it follows the reader, which
+attaches a rotation in any version (the user, 2026-10-12). `strict` does not
+check the norm, and `load` refuses a sequence with the rotation extension
+(`extensions.refuse_rotations`) until it runs on the interpreters (task R14).
 
 #### D50: A `LABELSET` or `LABELINC` row with a label name that a reader does not know
 

@@ -346,3 +346,100 @@ def test_first_rejected_block_is_the_first_block_that_decodeblock_rejects(tmp_pa
     assert sequence.block_count == 2 and sequence.first_rejected_block() == 0
     assert sequence.rejection_messages.count("decodeBlock returned false") == 1
     assert cs.load(VALID).rejection_messages == ""
+
+
+ROTATED = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"
+
+
+def rotation_matrix(q):
+    """The matrix of the active rotation by the unit quaternion q = (q0, qx, qy, qz)."""
+    w, x, y, z = q
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def test_block_rotations_are_the_quaternions_that_getblock_attaches():
+    sequence = cs.load(ROTATED)
+    indices, quaternions = sequence.block_rotations()
+    assert indices.dtype == np.int64 and quaternions.shape == (5, 4)
+    assert indices.tolist() == [0, 1, 2, 3, 4]
+    library = sequence.libraries.rotations
+    # The extension lists of blocks 1 to 5 are 1, 2, 3, 2, 1, each a rotation of that ID.
+    for index, rotation_id in zip(indices, (1, 2, 3, 2, 1), strict=True):
+        assert tuple(quaternions[index]) == library[rotation_id]
+        assert tuple(quaternions[index]) == sequence.decode_block(int(index))["rotation"]
+    assert np.allclose(np.linalg.norm(quaternions, axis=1), 1, rtol=0, atol=1e-15)
+    # The result is a copy: changing it changes no later result.
+    quaternions[:] = 0
+    assert np.array_equal(sequence.block_rotations()[1][0], [1, 0, 0, 0])
+
+
+NO_ROTATION = SEQFILES / "valid_1_5_0.seq"
+
+
+def test_block_rotations_of_a_file_with_no_rotation_are_empty():
+    indices, quaternions = cs.load(NO_ROTATION).block_rotations()
+    assert indices.shape == (0,) and quaternions.shape == (0, 4)
+
+
+def test_a_block_with_two_rotations_has_the_first(tmp_path):
+    # Block 1's list now goes on to the entry of rotation 3: GetBlock keeps rotation 1 and warns
+    # (D48).
+    text = ROTATED.read_bytes().replace(b"\n1 1 1 0\n", b"\n1 1 1 3\n")
+    assert text != ROTATED.read_bytes()
+    sequence = cs.load(text)
+    indices, quaternions = sequence.block_rotations()
+    assert indices.tolist() == [0, 1, 2, 3, 4]
+    assert tuple(quaternions[0]) == sequence.libraries.rotations[1]
+
+
+def test_rotated_gradients_are_the_reader_s_turned_by_each_block_s_quaternion():
+    sequence = cs.load(ROTATED)
+    block_index = np.repeat(np.arange(sequence.block_count), 41)
+    time_us = np.tile(np.arange(0.0, 410.0, 10.0), sequence.block_count)
+    logical = sequence.gradients_at(block_index, time_us)
+    rotated = sequence.gradients_at(block_index, time_us, rotated=True)
+    _, quaternions = sequence.block_rotations()
+    for b, q in enumerate(quaternions):
+        here = block_index == b
+        expected = logical[here] @ rotation_matrix(q).T
+        assert np.allclose(rotated[here], expected, rtol=0, atol=1e-9 * np.abs(logical).max())
+    # A rotation keeps the length of each vector; the identity (blocks 1 and 5) changes nothing.
+    assert np.allclose(np.linalg.norm(rotated, axis=1), np.linalg.norm(logical, axis=1))
+    for b in (0, 4):
+        assert np.array_equal(rotated[block_index == b], logical[block_index == b])
+    # 90 degrees about z (block 3): x goes to y.
+    flat = (block_index == 2) & (time_us == 200.0)
+    assert np.allclose(rotated[flat], [[0, 1000, 0]], rtol=0, atol=1e-9)
+    # The reader's own values are not changed.
+    assert np.array_equal(sequence.gradients_at(block_index, time_us), logical)
+
+
+def test_rotated_gradients_turn_only_the_blocks_with_a_rotation():
+    # valid_1_5_1.seq: a rotation in some blocks only.
+    sequence = cs.load(VALID)
+    block_index, time_us = sample_points(canonical_dump(wrapper_dump(cs.load(VALID))))
+    logical = sequence.gradients_at(block_index, time_us)
+    rotated = sequence.gradients_at(block_index, time_us, rotated=True)
+    indices, quaternions = sequence.block_rotations()
+    assert 0 < indices.size < sequence.block_count
+    plain = ~np.isin(block_index, indices)
+    assert plain.any() and np.array_equal(rotated[plain], logical[plain])
+    for b, q in zip(indices, quaternions, strict=True):
+        here = block_index == b
+        expected = logical[here] @ rotation_matrix(q).T
+        assert np.allclose(rotated[here], expected, rtol=0, atol=1e-9 * np.abs(logical).max())
+
+
+def test_rotated_gradients_of_a_file_with_no_rotation_are_the_reader_s():
+    sequence = cs.load(NO_ROTATION)
+    block_index, time_us = sample_points(canonical_dump(wrapper_dump(cs.load(NO_ROTATION))))
+    assert np.array_equal(
+        sequence.gradients_at(block_index, time_us, rotated=True),
+        sequence.gradients_at(block_index, time_us),
+    )
