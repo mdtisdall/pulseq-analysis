@@ -1,6 +1,6 @@
 # Pulseq sequence file
 # Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
-# valid_no_signature.seq with the time shape ID -1 in the RF event (D22). The C++ reader
+# valid_no_signature.seq with the time shape ID -1 in the RF event (D5.3). The C++ reader
 # reads past the time shape (undefined behaviour, ExternalSequence.cpp:2026).
 
 [VERSION]

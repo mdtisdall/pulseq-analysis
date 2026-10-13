@@ -233,46 +233,6 @@ L -3.5 0
    </g>
    <g id="line2d_24">
     <path d="M 77.282557 186.910135 
-L 120.18517 186.910135 
-L 163.087784 89.933098 
-L 205.990398 101.62996 
-L 248.893011 26.635833 
-L 291.795625 67.950188 
-L 334.698239 26.635833 
-L 377.600852 101.62996 
-L 420.503466 89.933098 
-L 463.40608 186.910135 
-L 506.308693 186.910135 
-" clip-path="url(#p486d0d0234)" style="fill: none; stroke: #d9480f; stroke-width: 1.2; stroke-linecap: square"/>
-    <defs>
-     <path id="mbbb925149c" d="M 0 1.5 
-C 0.397805 1.5 0.77937 1.341951 1.06066 1.06066 
-C 1.341951 0.77937 1.5 0.397805 1.5 0 
-C 1.5 -0.397805 1.341951 -0.77937 1.06066 -1.06066 
-C 0.77937 -1.341951 0.397805 -1.5 0 -1.5 
-C -0.397805 -1.5 -0.77937 -1.341951 -1.06066 -1.06066 
-C -1.341951 -0.77937 -1.5 -0.397805 -1.5 0 
-C -1.5 0.397805 -1.341951 0.77937 -1.06066 1.06066 
-C -0.77937 1.341951 -0.397805 1.5 0 1.5 
-z
-" style="stroke: #d9480f"/>
-    </defs>
-    <g clip-path="url(#p486d0d0234)">
-     <use xlink:href="#mbbb925149c" x="77.282557" y="186.910135" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="120.18517" y="186.910135" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="163.087784" y="89.933098" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="205.990398" y="101.62996" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="248.893011" y="26.635833" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="291.795625" y="67.950188" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="334.698239" y="26.635833" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="377.600852" y="101.62996" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="420.503466" y="89.933098" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="463.40608" y="186.910135" style="fill: #d9480f; stroke: #d9480f"/>
-     <use xlink:href="#mbbb925149c" x="506.308693" y="186.910135" style="fill: #d9480f; stroke: #d9480f"/>
-    </g>
-   </g>
-   <g id="line2d_25">
-    <path d="M 77.282557 186.910135 
 L 98.733864 186.910135 
 L 141.636477 138.421616 
 L 184.539091 95.781529 
@@ -286,7 +246,7 @@ L 484.857386 186.910135
 L 506.308693 186.910135 
 " clip-path="url(#p486d0d0234)" style="fill: none; stroke: #1f5fa8; stroke-width: 1.8; stroke-linecap: square"/>
    </g>
-   <g id="line2d_26">
+   <g id="line2d_25">
     <path d="M 77.282557 186.910135 
 L 98.733864 186.910135 
 L 142.709043 137.355613 
@@ -302,7 +262,7 @@ L 506.308693 186.910135
 L 506.308693 186.910135 
 " clip-path="url(#p486d0d0234)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #2b8a3e"/>
    </g>
-   <g id="line2d_27">
+   <g id="line2d_26">
     <defs>
      <path id="m050684319b" d="M 0 2 
 C 0.530406 2 1.03916 1.789267 1.414214 1.414214 
@@ -343,35 +303,23 @@ L 527.76 203.559297
     <text style="font-weight: 700; font-size: 9.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="55.83125" y="14.418516" transform="rotate(-0 55.83125 14.418516)">Arbitrary gradient on the default raster (time ID 0): the samples are at the cell centres</text>
    </g>
    <g id="legend_1">
-    <g id="line2d_28">
-     <path d="M 131.07125 167.636172 
-L 139.07125 167.636172 
-L 147.07125 167.636172 
-" style="fill: none; stroke: #d9480f; stroke-width: 1.2; stroke-linecap: square"/>
-     <g>
-      <use xlink:href="#mbbb925149c" x="139.07125" y="167.636172" style="fill: #d9480f; stroke: #d9480f"/>
-     </g>
-    </g>
-    <g id="text_16">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="153.47125" y="170.436172" transform="rotate(-0 153.47125 170.436172)">MATLAB Pulseq waveforms_and_times: values restored at the raster edges</text>
-    </g>
-    <g id="line2d_29">
-     <path d="M 131.07125 179.636797 
-L 139.07125 179.636797 
-L 147.07125 179.636797 
+    <g id="line2d_27">
+     <path d="M 215.088125 179.636797 
+L 223.088125 179.636797 
+L 231.088125 179.636797 
 " style="fill: none; stroke: #1f5fa8; stroke-width: 1.8; stroke-linecap: square"/>
     </g>
-    <g id="text_17">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="153.47125" y="182.436797" transform="rotate(-0 153.47125 182.436797)">pulseq-analysis: lines between the samples</text>
+    <g id="text_16">
+     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="237.488125" y="182.436797" transform="rotate(-0 237.488125 182.436797)">spec: lines between the samples</text>
     </g>
-    <g id="line2d_30">
-     <path d="M 131.07125 191.637422 
-L 139.07125 191.637422 
-L 147.07125 191.637422 
+    <g id="line2d_28">
+     <path d="M 215.088125 191.637422 
+L 223.088125 191.637422 
+L 231.088125 191.637422 
 " style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #2b8a3e"/>
     </g>
-    <g id="text_18">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="153.47125" y="194.437422" transform="rotate(-0 153.47125 194.437422)">C++ reader gradientsAt</text>
+    <g id="text_17">
+     <text style="font-size: 8px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="237.488125" y="194.437422" transform="rotate(-0 237.488125 194.437422)">C++ reader gradientsAt</text>
     </g>
    </g>
   </g>

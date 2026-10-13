@@ -146,7 +146,7 @@ def test_trapezoid_has_the_values_of_the_file():
 
 def test_arbitrary_gradient_on_the_default_raster():
     """Time ID 0: a sample at the centre of each cell of the gradient raster (spec:290, slide 7,
-    D41)."""
+    D2.13)."""
     grads = decode_gradients(seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq"))
     samples = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
     assert grads[3] == ArbitraryGradient(
@@ -165,7 +165,7 @@ def test_arbitrary_gradient_on_the_default_raster():
 
 def test_arbitrary_gradient_oversampled():
     """Time ID -1: all the samples, half a gradient raster apart, the first at half a raster
-    (spec:420, slides 4 and 8, D43)."""
+    (spec:420, slides 4 and 8)."""
     grads = decode_gradients(seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq"))
     assert grads[6] == ArbitraryGradient(
         id=6,
@@ -184,7 +184,7 @@ def test_arbitrary_gradient_oversampled():
 def test_oversampled_gradients_of_a_spiral_keep_all_samples():
     """Time ID -1 in a file with two such gradients (`koma_v1.5_spiral.seq`): an odd number of
     samples, half a raster apart, from the centre of the first cell to the centre of the last
-    (spec:420, slides 4 and 8, D43)."""
+    (spec:420, slides 4 and 8)."""
     data = seqfile.read_seqfile(ORACLE / "koma_v1.5_spiral.seq")
     dt = data.rasters.gradient
     oversampled = [g for g in decode_gradients(data).values() if getattr(g, "time_id", 0) == -1]
@@ -300,7 +300,7 @@ def test_rf_event_of_a_1_4_file_has_no_center():
 
 def test_rf_event_with_an_irregular_time_shape_is_points(time_shaped):
     """A time shape that is not regular (0.5, 1, 2, 4: unequal steps) gives points at the shape
-    times times the RF raster, and the pulse ends at the last time (slides 4 and 9, D36). The
+    times times the RF raster, and the pulse ends at the last time (slides 4 and 9, D2.11, D2.12). The
     magnitude is in Hz and the phase in rad (2 pi times the shape); no sample is dropped or
     repeated."""
     rf = decode_rf(time_shaped)[1]
@@ -328,7 +328,7 @@ def test_rf_event_with_an_irregular_time_shape_is_points(time_shaped):
 def test_rf_event_with_a_regular_time_shape(time_shaped):
     """A time shape stored compressed in 4 values (5 10 10 2: the times 5, 15, 25, 35, 45) is
     regular: cells of the step 10 RF raster times, each sample held for one dwell around its
-    time, and the pulse lasts `n d` (slide 9, D35, D37)."""
+    time, and the pulse lasts `n d` (slide 9, D2.10, D2.12)."""
     rf = decode_rf(time_shaped)[2]
     dwell = 10.0 * 1e-6
     assert rf == RfEvent(
@@ -354,7 +354,7 @@ def test_rf_event_with_a_regular_time_shape(time_shaped):
 
 def test_rf_event_with_a_regular_time_shape_of_step_2_is_cells_of_two_rasters():
     """RF 2 of `valid_rf_time_shapes.seq`: the time shape `1 2 2 47` (50 samples, times 1, 3, ...,
-    99) is cells of 2 us, the pulse lasts 100 us, not 99 us (slide 9, D35, D37)."""
+    99) is cells of 2 us, the pulse lasts 100 us, not 99 us (slide 9, D2.10, D2.12)."""
     rf = _rf_time_shapes()[2]
     assert rf.dwell == pytest.approx(2e-6, rel=1e-12)
     np.testing.assert_allclose(rf.t, _samples(50, 2e-6), rtol=1e-12)
@@ -364,7 +364,7 @@ def test_rf_event_with_a_regular_time_shape_of_step_2_is_cells_of_two_rasters():
 
 def test_rf_event_with_the_time_shape_of_a_short_pulse_is_cells_of_one_raster():
     """RF 3 of `valid_rf_time_shapes.seq`: the uncompressed time shape 0.5, 1.5, 2.5 (3 samples)
-    is cells of 1 us, the pulse lasts 3 us (slide 9, D35, D37)."""
+    is cells of 1 us, the pulse lasts 3 us (slide 9, D2.10, D2.12)."""
     rf = _rf_time_shapes()[3]
     assert rf.dwell == pytest.approx(1e-6, rel=1e-12)
     np.testing.assert_allclose(rf.t, [0.5e-6, 1.5e-6, 2.5e-6], rtol=1e-12)
@@ -374,7 +374,7 @@ def test_rf_event_with_the_time_shape_of_a_short_pulse_is_cells_of_one_raster():
 
 def test_rf_event_of_a_block_pulse_is_two_points():
     """RF 4 of `valid_rf_time_shapes.seq`: the time shape 0, 100 with the magnitude 1, 1 is two
-    points, 0 and 100 us, and no cells: the pulse ends at 100 us (slides 4 and 9, D36)."""
+    points, 0 and 100 us, and no cells: the pulse ends at 100 us (slides 4 and 9, D2.11, D2.12)."""
     rf = _rf_time_shapes()[4]
     assert rf.dwell is None
     np.testing.assert_allclose(rf.t, [0.0, 100e-6], rtol=1e-12)
@@ -384,7 +384,7 @@ def test_rf_event_of_a_block_pulse_is_two_points():
 
 def test_rf_event_with_vertices_is_points():
     """RF 5 of `valid_rf_time_shapes.seq`: the time shape 1, 2, 4, 7, 10 (5 samples) is 5 points,
-    at 1, 2, 4, 7 and 10 us, and the pulse ends at 10 us (slides 4 and 9, D36). The phase is 2 pi
+    at 1, 2, 4, 7 and 10 us, and the pulse ends at 10 us (slides 4 and 9, D2.11, D2.12). The phase is 2 pi
     times the shape turns."""
     rf = _rf_time_shapes()[5]
     assert rf.dwell is None
@@ -397,7 +397,7 @@ def test_rf_event_with_vertices_is_points():
 def test_the_signal_of_cells_holds_each_sample_over_its_cell_and_is_0_outside():
     """RF 3 of `valid_rf_time_shapes.seq` (cells of 1 us: 1000, 500, 250 Hz): each sample is
     held from `i dwell` to `(i + 1) dwell`, and the signal is 0 before the start and from the
-    end (slide 9, D35 to D37). RF 2 (cells of 2 us) gives the same at its start and its end."""
+    end (slide 9, D2.10 to D2.12). RF 2 (cells of 2 us) gives the same at its start and its end."""
     rfs = _rf_time_shapes()
     times = np.array([-0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5]) * 1e-6
     np.testing.assert_array_equal(rfs[3].signal(times), [0, 1000, 1000, 500, 500, 250, 250, 0, 0])
@@ -418,7 +418,7 @@ def test_the_signal_of_cells_is_the_complex_sample(time_shaped):
 
 def test_the_signal_of_points_is_the_straight_line_of_the_complex_signal():
     """RF 5 of `valid_rf_time_shapes.seq`: between two points the signal is the straight line of
-    the complex signal (linear interpolation of the real and the imaginary part, D36). The
+    the complex signal (linear interpolation of the real and the imaginary part, D2.11). The
     samples at 2 us (0.6 at the phase 0.25 turn) and 4 us (1 at 0.5 turn) are 600j and -1000
     Hz: at 3 us the signal is their average, -500 + 300j (583 Hz), and not the average
     magnitude, 800 Hz, with the average phase."""
@@ -458,8 +458,8 @@ def test_the_signal_of_points_is_0_before_the_first_point_and_after_the_last():
 )
 def test_rf_time_step_of_a_time_shape(num_samples, packed, step):
     """A regular RF time shape (2 or more samples, equal steps, the first time half a step)
-    gives its step in RF rasters: cells; any other shape gives `None`: points (slide 9, D35 to
-    D36). The shape is stored as in a file and decompressed."""
+    gives its step in RF rasters: cells; any other shape gives `None`: points (slide 9, D2.10 to
+    D2.12). The shape is stored as in a file and decompressed."""
     shape = model.Shape(num_samples=num_samples, packed=np.array(packed, dtype=float))
     result = model.rf_time_step(shape.samples())
     if step is None:
@@ -490,7 +490,7 @@ def test_rf_time_step_has_the_tolerance_of_the_model(shift, regular):
 
 def test_rf_event_with_a_time_shape_in_a_1_4_file():
     """The block pulse of the file has the magnitude 1, 1 at the times 0, 100: two points, 0 and
-    100 us, and no cells (slides 4 and 9, D36)."""
+    100 us, and no cells (slides 4 and 9, D2.11)."""
     (rf,) = decode_rf(seqfile.read_seqfile(ORACLE / "koma_v1.4_rf-time-shaped.seq")).values()
     np.testing.assert_array_equal(rf.magnitude, np.full(2, 2500.0))
     np.testing.assert_array_equal(rf.phase, np.zeros(2))
@@ -504,7 +504,7 @@ def test_rf_event_with_a_time_shape_in_a_1_4_file():
 
 
 def test_adc_events_with_and_without_a_phase_shape(time_shaped):
-    """The phase modulation is the shape as the file stores it, in rad, with no factor (D44)."""
+    """The phase modulation is the shape as the file stores it, in rad, with no factor (D2.15)."""
     adcs = decode_adc(time_shaped)
     assert isinstance(adcs, MappingProxyType)
     assert adcs[1] == AdcEvent(
@@ -525,7 +525,7 @@ def test_adc_events_with_and_without_a_phase_shape(time_shaped):
 
 def test_adc_phase_modulation_has_one_value_for_each_sample():
     """ADC 2 of `valid_1_5_1.seq` has the phase shape 8 (8 samples, all 0) and 8 ADC samples: the
-    modulation is in rad and has `num_samples` values (D44)."""
+    modulation is in rad and has `num_samples` values (D2.15)."""
     adc = decode_adc(seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq"))[2]
     assert adc.num_samples == 8
     np.testing.assert_array_equal(adc.phase_modulation, np.zeros(8))
@@ -594,9 +594,9 @@ FILES = sorted(SEQFILES.glob("valid_*.seq")) + sorted(ORACLE.glob("*.seq"))
 @pytest.mark.parametrize("path", FILES, ids=[p.name for p in FILES])
 def test_every_file_that_loads_decodes(path):
     """Each event has the values of its row of the model, its arrays have one sample for each
-    sample of its shape, an RF event is cells or points as its time shape says (slide 9, D35 to
-    D37) and its signal at its sample times is its samples, an ADC phase modulation has one value
-    for each ADC sample (D44), and an RF or gradient event ends inside each block that plays it."""
+    sample of its shape, an RF event is cells or points as its time shape says (slide 9, D2.10 to
+    D2.12) and its signal at its sample times is its samples, an ADC phase modulation has one value
+    for each ADC sample (D2.15), and an RF or gradient event ends inside each block that plays it."""
     try:
         data = seqfile.read_seqfile(path)
     except SeqFileError as error:
@@ -711,7 +711,7 @@ def test_rotate_is_the_active_rotation_of_a_unit_quaternion():
 
 
 def test_spec_rotates_the_gradients_of_each_block_that_has_a_rotation(recwarn):
-    """From 1.5.1 `spec` rotates each block's gradients by its normalized quaternion (D49, P20
+    """From 1.5.1 `spec` rotates each block's gradients by its normalized quaternion (D2.18, P20
     rule 2): blocks 1 to 5 of the radial file are turned by 0, 45, 90, 45 and 0 degrees about z.
     `rotated` None is True; False gives the logical gradients, all on x. The record has the
     setting "apply", every block with a rotation rotated, and no warning; the decoding emits
@@ -754,7 +754,7 @@ def _with_rotation_1_4_1(tmp_path: Path) -> Path:
 
 
 def test_a_file_older_than_1_5_1_with_rotations_is_not_rotated(tmp_path):
-    """Before 1.5.1 ROTATIONS is an unknown extension for `spec` (P20 rule 2, D58): ignored and
+    """Before 1.5.1 ROTATIONS is an unknown extension for `spec` (P20 rule 2, D4.6): ignored and
     recorded, no block has a rotation, and the gradients are the logical ones, in a 1.5.0 file
     (block 5 plays gx with a ROTATIONS object) and in a 1.4.1 file."""
     for path, block in (

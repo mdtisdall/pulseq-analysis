@@ -1,7 +1,7 @@
 # Pulseq sequence file
 # Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
 # valid_no_signature.seq with num_samples 99 in the RF shapes 1 and 2, which decompress to
-# 100 samples (D29). The C++ reader writes one sample past its buffer of 99 (undefined
+# 100 samples (D5.5). The C++ reader writes one sample past its buffer of 99 (undefined
 # behaviour, ExternalSequence.cpp:2231).
 
 [VERSION]

@@ -305,7 +305,7 @@ TIME_TOLERANCE = 1e-6
 
 def rf_time_step(times: np.ndarray) -> float | None:
     """The dwell time, in RF raster times, of a regular RF time shape, or `None` when the shape is
-    one of points (`spec`, D35 to D37).
+    one of points (`spec`, D2.10 to D2.12).
 
     `times` is the decompressed time shape, in RF raster times. A shape is regular when it has 2
     or more samples, its steps are equal and above 0, and its first time is half a step, all to
@@ -315,7 +315,7 @@ def rf_time_step(times: np.ndarray) -> float | None:
     the start of the pulse (`doc/pulseq_shapes_and_times.pdf`, slide 9), so no other shape can be
     a regular pulse; that a shape of this form is one, and not points at those times, is the
     package's choice: every regular pulse that MATLAB Pulseq and pypulseq write has this form, and
-    neither writes points there (`docs/discrepancies.md`, D35). The time shape of the default
+    neither writes points there (`docs/discrepancies.md`, D2.10). The time shape of the default
     raster, `0.5 1 1 N-3`, gives 1."""
     t = np.asarray(times, dtype=np.float64)
     if t.size < 2:
@@ -362,7 +362,7 @@ class Extensions:
     labelset: np.ndarray  # LABELSET
     labelinc: np.ndarray  # LABELINC
     soft_delays: np.ndarray  # DELAYS: offset in s
-    rotations: np.ndarray  # ROTATIONS: quaternions divided by their norm (D49)
+    rotations: np.ndarray  # ROTATIONS: quaternions divided by their norm (D2.18)
     rf_shims: Mapping[int, np.ndarray]  # RF_SHIMS
 
 
@@ -374,9 +374,9 @@ class Record:
     - `kind`: what it is about: `"extension"`, `"label"` or `"section"`.
     - `subject`: its name as in the file: the STRING_ID of an extension, the name of a label, the
       header of a section.
-    - `reason`: why: `"unknown"` (the specification does not have it: D08, D45, D50, D57),
-      `"version"` (the file's version is older than the revision that introduced it: D58), or
-      `"removed"` (a section that the format removed, `[DELAYS]` from 1.4.0: D09).
+    - `reason`: why: `"unknown"` (the specification does not have it: D2.4, D2.17, D2.19),
+      `"version"` (the file's version is older than the revision that introduced it: D4.6), or
+      `"removed"` (a section that the format removed, `[DELAYS]` from 1.4.0).
     - `line`: the line of the file (the header of the section, or the row of a label).
 
     Task R16 adds the records of the mechanisms that a file uses and that are left at the

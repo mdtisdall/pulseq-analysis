@@ -804,7 +804,7 @@ in two blocks, so `gradient_points` takes the block. `load` does not use the
 interpreters yet (task R14).
 
 **Rotations.** A decoding gives the rotation of each block (the ROTATIONS
-extension, D49) with `rotations()` and what it did with them with
+extension, D2.18 and D4.6) with `rotations()` and what it did with them with
 `rotation_record`. `rotation_record` is a `scanner.RotationRecord` (also
 `synth.RotationRecord`): `setting`, `blocks` (with a rotation), `not_identity`
 (whose rotation is not the identity: the blocks that play a rotation),
@@ -820,7 +820,7 @@ refuses a sequence with rotations, as before.
 **Rotations in `spec`.** `spec` applies the content of the file from the
 revision that introduced it (P20, rule 2): from 1.5.1, `SpecDecoding` rotates
 the gradients of each block whose extension list has a ROTATIONS object by its
-quaternion, divided by its norm (D49). It has no setting for this
+quaternion, divided by its norm (D2.18). It has no setting for this
 (`Spec(rotation=...)` raises `TypeError`) and nothing to warn about (rule 4).
 
 - `rotations()` gives the play index of each block with a rotation and its
@@ -835,7 +835,7 @@ quaternion, divided by its norm (D49). It has no setting for this
 - `rotation_record` is a `RotationRecord` with the setting `"apply"` and every
   block with a rotation rotated, so its `warning()` is always None.
 - In a file older than 1.5.1, ROTATIONS is an unknown extension: ignored and
-  recorded (`SequenceData.records`, reason `"version"`, D58), and no block is
+  recorded (`SequenceData.records`, reason `"version"`, D4.6), and no block is
   rotated. `cpp-siemens` with `rotation="apply"` rotates such a file, as the
   reader attaches the rotation in any version.
 
@@ -856,32 +856,32 @@ reader of the error sees that it is the package's choice and why.
 
 | Code | Basis | `spec` rejects |
 |---|---|---|
-| `version.missing` | spec:201; D02 | no `[VERSION]` section |
-| `version.invalid` | spec:193-198; D04 | a line of `[VERSION]` that is not `major`, `minor` or `revision` with an integer (`minor 5.0`), a key missing, or repeated |
-| `definitions.raster-missing`, `definitions.raster-invalid` | spec:267-276; D11 | a required raster that is missing, or not one finite number above 0 |
+| `version.missing` | spec:201; D1.1 | no `[VERSION]` section |
+| `version.invalid` | spec:193-198 | a line of `[VERSION]` that is not `major`, `minor` or `revision` with an integer (`minor 5.0`), a key missing, or repeated |
+| `definitions.raster-missing`, `definitions.raster-invalid` | spec:267-276 | a required raster that is missing, or not one finite number above 0 |
 | `definitions.raster-commensurate` | slide 11 | an RF or gradient raster that is neither an integer multiple nor a divisor of the block duration raster |
-| `section.duplicate` | choice; D10 | a section that appears twice, or two `extension` sections with one `STRING_ID` (the readers disagree on what a second copy means; only the first is read) |
-| `syntax.encoding` | choice; D14 | a byte that is not UTF-8 (the specification gives no encoding; MATLAB Pulseq and pypulseq fail on it) |
-| `syntax.line` | choice; D06 | a data line before the first section |
-| `syntax.columns`, `syntax.integer`, `syntax.number` | the tables of spec:293-455; D14 | a row with too few or too many fields; a value that is not of its column's type (`30.5` in an integer column); NaN or infinity in a float column (a choice) |
-| `syntax.use` | spec:356-357; D17 | an RF `use` that is not one of `e r i s p o u` |
-| `syntax.negative` | choice; D14 | a negative block duration, delay, rise, flat or fall time, number of samples, dwell time or trigger duration (spec:176 stores integers as unsigned, but defines negative values elsewhere) |
-| `syntax.shape` | spec:602-612; D07 | a shape without its `shape_id` and `num_samples` lines, a line of `[SHAPES]` outside a shape, or a shape with no blank line after it (a choice) |
-| `id.positive`, `id.unique`, `id.gradient-unique` | spec:181-183, spec:403; D19 | an ID that is not positive; an ID used twice in a class (for blocks a choice); a gradient ID in `[GRADIENTS]` and `[TRAP]` |
-| `ref.unresolved` | spec:178-186, spec:478, spec:349, spec:395, slide 4; D21-D23 | a reference to nothing; a list of extensions that does not end; time ID -1 for an RF event, or in a 1.4 file |
-| `blocks.empty`, `block.event-too-long` | spec:318; D24, D25 | no block; an event longer than its block |
-| `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat` | spec:275, spec:290; slides 5, 10; D26 | a time off its raster |
+| `section.duplicate` | choice; D3.3 | a section that appears twice, or two `extension` sections with one `STRING_ID` (the readers disagree on what a second copy means; only the first is read) |
+| `syntax.encoding` | choice; D3.1 | a byte that is not UTF-8 (the specification gives no encoding; MATLAB Pulseq and pypulseq fail on it) |
+| `syntax.line` | choice; D3.2 | a data line before the first section |
+| `syntax.columns`, `syntax.integer`, `syntax.number` | the tables of spec:293-455; D1.2, D3.5 | a row with too few or too many fields; a value that is not of its column's type (`30.5` in an integer column); NaN or infinity in a float column (a choice) |
+| `syntax.use` | spec:356-357 | an RF `use` that is not one of `e r i s p o u` |
+| `syntax.negative` | choice; D3.6 | a negative block duration, delay, rise, flat or fall time, number of samples, dwell time or trigger duration (spec:176 stores integers as unsigned, but defines negative values elsewhere) |
+| `syntax.shape` | spec:602-612; D3.11 | a shape without its `shape_id` and `num_samples` lines, a line of `[SHAPES]` outside a shape, or a shape with no blank line after it (a choice) |
+| `id.positive`, `id.unique`, `id.gradient-unique` | spec:181-183, spec:403; D3.4 | an ID that is not positive; an ID used twice in a class (for blocks a choice); a gradient ID in `[GRADIENTS]` and `[TRAP]` |
+| `ref.unresolved` | spec:178-186, spec:478, spec:349, spec:395, slide 4; D4.3 | a reference to nothing; a list of extensions that does not end; time ID -1 for an RF event, or in a 1.4 file |
+| `blocks.empty`, `block.event-too-long` | spec:318 | no block; an event longer than its block |
+| `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat` | spec:275, spec:290; slides 5, 10 | a time off its raster |
 | `raster.rf-delay`, `raster.adc-delay` | slides 9, 10 | an RF event or an ADC that does not start on an edge of the RF raster |
-| `raster.gradient-vertex` | choice (slides 4 and 6 conflict) | a vertex of a gradient time shape off the gradient raster |
-| `gradient.nonzero-start-delay`, `gradient.nonzero-end-align` | spec:420; slide 6; D27 | a gradient that starts above 0 after a delay, or ends above 0 before its block ends |
-| `shape.length`, `shape.range` | spec:626, spec:624; D29, D30 | a shape that does not decompress to `num_samples`; an amplitude shape outside [-1, 1] |
-| `shape.empty`, `shape.event-length` | choice; D33, D34, D44 | a shape with no sample that an event uses; the shapes of one event of different lengths, or an ADC phase shape whose length is not the number of ADC samples |
-| `shape.time-order` | choice; D35-D37 | an RF time shape of one sample, a time shape whose times do not increase, an RF time shape that starts before 0 |
-| `shape.oversampled-length` | spec:420, slides 4, 8; D43 | an oversampled gradient (time ID -1) with an even number of samples |
-| `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584; D47, D48 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
-| `layer1.gradient-ends` | choice; D39, D40 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |
-| `rotation.zero` | choice; D49 | a quaternion of ROTATIONS of norm 0 (from 1.5.1 `spec` divides each quaternion by its norm) |
-| `signature.invalid` | spec:223-232; D54 | `[SIGNATURE]` without one `Type` and one `Hash` |
+| `raster.gradient-vertex` | choice (slides 4 and 6 conflict); D1.3 | a vertex of a gradient time shape off the gradient raster |
+| `gradient.nonzero-start-delay`, `gradient.nonzero-end-align` | spec:420; slide 6 | a gradient that starts above 0 after a delay, or ends above 0 before its block ends |
+| `shape.length`, `shape.range` | spec:626, spec:624 | a shape that does not decompress to `num_samples`; an amplitude shape outside [-1, 1] |
+| `shape.empty`, `shape.event-length` | choice; D3.7, D3.8 | a shape with no sample that an event uses; the shapes of one event of different lengths, or an ADC phase shape whose length is not the number of ADC samples |
+| `shape.time-order` | choice; D3.9 | an RF time shape of one sample, a time shape whose times do not increase, an RF time shape that starts before 0 |
+| `shape.oversampled-length` | spec:420, slides 4, 8 | an oversampled gradient (time ID -1) with an even number of samples |
+| `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
+| `layer1.gradient-ends` | choice; D4.4, D4.5 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |
+| `rotation.zero` | choice; D3.10 | a quaternion of ROTATIONS of norm 0 (from 1.5.1 `spec` divides each quaternion by its norm) |
+| `signature.invalid` | spec:223-232 | `[SIGNATURE]` without one `Type` and one `Hash` |
 
 What `spec` reads where the specification is silent (section 6 of the plan, and
 `docs/discrepancies.md` entry by entry): a blank or `#` line anywhere, also
@@ -899,11 +899,10 @@ on its own raster; the signature is checked by the rule of the specification
 
 **Records.** `SequenceData.records` has a `model.Record` (`kind`, `subject`,
 `reason`, `line`) for each thing that `spec` ignored, in file order: an
-`"extension"` that it does not know (`reason` `"unknown"`, D45) or that the
+`"extension"` that it does not know (`reason` `"unknown"`, D2.17) or that the
 version of the file does not have yet (`"version"`); a `"section"` that the
-format does not have (`"unknown"`, D08) or removed (`"removed"`: `[DELAYS]`,
-D09); and a `"label"` of `LABELSET` or `LABELINC` that the specification does not
-list (`"unknown"`, D50: also `NOSCL`, which the specification spells `NOSLC`)
+format does not have (`"unknown"`, D2.4) or removed (`"removed"`: `[DELAYS]`); and a `"label"` of `LABELSET` or `LABELINC` that the specification does not
+list (`"unknown"`, D2.19: also `NOSCL`, which the specification spells `NOSLC`)
 or that the version does not have yet (`"version"`: the flags `PMC`, `NOROT`,
 `NOPOS`, `NOSLC` and `ONCE` of 1.4.1). The row of such a label stays in the
 table. The records are part of the contract with pulseq-checks (P20, rule 7, of
@@ -1019,7 +1018,7 @@ the first one.
 | `sections` | Each `Section` in file order, as many times as the file has it. |
 | `version` | (major, minor, revision) of the first `[VERSION]` section: for each key, its first row of two fields with an int; None if a key has none. It picks the columns of `[RF]`, `[GRADIENTS]` and `[ADC]`: those of 1.4 below 1.5.0, else those of 1.5. |
 | `named(name)`, `extensions()` | The sections `[name]`, and the `extension` sections, in file order. |
-| `signed_bytes()` | The bytes that the `[SIGNATURE]` hash covers by the specification (section 2.4): every byte before the first `[SIGNATURE]` header line, without the `\n` right before it. None with no such header. The C++ reader hashes other bytes in a CRLF file (`docs/discrepancies.md`, D53). |
+| `signed_bytes()` | The bytes that the `[SIGNATURE]` hash covers by the specification (section 2.4): every byte before the first `[SIGNATURE]` header line, without the `\n` right before it. None with no such header. The C++ reader hashes other bytes in a CRLF file (`docs/discrepancies.md`). |
 
 | `Section` | Meaning |
 |---|---|

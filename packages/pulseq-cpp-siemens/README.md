@@ -44,7 +44,7 @@ arbitrary gradient (see below). It raises:
 `ValueError` for an `oversampling` that is not one of `OVERSAMPLING`.
 
 **Oversampling.** An oversampled arbitrary gradient is a `[GRADIENTS]` row with a wave shape and
-time shape -1 (D43): its n stored samples are half a raster apart. The reader keeps some of
+time shape -1 (D6.1): its n stored samples are half a raster apart. The reader keeps some of
 them, by a mode that the interpreter sets before it decodes any block (cpp:2123-2146), and
 `gradientsAt` then plays the kept samples on the 10 us raster. `load(oversampling=...)` sets it
 for the life of the `Sequence` (decoded blocks are kept, so it cannot change), and
@@ -196,15 +196,15 @@ version again with the reader's own code. It raises what `read_seqfile` of pulse
 binary Pulseq file or a folder, and `OSError`.
 
 **Settings.** `CppSiemens(oversampling=...)` is the reader's sampling mode of an oversampled
-arbitrary gradient (time shape -1, D43): `"center"` (the reader's default, the samples at the
+arbitrary gradient (time shape -1, D6.1): `"center"` (the reader's default, the samples at the
 centres of the gradient raster), `"edge"` (those at its edges) or `"preserve"` (all of them);
 `OVERSAMPLING` lists them. `CppSiemens(rotation=...)` is what the decoding does with each block's
-rotation (the ROTATIONS extension, D49), below; `ROTATION` lists `"reader"` (the default) and
+rotation (the ROTATIONS extension, D6.2), below; `ROTATION` lists `"reader"` (the default) and
 `"apply"`. A value that is not listed is a `ValueError`. `str` gives the name with each setting
 that is not its default, for example `cpp-siemens(oversampling='edge')`.
 
 **The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to the ID
-of its condition and what the reader rejects; section 2.5 of
+of its entry (— for none) and what the reader rejects; section 2.5 of
 [`docs/specification.md`](docs/specification.md) lists them. The reader stops at its first error,
 so a rejection has one reason. Its message is the reader's own.
 
@@ -220,12 +220,13 @@ the libraries.
 the reader holds them (`SequenceData.reading.libraries`). The model (`_model`) holds what the
 reader read, in the units of the model, from the reader's float32 values (P6); the extension gives
 each event as a dict of the reader's struct. It differs from the model of `spec` where the reader
-does: the reader keeps no block ID, so a block's `id` is its position in play order from 1; a 1.4
-RF event has `center` NaN (the reader holds -1, D38); `use` is any character (D17); `first` and
+does: the reader keeps no block ID, so a block's `id` is its position in play order from 1 (D7.3);
+a 1.4 RF event has `center` NaN (the reader holds -1, D7.5); `use` is any character; `first` and
 `last` of a 1.4 gradient with a time shape are the reader's sentinel `FLOAT_UNDEFINED` (about
-1.18e-38, D39, D40); the definitions are in the order of their keys, each with its last value
-(D12); the rotations are the reader's normalized quaternions (D49); and `skipped_extensions` gives
-the extensions that the reader ignores (D45), which are not in `SequenceData.extensions.type_ids`.
+1.18e-38; D4.4 and D4.5 in `spec`); the definitions are in the order of their keys, each with its
+last value (D2.6 in `spec`); the rotations are the reader's normalized quaternions (D6.2); and
+`skipped_extensions` gives the extensions that the reader ignores (D2.17 in `spec`), which are not
+in `SequenceData.extensions.type_ids`.
 The reading is not compared by `==`. `pickle` carries the bytes of the file and reads them again;
 `copy.deepcopy` shares the reading.
 
@@ -240,11 +241,11 @@ has the other members of the protocol `pulseq_analysis.synth.Decoding`: `interpr
 
 **Rotations.** The C++ reader stores each block's rotation and applies it to nothing: its
 gradients are the file's logical gradients, and it leaves the rotation to the scanner's
-interpreter (D49). The decoding gives what the reader gives, and simulates the scanner by a
+interpreter (D6.2). The decoding gives what the reader gives, and simulates the scanner by a
 setting (section 7.8 of `docs/plans/parser-redesign.md`):
 
 - `rotations()` gives the play index of each block to which the reader attaches a rotation (the
-  first of its extension list, D48) and its quaternion (q0, qx, qy, qz), divided by its norm, in
+  first of its extension list) and its quaternion (q0, qx, qy, qz), divided by its norm, in
   either setting.
 - With `CppSiemens(rotation="reader")`, the default, `gradients_at` gives the reader's values, not
   rotated.
@@ -299,7 +300,7 @@ nix develop --command uv run --project packages/pulseq-cpp-siemens --no-sync pyt
 
 The tests use the fixtures of `tests/seqfiles` of the repository and the package's own
 `tests/fixtures`: `shape_decompress_count_missing.seq` (a repeated value with no count at the end
-of a shape, D29), `gradient_one_point.seq` and `gradient_shape_0.seq` (the two cases that the
+of a shape, D5.5), `gradient_one_point.seq` and `gradient_shape_0.seq` (the two cases that the
 fuzzing found). `test_driver_parity.py` compares each fixture with the driver of the C++ oracle
 (`pulseq-cpp-oracle`, built by `flake.nix` with the same flags) exactly, in each of the three
 sampling modes (the driver's `--oversampling`), and each case of undefined behaviour with the

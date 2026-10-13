@@ -18,16 +18,16 @@ reader by design: each such field is compared after the change that the design m
 compared), and is recorded as a property of the test with the entry of `docs/discrepancies.md`
 that explains it. The fields are:
 
-- an RF pulse of points (an RF time shape that is not regular, D36; the reader resamples it to
+- an RF pulse of points (an RF time shape that is not regular, D2.11; the reader resamples it to
   cells): the duration, the dwell and the samples are not compared;
 - an RF magnitude below 0 and an RF phase outside [0, 2 pi - 1e-4], which `spec` plays as written
-  (D31, D32) and the reader clamps: compared after the reader's clamp;
+  (D2.8, D2.9) and the reader clamps: compared after the reader's clamp;
 - the samples of an oversampled gradient (time ID -1), all of them in `spec` and every second one
-  in the reader (D43): compared at the even indices;
+  in the reader (D6.1): compared at the even indices;
 - the ROTATIONS and RF_SHIMS objects in a file before 1.5.1, which `spec` does not read and the
-  reader does (D45): not compared;
-- the soft delay offset with a fraction, which the reader misreads (D16);
-- the signature of a file with CRLF line ends (D53).
+  reader does (D4.6): not compared;
+- the soft delay offset with a fraction, which the reader misreads (D2.16);
+- the signature of a file with CRLF line ends (spec:223).
 
 The test of the gradient waveform samples at the centres of the raster cells and at the ends of
 the events, where the lines between all the samples of an oversampled gradient (`spec`) and those
@@ -69,7 +69,7 @@ SKIPPED_BLOCK_BOUNDARY = (
 
 # The files that both interpreters read, as different sequences: the corpus leaves them out. Each
 # value is the entry of `docs/discrepancies.md` and what differs. None today: `spec` rejects a
-# section that appears twice (D10), which the reader reads as its last copy.
+# section that appears twice (D3.3), which the reader reads as its last copy.
 READ_DIFFERENTLY: dict[str, str] = {}
 
 # The labels that the reader knows (`decodeLabel`, ExternalSequence.cpp:2355-2404): a counter
@@ -221,22 +221,22 @@ class _Differences:
 
 # The reasons of the differences by design (the module docstring lists them).
 DESIGNED_RF_POINTS = (
-    "D36: an RF time shape that is not regular is points in `spec`, cells in the reader"
+    "D2.11: an RF time shape that is not regular is points in `spec`, cells in the reader"
 )
-DESIGNED_RF_MAGNITUDE = "D31: `spec` plays a magnitude below 0 as written, the reader sets it to 0"
+DESIGNED_RF_MAGNITUDE = "D2.8: `spec` plays a magnitude below 0 as written, the reader sets it to 0"
 DESIGNED_RF_PHASE = (
-    "D32: `spec` plays a phase outside [0, 1) turns as written, the reader clamps it"
+    "D2.9: `spec` plays a phase outside [0, 1) turns as written, the reader clamps it"
 )
 DESIGNED_EXTENSION_SKIPPED = (
-    "D45: an extension that the version of the file does not have is skipped by `spec` and read "
+    "D4.6: an extension that the version of the file does not have is skipped by `spec` and read "
     "by the reader"
 )
 DESIGNED_SOFT_DELAY_FRACTION = (
-    "D16: the reader reads a soft delay offset with a fraction as two values and moves the rest "
+    "D2.16: the reader reads a soft delay offset with a fraction as two values and moves the rest "
     "of the row; `spec` reads the offset as a float"
 )
 DESIGNED_OVERSAMPLED = (
-    "D43: `spec` keeps all the samples of an oversampled gradient, the reader every second one"
+    "D6.1: `spec` keeps all the samples of an oversampled gradient, the reader every second one"
 )
 
 
@@ -268,8 +268,8 @@ def _compare_rf(
     dwell = np.nan if ev.dwell is None else ev.dwell * 1e6
     diff.close(where, "shape_dur (us)", ev.shape_dur * 1e6, rf["shape_dur_us"], by_design=points)
     diff.close(where, "dwell (us)", dwell, rf["dwell_us"], by_design=points)
-    # The reader sets a magnitude sample below 0 to 0 (D31) and clamps the phase to
-    # [0, 2 pi - 1e-4] (D32); `spec` plays both as written. Only an event whose samples are out of
+    # The reader sets a magnitude sample below 0 to 0 (D2.8) and clamps the phase to
+    # [0, 2 pi - 1e-4] (D2.9); `spec` plays both as written. Only an event whose samples are out of
     # those ranges differs by design: every other one must agree.
     magnitude = _floats(rf["magnitude"]) * np.float64(rf["amplitude"])
     negative = bool((_shape_samples(data, ev.mag_id) < 0).any())
@@ -409,7 +409,7 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
     """The extension objects of the block (the list that starts at `head`) against the dump."""
     ext = data.extensions
     # `spec` skips an extension that the version of the file does not have yet, and one that it
-    # does not know (D45). The reader reads the first kind, and keeps no object of the second.
+    # does not know (D2.17, D4.6). The reader reads the first kind, and keeps no object of the second.
     skipped = set(data.skipped_extensions)
     objects = [(kind, ref) for kind, ref in _extension_objects(data, head) if kind not in skipped]
 
@@ -440,7 +440,7 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
         theirs = block["soft_delay"]
         diff.equal(where, "soft delay num", int(soft_delay["num"]), theirs["num_id"])
         # The reader reads the offset as an integer, so it reads a fraction as two values and
-        # moves the rest of the row (D16).
+        # moves the rest of the row (D2.16).
         offset = _us(soft_delay["offset"])
         fraction = DESIGNED_SOFT_DELAY_FRACTION if offset != round(offset) else None
         diff.equal(where, "soft delay offset (us)", offset, theirs["offset_us"], fraction)
@@ -534,10 +534,10 @@ def test_the_decoded_events_equal_the_dump_of_the_cpp_reader(corpus, record_prop
     assert not differences, "\n".join(differences)
 
 
-# The files with an md5 signature on which `spec` and the reader differ, with the entry of
-# `docs/discrepancies.md`: `spec` hashes the bytes before the `\n` before `[SIGNATURE]` (spec:223),
+# The files with an md5 signature on which `spec` and the reader differ, with the place of the
+# specification that `spec` follows: `spec` hashes the bytes before the `\n` before `[SIGNATURE]` (spec:223),
 # the reader drops an empty line (`\n` or `\r\n`) and keeps the `\r` of the other line ends.
-SIGNATURE_BY_DESIGN = {"valid_crlf.seq": "D53"}
+SIGNATURE_BY_DESIGN = {"valid_crlf.seq": "spec:223"}
 
 
 def test_signature_matches_equals_the_signature_check_of_the_cpp_reader(corpus):
@@ -567,7 +567,7 @@ def test_a_regular_rf_time_shape_equals_the_dump_and_a_pulse_of_points_does_not(
     """`valid_rf_time_shapes.seq` without the block of RF 3 (the short uncompressed pulse, which
     the reader reads past its end and crashes on): RF 2 has a regular time shape `1 2 2 47`
     (50 samples, times 1, 3, ..., 99: cells of 2 us), which the two read alike; RF 4 and 5 are
-    points, which `spec` joins by lines and the reader resamples to cells of 1 us (D36)."""
+    points, which `spec` joins by lines and the reader resamples to cells of 1 us (D2.11)."""
     text = (SEQFILES / "valid_rf_time_shapes.seq").read_text()
     without_rf_3 = text.replace("11 20  3  0  0  0  0  0\n", "")
     assert without_rf_3 != text
@@ -585,7 +585,7 @@ def test_a_regular_rf_time_shape_equals_the_dump_and_a_pulse_of_points_does_not(
     assert [r["time_shape"] for r in reader] == [12, 18, 21]
     assert [r["dwell_us"] for r in reader] == [2, 1, 1]
     assert [r["dwell_us"] * len(r["magnitude"]) for r in reader] == [100, 100, 10]
-    assert any(reason.startswith("dwell (us): D36") for reason in designed)
+    assert any(reason.startswith("dwell (us): D2.11") for reason in designed)
     record_property("by_design", "; ".join(sorted(designed)))
 
 
@@ -646,7 +646,7 @@ def test_the_gradient_waveform_equals_gradients_at_of_the_cpp_reader(corpus, rec
             magnitudes = np.array(
                 [_magnitude(grads[int(i)]) if i else 0.0 for i in data.blocks[axis]]
             )
-            # The sampler joins the events of neighbouring blocks with a ramp (D42), which starts
+            # The sampler joins the events of neighbouring blocks with a ramp (D2.14), which starts
             # at 0 half a raster before the next event. A block with no event on the axis can
             # hold the start of that ramp, at a value that is rounding noise against the
             # amplitudes of the axis, so its scale is the largest of the axis.

@@ -32,19 +32,19 @@ if TYPE_CHECKING:
 
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1
 
-# The code of each case, with the ID of its condition (section 2.2 of docs/specification.md).
+# The code of each case, with the ID of its entry (section 2.2 of docs/specification.md).
 CODES = {
-    "ub.shape-missing": "D21",
-    "ub.rf-time-id-minus-1": "D22",
-    "ub.extension-cycle": "D23",
-    "ub.shape-decompression": "D29",
-    "ub.shape-empty": "D33",
-    "ub.rf-shape-lengths": "D34",
-    "ub.rf-time-overrun": "D36",
-    "ub.rf-time-range": "D36",
-    "ub.gradient-time-range": "D60",
-    "ub.gradient-one-point": "D59",
-    "ub.gradient-shape-0": "D21",
+    "ub.shape-missing": "D5.1",
+    "ub.rf-time-id-minus-1": "D5.3",
+    "ub.extension-cycle": "D5.4",
+    "ub.shape-decompression": "D5.5",
+    "ub.shape-empty": "D5.6",
+    "ub.rf-shape-lengths": "D5.7",
+    "ub.rf-time-overrun": "D5.8",
+    "ub.rf-time-range": "D5.9",
+    "ub.gradient-time-range": "D5.11",
+    "ub.gradient-one-point": "D5.10",
+    "ub.gradient-shape-0": "D5.2",
 }
 
 _F32_TWO = np.float32(2)
@@ -178,10 +178,10 @@ class _Shapes:
                     "ub.rf-time-id-minus-1",
                     f"{what} is -1, which the reader looks up as a shape that does not exist",
                 )
-            # With [VERSION] as the last section (D05) the reader reads no shape at all, so
-            # each shape is missing here: D05 is a case of this one.
+            # With [VERSION] as the last section the reader reads no shape at all, so each shape
+            # is missing here: that file is a case of this one.
             note = (
-                " (the reader read no shape: is [VERSION] the last section? D05)"
+                " (the reader read no shape: is [VERSION] the last section?)"
                 if not self.shapes
                 else ""
             )

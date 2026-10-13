@@ -87,7 +87,7 @@ def test_the_package_gives_what_the_driver_gives(path, oversampling):
                 check=False,
             )  # fmt: skip
         except subprocess.TimeoutExpired:
-            return  # no end: D23
+            return  # no end: D5.4
         assert result.returncode == UNDEFINED_BEHAVIOUR, (
             f"the sanitized driver exits with {result.returncode}, the package: {error}"
         )

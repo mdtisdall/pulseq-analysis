@@ -9,21 +9,22 @@ import pytest
 from canonical import REPO, SEQFILES, UB_FIXTURES, canonical_dump, wrapper_dump
 
 CASES = {
-    # D05: [VERSION] last; the reader then reads no shape, so the RF event's shape is missing.
+    # D5.1: [VERSION] last (D2.1 in `spec`); the reader then reads no shape, so the RF event's
+    # shape is missing.
     SEQFILES / "undefined" / "version_last.seq": "ub.shape-missing",
-    SEQFILES / "bad_ref_shape.seq": "ub.shape-missing",  # D21
-    SEQFILES / "bad_ref_time_shape.seq": "ub.shape-missing",  # D21
-    SEQFILES / "bad_syntax_shape_no_blank_line.seq": "ub.shape-missing",  # D07, then D21
-    SEQFILES / "undefined" / "rf_time_id_minus_1.seq": "ub.rf-time-id-minus-1",  # D22
-    SEQFILES / "bad_ref_extension_cycle.seq": "ub.extension-cycle",  # D23
-    SEQFILES / "undefined" / "shape_decompress_longer.seq": "ub.shape-decompression",  # D29
-    UB_FIXTURES / "shape_decompress_count_missing.seq": "ub.shape-decompression",  # D29
-    SEQFILES / "bad_shape_empty.seq": "ub.shape-empty",  # D33
-    SEQFILES / "bad_shape_event_length.seq": "ub.rf-shape-lengths",  # D34
-    SEQFILES / "bad_shape_rf_time_end.seq": "ub.rf-time-overrun",  # D36 (2)
-    # D59: gradientsAt of an extended trapezoid of one point reads past its times.
+    SEQFILES / "bad_ref_shape.seq": "ub.shape-missing",  # D5.1
+    SEQFILES / "bad_ref_time_shape.seq": "ub.shape-missing",  # D5.1
+    SEQFILES / "bad_syntax_shape_no_blank_line.seq": "ub.shape-missing",  # D3.11, then D5.1
+    SEQFILES / "undefined" / "rf_time_id_minus_1.seq": "ub.rf-time-id-minus-1",  # D5.3
+    SEQFILES / "bad_ref_extension_cycle.seq": "ub.extension-cycle",  # D5.4
+    SEQFILES / "undefined" / "shape_decompress_longer.seq": "ub.shape-decompression",  # D5.5
+    UB_FIXTURES / "shape_decompress_count_missing.seq": "ub.shape-decompression",  # D5.5
+    SEQFILES / "bad_shape_empty.seq": "ub.shape-empty",  # D5.6
+    SEQFILES / "bad_shape_event_length.seq": "ub.rf-shape-lengths",  # D5.7
+    SEQFILES / "bad_shape_rf_time_end.seq": "ub.rf-time-overrun",  # D5.8
+    # D5.10: gradientsAt of an extended trapezoid of one point reads past its times.
     UB_FIXTURES / "gradient_one_point.seq": "ub.gradient-one-point",
-    # D21: a [GRADIENTS] row of shape 0: a trapezoid whose ramp and flat times load never sets.
+    # D5.2: a [GRADIENTS] row of shape 0: a trapezoid whose ramp and flat times load never sets.
     UB_FIXTURES / "gradient_shape_0.seq": "ub.gradient-shape-0",
 }
 

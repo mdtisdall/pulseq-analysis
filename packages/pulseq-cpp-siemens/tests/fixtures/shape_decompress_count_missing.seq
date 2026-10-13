@@ -1,6 +1,6 @@
 # Pulseq sequence file
 # Hand-written fixture of pulseq-analysis, not made by a Pulseq tool.
-# D29: valid_1_5_1.seq with shape 1 ending in a repeated value with no count, and no [SIGNATURE].
+# D5.5: valid_1_5_1.seq with shape 1 ending in a repeated value with no count, and no [SIGNATURE].
 
 [VERSION]
 major 1

@@ -8,7 +8,7 @@ decoding does not apply, in a file where a block plays a rotation. A neutral sca
 recorded, not warned about.
 
 - `RotationRecord`: what the decoding did with the rotations of the file (the ROTATIONS
-  extension, D49). `rotation_record` of each decoding (`decoding.Decoding`) gives it. `spec`
+  extension, D6.2). `rotation_record` of each decoding (`decoding.Decoding`) gives it. `spec`
   applies the rotations of a file from 1.5.1 (P20, rule 2), so its record never has a warning.
 - `ScannerSettingWarning`: the warning; `RotationRecord.warning()` gives it, or None. The
   decoding does not emit it: the measurements (`load`, task R14) emit it, so that a reader of the

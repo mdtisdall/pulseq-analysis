@@ -4,7 +4,7 @@
 - `spec`: the package's decoder of the events (`events`), `SpecDecoding`: each event of the
   model by its ID, and `gradients_at`, each block's gradients as the straight lines between the
   points of its events (`seq_utils.gradient_offsets`). From version 1.5.1 `gradients_at` rotates
-  the gradients of each block that has a rotation (ROTATIONS, D49) by its quaternion, which the
+  the gradients of each block that has a rotation (ROTATIONS, D2.18) by its quaternion, which the
   model has divided by its norm: `spec` applies this content of the file from the revision that
   introduced it (P20, rule 2), with the package's own rotation (`rotate`). It has no setting for
   it, and nothing to warn about (rule 4). In an older file ROTATIONS is an unknown extension,
@@ -111,8 +111,8 @@ class SpecDecoding:
         """The rotation of each block (`Decoding.rotations`): the play
         indices (from 0) of the blocks whose extension list has a ROTATIONS object (at most one,
         `extension.per-block`), and their quaternions, an array (n, 4) of q0, qx, qy and qz,
-        divided by their norm (D49). Empty for a file older than 1.5.1, where ROTATIONS is an
-        unknown extension (D58)."""
+        divided by their norm (D2.18). Empty for a file older than 1.5.1, where ROTATIONS is an
+        unknown extension (D4.6)."""
         return self.rotation_blocks.copy(), self.rotation_quaternions.copy()
 
     @property

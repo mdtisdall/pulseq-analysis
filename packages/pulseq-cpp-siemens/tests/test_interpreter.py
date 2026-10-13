@@ -125,9 +125,9 @@ def test_each_fixture_has_its_rejection_code(name):
 @pytest.mark.parametrize(
     ("name", "code", "entry"),
     [
-        ("gradient_one_point.seq", "ub.gradient-one-point", "D59"),
-        ("gradient_shape_0.seq", "ub.gradient-shape-0", "D21"),
-        ("shape_decompress_count_missing.seq", "ub.shape-decompression", "D29"),
+        ("gradient_one_point.seq", "ub.gradient-one-point", "D5.10"),
+        ("gradient_shape_0.seq", "ub.gradient-shape-0", "D5.2"),
+        ("shape_decompress_count_missing.seq", "ub.shape-decompression", "D5.5"),
     ],
 )
 def test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code(name, code, entry):
@@ -160,8 +160,8 @@ CODE_FILES = {
     "version.missing": edit(MINIMAL_SEQ, "[VERSION]\nmajor 1\nminor 5\nrevision 0\n\n", ""),
     "definitions.raster-missing": edit(MINIMAL_SEQ, "AdcRasterTime 1e-07\n", ""),
     "definitions.raster-invalid": edit(MINIMAL_SEQ, "AdcRasterTime 1e-07", "AdcRasterTime nan"),
-    # D56: the last section has no blank line after it, so the reader's stream fails at the end
-    # of the file when it reads it, and it then skips [DEFINITIONS], which it reads later.
+    # D2.2 in `spec`: the last section has no blank line after it, so the reader's stream fails at
+    # the end of the file when it reads it, and it then skips [DEFINITIONS], which it reads later.
     "definitions.skipped": MINIMAL_SEQ + "\n[TRAP]\n1 1000 10 10 10 0",
     "extension.required-unknown": edit(
         MINIMAL_15_1,
@@ -171,7 +171,7 @@ CODE_FILES = {
     "section.extensions-last": MINIMAL_SEQ + "\n[EXTENSIONS]\n",
     "blocks.missing": MINIMAL_SEQ.split("[BLOCKS]")[0],
     "ref.unresolved": edit(MINIMAL_SEQ, "1 100 0 0 0 0 0 0", "1 100 0 0 0 0 1 0"),
-    # D14: a fraction in an integer column of [BLOCKS].
+    # A fraction in an integer column of [BLOCKS].
     "syntax.row": edit(MINIMAL_SEQ, "1 100 0 0 0 0 0 0", "1 100.5 0 0 0 0 0 0"),
     "syntax.comment-row": edit(RF_FILE, "[RF]\n", "[RF]\n# a note\n"),
     "syntax.shape": edit(RF_FILE, "num_samples 6\n", "num_samples six\n"),
@@ -226,7 +226,7 @@ def test_a_rejection_quotes_the_line_of_the_row_that_does_not_decode(tmp_path):
 
 
 def test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode(tmp_path):
-    """D15: the reader reads the dwell as an integer, so `2500.0` leaves the row short."""
+    """The reader reads the dwell as an integer, so `2500.0` leaves the row short."""
     text = edit(MINIMAL_SEQ, "1 100 0 0 0 0 0 0", "1 100 0 0 0 0 1 0") + (
         "\n[ADC]\n1 8 2500.0 0 0 0 0 0 0\n\n"
     )
@@ -296,7 +296,7 @@ def test_the_model_is_the_readers_libraries_in_the_units_of_the_model():
         assert shape.packed.tolist() == lib.shapes[shape_id].samples.tolist()
     assert data.signature.matches is True and data.signature.type == "md5"
     assert data.required_extensions == ("ROTATIONS",)
-    # The reader keeps no trace of an extension that it does not know (D45).
+    # The reader keeps no trace of an extension that it does not know (D2.17 in `spec`).
     assert data.skipped_extensions == ("UNKNOWN",)
     assert "UNKNOWN" not in data.extensions.type_ids
     # float32 values of the reader (P6): the RF shim phase pi/2 as written with 4 decimals.
@@ -317,7 +317,7 @@ def test_the_rotations_are_the_readers_normalized_quaternions(tmp_path):
     )
     (row,) = read_seqfile(path, "cpp-siemens").extensions.rotations
     assert row["q0"] == 1.0
-    # `spec` divides the quaternion by its norm too, from 1.5.1 (D49).
+    # `spec` divides the quaternion by its norm too, from 1.5.1 (D2.18).
     assert read_seqfile(path, "spec").extensions.rotations["q0"].tolist() == [1.0]
 
 

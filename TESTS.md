@@ -6602,11 +6602,11 @@ follows it, not that the decision is right.
 
 #### `test_signature_matches_hashes_the_bytes_before_the_newline_that_precedes_the_signature`
 
-**Checks:** `signature.matches` is `True` when the stored MD5 is that of every byte before the `\n` that precedes the first `[SIGNATURE]` line (D53, spec:223): a `\r` before that `\n` is hashed. The six cases: one empty line, two empty lines, a line of spaces, CRLF with an empty line, an LF file with a CRLF empty line, and a CRLF file with an LF empty line. The hash of the bytes that the scanner's reader hashes (it holds back and drops the last empty line) matches only where the two rules hash the same bytes.
+**Checks:** `signature.matches` is `True` when the stored MD5 is that of every byte before the `\n` that precedes the first `[SIGNATURE]` line (spec:223): a `\r` before that `\n` is hashed. The six cases: one empty line, two empty lines, a line of spaces, CRLF with an empty line, an LF file with a CRLF empty line, and a CRLF file with an LF empty line. The hash of the bytes that the scanner's reader hashes (it holds back and drops the last empty line) matches only where the two rules hash the same bytes.
 
 **How:** The test (parametrized) builds each file from `valid_no_signature.seq` with the line ends of the case and a `[SIGNATURE]` section with the MD5, reads it, then replaces the hash with that of the scanner's bytes and checks that `matches` is true only when the two byte strings are equal.
 
-**Assumptions:** The bytes of the scanner's reader come from the former version of this test, which compared them with the oracle; `test_cpp_oracle.py` now compares the oracle's own check with `spec`'s (section 2.20). Each case has a blank line after the last shape, since a shape needs one (D07). The test does not cover a NUL byte in a line.
+**Assumptions:** The bytes of the scanner's reader come from the former version of this test, which compared them with the oracle; `test_cpp_oracle.py` now compares the oracle's own check with `spec`'s (section 2.20). Each case has a blank line after the last shape, since a shape needs one (D3.11). The test does not cover a NUL byte in a line.
 
 #### `test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file`
 
@@ -6626,15 +6626,15 @@ follows it, not that the decision is right.
 
 #### `test_a_row_with_another_number_of_fields_than_its_table_is_syntax_columns`
 
-**Checks:** D01a-c: a row of `[RF]` with 11 or 13 fields, of `[GRADIENTS]` with 6 or 8, of `[ADC]` with 8 or 10, and of `[TRAP]` with 5, gives `syntax.columns` in its section. The tables of the specification have 12, 7, 9 and 6 fields (spec:341-359, spec:386-399, spec:431-445, spec:379-381); the prose before each table (7, 4, 6 numbers) disagrees, and `spec` follows the tables and the examples.
+**Checks:** D1.2, D4.2: a row of `[RF]` with 11 or 13 fields, of `[GRADIENTS]` with 6 or 8, of `[ADC]` with 8 or 10, and of `[TRAP]` with 5, gives `syntax.columns` in its section. The tables of the specification have 12, 7, 9 and 6 fields (spec:341-359, spec:386-399, spec:431-445, spec:379-381); the prose before each table (7, 4, 6 numbers) disagrees, and `spec` follows the tables and the examples.
 
 **How:** For each case (parametrized), the test changes one row of a valid fixture and reads the file.
 
-**Assumptions:** The specification's own prose is wrong about the counts (the record, D01a-c).
+**Assumptions:** The specification's own prose is wrong about the counts (the record, D1.2).
 
 #### `test_a_1_4_file_has_the_rows_of_the_1_4_tables_and_not_those_of_1_5`
 
-**Checks:** D01a-c, D38: a 1.4.x file has 8 fields in an RF row, 5 in a gradient row and 6 in an ADC row; a row of the 1.5 layout in a 1.4.1 file (`[RF]`), and a row of the 1.4 layout in a 1.5.1 file (`[GRADIENTS]`), give `syntax.columns`.
+**Checks:** D1.2, D4.2: a 1.4.x file has 8 fields in an RF row, 5 in a gradient row and 6 in an ADC row; a row of the 1.5 layout in a 1.4.1 file (`[RF]`), and a row of the 1.4 layout in a 1.5.1 file (`[GRADIENTS]`), give `syntax.columns`.
 
 **How:** The test replaces one row in each file and reads it.
 
@@ -6642,15 +6642,15 @@ follows it, not that the decision is right.
 
 #### `test_a_file_without_a_version_section_is_version_missing`
 
-**Checks:** D02, spec:201: a file with no `[VERSION]` section gives `version.missing`, with no section and no line; so does a valid file with its `[VERSION]` section removed.
+**Checks:** D1.1, spec:201: a file with no `[VERSION]` section gives `version.missing`, with no section and no line; so does a valid file with its `[VERSION]` section removed.
 
 **How:** The test reads `bad_version_missing.seq` and an edited valid fixture.
 
-**Assumptions:** The specification only recommends the rejection; the plan makes it one (D02).
+**Assumptions:** The specification only recommends the rejection; the plan makes it one (D1.1).
 
 #### `test_a_version_outside_1_4_to_1_5_is_not_supported`
 
-**Checks:** D03: `read_seqfile` raises `NotSupported` (a `NotImplementedError`) for the fixtures of version 1.3.1 and 1.6.0, with a message that names the range and the version (Q1 of `docs/plans/parser-redesign.md`): no rule is broken, the package does not read them.
+**Checks:** D4.1: `read_seqfile` raises `NotSupported` (a `NotImplementedError`) for the fixtures of version 1.3.1 and 1.6.0, with a message that names the range and the version (Q1 of `docs/plans/parser-redesign.md`): no rule is broken, the package does not read them.
 
 **How:** For each fixture (parametrized), the test reads it and checks the exception and its message.
 
@@ -6658,7 +6658,7 @@ follows it, not that the decision is right.
 
 #### `test_the_versions_1_5_0_to_1_5_x_are_read`
 
-**Checks:** D03: a file of version 1.5.0 or 1.5.9 loads (the range is from 1.4.0 up to, not including, 1.6.0).
+**Checks:** D4.1: a file of version 1.5.0 or 1.5.9 loads (the range is from 1.4.0 up to, not including, 1.6.0).
 
 **How:** The test (two cases) changes the revision of a valid fixture and reads it.
 
@@ -6666,7 +6666,7 @@ follows it, not that the decision is right.
 
 #### `test_a_version_line_that_is_not_an_integer_is_version_invalid`
 
-**Checks:** D04, spec:193-198: `minor 5.0` gives `version.invalid`, at the line of `minor`.
+**Checks:** spec:193-198: `minor 5.0` gives `version.invalid`, at the line of `minor`.
 
 **How:** The test reads `bad_version_invalid.seq`, checks the rule and that line 6 is in the violations and is `minor 5.0`.
 
@@ -6674,7 +6674,7 @@ follows it, not that the decision is right.
 
 #### `test_a_file_may_have_its_sections_in_any_order`
 
-**Checks:** D05: a file with `[VERSION]` last (`undefined/version_last.seq`) and a file with `[SHAPES]` before `[VERSION]` load with the model of the valid file (but for the definitions and the signature).
+**Checks:** D2.1: a file with `[VERSION]` last (`undefined/version_last.seq`) and a file with `[SHAPES]` before `[VERSION]` load with the model of the valid file (but for the definitions and the signature).
 
 **How:** The test reads the first file, and writes the second from `valid_no_signature.seq` with its sections moved. It compares the models without the definitions and the signature.
 
@@ -6682,7 +6682,7 @@ follows it, not that the decision is right.
 
 #### `test_a_comment_or_blank_line_in_a_table_is_skipped_and_the_rows_after_it_are_read`
 
-**Checks:** D06, spec:171: a file with a `#` line inside a table and rows after it (`bad_syntax_line_after_comment.seq`) loads with the model of the valid file (but for the definitions and the signature): all its blocks are read.
+**Checks:** D2.5, spec:171: a file with a `#` line inside a table and rows after it (`bad_syntax_line_after_comment.seq`) loads with the model of the valid file (but for the definitions and the signature): all its blocks are read.
 
 **How:** The test reads the fixture and compares it with `valid_no_signature.seq`.
 
@@ -6690,7 +6690,7 @@ follows it, not that the decision is right.
 
 #### `test_the_rows_after_a_comment_or_blank_line_of_any_section_are_read`
 
-**Checks:** D06: a `#` line, a blank line or a line of spaces inside `[BLOCKS]`, `[GRADIENTS]`, the list of `[EXTENSIONS]`, a LABELSET table or a TRIGGERS table does not change the model: the rows after it are read.
+**Checks:** D2.5: a `#` line, a blank line or a line of spaces inside `[BLOCKS]`, `[GRADIENTS]`, the list of `[EXTENSIONS]`, a LABELSET table or a TRIGGERS table does not change the model: the rows after it are read.
 
 **How:** For each case (parametrized), the test inserts the line after a row of a valid fixture and compares the model with the one of the fixture.
 
@@ -6698,7 +6698,7 @@ follows it, not that the decision is right.
 
 #### `test_comments_and_blank_lines_are_skipped_after_the_header_of_any_section`
 
-**Checks:** D06: a comment and a blank line right after the header of `[VERSION]`, `[DEFINITIONS]`, `[TRAP]`, `[SIGNATURE]` or `extension DELAYS` do not change the model, and a comment between `Type` and `Hash` of `[SIGNATURE]` does not change the hash.
+**Checks:** D2.5: a comment and a blank line right after the header of `[VERSION]`, `[DEFINITIONS]`, `[TRAP]`, `[SIGNATURE]` or `extension DELAYS` do not change the model, and a comment between `Type` and `Hash` of `[SIGNATURE]` does not change the hash.
 
 **How:** The test inserts the lines after each header of the 1.5.1 fixture and compares the model without the signature (whose `matches` changes with the bytes).
 
@@ -6706,7 +6706,7 @@ follows it, not that the decision is right.
 
 #### `test_a_comment_in_a_shape_is_skipped_and_a_blank_line_ends_it`
 
-**Checks:** D06, D07: a `#` line among the samples of a shape and one between its `shape_id` and `num_samples` lines are skipped (`valid_comment_in_shape.seq` has the shapes of `valid_1_5_1.seq`). A blank line among the samples ends the shape: `syntax.shape` for the lines after it, and `shape.length`.
+**Checks:** D2.5, D3.11: a `#` line among the samples of a shape and one between its `shape_id` and `num_samples` lines are skipped (`valid_comment_in_shape.seq` has the shapes of `valid_1_5_1.seq`). A blank line among the samples ends the shape: `syntax.shape` for the lines after it, and `shape.length`.
 
 **How:** The test reads the fixture and compares the shapes and the model with those of the 1.5.1 fixture; then it adds a blank line among the samples of a shape and compares the set of rules.
 
@@ -6714,15 +6714,15 @@ follows it, not that the decision is right.
 
 #### `test_a_blank_line_between_shape_id_and_num_samples_ends_the_shape`
 
-**Checks:** D06, D07, spec:602: a blank line between `shape_id` and `num_samples` ends the shape: `syntax.shape` for the shape with no `num_samples` line (at its `shape_id` line, with no choice in the message) and for the lines after it.
+**Checks:** D2.5, D3.11, spec:602: a blank line between `shape_id` and `num_samples` ends the shape: `syntax.shape` for the shape with no `num_samples` line (at its `shape_id` line, with no choice in the message) and for the lines after it.
 
 **How:** The test inserts the blank line in a valid fixture and reads the file.
 
-**Assumptions:** The record (D07) says that a shape without its two header lines is `syntax.shape`, also when a blank line comes between them.
+**Assumptions:** The record (D3.11) says that a shape without its two header lines is `syntax.shape`, also when a blank line comes between them.
 
 #### `test_a_data_line_before_the_first_header_is_syntax_line`
 
-**Checks:** D06: a data line before the first section header gives `syntax.line` at line 1, with the choice in the message. It is the only line outside a table that `spec` rejects.
+**Checks:** D3.2: a data line before the first section header gives `syntax.line` at line 1, with the choice in the message. It is the only line outside a table that `spec` rejects.
 
 **How:** The test reads `bad_syntax_line.seq`.
 
@@ -6730,7 +6730,7 @@ follows it, not that the decision is right.
 
 #### `test_a_shape_with_no_blank_line_after_it_is_syntax_shape`
 
-**Checks:** D07, spec:602: a shape followed by the next `shape_id` line (`bad_syntax_shape_no_blank_line.seq`, line 147) or by the end of its section (`bad_syntax_shape_end.seq`, line 178) gives `syntax.shape` with the choice in the message, which says "before it" or "after it".
+**Checks:** D3.11, spec:602: a shape followed by the next `shape_id` line (`bad_syntax_shape_no_blank_line.seq`, line 147) or by the end of its section (`bad_syntax_shape_end.seq`, line 178) gives `syntax.shape` with the choice in the message, which says "before it" or "after it".
 
 **How:** The test reads both fixtures and compares the rule, the line, the choice and the text.
 
@@ -6746,7 +6746,7 @@ follows it, not that the decision is right.
 
 #### `test_a_section_that_the_format_does_not_have_is_ignored`
 
-**Checks:** D08: a section that the format does not have (`[FOO]`, also with lines that are not rows) is ignored: the model is that of the valid file (but for the definitions and the signature).
+**Checks:** D2.4: a section that the format does not have (`[FOO]`, also with lines that are not rows) is ignored: the model is that of the valid file (but for the definitions and the signature).
 
 **How:** The test reads `bad_section_unknown.seq` and a valid fixture with a `[FOO]` section of junk lines, and compares the models.
 
@@ -6754,7 +6754,7 @@ follows it, not that the decision is right.
 
 #### `test_a_delays_section_is_ignored`
 
-**Checks:** D09: a `[DELAYS]` section in a 1.5.1 file is ignored (the model is that of the valid file), and `extension DELAYS` is still read.
+**Checks:** A `[DELAYS]` section in a 1.5.1 file is ignored (the model is that of the valid file), and `extension DELAYS` is still read.
 
 **How:** The test reads `bad_section_delays.seq`, compares it and checks the soft delay table.
 
@@ -6762,7 +6762,7 @@ follows it, not that the decision is right.
 
 #### `test_a_section_that_appears_twice_is_section_duplicate_and_only_the_first_is_read`
 
-**Checks:** D10: `bad_section_duplicate.seq` (a second `[TRAP]` with the ID of the first) gives `section.duplicate` at the header of the second copy (line 53), with the choice in the message, and no `id.unique`: only the first copy is read.
+**Checks:** D3.3: `bad_section_duplicate.seq` (a second `[TRAP]` with the ID of the first) gives `section.duplicate` at the header of the second copy (line 53), with the choice in the message, and no `id.unique`: only the first copy is read.
 
 **How:** The test reads the fixture, checks the one violation and that its line is the second `[TRAP]` header.
 
@@ -6770,7 +6770,7 @@ follows it, not that the decision is right.
 
 #### `test_any_named_section_and_any_extension_that_appears_twice_is_section_duplicate`
 
-**Checks:** D10: a second `[BLOCKS]`, `[VERSION]` (also with one key of its own), `[DEFINITIONS]`, `[ADC]` or `[SHAPES]` section, and a second `extension TRIGGERS` section with the same type ID or another, give `section.duplicate` at the second header, once, with the choice in the message.
+**Checks:** D3.3: a second `[BLOCKS]`, `[VERSION]` (also with one key of its own), `[DEFINITIONS]`, `[ADC]` or `[SHAPES]` section, and a second `extension TRIGGERS` section with the same type ID or another, give `section.duplicate` at the second header, once, with the choice in the message.
 
 **How:** For each case (parametrized), the test inserts a second header in a valid fixture and reads the file. It looks at the `section.duplicate` violations only: the changed file may break other rules.
 
@@ -6778,7 +6778,7 @@ follows it, not that the decision is right.
 
 #### `test_a_second_signature_section_and_an_extension_with_two_types_are_section_duplicate`
 
-**Checks:** D10: a second `[SIGNATURE]` section (`bad_section_duplicate_signature.seq`) and an `extension` STRING_ID with two type IDs (`bad_section_duplicate_extension.seq`) give `section.duplicate` at the second header, with the choice in the message.
+**Checks:** D3.3: a second `[SIGNATURE]` section (`bad_section_duplicate_signature.seq`) and an `extension` STRING_ID with two type IDs (`bad_section_duplicate_extension.seq`) give `section.duplicate` at the second header, with the choice in the message.
 
 **How:** The test reads both fixtures and compares the rule, the section, the line and the choice.
 
@@ -6786,7 +6786,7 @@ follows it, not that the decision is right.
 
 #### `test_a_version_key_repeated_in_one_section_is_version_invalid`
 
-**Checks:** D04, spec:193-198: a key repeated inside one `[VERSION]` section gives `version.invalid`, at the second row. (A key in a second copy of the section is `section.duplicate`.)
+**Checks:** spec:193-198: a key repeated inside one `[VERSION]` section gives `version.invalid`, at the second row. (A key in a second copy of the section is `section.duplicate`.)
 
 **How:** The test repeats `major 1` in a valid fixture.
 
@@ -6794,7 +6794,7 @@ follows it, not that the decision is right.
 
 #### `test_a_last_section_with_no_blank_line_after_it_is_read`
 
-**Checks:** D56: a file whose last section `[TRAP]` ends with no line end after its row loads, with the trapezoid and the blocks of the 1.5.1 fixture.
+**Checks:** D2.2: a file whose last section `[TRAP]` ends with no line end after its row loads, with the trapezoid and the blocks of the 1.5.1 fixture.
 
 **How:** The test reads `valid_last_section_no_blank.seq`, checks that the file has no final line end, and compares the tables.
 
@@ -6802,7 +6802,7 @@ follows it, not that the decision is right.
 
 #### `test_a_raster_that_is_not_one_finite_number_above_0_is_rejected`
 
-**Checks:** D11, spec:267-276: an RF raster of 0, -1e-6, nan, inf, a word, two numbers, or nothing gives `definitions.raster-invalid` at its line.
+**Checks:** spec:267-276: an RF raster of 0, -1e-6, nan, inf, a word, two numbers, or nothing gives `definitions.raster-invalid` at its line.
 
 **How:** For each value (parametrized), the test changes `RadiofrequencyRasterTime` in a valid fixture and reads the file.
 
@@ -6810,7 +6810,7 @@ follows it, not that the decision is right.
 
 #### `test_a_missing_raster_is_definitions_raster_missing`
 
-**Checks:** D11, spec:267-276: a file without one of the four rasters gives `definitions.raster-missing`, with the key in the message.
+**Checks:** spec:267-276: a file without one of the four rasters gives `definitions.raster-missing`, with the key in the message.
 
 **How:** The test removes each of the four definitions from a valid fixture and reads the file.
 
@@ -6818,7 +6818,7 @@ follows it, not that the decision is right.
 
 #### `test_a_definition_that_appears_twice_has_its_last_value`
 
-**Checks:** D12: with `Name` twice (`bad_definitions_duplicate.seq`) the definition is the last; a raster defined twice has its last value.
+**Checks:** D2.6: with `Name` twice (`bad_definitions_duplicate.seq`) the definition is the last; a raster defined twice has its last value.
 
 **How:** The test reads the fixture and a valid fixture with a repeated `BlockDurationRaster`.
 
@@ -6826,7 +6826,7 @@ follows it, not that the decision is right.
 
 #### `test_a_definition_and_a_signature_hash_are_text_even_when_they_read_as_a_number`
 
-**Checks:** D13: a hash of 32 digits, a definition `Name 007` and a definition `Exponent 1E5 +3` keep their text as written.
+**Checks:** D2.7: a hash of 32 digits, a definition `Name 007` and a definition `Exponent 1E5 +3` keep their text as written.
 
 **How:** The test edits the 1.5.1 fixture and compares the signature hash and the definitions.
 
@@ -6842,7 +6842,7 @@ follows it, not that the decision is right.
 
 #### `test_an_integer_column_rejects_a_fraction_in_a_time`
 
-**Checks:** D14, spec:351, spec:396-399, spec:438: `100.5` as the delay of an RF event, as the rise of a trapezoid and as the delay of an ADC event gives `syntax.integer`.
+**Checks:** spec:351, spec:396-399, spec:438: `100.5` as the delay of an RF event, as the rise of a trapezoid and as the delay of an ADC event gives `syntax.integer`.
 
 **How:** The test changes each value of a valid fixture and reads the file.
 
@@ -6850,7 +6850,7 @@ follows it, not that the decision is right.
 
 #### `test_nan_and_inf_in_a_float_column_are_syntax_number_with_the_choice`
 
-**Checks:** D14: `nan`, `inf` and `-inf` in a float column give `syntax.number` with the choice in the message. The twelve cases cover the amplitude, `center`, `freq_offset` and `phase_offset` of an RF row, the amplitude and `first` of a gradient, the amplitude of a trapezoid, the dwell time and `freq_ppm` of an ADC, a soft delay offset, a quaternion and an RF shim value.
+**Checks:** D3.5: `nan`, `inf` and `-inf` in a float column give `syntax.number` with the choice in the message. The twelve cases cover the amplitude, `center`, `freq_offset` and `phase_offset` of an RF row, the amplitude and `first` of a gradient, the amplitude of a trapezoid, the dwell time and `freq_ppm` of an ADC, a soft delay offset, a quaternion and an RF shim value.
 
 **How:** For each case (parametrized), the test changes one value of a valid fixture and reads the file.
 
@@ -6858,7 +6858,7 @@ follows it, not that the decision is right.
 
 #### `test_a_negative_time_or_count_is_syntax_negative_with_the_choice`
 
-**Checks:** D14: a negative delay of an RF, gradient or trapezoid row, block duration, rise, flat or fall time, ADC number of samples or dwell time, trigger delay or duration, or shape `num_samples` gives `syntax.negative` with the choice in the message, which starts with the column name, at a row of the file.
+**Checks:** D3.6: a negative delay of an RF, gradient or trapezoid row, block duration, rise, flat or fall time, ADC number of samples or dwell time, trigger delay or duration, or shape `num_samples` gives `syntax.negative` with the choice in the message, which starts with the column name, at a row of the file.
 
 **How:** For each case (parametrized), the test changes one value of a valid fixture and reads the file. It looks at the `syntax.negative` violation only: a negative block duration also gives `block.event-too-long`.
 
@@ -6866,7 +6866,7 @@ follows it, not that the decision is right.
 
 #### `test_a_byte_that_is_not_utf8_is_syntax_encoding_at_its_line`
 
-**Checks:** D14: a file with a byte that is not UTF-8 gives `syntax.encoding` only, at the line of the first such byte, with the choice in the message.
+**Checks:** D3.1: a file with a byte that is not UTF-8 gives `syntax.encoding` only, at the line of the first such byte, with the choice in the message.
 
 **How:** The test reads `bad_syntax_encoding.seq` (line 31), and a valid fixture with `\xb5` (Latin-1) in a comment, and checks the line.
 
@@ -6874,7 +6874,7 @@ follows it, not that the decision is right.
 
 #### `test_an_adc_dwell_time_is_a_float_in_ns_and_a_multiple_of_the_adc_raster`
 
-**Checks:** D15: `25000.0` is a dwell time of 25 us; `25000.5` reads with `AdcRasterTime` 1e-10 (a multiple), and is `raster.adc-dwell` with 1e-7.
+**Checks:** `25000.0` is a dwell time of 25 us; `25000.5` reads with `AdcRasterTime` 1e-10 (a multiple), and is `raster.adc-dwell` with 1e-7.
 
 **How:** The test changes the dwell time and the raster of a valid fixture, three ways.
 
@@ -6882,7 +6882,7 @@ follows it, not that the decision is right.
 
 #### `test_a_soft_delay_offset_is_a_float_in_us_and_its_hint_is_kept_whole`
 
-**Checks:** D16: the soft delay of `valid_soft_delay_fraction.seq` has the offset -100.5 us (-100.5e-6 s) and the hint `TE`; a hint of 40 characters is kept whole.
+**Checks:** D2.16: the soft delay of `valid_soft_delay_fraction.seq` has the offset -100.5 us (-100.5e-6 s) and the hint `TE`; a hint of 40 characters is kept whole.
 
 **How:** The test reads the fixture and a valid fixture with a long hint.
 
@@ -6890,7 +6890,7 @@ follows it, not that the decision is right.
 
 #### `test_the_rf_use_is_one_of_seven_letters`
 
-**Checks:** D17, spec:356-357: the RF `use` `e r i s p o u` loads; `x`, `E` and `ee` give `syntax.use`.
+**Checks:** spec:356-357: the RF `use` `e r i s p o u` loads; `x`, `E` and `ee` give `syntax.use`.
 
 **How:** The test changes the `use` of a valid fixture ten times.
 
@@ -6898,7 +6898,7 @@ follows it, not that the decision is right.
 
 #### `test_values_are_float64_with_all_their_digits`
 
-**Checks:** D18: an RF amplitude of `1000.123456789012` and a shape sample of `0.123456789012345` are read with all their digits (float64).
+**Checks:** An RF amplitude of `1000.123456789012` and a shape sample of `0.123456789012345` are read with all their digits (float64).
 
 **How:** The test edits a valid fixture and compares the values exactly.
 
@@ -6906,7 +6906,7 @@ follows it, not that the decision is right.
 
 #### `test_ids_that_are_not_positive_or_not_unique_are_rejected`
 
-**Checks:** D19, spec:181-183: a shape ID used twice gives `id.unique`, and a shape ID of -3 gives `id.positive`, with no choice in the message; the RF ID of `bad_id_positive.seq` too.
+**Checks:** spec:181-183: a shape ID used twice gives `id.unique`, and a shape ID of -3 gives `id.positive`, with no choice in the message; the RF ID of `bad_id_positive.seq` too.
 
 **How:** The test appends a shape to a valid fixture two ways, and reads the fixture.
 
@@ -6914,7 +6914,7 @@ follows it, not that the decision is right.
 
 #### `test_a_gradient_id_is_unique_across_gradients_and_trapezoids`
 
-**Checks:** D19, spec:183, spec:403: an ID in both `[GRADIENTS]` and `[TRAP]` gives `id.gradient-unique` (`bad_id_gradient_unique.seq`).
+**Checks:** spec:183, spec:403: an ID in both `[GRADIENTS]` and `[TRAP]` gives `id.gradient-unique` (`bad_id_gradient_unique.seq`).
 
 **How:** The test reads the fixture.
 
@@ -6922,7 +6922,7 @@ follows it, not that the decision is right.
 
 #### `test_a_repeated_block_id_is_id_unique_with_the_choice`
 
-**Checks:** D19: a block ID that is used twice (after a larger ID, or after a smaller one) gives `id.unique` only, with the choice in the message.
+**Checks:** D3.4: a block ID that is used twice (after a larger ID, or after a smaller one) gives `id.unique` only, with the choice in the message.
 
 **How:** The test changes the ID of one block of a valid fixture to a repeat, two ways.
 
@@ -6930,7 +6930,7 @@ follows it, not that the decision is right.
 
 #### `test_blocks_play_in_file_order_whatever_their_ids`
 
-**Checks:** D20, spec:185, spec:318: `bad_blocks_order.seq` (block 3 before block 2) loads with the blocks in file order (IDs 1, 3, 2, ...); a file with the nine blocks in reverse order has the IDs 9 to 1.
+**Checks:** spec:185, spec:318: `bad_blocks_order.seq` (block 3 before block 2) loads with the blocks in file order (IDs 1, 3, 2, ...); a file with the nine blocks in reverse order has the IDs 9 to 1.
 
 **How:** The test reads the fixture and a valid fixture with its block rows reversed, and compares the IDs and a column.
 
@@ -6938,7 +6938,7 @@ follows it, not that the decision is right.
 
 #### `test_a_reference_to_something_that_is_not_defined_is_ref_unresolved`
 
-**Checks:** D21, spec:178-186, spec:478: a block that names an RF, gradient, ADC or extension list that is not defined, an event that names a shape that is not defined (magnitude, phase, time, gradient waveform, gradient time, ADC phase), and an entry of `[EXTENSIONS]` with a next entry, a type or an object that is not defined, give `ref.unresolved` only.
+**Checks:** spec:178-186, spec:478: a block that names an RF, gradient, ADC or extension list that is not defined, an event that names a shape that is not defined (magnitude, phase, time, gradient waveform, gradient time, ADC phase), and an entry of `[EXTENSIONS]` with a next entry, a type or an object that is not defined, give `ref.unresolved` only.
 
 **How:** For each case (parametrized), the test changes one reference in a valid fixture and reads the file.
 
@@ -6946,7 +6946,7 @@ follows it, not that the decision is right.
 
 #### `test_time_id_minus_1_is_for_a_gradient_from_1_5_0_only`
 
-**Checks:** D22, spec:349, spec:395, slide 4: time ID -1 gives `ref.unresolved` for an RF event (`undefined/rf_time_id_minus_1.seq`) and for a gradient of a 1.4 file (`bad_ref_time_id_minus_1_in_1_4.seq`); a gradient of a 1.5.1 file has it.
+**Checks:** D4.3, spec:349, spec:395, slide 4: time ID -1 gives `ref.unresolved` for an RF event (`undefined/rf_time_id_minus_1.seq`) and for a gradient of a 1.4 file (`bad_ref_time_id_minus_1_in_1_4.seq`); a gradient of a 1.5.1 file has it.
 
 **How:** The test reads the two fixtures and `valid_1_5_1.seq`.
 
@@ -6954,7 +6954,7 @@ follows it, not that the decision is right.
 
 #### `test_a_cycle_in_an_extension_list_is_ref_unresolved`
 
-**Checks:** D23, spec:478: a list of extensions that never ends gives `ref.unresolved` at the block that starts it, with "cycle" in the message.
+**Checks:** spec:478: a list of extensions that never ends gives `ref.unresolved` at the block that starts it, with "cycle" in the message.
 
 **How:** The test reads `bad_ref_extension_cycle.seq`.
 
@@ -6962,7 +6962,7 @@ follows it, not that the decision is right.
 
 #### `test_a_file_with_no_block_is_blocks_empty`
 
-**Checks:** D24, spec:318: a file with no block gives `blocks.empty`.
+**Checks:** spec:318: a file with no block gives `blocks.empty`.
 
 **How:** The test reads `bad_blocks_empty.seq`.
 
@@ -6970,7 +6970,7 @@ follows it, not that the decision is right.
 
 #### `test_an_event_that_lasts_longer_than_its_block_is_block_event_too_long`
 
-**Checks:** D25, spec:318: an RF event, an ADC event and a trigger that end after their block give `block.event-too-long`, with the event named in the message.
+**Checks:** spec:318: an RF event, an ADC event and a trigger that end after their block give `block.event-too-long`, with the event named in the message.
 
 **How:** The test reads the three fixtures.
 
@@ -6978,7 +6978,7 @@ follows it, not that the decision is right.
 
 #### `test_a_time_that_is_not_a_multiple_of_its_raster_is_rejected`
 
-**Checks:** D26, spec:290, spec:275, slide 5: an ADC dwell time, a gradient delay, the end of a gradient with a time shape, a ramp and a flat time off their raster each give their rule only (`raster.adc-dwell`, `raster.gradient-delay`, `-end`, `-ramp`, `-flat`), with no choice in the message.
+**Checks:** spec:290, spec:275, slide 5: an ADC dwell time, a gradient delay, the end of a gradient with a time shape, a ramp and a flat time off their raster each give their rule only (`raster.adc-dwell`, `raster.gradient-delay`, `-end`, `-ramp`, `-flat`), with no choice in the message.
 
 **How:** For each fixture (parametrized), the test reads it and checks the rule and the message.
 
@@ -6986,7 +6986,7 @@ follows it, not that the decision is right.
 
 #### `test_a_gradient_that_is_not_aligned_to_its_block_is_rejected`
 
-**Checks:** D27, spec:420, slide 6: a gradient that starts above 0 and has a delay gives `gradient.nonzero-start-delay`; one that ends above 0 and does not end with its block gives `gradient.nonzero-end-align`.
+**Checks:** spec:420, slide 6: a gradient that starts above 0 and has a delay gives `gradient.nonzero-start-delay`; one that ends above 0 and does not end with its block gives `gradient.nonzero-end-align`.
 
 **How:** For each fixture (parametrized), the test reads it and checks the rule and the message.
 
@@ -6994,7 +6994,7 @@ follows it, not that the decision is right.
 
 #### `test_an_arbitrary_gradient_plays_on_the_raster_of_the_file`
 
-**Checks:** D28: `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, and its gradient is decoded on the raster of the file (the first sample times 2.5 us and 7.5 us).
+**Checks:** `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, and its gradient is decoded on the raster of the file (the first sample times 2.5 us and 7.5 us).
 
 **How:** The test reads the fixture and decodes its gradient with `synth.events`.
 
@@ -7026,7 +7026,7 @@ follows it, not that the decision is right.
 
 #### `test_a_shape_that_does_not_have_its_declared_number_of_samples_is_shape_length`
 
-**Checks:** D29, spec:626: a shape that decompresses to more samples than declared (`undefined/shape_decompress_longer.seq`) or fewer (`bad_shape_length.seq`, and 10 uncompressed values with 11 declared) gives `shape.length` only, with no choice in the message.
+**Checks:** spec:626: a shape that decompresses to more samples than declared (`undefined/shape_decompress_longer.seq`) or fewer (`bad_shape_length.seq`, and 10 uncompressed values with 11 declared) gives `shape.length` only, with no choice in the message.
 
 **How:** The test reads the two fixtures and a valid fixture with `num_samples 11` for a shape of 10 values.
 
@@ -7034,7 +7034,7 @@ follows it, not that the decision is right.
 
 #### `test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance`
 
-**Checks:** D30, spec:624: the magnitude shape of an RF event and the waveform of an arbitrary gradient with a sample beyond 1 in absolute value by more than `RANGE_TOLERANCE` (1e-9) give `shape.range` once for the shape, with no choice in the message; samples within the tolerance, and a gradient sample of -5e-10, load.
+**Checks:** spec:624: the magnitude shape of an RF event and the waveform of an arbitrary gradient with a sample beyond 1 in absolute value by more than `RANGE_TOLERANCE` (1e-9) give `shape.range` once for the shape, with no choice in the message; samples within the tolerance, and a gradient sample of -5e-10, load.
 
 **How:** The test (eight cases) replaces shape 1 (the RF magnitude, 100 samples) or shape 4 (a gradient waveform, 10 samples) of `valid_no_signature.seq` and reads the file.
 
@@ -7042,7 +7042,7 @@ follows it, not that the decision is right.
 
 #### `test_a_negative_rf_magnitude_plays_as_written`
 
-**Checks:** D31, spec:624: `bad_shape_rf_magnitude_negative.seq` (a magnitude of -0.5) loads; its shape has the samples as written and its decoded event has a negative magnitude (-500 Hz for an amplitude of 1000).
+**Checks:** D2.8, spec:624: `bad_shape_rf_magnitude_negative.seq` (a magnitude of -0.5) loads; its shape has the samples as written and its decoded event has a negative magnitude (-500 Hz for an amplitude of 1000).
 
 **How:** The test reads the fixture and decodes its RF event with `synth.events`.
 
@@ -7050,7 +7050,7 @@ follows it, not that the decision is right.
 
 #### `test_an_rf_phase_shape_plays_as_written_with_no_range`
 
-**Checks:** D32: `bad_shape_rf_phase_range.seq` (a phase of 1.5 turns) loads; its shape has the samples as written and its decoded event has the phase 3 pi, with no wrap.
+**Checks:** D2.9: `bad_shape_rf_phase_range.seq` (a phase of 1.5 turns) loads; its shape has the samples as written and its decoded event has the phase 3 pi, with no wrap.
 
 **How:** The test reads the fixture and decodes its RF event.
 
@@ -7066,7 +7066,7 @@ follows it, not that the decision is right.
 
 #### `test_the_phase_shapes_have_no_range_and_a_gradient_shape_may_be_negative`
 
-**Checks:** D31, D32, D44: a gradient waveform of -0.5, an RF phase shape with the samples -3 and 100, and an ADC phase shape with the samples -2 and 3 load.
+**Checks:** D2.8, D2.9, D2.15: a gradient waveform of -0.5, an RF phase shape with the samples -3 and 100, and an ADC phase shape with the samples -2 and 3 load.
 
 **How:** The test replaces shape 4 (a gradient), shape 2 (the RF phase) and shape 8 (the phase of an ADC) of `valid_no_signature.seq` and reads each file.
 
@@ -7074,7 +7074,7 @@ follows it, not that the decision is right.
 
 #### `test_a_shape_with_no_sample_that_an_event_uses_is_shape_empty`
 
-**Checks:** D33: a shape with `num_samples 0` that an RF event uses (magnitude and phase, or magnitude, phase and time shape) or that an arbitrary gradient uses (waveform, or waveform and time shape) gives `shape.empty` once for each empty shape that is used, with the choice in the message. As the phase shape of an ADC it also gives `shape.event-length` (it has no sample for each ADC sample).
+**Checks:** D3.7: a shape with `num_samples 0` that an RF event uses (magnitude and phase, or magnitude, phase and time shape) or that an arbitrary gradient uses (waveform, or waveform and time shape) gives `shape.empty` once for each empty shape that is used, with the choice in the message. As the phase shape of an ADC it also gives `shape.event-length` (it has no sample for each ADC sample).
 
 **How:** The test (six cases) changes one row of `valid_no_signature.seq`, adds the shapes 10 and 11 with `num_samples 0` at the end of `[SHAPES]`, and reads the file. It counts the violations.
 
@@ -7082,7 +7082,7 @@ follows it, not that the decision is right.
 
 #### `test_an_unused_empty_shape_is_read`
 
-**Checks:** D33: a shape with no sample that no event uses loads.
+**Checks:** D3.7: a shape with no sample that no event uses loads.
 
 **How:** The test adds shape 10 with `num_samples 0` to a valid fixture and reads it.
 
@@ -7090,7 +7090,7 @@ follows it, not that the decision is right.
 
 #### `test_the_shapes_of_one_event_must_have_one_number_of_samples`
 
-**Checks:** D34, spec:349, spec:443: an RF event whose phase, magnitude or time shape has another number of samples than the others, and a gradient whose time shape has another number than its waveform (shorter or longer), give `shape.event-length` with the choice in the message.
+**Checks:** D3.8, spec:349, spec:443: an RF event whose phase, magnitude or time shape has another number of samples than the others, and a gradient whose time shape has another number than its waveform (shorter or longer), give `shape.event-length` with the choice in the message.
 
 **How:** The test (five cases) changes one reference of a valid fixture and reads the file.
 
@@ -7098,7 +7098,7 @@ follows it, not that the decision is right.
 
 #### `test_the_shapes_of_one_event_with_one_number_of_samples_read`
 
-**Checks:** D34: the gradient of `valid_1_5_1.seq` has a waveform and a time shape of 5 samples each.
+**Checks:** D3.8: the gradient of `valid_1_5_1.seq` has a waveform and a time shape of 5 samples each.
 
 **How:** The test compares the `num_samples` of the two shapes.
 
@@ -7106,7 +7106,7 @@ follows it, not that the decision is right.
 
 #### `test_a_regular_rf_time_shape_is_cells_and_any_other_is_points`
 
-**Checks:** D35, spec:349, slide 9, slide 4: in `valid_rf_time_shapes.seq`, the time shape `1 2 2 47` (RF 2) and `0.5 1.5 2.5` (RF 3) are regular (`rf_time_step` 2 and 1, decoded as cells of 2 us and 1 us), and the block pulse `0 100` (RF 4) and the vertices `1 2 4 7 10` (RF 5) are points (`rf_time_step` None, no dwell).
+**Checks:** D2.10, spec:349, slide 9, slide 4: in `valid_rf_time_shapes.seq`, the time shape `1 2 2 47` (RF 2) and `0.5 1.5 2.5` (RF 3) are regular (`rf_time_step` 2 and 1, decoded as cells of 2 us and 1 us), and the block pulse `0 100` (RF 4) and the vertices `1 2 4 7 10` (RF 5) are points (`rf_time_step` None, no dwell).
 
 **How:** The test reads the fixture, calls `rf_time_step` on the time shapes and decodes the RF events with `synth.events`.
 
@@ -7114,7 +7114,7 @@ follows it, not that the decision is right.
 
 #### `test_an_rf_time_shape_of_points_is_joined_by_straight_lines_of_the_complex_signal`
 
-**Checks:** D36: for the vertices of RF 5, the decoded times are those of the file, and the signal halfway between the first two points is the mean of the two complex values (100 + 300i), and is 0 before the first time and after the last.
+**Checks:** D2.11: for the vertices of RF 5, the decoded times are those of the file, and the signal halfway between the first two points is the mean of the two complex values (100 + 300i), and is 0 before the first time and after the last.
 
 **How:** The test decodes the RF event and calls `signal` at three times.
 
@@ -7122,7 +7122,7 @@ follows it, not that the decision is right.
 
 #### `test_an_rf_time_shape_that_other_tools_write_is_read`
 
-**Checks:** D35, D36: `bad_shape_rf_time_grid.seq` (`1 1 98`, times 1 to 100) and `bad_shape_rf_time_end.seq` (times 0 and 99.6) load and are points that end at their last time (100 us, 99.6 us); so does `1 1 98` in a new file.
+**Checks:** D2.10, D2.11: `bad_shape_rf_time_grid.seq` (`1 1 98`, times 1 to 100) and `bad_shape_rf_time_end.seq` (times 0 and 99.6) load and are points that end at their last time (100 us, 99.6 us); so does `1 1 98` in a new file.
 
 **How:** The test reads the fixtures and a new file, and decodes the RF event.
 
@@ -7130,7 +7130,7 @@ follows it, not that the decision is right.
 
 #### `test_the_end_of_an_rf_event_with_a_time_shape_is_n_dwells_or_the_last_time`
 
-**Checks:** D37, slide 9: an RF event with a delay of 100 us in a block of 300 us. A regular shape of 100 samples with a step of 2 RF rasters ends at 300 us and loads; with a step of 4 it ends at 500 us (`block.event-too-long`). Points that end at 200 us load; at 200.5 us they end after the block (`block.event-too-long`).
+**Checks:** D2.12, slide 9: an RF event with a delay of 100 us in a block of 300 us. A regular shape of 100 samples with a step of 2 RF rasters ends at 300 us and loads; with a step of 4 it ends at 500 us (`block.event-too-long`). Points that end at 200 us load; at 200.5 us they end after the block (`block.event-too-long`).
 
 **How:** The test (five cases) writes the file with a time shape of the case and reads it.
 
@@ -7138,7 +7138,7 @@ follows it, not that the decision is right.
 
 #### `test_an_rf_time_shape_that_defines_no_line_is_shape_time_order`
 
-**Checks:** D35-D37: an RF time shape of one sample, with times that do not increase (decreasing, or equal), or with a first time below 0 gives `shape.time-order` once, with the choice in the message; `bad_shape_time_order.seq` (`100 -1 -1 97`) too.
+**Checks:** D2.10-D2.12: an RF time shape of one sample, with times that do not increase (decreasing, or equal), or with a first time below 0 gives `shape.time-order` once, with the choice in the message; `bad_shape_time_order.seq` (`100 -1 -1 97`) too.
 
 **How:** The test (four cases) writes the file with a time shape of the case, reads it and checks the message; then it reads the fixture.
 
@@ -7162,7 +7162,7 @@ follows it, not that the decision is right.
 
 #### `test_a_1_4_gradient_with_no_values_at_its_ends_is_layer1_gradient_ends`
 
-**Checks:** D39: `bad_layer1_gradient_ends.seq` and the two 1.4.x oracle files with a gradient on the default raster give `layer1.gradient-ends` once, with the choice in the message.
+**Checks:** D4.4: `bad_layer1_gradient_ends.seq` and the two 1.4.x oracle files with a gradient on the default raster give `layer1.gradient-ends` once, with the choice in the message.
 
 **How:** The test reads the three files.
 
@@ -7170,7 +7170,7 @@ follows it, not that the decision is right.
 
 #### `test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_centre`
 
-**Checks:** D41, spec:290, slide 7: the decoded gradient 3 of `valid_1_5_1.seq` has its samples at `(i + 0.5)` gradient rasters, `first` 0 and `last` 500000 Hz/m from the file, and lasts 100 us.
+**Checks:** D2.13, spec:290, slide 7: the decoded gradient 3 of `valid_1_5_1.seq` has its samples at `(i + 0.5)` gradient rasters, `first` 0 and `last` 500000 Hz/m from the file, and lasts 100 us.
 
 **How:** The test decodes the gradients with `synth.events`.
 
@@ -7178,7 +7178,7 @@ follows it, not that the decision is right.
 
 #### `test_an_oversampled_gradient_has_its_samples_half_a_raster_apart_and_an_odd_count`
 
-**Checks:** D43, spec:395, spec:420, slides 4 and 8: `bad_shape_oversampled_length.seq` (time ID -1 with 4 samples) gives `shape.oversampled-length`, with no choice in the message; the decoded oversampled gradient of `valid_1_5_1.seq` (5 samples) has its samples half a raster apart and lasts 3 half rasters.
+**Checks:** spec:395, spec:420, slides 4 and 8: `bad_shape_oversampled_length.seq` (time ID -1 with 4 samples) gives `shape.oversampled-length`, with no choice in the message; the decoded oversampled gradient of `valid_1_5_1.seq` (5 samples) has its samples half a raster apart and lasts 3 half rasters.
 
 **How:** The test reads the fixture and decodes the gradients of the 1.5.1 fixture.
 
@@ -7186,7 +7186,7 @@ follows it, not that the decision is right.
 
 #### `test_the_phase_modulation_of_an_adc_event_is_in_rad_one_value_for_each_sample`
 
-**Checks:** D44, spec:443, spec:120: `bad_shape_adc_phase_length.seq` (9 samples for 8) gives `shape.event-length` with the choice in the message; an ADC phase shape of 8 samples is decoded as the same 8 values, with no factor.
+**Checks:** D2.15, D3.8, spec:443, spec:120: `bad_shape_adc_phase_length.seq` (9 samples for 8) gives `shape.event-length` with the choice in the message; an ADC phase shape of 8 samples is decoded as the same 8 values, with no factor.
 
 **How:** The test reads the fixture, then replaces shape 8 of a valid fixture with eight values and decodes the ADC events.
 
@@ -7194,7 +7194,7 @@ follows it, not that the decision is right.
 
 #### `test_an_unknown_extension_that_is_not_required_is_skipped`
 
-**Checks:** D45, spec:460: the unknown extensions of `koma_v1.5_unknown_ext.seq` and of `valid_1_5_1.seq` are in `skipped_extensions`; their type IDs are in `type_ids`.
+**Checks:** D2.17, spec:460: the unknown extensions of `koma_v1.5_unknown_ext.seq` and of `valid_1_5_1.seq` are in `skipped_extensions`; their type IDs are in `type_ids`.
 
 **How:** The test reads both files.
 
@@ -7202,7 +7202,7 @@ follows it, not that the decision is right.
 
 #### `test_a_file_whose_last_header_is_extensions_is_read`
 
-**Checks:** D46: `koma_v1.5_unknown_ext.seq`, whose last section that starts with `[` is `[EXTENSIONS]`, loads.
+**Checks:** D2.3: `koma_v1.5_unknown_ext.seq`, whose last section that starts with `[` is `[EXTENSIONS]`, loads.
 
 **How:** The test checks the last header of the file and reads it.
 
@@ -7210,7 +7210,7 @@ follows it, not that the decision is right.
 
 #### `test_a_required_extension_that_is_not_known_is_extension_required_unknown`
 
-**Checks:** D47, spec:460: a required extension that `spec` does not know gives `extension.required-unknown` at the definition, with no choice in the message.
+**Checks:** spec:460: a required extension that `spec` does not know gives `extension.required-unknown` at the definition, with no choice in the message.
 
 **How:** The test reads `bad_extension_required_unknown.seq`.
 
@@ -7218,7 +7218,7 @@ follows it, not that the decision is right.
 
 #### `test_a_block_with_two_rotations_or_two_rf_shims_is_extension_per_block`
 
-**Checks:** D48, spec:567, spec:584: two blocks of `bad_extension_per_block.seq` that have two ROTATIONS objects, and a block with two RF_SHIMS objects, give `extension.per-block` with the count in the message and no choice.
+**Checks:** spec:567, spec:584: two blocks of `bad_extension_per_block.seq` that have two ROTATIONS objects, and a block with two RF_SHIMS objects, give `extension.per-block` with the count in the message and no choice.
 
 **How:** The test reads the fixture, and a valid fixture with an entry added to the list of block 9.
 
@@ -7226,7 +7226,7 @@ follows it, not that the decision is right.
 
 #### `test_rotation_quaternions_are_normalized_and_a_quaternion_of_norm_0_is_rejected`
 
-**Checks:** D49, P20, spec:567: from 1.5.1 each quaternion of ROTATIONS is divided by its norm: the quaternion of `valid_1_5_1.seq` has norm 1 in the model, `1 1.01 0 0 0` is `1 1 0 0 0` and `0 3 4 0` is `0 0.6 0.8 0`. A quaternion `0 0 0 0` gives `rotation.zero` at its row, with the choice in the message.
+**Checks:** D2.18, D3.10, P20, spec:567: from 1.5.1 each quaternion of ROTATIONS is divided by its norm: the quaternion of `valid_1_5_1.seq` has norm 1 in the model, `1 1.01 0 0 0` is `1 1 0 0 0` and `0 3 4 0` is `0 0.6 0.8 0`. A quaternion `0 0 0 0` gives `rotation.zero` at its row, with the choice in the message.
 
 **How:** The test reads the 1.5.1 fixture and takes the norm of the table, then edits the table of `valid_no_signature.seq` two ways and reads each file.
 
@@ -7234,7 +7234,7 @@ follows it, not that the decision is right.
 
 #### `test_what_spec_ignores_is_in_the_records_in_file_order`
 
-**Checks:** P20, D08, D09, D45, D50, D58: `SequenceData.records` has a `Record(kind, subject, reason, line)` for each thing that `spec` ignores, in file order: the unknown extension of `valid_1_5_1.seq`; ROTATIONS and RF_SHIMS (reason `version`) and UNKNOWN (reason `unknown`) of `valid_1_5_0_extensions_of_1_5_1.seq`; the unknown label `FOO` and the unknown extension of `valid_label_unknown.seq`; the section `[FOO]` (`unknown`) of `bad_section_unknown.seq` and `[DELAYS]` (`removed`) of `bad_section_delays.seq`; none for `valid_1_4_0.seq`. The line is that of the header or of the label row.
+**Checks:** P20, D2.4, D2.17, D2.19, D4.6: `SequenceData.records` has a `Record(kind, subject, reason, line)` for each thing that `spec` ignores, in file order: the unknown extension of `valid_1_5_1.seq`; ROTATIONS and RF_SHIMS (reason `version`) and UNKNOWN (reason `unknown`) of `valid_1_5_0_extensions_of_1_5_1.seq`; the unknown label `FOO` and the unknown extension of `valid_label_unknown.seq`; the section `[FOO]` (`unknown`) of `bad_section_unknown.seq` and `[DELAYS]` (`removed`) of `bad_section_delays.seq`; none for `valid_1_4_0.seq`. The line is that of the header or of the label row.
 
 **How:** The test reads each file and compares the records with the ones that it builds, with the line numbers searched in the text of the file.
 
@@ -7242,7 +7242,7 @@ follows it, not that the decision is right.
 
 #### `test_the_records_of_labels_and_of_an_extension_of_a_later_revision`
 
-**Checks:** D50, D57, D58, spec:519-520, spec:526, spec:545: `NOSCL` (a misspelling of `NOSLC`) is an unknown label; `PMC` in a 1.4.1 file has no record and in a 1.4.0 file has the reason `version`; `extension DELAYS` in a 1.4.1 file is an extension with the reason `version`. The label rows stay in the label table.
+**Checks:** D2.19, D4.6, spec:519-520, spec:526, spec:545: `NOSCL` (a misspelling of `NOSLC`) is an unknown label; `PMC` in a 1.4.1 file has no record and in a 1.4.0 file has the reason `version`; `extension DELAYS` in a 1.4.1 file is an extension with the reason `version`. The label rows stay in the label table.
 
 **How:** The test edits `valid_1_4_1.seq` four ways and compares the records and the label table.
 
@@ -7250,7 +7250,7 @@ follows it, not that the decision is right.
 
 #### `test_a_label_that_is_not_known_is_kept_as_text`
 
-**Checks:** D50, spec:519-520, spec:526: the label `FOO` (`valid_label_unknown.seq`) and the name `PMC` in a 1.4.0 and a 1.4.1 file are kept as text in the LABELSET table.
+**Checks:** D2.19, spec:519-520, spec:526: the label `FOO` (`valid_label_unknown.seq`) and the name `PMC` in a 1.4.0 and a 1.4.1 file are kept as text in the LABELSET table.
 
 **How:** The test reads the fixture and edits `valid_1_4_1.seq`.
 
@@ -7258,7 +7258,7 @@ follows it, not that the decision is right.
 
 #### `test_two_events_with_equal_values_and_different_ids_are_both_kept`
 
-**Checks:** D51: the trapezoids 39 and 40 of `pypulseq_simple_mprage150.seq` (amplitudes 0 and -0) are both in the model, with their IDs and the sign of the zero, and the rise time of 1e-5 s.
+**Checks:** The trapezoids 39 and 40 of `pypulseq_simple_mprage150.seq` (amplitudes 0 and -0) are both in the model, with their IDs and the sign of the zero, and the rise time of 1e-5 s.
 
 **How:** The test selects the rows by ID.
 
@@ -7266,7 +7266,7 @@ follows it, not that the decision is right.
 
 #### `test_the_model_has_no_value_of_a_scanner`
 
-**Checks:** D52: the rasters of the model are the four of the file, and no value of a scanner (`test_model_without_values_of_a_target` checks the fields).
+**Checks:** The rasters of the model are the four of the file, and no value of a scanner (`test_model_without_values_of_a_target` checks the fields).
 
 **How:** The test compares the field names of `Rasters`.
 
@@ -7274,7 +7274,7 @@ follows it, not that the decision is right.
 
 #### `test_a_signature_hash_covers_the_bytes_before_the_newline_that_precedes_it`
 
-**Checks:** D53, spec:223: `valid_1_5_1.seq` matches; `valid_crlf.seq` (CRLF line ends, signed by the rule of the C++ reader) does not, and is read.
+**Checks:** spec:223: `valid_1_5_1.seq` matches; `valid_crlf.seq` (CRLF line ends, signed by the rule of the C++ reader) does not, and is read.
 
 **How:** The test reads both fixtures.
 
@@ -7282,15 +7282,15 @@ follows it, not that the decision is right.
 
 #### `test_a_signature_section_must_have_a_type_and_a_hash`
 
-**Checks:** D54, spec:223-232: a `[SIGNATURE]` section without `Hash` (`bad_signature_invalid.seq`), with `Hash` of no or two values, or without `Type` gives `signature.invalid`; an additional key loads, and the last of a repeated `Hash` is used.
+**Checks:** spec:223-232: a `[SIGNATURE]` section without `Hash` (`bad_signature_invalid.seq`), with `Hash` of no or two values, or without `Type` gives `signature.invalid`; an additional key loads, and the last of a repeated `Hash` is used.
 
 **How:** The test reads the fixture and edits the 1.5.1 fixture five ways.
 
-**Assumptions:** The last value of a repeated key is the choice of `spec` (D10).
+**Assumptions:** The last value of a repeated key is the choice of `spec` (D3.3).
 
 #### `test_an_extension_header_has_a_word_and_a_type_id`
 
-**Checks:** D55, spec:493, spec:498, spec:507: the STRING_ID is a word and the type ID an integer. A type that is not an integer gives `syntax.integer`; a header with one word or three gives `syntax.columns`.
+**Checks:** D1.4, spec:493, spec:498, spec:507: the STRING_ID is a word and the type ID an integer. A type that is not an integer gives `syntax.integer`; a header with one word or three gives `syntax.columns`.
 
 **How:** The test reads the 1.5.1 fixture and edits the LABELSET header three ways.
 
@@ -7355,7 +7355,7 @@ was `syntax.number` before too.
 
 #### `test_a_nan_or_inf_shape_sample_is_syntax_number_with_the_choice`
 
-**Checks:** D14: a shape sample `nan` or `inf` gives `syntax.number` with the choice; `1,5` gives it without; `+0.4` is read as 0.4.
+**Checks:** D3.5: a shape sample `nan` or `inf` gives `syntax.number` with the choice; `1,5` gives it without; `+0.4` is read as 0.4.
 
 **How:** The test replaces one sample of a valid fixture and reads the file four times.
 
@@ -7461,7 +7461,7 @@ and a compressed shape gives the values that the text means.
 
 #### `test_model_without_values_of_a_target`
 
-**Checks:** `SequenceData` has exactly the fields of the plan (with `records`, `interpreter` and `reading`, the things that were ignored, the interpreter that read the file and the C++ reader's object), and no table has a field for a dead time, a ringdown time, gamma, B0 or a limit (D52).
+**Checks:** `SequenceData` has exactly the fields of the plan (with `records`, `interpreter` and `reading`, the things that were ignored, the interpreter that read the file and the C++ reader's object), and no table has a field for a dead time, a ringdown time, gamma, B0 or a limit.
 
 **How:** The test compares the names of the fields and searches the field names of the tables.
 
@@ -7679,7 +7679,7 @@ needs a model that `spec` reads, so it cannot be applied to the 4 us fixture.
 
 #### `test_the_oracle_rejects_an_arbitrary_gradient_on_a_5_us_raster_and_accepts_it_on_10_us`
 
-**Checks:** The oracle rejects `valid_arbitrary_gradient_5us_raster.seq` (which `spec` reads, D28) with the
+**Checks:** The oracle rejects `valid_arbitrary_gradient_5us_raster.seq` (which `spec` reads) with the
 message "decodeBlock returned false for block 0", and accepts the same file with
 `GradientRasterTime` 1e-05 and a block of 100 us. So the skip of the comparison is needed, and the
 raster is the cause.
@@ -7689,7 +7689,7 @@ block duration), writes it to `tmp_path` and runs the oracle on it.
 
 **Assumptions:** The message text is that of the driver, not of the reader (the reader prints its
 text on a debug level only). The test shows the effect on one file. `valid_arbitrary_gradient_4us_raster.seq`
-is no longer the file of this test: `spec` rejects it (`definitions.raster-commensurate`, D28).
+is no longer the file of this test: `spec` rejects it (`definitions.raster-commensurate`).
 
 #### `test_the_oracle_and_spec_check_the_same_signature_hash_of_an_lf_file`
 
@@ -7708,7 +7708,7 @@ oracle's rule. The cases where the rules differ are in the next test.
 
 #### `test_spec_hashes_the_bytes_before_the_newline_before_signature_where_the_oracle_does_not`
 
-**Checks:** D53. For the six other signed files of the cases of the oracle's rule (no empty line, a
+**Checks:** For the six other signed files of the cases of the oracle's rule (no empty line, a
 line of spaces, CRLF with and without the empty line, an LF file with a CRLF empty line, a line of
 255 bytes with its end), the oracle reports `signature_ok` true for its own hash, which `spec`
 finds not matching; and for the bytes before the `\n` that precedes `[SIGNATURE]` (the rule of the
@@ -7719,18 +7719,18 @@ the hash of the specification's bytes) and checks `signature_ok` of the oracle a
 `read_seqfile`. It first checks that the two sets of bytes differ.
 
 **Assumptions:** The specification's bytes are `before[:-1]` in the test, computed without the
-package. A hash that does not match is not a rejection (D53).
+package. A hash that does not match is not a rejection.
 
 #### `test_the_signature_of_a_crlf_file_matches_in_the_oracle_and_not_in_spec`
 
-**Checks:** D53. For `valid_crlf.seq` the oracle's `signature_ok` is true and `spec` gives `matches`
+**Checks:** For `valid_crlf.seq` the oracle's `signature_ok` is true and `spec` gives `matches`
 false; `spec` reads the file. The bytes that `spec` hashes (`AsWritten.signed_bytes`) end with `\r`,
 the `\r` of the empty line.
 
 **How:** The test runs the oracle with `--dump`, reads the file with `read_seqfile` and reads the
 signed bytes with `as_written.read_as_written`.
 
-**Assumptions:** None beyond D53.
+**Assumptions:** None beyond the rule of the specification (spec:223).
 
 #### `test_the_oracle_and_spec_accept_and_reject_the_same_files_but_those_of_the_tables`
 
@@ -7740,21 +7740,21 @@ the test:
 
 - `NOT_CHECKED_BY_THE_READER`: a file that `spec` rejects and that the oracle (one of its builds)
   accepts, because the oracle does not check the rule. Each file has the entry of
-  `docs/discrepancies.md` that explains it (D04, D06, D07, D10, D14, D17, D19, D21, D22, D24, D25,
-  D26, D27, D29, D30, D33, D36, D39, D43, D44, D48, D54). A file that `spec` rejects and that is not in the
+  `docs/discrepancies.md` that explains it (D1.2, D1.3, D3.1 to D3.9, D3.11, D4.3, D4.4, or the code of the rule in `spec.RULES` where
+  the record has no entry). A file that `spec` rejects and that is not in the
   table must be rejected, or crash, in the oracle. `bad_ref_shape.seq`, `bad_shape_empty.seq` and
   `bad_syntax_shape_no_blank_line.seq` are there because the Linux build accepts them (the macOS
   build crashes; `bad_ref_shape.seq` was found by CI on the Linux build), and `undefined/shape_decompress_longer.seq` because the macOS build accepts it.
 - `ORACLE_KNOWN_WRONG`: a file that `spec` reads and that the oracle rejects or crashes on, not
-  compared. Each has its entry: `bad_shape_rf_time_end.seq` and `valid_rf_time_shapes.seq` (D36: the
+  compared. Each has its entry: `bad_shape_rf_time_end.seq` and `valid_rf_time_shapes.seq` (D2.10, D2.11: the
   oracle crashes on the macOS build, the resampling reads past the stored samples),
-  `bad_syntax_line_after_comment.seq` and `valid_comment_in_shape.seq` (D06: the oracle reads a `#`
-  line inside a table or a shape as a row), `oracle/koma_v1.5_unknown_ext.seq` (D46),
-  `undefined/version_last.seq` (D05, undefined behaviour of the reader, section 2.25) and
-  `valid_last_section_no_blank.seq` (D56).
+  `bad_syntax_line_after_comment.seq` and `valid_comment_in_shape.seq` (D2.5: the oracle reads a `#`
+  line inside a table or a shape as a row), `oracle/koma_v1.5_unknown_ext.seq` (D2.3),
+  `undefined/version_last.seq` (D2.1, undefined behaviour of the reader, section 2.25) and
+  `valid_last_section_no_blank.seq` (D2.2).
 - A file that `spec` reads and that has an arbitrary gradient (a row of `grad` that a block uses) on
   a gradient raster other than 10 us is not compared, because `decodeBlock` fails on it
-  (`ExternalSequence.cpp:2114-2119`, D28); the test records the skipped files with
+  (`ExternalSequence.cpp:2114-2119`); the test records the skipped files with
   `record_property("skipped", ...)` (in the junit XML). Today it skips
   `valid_arbitrary_gradient_5us_raster.seq`.
 
@@ -7779,11 +7779,12 @@ file is not in `NOT_CHECKED_BY_THE_READER`. It fails with the list.
 #### `test_the_tables_of_differences_name_files_that_spec_rejects_or_reads`
 
 **Checks:** Each file of `NOT_CHECKED_BY_THE_READER` is a file that `spec` rejects, each file of
-`ORACLE_KNOWN_WRONG` is a file that `spec` reads, and each entry starts with the number of an entry
-of `docs/discrepancies.md` (`D` and digits). So no entry of the tables is out of date.
+`ORACLE_KNOWN_WRONG` is a file that `spec` reads, and each entry starts with the ID of an entry
+of `docs/discrepancies.md` (`D`, a group number, a dot and a number) or with a code of `spec.RULES`.
+So no entry of the tables is out of date.
 
 **How:** The test reads each named file with `read_seqfile` and checks `SeqFileError` or not, and
-matches the text of the entry with a regular expression.
+matches the start of the entry with a regular expression; a code must be a key of `RULES`.
 
 **Assumptions:** It does not read `docs/discrepancies.md`, so it does not show that the entry
 exists, or that it explains the file.
@@ -8092,7 +8093,7 @@ the RF raster, and the default time rule.
 
 **Checks:** An RF event whose time shape is regular (here `5 10 10 2`: the times 5, 15, 25, 35, 45, a step
 of 10 and a first time of half a step) is cells: `dwell` is the step times the RF raster, `t` is at the
-centre of each cell, and `shape_dur` is the number of samples times `dwell` (slide 9, D35, D37). The samples
+centre of each cell, and `shape_dur` is the number of samples times `dwell` (slide 9, D2.10, D2.12). The samples
 are kept as stored.
 
 **How:** In the written file, RF 2 has this time shape, stored compressed in 4 values for 5 samples. The
@@ -8105,7 +8106,7 @@ the text.
 
 **Checks:** The RF event with a time shape of a 1.4 file is read by the same rule: the block pulse of the file
 (the magnitude 1, 1 at the times 0, 100) is two points at 0 and 100 µs, with `dwell` `None`, and has no
-center (slides 4 and 9, D36).
+center (slides 4 and 9, D2.11).
 
 **How:** The test decodes `oracle/koma_v1.4_rf-time-shaped.seq`: amplitude 2500 Hz. It checks the 2
 magnitudes of 2500 Hz, the 2 phases of 0, `dwell` `None`, `t` at 0 and 100 µs and `shape_dur` of 100 µs (to a
@@ -8116,7 +8117,7 @@ relative 1e-12), and that `center` is `None`.
 #### `test_adc_events_with_and_without_a_phase_shape`
 
 **Checks:** An ADC event has the values of its row in s, Hz and rad. Its `phase_modulation` is the
-decompressed phase shape as the file stores it, in rad, with no factor (D44), or `None` when
+decompressed phase shape as the file stores it, in rad, with no factor (D2.15), or `None` when
 `phase_shape_id` is 0. The result is a read-only mapping.
 
 **How:** The test decodes the ADC events of the file of `test_rf_event_with_an_irregular_time_shape_is_points`.
@@ -8167,7 +8168,7 @@ equal to the last time), and else cells (`dwell` is the step times the RF raster
 last time is before `shape_dur`); the signal of an RF event at its times `t` is `magnitude * exp(1j *
 phase)`; the last sample time of a gradient is not after `shape_dur`; RF `center` is `None` exactly for a 1.4
 file; `phase_modulation` is `None` exactly when `phase_shape_id` is 0, and else has one value for each ADC
-sample (D44); an RF or gradient event ends (delay plus `shape_dur`) within 1 ps of the end of each block that
+sample (D2.15); an RF or gradient event ends (delay plus `shape_dur`) within 1 ps of the end of each block that
 plays it, or before.
 
 **How:** For each file (parametrized), the test reads the file, skips a file that the `spec` interpreter
@@ -8182,7 +8183,7 @@ The signal at the times `t` is compared to a relative 1e-12 with an absolute tol
 
 **Checks:** The arbitrary gradients with time ID -1 of a file keep all their samples: an odd number of
 samples, `tt = (i + 1) / 2 dt` (half a raster apart, from the centre of the first cell to the centre of
-the last), and `shape_dur = (n + 1) / 2 dt` (spec:420, slides 4 and 8, D43).
+the last), and `shape_dur = (n + 1) / 2 dt` (spec:420, slides 4 and 8).
 
 **How:** The test decodes `oracle/koma_v1.5_spiral.seq`, takes the gradients whose `time_id` is -1 (IDs 4
 and 5, checked), and for each checks that the number of samples is odd, that `tt` equals
@@ -8207,7 +8208,7 @@ decodes it. RF 3 (no time shape, 4 samples) has `dwell` 2 µs, `t` at the centre
 #### `test_rf_event_with_an_irregular_time_shape_is_points`
 
 **Checks:** An RF event whose time shape is not regular (unequal steps) is points: `t` is the time shape
-times the RF raster, `dwell` is `None`, and `shape_dur` is the last time (slides 4 and 9, D36). No sample is
+times the RF raster, `dwell` is `None`, and `shape_dur` is the last time (slides 4 and 9, D2.11, D2.12). No sample is
 dropped or repeated. The magnitude is the amplitude times the magnitude shape (Hz), and the phase is 2π
 times the phase shape (rad). The center, delay, ppm offsets, frequency and phase offsets and use are those
 of the file.
@@ -8220,7 +8221,7 @@ the decoded event exactly with an `RfEvent` made from the numbers of the text.
 #### `test_rf_event_with_a_regular_time_shape_of_step_2_is_cells_of_two_rasters`
 
 **Checks:** The time shape `1 2 2 47` (50 samples, the times 1, 3, ..., 99) is cells of 2 µs: `dwell` 2 µs, `t`
-at the centres of the cells, and `shape_dur` 100 µs, not 99 µs (slide 9, D35, D37).
+at the centres of the cells, and `shape_dur` 100 µs, not 99 µs (slide 9, D2.10, D2.12).
 
 **How:** The test decodes RF 2 of `valid_rf_time_shapes.seq` and compares `dwell`, `t` and `shape_dur` to a
 relative 1e-12, and checks that the 50 magnitudes are 1000 Hz.
@@ -8230,7 +8231,7 @@ relative 1e-12, and checks that the 50 magnitudes are 1000 Hz.
 #### `test_rf_event_with_the_time_shape_of_a_short_pulse_is_cells_of_one_raster`
 
 **Checks:** The uncompressed time shape 0.5, 1.5, 2.5 (3 samples) is cells of 1 µs: `dwell` 1 µs, `t` at 0.5,
-1.5 and 2.5 µs, and `shape_dur` 3 µs (slide 9, D35, D37).
+1.5 and 2.5 µs, and `shape_dur` 3 µs (slide 9, D2.10, D2.12).
 
 **How:** The test decodes RF 3 of `valid_rf_time_shapes.seq` and compares `dwell`, `t` and `shape_dur` to a
 relative 1e-12, and checks the magnitudes 1000, 500 and 250 Hz.
@@ -8240,7 +8241,7 @@ relative 1e-12, and checks the magnitudes 1000, 500 and 250 Hz.
 #### `test_rf_event_of_a_block_pulse_is_two_points`
 
 **Checks:** The time shape 0, 100 with the magnitude 1, 1 is two points, at 0 and 100 µs, with `dwell`
-`None` and `shape_dur` 100 µs (slides 4 and 9, D36).
+`None` and `shape_dur` 100 µs (slides 4 and 9, D2.11, D2.12).
 
 **How:** The test decodes RF 4 of `valid_rf_time_shapes.seq` and checks `dwell`, `t` and `shape_dur` (to a
 relative 1e-12) and the two magnitudes of 1000 Hz.
@@ -8251,7 +8252,7 @@ relative 1e-12) and the two magnitudes of 1000 Hz.
 
 **Checks:** The time shape 1, 2, 4, 7, 10 (5 samples) is 5 points at 1, 2, 4, 7 and 10 µs, with `dwell`
 `None`, `shape_dur` 10 µs, the magnitudes 200, 600, 1000, 600 and 200 Hz, and the phases 2π times 0, 0.25,
-0.5, 0.25 and 0 (slides 4 and 9, D36).
+0.5, 0.25 and 0 (slides 4 and 9, D2.11, D2.12).
 
 **How:** The test decodes RF 5 of `valid_rf_time_shapes.seq` and compares the fields to a relative 1e-12.
 
@@ -8260,7 +8261,7 @@ relative 1e-12) and the two magnitudes of 1000 Hz.
 #### `test_the_signal_of_cells_holds_each_sample_over_its_cell_and_is_0_outside`
 
 **Checks:** `RfEvent.signal` of a pulse of cells holds each sample from `i dwell` to `(i + 1) dwell`, and is
-0 before the start and from `shape_dur` on (slide 9, D35 to D37).
+0 before the start and from `shape_dur` on (slide 9, D2.10 to D2.12).
 
 **How:** The test calls `signal` of RF 3 of `valid_rf_time_shapes.seq` (cells of 1 µs: 1000, 500, 250 Hz) at
 -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3 and 3.5 µs and compares with 0, 1000, 1000, 500, 500, 250, 250, 0, 0. It calls
@@ -8282,7 +8283,7 @@ phase 2π 0.1. The test calls `signal` at 12 µs and 19 µs and compares both va
 #### `test_the_signal_of_points_is_the_straight_line_of_the_complex_signal`
 
 **Checks:** Between two points, `RfEvent.signal` is the straight line of the complex signal: the linear
-interpolation of the real and imaginary parts (D36), not the interpolation of the magnitude and the phase.
+interpolation of the real and imaginary parts (D2.11), not the interpolation of the magnitude and the phase.
 
 **How:** The test calls `signal` of RF 5 of `valid_rf_time_shapes.seq` at 1, 2, 3, 4, 5.5 and 7 µs. The points
 at 2 µs (0.6 at the phase 0.25 turn: 600j Hz) and 4 µs (1 at 0.5 turn: -1000 Hz) give, at 3 µs, their average,
@@ -8308,7 +8309,7 @@ tested (`signal` gives the last sample at the last point, and the docstring says
 #### `test_rf_time_step_of_a_time_shape`
 
 **Checks:** `model.rf_time_step` gives the step, in RF raster times, of a regular time shape (2 or more
-samples, equal steps, a first time of half a step), and `None` for any other shape (slide 9, D35, D36).
+samples, equal steps, a first time of half a step), and `None` for any other shape (slide 9, D2.10, D2.11).
 
 **How:** For ten shapes (parametrized), the test makes a `model.Shape` from the stored values, decompresses
 it, and compares the result: `0.5 1 1 97` (100 samples) gives 1; `1 2 2 47` (50 samples) gives 2; the
@@ -8332,7 +8333,7 @@ late by 0.4 tolerances give the step 1.
 
 #### `test_adc_phase_modulation_has_one_value_for_each_sample`
 
-**Checks:** The phase modulation of an ADC event has one value for each ADC sample (D44).
+**Checks:** The phase modulation of an ADC event has one value for each ADC sample (D2.15).
 
 **How:** The test decodes ADC 2 of `valid_1_5_1.seq` (phase shape 8, 8 samples, all 0) and checks that
 `num_samples` is 8 and that `phase_modulation` equals 8 zeros.
@@ -8378,7 +8379,7 @@ about z takes x to y, about x takes y to z, about y takes z to x, and the identi
 
 #### `test_spec_rotates_the_gradients_of_each_block_that_has_a_rotation`
 
-**Checks:** From 1.5.1, `spec` rotates each block's gradients by its normalized quaternion (D49, P20
+**Checks:** From 1.5.1, `spec` rotates each block's gradients by its normalized quaternion (D2.18, P20
 rule 2): in `koma_v1.5_rotation_radial_tiny.seq`, `rotations()` gives blocks 0 to 4 with quaternions
 of norm 1 (to 1e-15); the logical gradients (`rotated=False`) are on x only; the rotated ones
 (`rotated` None, the same as True) are those turned by 0, 45, 90, 45 and 0 degrees about z (to 1e-3
@@ -8394,7 +8395,7 @@ Hz/m). `rotation_record` is `RotationRecord("apply", 5, 3, 5)`, with no warning 
 
 #### `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated`
 
-**Checks:** Before 1.5.1, ROTATIONS is an unknown extension for `spec` (P20 rule 2, D58): its
+**Checks:** Before 1.5.1, ROTATIONS is an unknown extension for `spec` (P20 rule 2, D4.6): its
 `records` have the record ("extension", "ROTATIONS", "version"), `rotations()` is empty (shape (0,)
 and (0, 4)), `rotation_record` is `RotationRecord("apply", 0, 0, 0)`, and the gradients of a block
 whose extension list has a ROTATIONS object are not 0 and equal the logical ones (`rotated=False`).
@@ -8413,7 +8414,7 @@ in the list of block 2, which plays a trapezoid on gx; it samples 10 times insid
 (`tests/oracles/cpp.py`; `tests/cpp_oracle/README.md` has the fields and their units). It compares
 each `.seq` file under `tests/seqfiles/` that both `spec` and the oracle accept (34 files today),
 except the files of `ORACLE_KNOWN_WRONG` (section 2.20), the files that the two read as different
-sequences (`READ_DIFFERENTLY`: none today, `spec` rejects a section that appears twice, D10), and a file with an arbitrary gradient on a gradient
+sequences (`READ_DIFFERENTLY`: none today, `spec` rejects a section that appears twice, D3.3), and a file with an arbitrary gradient on a gradient
 raster other than 10 us (`decodeBlock` fails on it). The module skips when the binary is not on the
 PATH. A difference is not skipped: the test fails with the file, the block, the field, both values and,
 for a field that the reader computes, the reader's rule and its line in `ExternalSequence.cpp`.
@@ -8423,20 +8424,20 @@ design makes, or does not compare it, and records the difference with `record_pr
 ...)` (in the junit XML), with the entry of `docs/discrepancies.md` and the files. The differences
 found today:
 
-- RF pulse of points, an RF time shape that is not regular (D36): the duration, the dwell and the
+- RF pulse of points, an RF time shape that is not regular (D2.11): the duration, the dwell and the
   samples are not compared. 8 files (`bad_shape_rf_time_grid.seq` and the files of the
   `oracle/` folder with a block pulse or a time shape other than the half step).
-- RF magnitude below 0 (D31, `bad_shape_rf_magnitude_negative.seq`) and RF phase outside
-  [0, 2 pi - 1e-4] (D32, `bad_shape_rf_phase_range.seq`): `spec` plays them as written, the reader
+- RF magnitude below 0 (D2.8, `bad_shape_rf_magnitude_negative.seq`) and RF phase outside
+  [0, 2 pi - 1e-4] (D2.9, `bad_shape_rf_phase_range.seq`): `spec` plays them as written, the reader
   clamps. Only an event whose magnitude shape has a sample below 0, or whose phase is outside that
   range, differs by design; the values of other events are compared as they are, and the clamped
   values of those two kinds of event agree.
-- The samples of an oversampled gradient (D43; 19 files, among them `oracle/koma_v1.5_spiral.seq` and
+- The samples of an oversampled gradient (D6.1; 19 files, among them `oracle/koma_v1.5_spiral.seq` and
   `valid_1_5_1.seq`): `spec` keeps all of them, the reader the even ones; the even ones agree.
-- ROTATIONS and RF_SHIMS in a file of version 1.5.0 (D45, `valid_1_5_0_extensions_of_1_5_1.seq`): `spec`
+- ROTATIONS and RF_SHIMS in a file of version 1.5.0 (D4.6, `valid_1_5_0_extensions_of_1_5_1.seq`): `spec`
   skips them, the reader reads them.
-- A soft delay offset with a fraction (D16, `valid_soft_delay_fraction.seq`): the reader misreads the row.
-- The signature of a file with CRLF line ends (D53, `valid_crlf.seq`): see the test of the signature.
+- A soft delay offset with a fraction (D2.16, `valid_soft_delay_fraction.seq`): the reader misreads the row.
+- The signature of a file with CRLF line ends (`valid_crlf.seq`, spec:223): see the test of the signature.
 
 #### `test_the_decoded_events_equal_the_dump_of_the_cpp_reader`
 
@@ -8455,14 +8456,14 @@ shim of the block. The differences by design (the intro) are not failures.
   event, because the reader holds `float`.
 - RF: the magnitude is compared as the dump's fraction times the amplitude, and the phase as the dump
   holds it, directly with the package's values. Only an event whose magnitude shape has a sample below 0
-  (D31) or whose phase is outside [0, 2 pi - 1e-4] (D32) differs by design (the reader clamps in
-  `checkRF`): a difference of that field is recorded as D31 or D32, and the package's clamped values (the
+  (D2.8) or whose phase is outside [0, 2 pi - 1e-4] (D2.9) differs by design (the reader clamps in
+  `checkRF`): a difference of that field is recorded as D2.8 or D2.9, and the package's clamped values (the
   magnitude below 0 set to 0, the phase clipped to [0, 2 pi - 1e-4]) are compared with the dump too. For a
   pulse of points, the duration, dwell, magnitude and phase are compared the same way, and a difference
-  is recorded as D36. The package's dwell is `RfEvent.dwell`.
+  is recorded as D2.11. The package's dwell is `RfEvent.dwell`.
 - Gradients: the samples of an arbitrary gradient are compared as fraction times amplitude, after
   `checkGradient`. For an oversampled gradient, the package's samples at the even indices (the
-  centres of the raster cells) are compared, and the comparison of all of them is recorded as D43.
+  centres of the raster cells) are compared, and the comparison of all of them is recorded as D6.1.
   For a gradient with a time shape, the package's times in µs must equal the times that the reader
   rounds to µs, and the waveform the samples.
 - Extensions: the test walks the extension list of each block in the model, without the extensions that
@@ -8470,8 +8471,8 @@ shim of the block. The differences by design (the intro) are not failures.
   a soft delay with a negative number and an RF shim with no channel count as none; otherwise the
   first one). It cuts the hint to 31 characters, normalizes the rotation, and keeps only the labels
   that the reader knows (a flag as 0 or 1). An object that the reader has and the model has not,
-  for an extension that `spec` skipped, is recorded as D45. A soft delay offset with a fraction is
-  recorded as D16.
+  for an extension that `spec` skipped, is recorded as D4.6. A soft delay offset with a fraction is
+  recorded as D2.16.
 - It records the skipped files with `record_property("skipped", ...)` and the differences by design with
   `record_property("by_design", ...)`.
 
@@ -8479,10 +8480,10 @@ shim of the block. The differences by design (the intro) are not failures.
 
 - A file that the oracle does not accept is left out here; the accept/reject test of 2.20 reports it.
 - The ADC phase-modulation samples are not in the dump, so they are not compared; the phase shape ID is.
-  So the unit of the shape (rad, D44) is not tested here.
+  So the unit of the shape (rad, D2.15) is not tested here.
 - The dump has `first` and `last` for an arbitrary gradient only, not for a gradient with a time shape,
-  so those of a 1.4 gradient with a time shape (D40) are not compared. `spec` rejects a 1.4 arbitrary
-  gradient of time ID 0 (D39).
+  so those of a 1.4 gradient with a time shape (D4.5) are not compared. `spec` rejects a 1.4 arbitrary
+  gradient of time ID 0 (D4.4).
 - The list of labels that the reader knows is a copy of `decodeLabel`.
 - A difference by design is hidden for the whole field of an event that the rule names (the points of
   an RF pulse, say), so another difference in that field is not found.
@@ -8491,12 +8492,12 @@ shim of the block. The differences by design (the intro) are not failures.
 #### `test_signature_matches_equals_the_signature_check_of_the_cpp_reader`
 
 **Checks:** For each compared file with a signature of type md5 (in any case), `signature.matches` of
-the model equals `signature_ok` of the reader, except `valid_crlf.seq` (`SIGNATURE_BY_DESIGN`, D53), where
+the model equals `signature_ok` of the reader, except `valid_crlf.seq` (`SIGNATURE_BY_DESIGN`, spec:223), where
 `spec` gives false and the reader true (the file is signed by the reader's rule, whose empty line before
 `[SIGNATURE]` ends with `\r\n`, and `spec` hashes the bytes before the `\n` of the specification).
 
 **How:** The test compares the two values for each such file, and for the file of the table checks the two
-values that D53 states. It fails with the files where they differ and the reader's rule for the hash. It
+values that spec:223 states. It fails with the files where they differ and the reader's rule for the hash. It
 also checks that the file of the table is among the compared files.
 
 **Assumptions:** A file without a signature, or with another type, is not compared. The test does not
@@ -8514,7 +8515,7 @@ block.
 start, gets the reader's values with one `--sample` call for each file and the package's values at
 the block start plus the time, and compares each value to 1e-6 times the largest magnitude of the
 block's event on that axis. When the block has no event on that axis, the scale is the largest magnitude
-of the axis in the file: the sampler joins the events of neighbouring blocks with a ramp (D42), so
+of the axis in the file: the sampler joins the events of neighbouring blocks with a ramp (D2.14), so
 the block can hold the start of a ramp, at a value that is rounding noise against the amplitudes
 (`bad_blocks_order.seq`: 2e-8 Hz/m against 5e5 Hz/m at 495 us of a block). It records the number of
 times sampled in each file with `record_property("sampled", ...)`.
@@ -8527,18 +8528,18 @@ times sampled in each file with `record_property("sampled", ...)`.
   So the package's value outside the events of a block is not tested here.
 - The times are the cell centres and the event ends, where the lines between all the samples of an
   oversampled gradient (`spec`) and those between its even samples (the reader) agree: the test does not
-  show the difference of D43 between the centres.
+  show the difference of D6.1 between the centres.
 - The package's step rule at an event start or end inside a block is not exercised: the parser rules
   `gradient.nonzero-start-delay` and `gradient.nonzero-end-align` make these values 0.
 
 #### `test_a_regular_rf_time_shape_equals_the_dump_and_a_pulse_of_points_does_not`
 
 **Checks:** For `valid_rf_time_shapes.seq` without its block 11 (RF 3, the short uncompressed pulse
-`0.5 1.5 2.5`, on which the oracle crashes, D36): RF 2, whose time shape `1 2 2 47` has 50 samples
+`0.5 1.5 2.5`, on which the oracle crashes, D2.10): RF 2, whose time shape `1 2 2 47` has 50 samples
 and times 1, 3, ..., 99 (cells of 2 us, a first time of half a step), has the dwell 2 us, the duration
 100 us and the samples of the reader; RF 4 (times 0 and 100) and RF 5 (times 1, 2, 4, 7, 10 with
 other values) are points in `spec`, and the reader plays them as cells of 1 us (100 and 10 cells),
-so the test finds the difference of D36 there and no other.
+so the test finds the difference of D2.11 there and no other.
 
 **How:** The test removes the line of block 11 from the text of the fixture, writes the file to `tmp_path`,
 reads it and runs the oracle with `--dump`, compares the two with the function of the test above
@@ -8556,7 +8557,7 @@ pulseq/pulseq at the commit in `flake.nix`), run under GNU Octave by the command
 `tests/seqfiles/oracle/*.seq` that the `spec` interpreter (`seqfile.read_seqfile`) accepts. A file that it
 rejects is skipped with its rules; MATLAB never reads it, because such a file can make MATLAB loop with no
 end. Two files that `spec` reads are skipped with a reason when MATLAB fails on them (the dictionary
-`MATLAB_CANNOT_READ`): `valid_comment_in_shape.seq` (D06) and `valid_label_unknown.seq` (D50). `tests/oracles/matlab.py` runs the command at most one time per test
+`MATLAB_CANNOT_READ`): `valid_comment_in_shape.seq` (D2.5) and `valid_label_unknown.seq` (D2.19). `tests/oracles/matlab.py` runs the command at most one time per test
 session, on all the files that are not in its cache (`.pytest_cache/d/matlab-oracle`). The cache key of a
 file is the SHA-256 of the store path of the command and of the bytes of the file, so a later run with the
 same files and the same command does not start Octave. The whole module skips when the command is not on the
@@ -8565,7 +8566,7 @@ PATH: only the default devShell has it, not the `ci` shell. Block `b` of the mod
 a time to an absolute 1e-12 s. Each failure lists every difference with the file, the block, the field and
 the two values. Where the package decodes a file otherwise than MATLAB, the tests do not compare that part,
 and the test gives the reason: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and
-of one of points whose last time is not a whole number of RF rasters (D37); `first` of a 1.4 gradient with a
+of one of points whose last time is not a whole number of RF rasters (D2.12); `first` of a 1.4 gradient with a
 time shape (U23); MATLAB's restored points of an arbitrary gradient of time ID 0 (U21); and the waveform of a
 file in which a block plays a rotation (U22).
 
@@ -8603,7 +8604,7 @@ times to 1e-12 s, and IDs, counts and words exactly. RF `use` maps `e r i s p` t
   raster (the last time `n - 0.5` rounds up to `n`) and for points whose last time is a whole number of RF
   rasters; the test compares only those. In the corpus the cells of a regular time shape with a step of more
   than one raster (`valid_rf_time_shapes.seq` RF 2, `oracle/koma_v1.5_spiral.seq` RF 1) differ by half a
-  step (D37): they are not compared. No file of the corpus has points with a last time that is not a whole
+  step (D2.12): they are not compared. No file of the corpus has points with a last time that is not a whole
   number of rasters; that these differ is read from the MATLAB code, and not run.
 - In a 1.4 file, MATLAB carries `first` of a gradient with a time shape over from the block before
   (`read.m:339-350`), and the package takes the sample at time 0 (U23), so that field is not compared.
@@ -8687,7 +8688,7 @@ the unrotated gradients (`rotated=False`) differ from MATLAB's. The comparison i
   test of the waveform), and each segment with an end within 1e-12 s of a block boundary: there
   MATLAB can join the last point of one block to the first sample of the next (in
   `valid_1_5_1.seq`, from a gradient that ends at 282 842 Hz/m to an oversampled gradient whose
-  first sample is 5 µs later), and each interpreter decodes each block alone (D42).
+  first sample is 5 µs later), and each interpreter decodes each block alone (D2.14).
 - It skips a file older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`): MATLAB rotates in any
   version, and `spec` reads ROTATIONS from 1.5.1 only (P20, rule 2).
   `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated` checks that file.
@@ -8712,7 +8713,7 @@ the program on the PATH; the whole module skips when it is not. The verdicts of 
 are "accept" (exit 0), "reject" (1), "undefined" (3), "no end" (no end in 10 s, `TIMEOUT` of
 `test_cpp_oracle.py`) and "crash" (another exit status or a signal). The fixtures of
 `tests/seqfiles/undefined/` are the cases of section 5.3 that had no fixture: `version_last.seq`
-(D05), `rf_time_id_minus_1.seq` (D22) and `shape_decompress_longer.seq` (D29), each a change of
+(D5.1), `rf_time_id_minus_1.seq` (D5.3) and `shape_decompress_longer.seq` (D5.5), each a change of
 `valid_no_signature.seq` that its comment states.
 
 #### `test_the_tables_name_only_fixtures_that_exist`
@@ -8748,24 +8749,24 @@ verdict.
 - `UNDEFINED` gives each file its entry of section 5.3 and, where the test author had it, the line of
   `ExternalSequence.cpp` where the build stops. The lines come from a build of the same flags at `-O0` with
   debug information and a symbolizer, which the test does not have; the test checks the verdict only,
-  not the line. `valid_rf_time_shapes.seq` (D36 (2): the resampling of its RF 3 `0.5 1.5 2.5` reads
+  not the line. `valid_rf_time_shapes.seq` (D5.8: the resampling of its RF 3 `0.5 1.5 2.5` reads
   past the stored samples) has no line, because the stack trace of the macOS build has none.
 - The new fixtures `bad_syntax_shape_end.seq`, `valid_arbitrary_gradient_5us_raster.seq`,
   `valid_comment_in_shape.seq` and `valid_last_section_no_blank.seq` are in `REJECTED` (the oracle
   exits with 1, without undefined behaviour); `valid_rf_time_shapes.seq` is in `UNDEFINED`.
-- `bad_ref_extension_cycle.seq` (D23) is "no end", not "undefined": the loop over a cycle in an
+- `bad_ref_extension_cycle.seq` (D5.4) is "no end", not "undefined": the loop over a cycle in an
   extension list appends a label to a vector in each turn, so no sanitizer fires, and the memory
   grows with no end (about 3 GB in the 10 s of the sanitized build). A machine with less memory
   could end it earlier.
-- `bad_syntax_shape_no_blank_line.seq` is "undefined" by D21: the reader does not read the shapes
-  after the shape with no blank line (D07), and a gradient names one of them.
+- `bad_syntax_shape_no_blank_line.seq` is "undefined" by D5.1: the reader does not read the shapes
+  after the shape with no blank line (D3.11), and a gradient names one of them.
 - A sanitizer finds undefined behaviour only on the paths that a file takes. The test covers the
   first mode of the driver (load and decode each block), not `--dump` or `--sample`.
 
 #### `test_each_case_of_undefined_behaviour_of_the_plan_has_a_fixture`
 
-**Checks:** The entries of `UNDEFINED` are D05, D21, D22, D29, D33, D34 and D36 (2), and the entry
-of `NO_END` is D23: each case of section 5.3 of the plan has a fixture.
+**Checks:** The entries of `UNDEFINED` are D5.1, D5.3, D5.5, D5.6, D5.7 and D5.8, and the entry
+of `NO_END` is D5.4: each case of section 5.3 of the plan has a fixture.
 
 **How:** The test compares the sets of entries.
 
@@ -8784,13 +8785,13 @@ verdict. It skips when `pulseq-cpp-oracle` is not on the PATH.
 
 #### `test_the_sanitized_oracle_reports_a_missing_shape_built_in_the_test`
 
-**Checks:** The minimal file with an RF event whose phase shape is not in `[SHAPES]` (D21) is
+**Checks:** The minimal file with an RF event whose phase shape is not in `[SHAPES]` (D5.1) is
 "undefined", where `test_the_oracle_does_not_accept_a_file_that_it_cannot_decode` of
 `test_cpp_oracle.py` can only say "reject or crash".
 
 **How:** The test writes the file to `tmp_path`, runs the sanitized oracle and checks the verdict.
 
-**Assumptions:** One case of D21; the fixtures cover the others.
+**Assumptions:** One case of D5.1; the fixtures cover the others.
 
 ### 2.26 The "as written" reading (`test_as_written.py`)
 
@@ -8864,12 +8865,12 @@ line that starts with `extensions` is a row.
 
 **Checks:** `signed_bytes()` is every byte before the `\n[SIGNATURE]` of the 1.5.1 fixture, and
 its md5 is the stored hash. For `valid_crlf.seq` its md5 is `e06b91d84d3fba7303a915e068320754`, the
-md5 that `docs/discrepancies.md` (D53) gives for the rule of the specification. A file with no
+md5 that the rule of the specification gives (spec:223). A file with no
 `[SIGNATURE]` gives None, and a file that starts with it gives no byte.
 
 **How:** The test reads the files and compares the bytes and the md5.
 
-**Assumptions:** The md5 of the CRLF fixture was computed for D53, outside this test.
+**Assumptions:** The md5 of the CRLF fixture was computed for the rule of the specification (spec:223), outside this test.
 
 #### `test_the_arrays_of_the_reading_are_read_only`
 
@@ -8920,7 +8921,7 @@ written; `[DEFINITIONS]` has one text column `key`, with the values as text afte
 
 #### `test_each_field_is_read_by_the_kind_of_its_column`
 
-**Checks:** The fields of D14 as written: `30.5` in an int column is not valid and its value is 0,
+**Checks:** The fields of the tables as written (spec:176, spec:293-455): `30.5` in an int column is not valid and its value is 0,
 `+30` is 30, a row of 7 values has no valid eighth field, a row of 9 keeps its ninth as text, `nan`
 is a valid float, `1e999` is infinite, -2**63 is a valid int and 2**63 is not, and the text of a
 field is kept.
@@ -9167,7 +9168,7 @@ form of the driver's `--dump` and `--sample` (each float as the bits of the floa
 reader holds), and `read`, the package's verdict on a file in the words of
 `tests/expected_digests.json` ("read", "rejected", "not-supported", "undefined-behaviour:CODE").
 `load` takes the reader's sampling mode of an oversampled arbitrary gradient (`oversampling`:
-"center", the reader's default, "edge" or "preserve"; D43), and the tests that compare with the
+"center", the reader's default, "edge" or "preserve"; D6.1), and the tests that compare with the
 driver run in each mode (`--oversampling` of the driver).
 
 `.github/workflows/pulseq-cpp-siemens-wheels.yml` runs on each pull request that changes the
@@ -9384,7 +9385,7 @@ result.
 
 #### `test_a_block_with_two_rotations_has_the_first`
 
-**Checks:** A block whose extension list has two rotations gets the first, as `GetBlock` does (D48).
+**Checks:** A block whose extension list has two rotations gets the first, as `GetBlock` does.
 
 **How:** The test links the list entry of block 1 of the radial file to the entry of rotation 3,
 and reads the bytes.
@@ -9466,7 +9467,7 @@ ends in less than a second, with no case for times that end at the last cell and
 
 #### `test_the_resampling_reads_past_the_times_at_the_cell_centres`
 
-**Checks:** Times at the cell centres of a pulse of 4 samples (D36 (2), as MATLAB writes short
+**Checks:** Times at the cell centres of a pulse of 4 samples (D5.8, as MATLAB writes short
 pulses) read past the times; times at the cell ends do not.
 
 **How:** The test calls `_resampling`.
@@ -9585,7 +9586,7 @@ modes were added.
 `--oversampling`): where the package reads the file, `pulseq-cpp-oracle --dump` gives
 the same dump and `--sample` the same values, bit for bit; where the package rejects it, the
 driver rejects it too; where the package finds undefined behaviour, `pulseq-cpp-oracle-sanitized`
-exits with 3 or does not end (D23). For `ub.gradient-one-point` the sanitized driver runs in its
+exits with 3 or does not end (D5.4). For `ub.gradient-one-point` the sanitized driver runs in its
 `--sample` mode at the case's block and time; `ub.gradient-shape-0` is skipped (indeterminate
 values, which no sanitizer sees).
 
@@ -9678,8 +9679,8 @@ installed.
 #### `test_a_case_of_undefined_behaviour_is_rejected_with_its_code`
 
 **Checks:** Each fixture of a case of section 5.3 raises `UndefinedBehaviour` with its code and
-its entry: D05 (`undefined/version_last.seq`) and D21 as `ub.shape-missing`, D22, D23, D29 (a
-shape longer than `num_samples`, and a repeated value with no count), D33, D34 and D36 (2), and
+its entry: D5.1 (`undefined/version_last.seq` and others) as `ub.shape-missing`, D5.3, D5.4, D5.5 (a
+shape longer than `num_samples`, and a repeated value with no count), D5.6, D5.7 and D5.8, and
 the two cases that the fuzzing found: `ub.gradient-one-point` (`gradient_one_point.seq`) and
 `ub.gradient-shape-0` (`gradient_shape_0.seq`).
 
@@ -9716,7 +9717,7 @@ both readers read it in that mode. The generator makes oversampled gradients oft
 size, 1 and 2 samples included (none of them is kept in the mode "edge"). Each file is read
 by the package in a process of its own (`tests/fuzz_worker.py`, which decodes every block and
 samples `gradients_at`) and by `pulseq-cpp-oracle-sanitized`, with ASan's largest allocation set
-to 256 MB so that the growth of D23 ends quickly. The package's `README.md` ("Fuzzing") gives the
+to 256 MB so that the growth of D5.4 ends quickly. The package's `README.md` ("Fuzzing") gives the
 four tiers. `scripts/check` runs the first: the regression corpus (`tests/fuzz_corpus/`) and 200
 seeded files. `.github/workflows/pulseq-cpp-siemens-fuzz.yml` runs the second on a pull request
 or a push to `main` that changes the package, `tests/cpp_oracle/`, `flake.nix` or `flake.lock`:
@@ -9872,8 +9873,8 @@ the table. It needs no oracle.
 **Checks:** The three fixtures of `packages/pulseq-cpp-siemens/tests/fixtures` are rejected with the
 code of their case of undefined behaviour: `ub.gradient-one-point`, `ub.gradient-shape-0` and
 `ub.shape-decompression` (a repeated value with no count at the end of a shape), and `CODES` gives
-each code the ID of its condition in `packages/pulseq-cpp-siemens/docs/specification.md`: D59, D21
-and D29.
+each code the ID of its entry in `packages/pulseq-cpp-siemens/docs/specification.md`: D5.10, D5.2
+and D5.5.
 
 **How:** For each fixture (parametrized), the test reads it and compares the code and the ID.
 
@@ -9884,7 +9885,7 @@ and D29.
 **Checks:** For each code of a rejection by `load` or `decodeBlock` (`CODES`, except the fallback
 `cpp.rejected` and the `ub.*` codes), a small file gives that code and only it, with the reader's
 message, and the oracle rejects the file too: `version.invalid`, `version.missing`,
-`definitions.raster-missing`, `definitions.raster-invalid` (`nan`), `definitions.skipped` (D56: a
+`definitions.raster-missing`, `definitions.raster-invalid` (`nan`), `definitions.skipped` (D2.2: a
 last section with no blank line after it, so the reader skips `[DEFINITIONS]`),
 `extension.required-unknown`, `section.extensions-last`, `blocks.missing`, `ref.unresolved`,
 `syntax.row` (`100.5` in `[BLOCKS]`), `syntax.comment-row`, `syntax.shape`, `rotation.norm`,
@@ -9917,13 +9918,13 @@ of the `#` line in the file, and the reader's message "failed to decode RF event
 
 #### `test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode`
 
-**Checks:** D15: an ADC dwell time of `2500.0` is `syntax.row` in `[ADC]` (the reader reads the
+**Checks:** An ADC dwell time of `2500.0` is `syntax.row` in `[ADC]` (the reader reads the
 dwell as an integer), and the same file with `2500` reads, with a dwell of 2.5 us.
 
 **How:** The test reads both files.
 
 **Assumptions:** The file ends with a blank line: with none, the reader skips the sections after
-`[ADC]` (D56).
+`[ADC]` (D2.2).
 
 #### `test_a_version_outside_1_4_to_1_5_is_not_supported_before_the_reader_runs`
 
@@ -9962,7 +9963,7 @@ the float32 value of an RF shim phase.
 
 #### `test_a_1_4_rf_event_has_no_center_and_the_use_u`
 
-**Checks:** The RF event of `valid_1_4_0.seq` has `center` NaN (the reader holds -1, D38) and
+**Checks:** The RF event of `valid_1_4_0.seq` has `center` NaN (the reader holds -1, D7.5) and
 `use` `u`.
 
 **How:** The test reads the fixture.
@@ -9972,11 +9973,11 @@ the float32 value of an RF shim phase.
 #### `test_the_rotations_are_the_readers_normalized_quaternions`
 
 **Checks:** A quaternion of norm 1.0005 (within the reader's 1e-3) in a 1.5.1 file is divided by its
-norm in the model of `cpp-siemens` (D49), and in the model of `spec` too (from 1.5.1): both give q0 1.0.
+norm in the model of `cpp-siemens`, and in the model of `spec` too (from 1.5.1, D2.18): both give q0 1.0.
 
 **How:** The test writes a file with a rotation and reads it with both interpreters.
 
-**Assumptions:** The file is 1.5.1: `spec` skips ROTATIONS in a file of an older version (D45).
+**Assumptions:** The file is 1.5.1: `spec` skips ROTATIONS in a file of an older version (D4.6).
 
 #### `test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it`
 
@@ -9993,7 +9994,7 @@ an unknown oversampling mode `ValueError`.
 
 **Checks:** The oversampled gradient of `valid_1_5_1.seq` decodes to all its samples with
 `oversampling="preserve"`, to the even samples ((n + 1) / 2) with `"center"`, and to the odd
-samples ((n - 1) / 2) with `"edge"` (D43).
+samples ((n - 1) / 2) with `"edge"` (D6.1).
 
 **How:** The test decodes the file in each mode with `synth.decode` and compares the samples of
 the oversampled gradient.
@@ -10032,7 +10033,7 @@ normalized quaternions.
 with a rotation) in each setting, and compares `rotations()` with the `rotation` of each block of
 `blocks()`.
 
-**Assumptions:** pulseq-cpp-siemens's tests check the first of two rotations in a block (D48).
+**Assumptions:** pulseq-cpp-siemens's tests check the first of two rotations in a block.
 
 #### `test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation`
 

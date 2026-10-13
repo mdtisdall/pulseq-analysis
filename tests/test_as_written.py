@@ -136,7 +136,7 @@ def test_a_byte_that_is_not_utf_8_is_kept_and_its_offset_given(tmp_path):
 
 def test_blank_and_comment_lines_do_not_end_a_section(tmp_path):
     """A blank or `#` line inside a section is recorded, and the rows after it belong to the
-    section (D06): which rows a reader takes is the reader's choice."""
+    section (D2.5): which rows a reader takes is the reader's choice."""
     path = _write(
         tmp_path,
         "pre 1\n[VERSION]\nmajor 1\n\nminor 5\n# c\nrevision 0\n[BLOCKS]\n  \n1 2 0 0 0 0 0 0\n",
@@ -176,7 +176,7 @@ def test_headers_and_their_names_as_written(tmp_path):
 def test_the_signed_bytes_are_those_of_the_specification(tmp_path):
     """`signed_bytes` is every byte before the `[SIGNATURE]` line, without the `\\n` that ends the
     line before it (spec 2.4). For a LF file it gives the stored md5; for the CRLF fixture, the
-    md5 that docs/discrepancies.md (D53) gives for the rule of the specification."""
+    md5 that the rule of the specification gives (spec:223)."""
     signed = read_as_written(SEQFILES / "valid_1_5_1.seq").signed_bytes()
     raw = (SEQFILES / "valid_1_5_1.seq").read_bytes()
     assert signed == raw[: raw.index(b"\n[SIGNATURE]")]
@@ -251,7 +251,7 @@ def test_a_file_with_no_version_has_the_columns_of_1_5(tmp_path):
 
 
 def test_each_field_is_read_by_the_kind_of_its_column(tmp_path):
-    """The fields of D14 as written: `30.5` in an integer column is not an int, `+30` is 30,
+    """The fields of the tables as written (spec:176, spec:293-455): `30.5` in an integer column is not an int, `+30` is 30,
     `nan` is a float, a row of 7 values lacks its eighth, and a row of 9 keeps the ninth."""
     path = _write(
         tmp_path,
@@ -338,7 +338,7 @@ def test_the_other_spaces_are_the_white_space_of_str_split():
 
 def test_the_shapes_and_their_rows(tmp_path):
     """A `shape_id` line starts a shape, the line right after it is its `num_samples` line, and
-    its rows run to the next `shape_id` line, past a blank line (D07 is a reader's choice)."""
+    its rows run to the next `shape_id` line, past a blank line (D3.11 is a reader's choice)."""
     path = _write(
         tmp_path,
         "[SHAPES]\n0.5\n\nshape_id 1\nnum_samples 2\n1\n2\n\n3\nshape_id x\n\nnum_samples 1\n4\n"
