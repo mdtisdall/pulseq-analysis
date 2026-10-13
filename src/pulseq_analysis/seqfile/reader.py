@@ -8,12 +8,14 @@ does not import pypulseq, it uses no default for a value that the file must defi
 not round a number or renumber an ID (a time is converted to seconds). The binary format is not
 read.
 
-The parser reads the file as text (UTF-8) and splits it at the section headers (`[NAME]` and
-`extension STRING_ID type`). Blank lines and lines that start with `#` are allowed between
-sections. Inside a section they end it, as in the MATLAB Pulseq reader `read.m` (the spec is
-silent; the reference implementation decides). A line is blank when it has only white space, and
-a comment when its first non-blank character is `#` (`read.m` tests the first character of the
-line itself). A data line after the end of a section and before the next header is `syntax.line`.
+The parser reads the file through its "as written" reading (`as_written.read_as_written`), which
+splits the text at the section headers (`[NAME]` and `extension STRING_ID type`), keeps every line,
+and types each field by its column; the parser applies the rules to it. Blank lines and lines that
+start with `#` are allowed between sections. Inside a section they end it, as in the MATLAB Pulseq
+reader `read.m` (the spec is silent; the reference implementation decides). A line is blank when it
+has only white space, and a comment when its first non-blank character is `#` (`read.m` tests the
+first character of the line itself). A data line after the end of a section and before the next
+header is `syntax.line`.
 What `read.m` does, by line:
 
 - `[VERSION]`: `readVersion` (lines 471 to 492) reads with `fgetl` from the line after the header,
@@ -35,11 +37,12 @@ What `read.m` does, by line:
   stricter than `read.m` where `read.m` skips lines: a blank or `#` line between `shape_id` and
   `num_samples`, or before the first sample, is `syntax.shape`.
 
-After a section ends, `read.m` reads the next non-comment line as a section header, so a data
-line there is its error "Unknown section code". This reader reports `syntax.line` for it. Each table is read with `numpy.loadtxt` and a
-structured dtype, after a check of the characters of the section. If that fails, a slower reader
-finds every bad row. When the file has a violation, the parser still reads the other tables, so
-the error has all of them, but a check that needs a table with a violation is skipped.
+After a section ends, `read.m` reads the next non-comment line as a section header, so a data line
+there is its error "Unknown section code". This reader reports `syntax.line` for it. A table whose
+rows are clean (`_accept`) takes the values of the "as written" reading; otherwise a slower reader
+reads each cell again and finds every bad row. When the file has a violation, the parser still
+reads the other tables, so the error has all of them, but a check that needs a table with a
+violation is skipped.
 
 The rules, with their source. "Spec" is the Pulseq specification (1.5.3 draft, and 1.4.1 where it
 agrees), by section number; where its prose contradicts its tables and examples (the number of
@@ -140,7 +143,6 @@ does not state, and that the model needs to be defined.
 
 import dataclasses
 import hashlib
-import io
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -150,6 +152,8 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from . import as_written
+from .as_written import AsWritten, read_as_written
 from .model import (
     TABLE_DTYPES,
     Extensions,
@@ -429,12 +433,66 @@ class _Report:
         return SeqFileError(path, kept, omitted)
 
 
-class _Section(NamedTuple):
-    name: str  # for `extension`: "extension STRING_ID"
-    line: int  # the line of the header
-    lines: list[str]  # the stripped lines of the body; "" (a blank line) only in SHAPES
-    nums: list[int]  # the line number of each line
-    args: tuple[str, ...]  # for `extension`: (STRING_ID, type)
+class _Section:
+    """A section as this reader takes it: its first `keep` rows, the rows before the blank or `#`
+    line that ends it (`_sections`). `name` is the section name (`extension STRING_ID` for an
+    `extension` section), `line` the line of its header, `args` the fields of an `extension`
+    header after the word, and `written` the section of the "as written" reading."""
+
+    __slots__ = ("_lines", "args", "keep", "line", "name", "written")
+
+    def __init__(
+        self, name: str, args: tuple[str, ...], written: as_written.Section, keep: int
+    ) -> None:
+        self.name, self.line, self.args = name, written.line, args
+        self.written, self.keep = written, keep
+        self._lines: tuple[list[str], list[int]] | None = None
+
+    @property
+    def lines(self) -> list[str]:
+        """The stripped lines that the reader takes: the rows, and in `[SHAPES]` every line of
+        the section, with "" for a blank or `#` line (they end a shape)."""
+        return self._text()[0]
+
+    @property
+    def nums(self) -> list[int]:
+        """The line number of each line of `lines`."""
+        return self._text()[1]
+
+    def _text(self) -> tuple[list[str], list[int]]:
+        if self._lines is None:
+            rows = self.written.rows
+            found = list(
+                zip(
+                    rows.lines[: self.keep].tolist(),
+                    rows.text.split("\n")[: self.keep],
+                    strict=True,
+                )
+            )
+            if self.name == "SHAPES":
+                found += [(line.number, "") for line in self.written.blank]
+                found += [(line.number, "") for line in self.written.comments]
+                for shape in self.written.shapes:
+                    found.append(shape.line)
+                    if shape.num_samples_line is not None:
+                        found.append(shape.num_samples_line)
+                found.sort()
+            self._lines = [s.strip() for _, s in found], [n for n, _ in found]
+        return self._lines
+
+    def table(self, columns: Sequence[tuple[str, str]]) -> as_written.Table:
+        """The rows that the reader takes, typed by `columns`."""
+        kinds = {"i": "int", "f": "float", "u": "text", "t": "text"}
+        typed = tuple(as_written.Column(n, kinds[k]) for n, k in columns)
+        rows = self.written.rows
+        if self.keep == len(rows) and rows.columns == typed:
+            return rows
+        text = (
+            rows.text
+            if self.keep == len(rows)
+            else "\n".join(rows.text.split("\n", self.keep)[: self.keep])
+        )
+        return as_written._typed(rows.lines[: self.keep], text, typed, "text")
 
 
 class _Table(NamedTuple):
@@ -467,88 +525,82 @@ def read_seqfile(path: str | Path) -> SequenceData:
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
     (see the module docstring), and `OSError` when the file cannot be read.
     """
-    raw = Path(path).read_bytes()
+    written = read_as_written(path)
     report = _Report()
-    data = _build(raw, report)
+    data = _build(written, report)
     if report or data is None:
         raise report.error(str(path))
     return data
 
 
-def _decode(raw: bytes, report: _Report) -> str | None:
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError as error:
-        line = raw.count(b"\n", 0, error.start) + 1
-        report.add("syntax.encoding", None, line, f"byte {error.start} is not UTF-8")
-        return None
+def _encoding(written: AsWritten, report: _Report) -> bool:
+    """Whether the file is UTF-8; reports the first byte that is not."""
+    start = written.not_utf8
+    if start is None:
+        return True
+    line = written.raw.count(b"\n", 0, start) + 1
+    report.add("syntax.encoding", None, line, f"byte {start} is not UTF-8")
+    return False
 
 
-def _split(text: str, report: _Report) -> tuple[dict[str, list[_Section]], list[_Section]]:
-    """The sections of `text`: by name for the named ones, and the `extension` sections in
+def _sections(
+    written: AsWritten, report: _Report
+) -> tuple[dict[str, list[_Section]], list[_Section]]:
+    """The sections of the file: by name for the named ones, and the `extension` sections in
     file order. Reports an unknown section and a line outside any section.
 
     A section ends at a blank line or a line that starts with `#` (the module docstring has the
     lines of `read.m`). A data line after that and before the next header is `syntax.line` and is
     dropped. `[DEFINITIONS]` and `[SIGNATURE]` skip such lines before their first line. In
     `[SHAPES]` both kinds of line are kept as blank lines, which end a shape."""
+    for n in written.preamble.rows.lines.tolist():
+        report.add("syntax.line", None, n, "this line is outside any section")
     named: dict[str, list[_Section]] = {}
     extensions: list[_Section] = []
-    lines: list[str] = []
-    nums: list[int] = []
-    keep_blank = False  # [SHAPES]: blank and comment lines end a shape
-    skip_leading = False  # [DEFINITIONS], [SIGNATURE]
-    check_end = False  # a data line after the end of the section is a violation
-    ended = False
-    where = ""  # the section name of the violations
-    started = False
-    for n, line in enumerate(text.split("\n"), 1):
-        s = line.strip()
-        if not s or s[0] == "#":
-            if keep_blank:
-                lines.append("")
-                nums.append(n)
-            elif started and not (skip_leading and not lines):
-                ended = True
-            continue
-        c = s[0]
-        is_extension = c == "e" and s.startswith("extension") and (len(s) == 9 or s[9] in " \t")
-        if c == "[" or is_extension:
-            started = True
-            ended = False
-            if is_extension:
-                args = tuple(s.split()[1:])
-                section = _Section(f"extension {args[0] if args else ''}".rstrip(), n, [], [], args)
-                extensions.append(section)
-                name = section.name
-            else:
-                name = s[1:-1] if s.endswith("]") else None
-                if name is None or name not in _SECTIONS:
-                    report.add("section.unknown", None, n, f"{s!r} is not a section of the format")
-                    name = ""
-                section = _Section(name, n, [], [], ())
-                if name:
-                    named.setdefault(name, []).append(section)
-            keep_blank = name == "SHAPES"
-            skip_leading = name in ("DEFINITIONS", "SIGNATURE")
-            check_end = bool(name)
-            where = name
-            lines, nums = section.lines, section.nums
-            continue
-        if not started:
-            report.add("syntax.line", None, n, "this line is outside any section")
-            continue
-        if ended and check_end:
+    for section in written.sections:
+        args: tuple[str, ...] = ()
+        if section.extension is not None:
+            args = section.extension
+            name = f"extension {args[0] if args else ''}".rstrip()
+        elif section.name in _SECTIONS:
+            name = section.name
+        else:
+            name = ""
             report.add(
-                "syntax.line",
-                where,
-                n,
-                f"this line follows a blank or # line, which ends the section {where}",
+                "section.unknown",
+                None,
+                section.line,
+                f"{section.header!r} is not a section of the format",
             )
-            continue
-        lines.append(s)
-        nums.append(n)
+        view = _Section(name, args, section, _kept(section, name))
+        if section.extension is not None:
+            extensions.append(view)
+        elif name:
+            named.setdefault(name, []).append(view)
+        if name:
+            for n in section.rows.lines[view.keep :].tolist():
+                report.add(
+                    "syntax.line",
+                    name,
+                    n,
+                    f"this line follows a blank or # line, which ends the section {name}",
+                )
     return named, extensions
+
+
+def _kept(section: as_written.Section, name: str) -> int:
+    """The number of rows of `section` before the blank or `#` line that ends it: the first
+    such line, or in `[DEFINITIONS]` and `[SIGNATURE]` the first after the first row. A section
+    `[SHAPES]` does not end."""
+    rows = section.rows.lines
+    ends = sorted(line.number for line in (*section.blank, *section.comments))
+    if name == "SHAPES" or not ends or not len(rows):
+        return len(rows)
+    if name in ("DEFINITIONS", "SIGNATURE"):
+        ends = [n for n in ends if n > rows[0]]
+        if not ends:
+            return len(rows)
+    return int(np.searchsorted(rows, ends[0]))
 
 
 def _one(named: dict[str, list[_Section]], name: str, report: _Report) -> _Section | None:
@@ -646,44 +698,70 @@ def _read_table(
     (the fields of kind `u` have 8 characters, the fields of kind `t` as many as the longest
     text), or None if the section has a violation. `name` is the section name of the
     violations."""
-    if section is None or not section.lines:
+    if section is None or not section.keep:
         return _Table(_empty(columns), np.zeros(0, np.int64), name)
-    nums = np.array(section.nums, dtype=np.int64)
-    data = None
-    if all(kind != "t" for _, kind in columns):
-        data = _fast_table(section.lines, columns)
+    table = section.table(columns)
+    data = _accept(table, columns)
     if data is None:
         data = _slow_table(section, columns, report, name)
         if data is None:
             return None
-    return _Table(data, nums, name)
+    return _Table(data, table.lines, name)
 
 
 _KIND_DTYPE = {"i": "<i8", "f": "<f8", "u": "<U8", "t": "<U1"}
+_INT_MIN = -(2**63)
 
 
 def _empty(columns: Sequence[tuple[str, str]]) -> np.ndarray:
     return np.zeros(0, np.dtype([(n, _KIND_DTYPE[k]) for n, k in columns]))
 
 
-def _fast_table(lines: list[str], columns: Sequence[tuple[str, str]]) -> np.ndarray | None:
-    """The table by `numpy.loadtxt`, or None if the lines are not clean: a character other
-    than ASCII, a `+` that starts a number (loadtxt accepts it in an integer), a value that is
-    not a number, a float that is not finite, or a `use` that is not one of the letters."""
-    blob = "\n".join(lines)
-    if not blob.isascii() or "+" in blob.replace("e+", "").replace("E+", ""):
+def _stripped_ascii(text: str) -> bool:
+    """Whether each row of `text` (rows joined with `\\n`) is ASCII once stripped."""
+    data = np.frombuffer(text.encode("utf-8", "surrogatepass"), np.uint8)
+    rows = np.unique(
+        np.searchsorted(np.flatnonzero(data == ord("\n")), np.flatnonzero(data >= 0x80))
+    )
+    lines = text.split("\n")
+    return all(lines[i].strip().isascii() for i in rows.tolist())
+
+
+def _accept(table: as_written.Table, columns: Sequence[tuple[str, str]]) -> np.ndarray | None:
+    """The rows of the "as written" `table` when they are clean, or None: then `_slow_table`
+    reads them and reports each bad cell.
+
+    Clean is what `numpy.loadtxt` read before this reader was built on the "as written" reading
+    (the same verdicts and values): ASCII rows with no `+` that starts a number, each of its
+    columns valid, the floats finite and the `use` one of the letters. A table with a text column
+    was always read one cell at a time, so -2**63 in its int columns is not clean either
+    (`_cell` takes integers of absolute value below 2**63)."""
+    text = table.text
+    has_text = any(kind == "t" for _, kind in columns)
+    if not text.isascii() and (has_text or not _stripped_ascii(text)):
         return None
-    dtype = np.dtype([(n, _KIND_DTYPE[k]) for n, k in columns])
-    try:
-        data = np.loadtxt(io.StringIO(blob), dtype=dtype, comments=None, ndmin=1)
-    except ValueError:
+    if "+" in text and "+" in text.replace("e+", "").replace("E+", ""):
         return None
-    for n, kind in columns:
-        if kind == "f" and not np.isfinite(data[n]).all():
+    if (table.counts != len(columns)).any():
+        return None
+    fields = []
+    for name, kind in columns:
+        values = table.values[name]
+        if not table.valid[name].all():
             return None
-        if kind == "u" and not np.isin(data[n], list(_USES)).all():
+        if kind == "f" and not np.isfinite(values).all():
             return None
-    return data
+        if kind == "u":
+            if not np.isin(values, list(_USES)).all():
+                return None
+            values = values.astype(_KIND_DTYPE["u"])
+        if kind == "i" and has_text and (values == _INT_MIN).any():
+            return None
+        fields.append((name, values))
+    out = np.zeros(len(table), np.dtype([(n, v.dtype) for n, v in fields]))
+    for name, values in fields:
+        out[name] = values
+    return out
 
 
 def _slow_table(
@@ -880,7 +958,9 @@ def _read_shapes(section: _Section | None, report: _Report) -> dict[int, _ShapeI
     for i in np.flatnonzero(~covered & np.array([bool(s) for s in lines])).tolist():
         report.add("syntax.shape", "SHAPES", nums[i], "this line is outside a shape")
     sample_lines = [s for _, _, a, b in declared for s in lines[a:b]]
-    samples = _shape_samples(sample_lines, [(nums[a:b]) for _, _, a, b in declared], report)
+    samples = _shape_samples(
+        sample_lines, [(nums[a:b]) for _, _, a, b in declared], report, section.written.rows
+    )
     # A shape with a violation is kept as a placeholder (no samples), so that a reference to it
     # is not reported as unresolved too.
     nothing = np.zeros(0)
@@ -926,20 +1006,27 @@ def _read_shapes(section: _Section | None, report: _Report) -> dict[int, _ShapeI
 
 
 def _shape_samples(
-    sample_lines: list[str], line_numbers: list[Sequence[int]], report: _Report
+    sample_lines: list[str],
+    line_numbers: list[Sequence[int]],
+    report: _Report,
+    table: as_written.Table,
 ) -> np.ndarray | None:
-    """The values of the sample lines of all shapes, or None if one is not a finite number."""
+    """The values of the sample lines of all shapes, or None if one is not a finite number.
+    `table` is the "as written" table of the samples of `[SHAPES]`."""
     if not sample_lines:
         return np.zeros(0)
-    blob = "\n".join(sample_lines)
-    if blob.isascii() and "+" not in blob.replace("e+", "").replace("E+", ""):
-        try:
-            values = np.loadtxt(io.StringIO(blob), dtype=np.float64, comments=None, ndmin=1)
-        except ValueError:
-            values = None
-        if values is not None and np.isfinite(values).all():
-            return values
     numbers = [n for nums in line_numbers for n in nums]
+    wanted = np.array(numbers, dtype=np.int64)
+    row = np.minimum(np.searchsorted(table.lines, wanted), max(len(table) - 1, 0))
+    if len(table):
+        values = table.values["sample"][row]
+        if (
+            (table.lines[row] == wanted).all()
+            and (table.counts[row] == 1).all()
+            and table.valid["sample"][row].all()
+            and np.isfinite(values).all()
+        ):
+            return values
     bad = False
     for s, n in zip(sample_lines, numbers, strict=True):
         if not _NUMBER.fullmatch(s) or not np.isfinite(float(s)):
@@ -1630,12 +1717,11 @@ def _check_trigger_ends(
     )
 
 
-def _build(raw: bytes, report: _Report) -> SequenceData | None:
-    """The model of `raw`, or None; every violation goes to `report`."""
-    text = _decode(raw, report)
-    if text is None:
+def _build(written: AsWritten, report: _Report) -> SequenceData | None:
+    """The model of the file `written`, or None; every violation goes to `report`."""
+    if not _encoding(written, report):
         return None
-    named, extension_sections = _split(text, report)
+    named, extension_sections = _sections(written, report)
     version = _read_version(_one(named, "VERSION", report), report)
     if version is None:
         return None
@@ -1676,7 +1762,7 @@ def _build(raw: bytes, report: _Report) -> SequenceData | None:
     for table in (f.blocks, f.rf, f.grad, f.trap, f.adc, f.entries):
         _check_table_ids(report, table)
         _check_non_negative(report, table)
-    signature = _read_signature(_one(named, "SIGNATURE", report), raw, report)
+    signature = _read_signature(_one(named, "SIGNATURE", report), written.raw, report)
     if f.blocks is not None and len(f.blocks.data) == 0:
         report.add("blocks.empty", "BLOCKS", None, "the file has no block")
     _check_block_order(report, f.blocks)
