@@ -80,6 +80,8 @@ NOT_CHECKED_BY_THE_READER = {
     "bad_ref_extension_entry.seq": "D21",
     "bad_ref_extension_object.seq": "D21",
     "bad_ref_extension_type.seq": "D21",
+    "bad_ref_shape.seq": "D21 (accepted by the Linux build; the macOS build crashes: the reader takes "
+    "a null reference to the missing shape, ExternalSequence.cpp:1995 and 2177)",
     "bad_ref_time_id_minus_1_in_1_4.seq": "D22",
     "bad_section_duplicate.seq": "D10",
     "bad_section_duplicate_extension.seq": "D10",

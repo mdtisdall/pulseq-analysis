@@ -7745,9 +7745,9 @@ the test:
   accepts, because the oracle does not check the rule. Each file has the entry of
   `docs/discrepancies.md` that explains it (D04, D06, D07, D10, D14, D17, D19, D21, D22, D24, D25,
   D26, D27, D29, D30, D33, D36, D39, D43, D44, D48, D54). A file that `spec` rejects and that is not in the
-  table must be rejected, or crash, in the oracle. `bad_shape_empty.seq` and
+  table must be rejected, or crash, in the oracle. `bad_ref_shape.seq`, `bad_shape_empty.seq` and
   `bad_syntax_shape_no_blank_line.seq` are there because the Linux build accepts them (the macOS
-  build crashes), and `undefined/shape_decompress_longer.seq` because the macOS build accepts it.
+  build crashes; `bad_ref_shape.seq` was found by CI on the Linux build), and `undefined/shape_decompress_longer.seq` because the macOS build accepts it.
 - `ORACLE_KNOWN_WRONG`: a file that `spec` reads and that the oracle rejects or crashes on, not
   compared. Each has its entry: `bad_shape_rf_time_end.seq` and `valid_rf_time_shapes.seq` (D36: the
   oracle crashes on the macOS build, the resampling reads past the stored samples),
