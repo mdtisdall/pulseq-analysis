@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import inspect
 import math
@@ -5,7 +10,6 @@ import pickle
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from oracles import grad_spectrum as oracle
 from oracles.blocks import sequence_of
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst

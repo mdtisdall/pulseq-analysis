@@ -2656,6 +2656,7 @@ def test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed():
     )
 
 
+@pytest.mark.pypulseq
 def test_files_of_pypulseq_are_read(tmp_path):
     """The parser reads files that pypulseq writes (the sequences of `scale_sequences`)."""
     pytest.importorskip("pypulseq")
@@ -2670,6 +2671,7 @@ def test_files_of_pypulseq_are_read(tmp_path):
         assert data.signature is not None
 
 
+@pytest.mark.pypulseq
 def test_tables_agree_with_pypulseq_read_without_merging(tmp_path):
     """Compare, not trust: where pypulseq can read an oracle file (`remove_duplicates=False`),
     its block table, block durations, trapezoids and shapes are those of the model."""

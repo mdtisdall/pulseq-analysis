@@ -11,11 +11,15 @@ the tests through `cpp-siemens` and its settings are in the plugin's tests
 (`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`).
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import pathlib
 import warnings
 
 import numpy as np
-import pytest
 from test_snapshot import Unrotated
 
 from pulseq_analysis.analyses import load

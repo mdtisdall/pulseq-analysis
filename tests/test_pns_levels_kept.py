@@ -1,6 +1,10 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import numpy as np
 import pypulseq as pp
-import pytest
 from pns_hardware import BAD_STRUCTS, NOT_A_PAIR
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw

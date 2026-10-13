@@ -54,7 +54,10 @@ from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_seqfile
 from pulseq_analysis.seqfile.model import SequenceData
 from pulseq_analysis.synth import _events, events, sampling, seq_index
 
-pytestmark = pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
+pytestmark = [
+    pytest.mark.cpp_oracle,
+    pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH"),
+]
 
 # The relative tolerance of a value: the reader holds its values as `float` (32 bits).
 REL = 1e-6

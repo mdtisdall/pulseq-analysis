@@ -7,10 +7,14 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
-    "pypulseq>=1.5.0.post1",
     "numpy",
     "scipy",
 ]
+
+# pypulseq is optional: no module of the package imports it. `load(seq)` and `read_pypulseq`
+# take a `pypulseq.Sequence`, which only a caller with pypulseq has.
+[project.optional-dependencies]
+pypulseq = ["pypulseq>=1.5.0"]
 
 # The analyses of this package (`pulseq_analysis.analyses.registry`): the name of an entry point
 # is the ID of the analysis.
@@ -31,16 +35,18 @@ packages = ["src/pulseq_analysis"]
 [dependency-groups]
 dev = [
     "import-linter",
+    "pypulseq",
     "pytest",
     "ruff",
 ]
 
-# pypulseq 1.5.0.post1 with six commits, from the fork (tag pulseq-reports-pin-2, branch
-# pulseq-reports-pin): the SAFE PNS filter as a recursion, calc_pns in chunks, the
-# get_block fix for oversampled arbitrary gradients (upstream PR #424), the read fix of
-# upstream #359, the [SIGNATURE] hash read as text (pypulseq-issues 09), and
-# signature_file 'text' after read (upstream PR #428). TODO.md ("Move from the pypulseq
-# fork to a pypulseq release") lists them.
+# pypulseq for the tests and the scripts (the `dev` group) and for the extra: 1.5.0.post1 with six
+# commits, from the fork (tag pulseq-reports-pin-2, branch pulseq-reports-pin): the SAFE PNS
+# filter as a recursion, calc_pns in chunks, the get_block fix for oversampled arbitrary
+# gradients (upstream PR #424), the read fix of upstream #359, the [SIGNATURE] hash read as text
+# (pypulseq-issues 09), and signature_file 'text' after read (upstream PR #428). TODO.md ("Move
+# from the pypulseq fork to a pypulseq release") lists them. The tests stay on the fork: its
+# chunked calc_pns makes them much faster than with the release.
 # uv also applies this source for a project that depends on pulseq-analysis by git URL; pip
 # does not.
 [tool.uv.sources]
@@ -66,3 +72,31 @@ exhaustive = true
 [tool.ruff]
 line-length = 100
 extend-exclude = [".worktrees"]
+
+# pypulseq is optional (`[project.optional-dependencies]`): the package must not import it.
+# TID251 bans any import of it, TID253 an import at the top of a module. The tests and the
+# scripts run with the `dev` group, which has it; a test module that needs it has the `pypulseq`
+# marker. `seqfile/from_pypulseq.py` may import it in a function.
+[tool.ruff.lint]
+extend-select = ["TID251", "TID253"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+banned-module-level-imports = ["pypulseq"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"pypulseq".msg = "pypulseq is an optional dependency of pulseq-analysis"
+
+[tool.ruff.lint.per-file-ignores]
+# E402: a test module that needs pypulseq calls `pytest.importorskip("pypulseq")` before its
+# other imports.
+"tests/**" = ["TID251", "TID253", "E402"]
+"packages/*/tests/**" = ["TID251", "TID253"]
+"scripts/**" = ["TID251", "TID253"]
+"src/pulseq_analysis/seqfile/from_pypulseq.py" = ["TID251"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers"]
+markers = [
+    "pypulseq: needs pypulseq; scripts/check also runs the tests without pypulseq, with -m 'not pypulseq'",
+    "cpp_oracle: needs pulseq-cpp-oracle on the PATH (the Nix devShell); skipped without it",
+]

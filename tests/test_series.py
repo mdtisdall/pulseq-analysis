@@ -4,6 +4,11 @@
 `encode_array` writes an array in the form of `encode_tables` of pulseq-reports.
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import base64
 import copy
 import gzip
@@ -16,7 +21,6 @@ from dataclasses import replace
 from fractions import Fraction
 
 import numpy as np
-import pytest
 from scale_sequences import build_repeating
 from synthetic import (
     EXAMPLE_HW,

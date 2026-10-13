@@ -625,6 +625,22 @@ with the move to a release (step 2).
    A module that imports pypulseq without the marker fails its collection
    here: that is the guard.
 
+**Decisions during task 5b (the user, 2026-10-13).**
+
+- The tests stay on the fork: the `dev` group keeps pypulseq from
+  `[tool.uv.sources]` (commit `3c3bd85`), not the latest PyPI release. The fork's
+  `calculate_pns` in chunks makes the tests much faster (a run with 1.5.0.post1
+  had not ended after 10 minutes). So step 3 has no test to list, and `TODO.md`'s
+  pin item stays open, reworded: the package no longer depends on pypulseq.
+- `read_pypulseq` is not changed for the `KeyError` of `remove_duplicates` on an
+  oversampled arbitrary gradient: the fork raises it too, as does
+  `seq.write(path)`.
+- ruff's TID251 and TID253 are off for `scripts/**` too: the scripts are in use
+  (`doc_figures.py`, `time_pns_levels.py`, `time_measurements.py`) and run with
+  the `dev` group.
+- The group `analysis` of `packages/pulseq-cpp-siemens` is
+  `pulseq-analysis[pypulseq]`, because its tests import pypulseq.
+
 | Agent | Tier | Owns |
 |---|---|---|
 | main | — | step 1, `pyproject.toml`, `uv.lock`, `TODO.md`, `TESTS.md`, `CHANGELOG.md` |

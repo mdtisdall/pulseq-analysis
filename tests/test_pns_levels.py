@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import dataclasses
 import itertools
@@ -7,7 +12,6 @@ from fractions import Fraction
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from asserts import assert_levels_equal
 from pns_hardware import hardware_for_peak
 from pypulseq.utils.safe_pns_prediction import safe_example_hw

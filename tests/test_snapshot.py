@@ -19,6 +19,11 @@ The results that the tests compare are the index, the event points, the samples 
 and the four measurements of the gradients with their default arguments.
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import dataclasses
 import pathlib
@@ -27,7 +32,6 @@ import warnings
 from typing import Any, ClassVar
 
 import pypulseq as pp
-import pytest
 from synthetic import (
     EXAMPLE_HW,
     arbitrary_gradient_sequence,

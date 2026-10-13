@@ -1,10 +1,14 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import dataclasses
 import math
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from asserts import assert_block_values_equal
 from gap_sequences import (
     DT,

@@ -43,10 +43,12 @@ With uv, from the git URL:
 uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc6"
 ```
 
-The package needs pypulseq 1.5.0.post1 with six commits that are not in a
-release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`. uv
-applies this pin for a project that depends on `pulseq-analysis` by git URL.
-pip does not.
+The tag `v0.1.0rc6` needs pypulseq 1.5.0.post1 with six commits that are not
+in a release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`.
+uv applies this pin for a project that depends on `pulseq-analysis` by git
+URL. pip does not. On `main`, pypulseq is optional: the package does not
+import it, and it is the extra `pypulseq` (`pulseq-analysis[pypulseq]`), which
+uv resolves to the same fork.
 
 On `main`, `read_seqfile` takes the interpreter `spec` (the default, as true as
 possible to the Pulseq specification) and the interpreters that other

@@ -37,7 +37,8 @@ Contents:
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
-   written" reading; the plugin interpreters; a pypulseq sequence in memory
+   written" reading; the plugin interpreters; a pypulseq sequence in memory; the
+   imports of the package; the package without pypulseq
 3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
    the checks of undefined behaviour; the digests of the driver's output; the
    driver of the C++ oracle; the reader's shared state; the cases of undefined
@@ -67,17 +68,28 @@ environment.
 ### Lint
 
 **Checks:** The Python code has no findings from the rules that ruff turns on
-by default.
+by default, and the package does not import pypulseq.
 
 **How:** ruff checks every Python file in the repository. The project sets
-only the line length (100), so ruff uses its default rule set. `uv.lock` has
-ruff 0.16.9.
+the line length (100) and adds two rules to ruff's default set: TID251 with
+`pypulseq` as a banned API (any import of it) and TID253 with `pypulseq` as a
+banned module-level import. pypulseq is an optional dependency (the extra
+`pypulseq`), so `src/` must not import it. The per-file ignores turn both off
+for `tests/**`, `packages/*/tests/**` and `scripts/**`, which run with the
+`dev` group, and TID251 for `src/pulseq_analysis/seqfile/from_pypulseq.py`,
+which may import pypulseq inside a function (it does not). E402 (an import
+after code) is off for `tests/**`, for the header of a test module that needs
+pypulseq (see [Tests without pypulseq](#tests-without-pypulseq)). `uv.lock`
+has ruff 0.16.9.
 
 **Assumptions:**
 
-- The rule set is ruff's default, not a choice that the project makes. The
-  project does not pin ruff in `pyproject.toml`, so an update of ruff in
-  `uv.lock` can add or remove rules.
+- Apart from the two rules, the rule set is ruff's default, not a choice that
+  the project makes. The project does not pin ruff in `pyproject.toml`, so an
+  update of ruff in `uv.lock` can add or remove rules.
+- A name imported with `importlib` is not found by ruff. `test_imports.py`
+  (section 2.29) finds a module that imports pypulseq when it is imported,
+  and `test_without_pypulseq.py` (section 2.30) runs the package without it.
 - Some common rules are not in the default set, so ruff does not report them:
   line length (E501), function complexity (C901), `print` calls (T201),
   `assert` statements (S101), too many arguments (PLR0913) and magic numbers
@@ -106,6 +118,40 @@ The line length is 100.
 - Only these two files are checked. A new shell script is not checked until
   it is added to the list in `scripts/check`.
 - Info and style findings do not fail the check.
+
+### Tests without pypulseq
+
+**Checks:** The tests that do not need pypulseq pass in an environment
+without it, and each test module that needs pypulseq says so.
+
+**How:** After the pytest run of the dev environment, `scripts/check` runs
+`uv run --no-dev --isolated --with pytest pytest -q -m "not pypulseq" tests`:
+an environment with the package, its dependencies (numpy and scipy) and pytest,
+and without the `dev` group, so without pypulseq. `pyproject.toml` declares the
+markers `pypulseq` and `cpp_oracle`, and pytest runs with `--strict-markers`,
+so a misspelt marker fails. A test module that needs pypulseq (directly or
+through `synthetic.py`, `gap_sequences.py`, `random_gaps.py`,
+`scale_sequences.py` or the oracles of `tests/oracles/`) starts, after its
+docstring, with `pytestmark = pytest.mark.pypulseq` and
+`pytest.importorskip("pypulseq")`, before its other imports: without pypulseq,
+the module is skipped. A single test that needs pypulseq has the marker on the
+test, and `-m "not pypulseq"` leaves it out. `tests/conftest.py` and
+`tests/pns_hardware.py` do not import pypulseq: the example SAFE hardware of
+the tests is `pns_hardware.EXAMPLE_HARDWARE` and `pns_hardware.safe_example_hw()`,
+with the numbers of pypulseq's `safe_example_hw()`, which a test of section 2.21
+checks. The modules of the C++ oracle have the marker `cpp_oracle`.
+
+**Assumptions:**
+
+- A module that imports pypulseq without the marker and the `importorskip`
+  fails its collection in this run: that is the guard. A module that imports
+  pypulseq only inside a test function without the marker is not found until
+  the test runs.
+- The dev environment pins pypulseq from the fork (`[tool.uv.sources]`), and
+  the tests with the marker run only with the fork. No check runs the tests
+  with a pypulseq release.
+- The tests of `packages/pulseq-cpp-siemens` are not run without pypulseq:
+  their environment has pulseq-analysis with its extra `pypulseq`.
 
 ### TESTS.md coverage
 
@@ -7180,12 +7226,15 @@ exists, or that it explains the file.
 `test_safe.py` tests `safe.py`: `SafeAxis` and `SafeHardware` (immutable, checked when they are
 made), `SafeHardware.from_namespace` (the form of pypulseq's `asc_to_hw` and
 `safe_example_hw()`), and `_safe_gwf_to_pns_chunk`, the chunked SAFE filter that `pns_levels`
-runs. The module is ported from pypulseq's `safe_hw_check` and `_safe_gwf_to_pns_chunk`; the
-tests that compare with the functions of the pinned fork use `pytest.importorskip` of
-`pypulseq.utils.safe_pns_prediction` and compare exactly (`numpy.testing.assert_array_equal`
-or `==`), because the port does the same float operations. The test file has its own copy of
-the numbers of pypulseq's example hardware (`_EXAMPLE_AXES`), and one test compares the copy
-with `safe_example_hw()`.
+runs. The module is ported from pypulseq's `safe_hw_check` and `_safe_gwf_to_pns_chunk`, which
+only the pinned fork has as the tests use them. The tests that compare with them compare with
+golden values, the outputs of the fork's functions for the same inputs, in
+`tests/golden/safe_fork.npz`: `tests/golden/make_golden.py` wrote them with the fork pinned,
+and `tests/golden/README.md` gives the fork commit. The comparisons are exact
+(`numpy.testing.assert_array_equal` or `==`), because the port does the same float operations.
+The numbers of pypulseq's example hardware are those of `pns_hardware.EXAMPLE_AXES`, and one
+test compares them with `safe_example_hw()`. Only that test and the comparison of the levels
+(which builds synthetic sequences) need pypulseq; they have the marker `pypulseq`.
 
 #### `test_a_safe_axis_keeps_its_fields_as_floats_and_is_frozen`
 
@@ -7306,53 +7355,64 @@ for the samples of one chunk or of the next.
 
 **Assumptions:** None.
 
-#### `test_the_example_numbers_of_these_tests_are_those_of_pypulseqs_example_hardware`
+#### `test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware`
 
-**Checks:** The numbers of `_EXAMPLE_AXES` are the numbers of `safe_example_hw()`.
+**Checks:** `pns_hardware.safe_example_hw()` has the attributes and values of pypulseq's
+`safe_example_hw()` (the name, `checksum`, `dependency` and the nine fields of each axis), and
+`pns_hardware.EXAMPLE_HARDWARE` equals `SafeHardware.from_namespace` of pypulseq's.
 
-**How:** `pytest.importorskip` of pypulseq's module; the test compares the nine fields of each
-axis with `==`.
+**How:** Marker `pypulseq`, and `pytest.importorskip` of pypulseq's module; the test compares
+the `vars` of the namespaces and their axes with `==`.
 
 **Assumptions:** None.
 
-#### `test_the_chunk_function_equals_pypulseqs_for_every_chunk_and_state`
+#### `test_the_chunk_function_equals_the_forks_for_every_chunk_and_state`
 
 **Checks:** The rows and the state of each chunk equal those of `_safe_gwf_to_pns_chunk` of the
-pinned fork, exactly, for the example hardware and for hardware with other numbers in every
-field (the filters differ, the `a` sum is 1), at the rasters 10 µs and 2.5 µs.
+pinned fork (the golden values), exactly, for the example hardware and for hardware with other
+numbers in every field (the filters differ, the `a` sum is 1), at the rasters 10 µs and 2.5 µs.
 
-**How:** Parametrized over the hardware and the raster, with `pytest.importorskip`. A random
-walk of 2000 samples goes through chunks of 1, 1, 698, 1 and 1299 samples; each function gets
-the state that it returned.
+**How:** Parametrized over the hardware and the raster. A random walk of 2000 samples
+(`chunk_waveform`) goes through chunks of 1, 1, 698, 1 and 1299 samples (`CHUNKS`); the
+function gets the state that it returned. The rows, `g_last` and `zi` of each chunk are compared
+with the keys `chunk/<hardware>/<raster>/<i>/...` of the golden file.
 
-**Assumptions:** The random walk is a waveform, not a gradient of a real sequence.
+**Assumptions:** The random walk is a waveform, not a gradient of a real sequence. The golden
+values are those of the fork commit of `tests/golden/README.md`; a change of the inputs needs
+`make_golden.py` to run again with the fork.
 
-#### `test_the_hardware_check_accepts_and_refuses_what_pypulseqs_safe_hw_check_does`
+#### `test_the_hardware_check_accepts_and_refuses_what_the_forks_safe_hw_check_does`
 
-**Checks:** `SafeHardware.from_namespace` accepts a namespace if and only if pypulseq's
-`safe_hw_check` does: an `a` sum 0.0009 from 1 on `x` and `y` (valid), and 0.0011 from 1 on
-`x` and `z`, a sum of 5.6, no `x`, no `y.stim_thresh` and no `z.g_scale` (not valid).
+**Checks:** `SafeHardware.from_namespace` accepts a namespace if and only if the fork's
+`safe_hw_check` does (the golden values): an `a` sum 0.0009 from 1 on `x` and `y` (valid), and
+0.0011 from 1 on `x` and `z`, a sum of 5.6, no `x`, no `y.stim_thresh` and no `z.g_scale` (not
+valid).
 
-**How:** Parametrized over eight namespaces, with `pytest.importorskip`. A refusal of
-`safe_hw_check` is a `ValueError` (or an `AttributeError`, for a namespace with no `x`); a
-refusal of `from_namespace` is a `ValueError`.
+**How:** Parametrized over the eight namespaces of `HW_CHECK_CASES`. The golden value of a case
+is whether `safe_hw_check` returned (a refusal was a `ValueError`, or an `AttributeError` for a
+namespace with no `x`); a refusal of `from_namespace` is a `ValueError`.
 
 **Assumptions:** `safe_hw_check` does not check that a field is finite, a number or above 0.
 `from_namespace` does, and the test does not compare that.
 
-#### `test_pns_levels_equals_the_levels_with_pypulseqs_chunk_function_exactly`
+#### `test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly`
 
-**Checks:** `_compute_levels` gives the same `PnsLevels` (`==`) with the package's chunk
-function as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place.
+**Checks:** `_compute_levels` with the package's chunk function gives the same fields of
+`PnsLevels` as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden
+values): the level, the summary and the intervals above each threshold.
 
-**How:** Parametrized over the four sequences of the comparison with `calculate_pns` and over
-the default bin and bins of one sample, with `pytest.importorskip`. `_CHUNK_SAMPLES` is 1000,
-so the state passes from chunk to chunk; two thresholds make intervals (the test checks that
-some interval exists and that the peak is above 0). The first result is with the package's
-function; `monkeypatch` then sets `_safe_gwf_to_pns_chunk` of
-`pulseq_analysis.analyses.pns_levels` to the fork's, and the second result is compared with the first.
+**How:** Marker `pypulseq` (the sequences are built with it). Parametrized over the four
+sequences of the comparison with `calculate_pns` and over the default bin and bins of one
+sample. `_CHUNK_SAMPLES` is 1000, so the state passes from chunk to chunk; two thresholds make
+intervals (the test checks that some interval exists and that the peak is above 0).
+`levels_arrays` gives the fields as arrays (`num_samples`, `bin_samples`, the two levels, the
+peak, its time, the axis peaks, `on_raster`, and the rows `start_s, end_s, peak_hz_per_t,
+peak_time_s, num_samples` of the intervals of each threshold); each must have the dtype, shape
+and values of its golden array, and the set of names must be that of the golden file.
 
-**Assumptions:** The sequences are the synthetic sequences, with the example hardware.
+**Assumptions:** The sequences are the synthetic sequences, with the example hardware, as
+pypulseq builds them in the dev environment (the fork). The fields that the chunk function does
+not change (`reason`, `hardware`, `hw`, `dt_s`) are not compared.
 
 #### `test_safe_and_asc_import_neither_pypulseq_nor_matplotlib`
 
@@ -8537,6 +8597,67 @@ sequence (a path) raises `TypeError` that names `pypulseq.Sequence`.
 **How:** The test calls `read_pypulseq` with each.
 
 **Assumptions:** None.
+
+### 2.29 The imports of the package (`test_imports.py`)
+
+`test_imports.py` tests that the package imports without pypulseq and matplotlib: pypulseq is an
+optional dependency (the extra `pypulseq`), and the package draws nothing.
+
+#### `test_the_package_and_each_module_import_neither_pypulseq_nor_matplotlib`
+
+**Checks:** A new interpreter that imports `pulseq_analysis` and each of its modules has no
+module of `pypulseq` or `matplotlib` in `sys.modules`.
+
+**How:** A subprocess imports the package, lists its modules with `pkgutil.walk_packages`
+(the subpackages and their modules), imports each with `importlib.import_module`, and checks
+`sys.modules`. The test checks that more than 10 modules were found.
+
+**Assumptions:** The test runs in the dev environment, where pypulseq is installed, so an
+import of it would be found. A module that imports pypulseq only when a function runs is not
+found (`test_without_pypulseq.py` runs the functions).
+
+### 2.30 The package without pypulseq (`test_without_pypulseq.py`)
+
+`test_without_pypulseq.py` tests that the package works without pypulseq. A subprocess sets
+`sys.modules["pypulseq"] = None`, so `import pypulseq` raises `ImportError` (the subprocess
+checks it), then loads each `.seq` file of `tests/seqfiles/oracle/` with `load(path)`, skips a
+file that `spec` rejects (`SeqFileError` or `NotSupported`), runs `compute` and then
+`to_series` of each analysis of `registry()` on each snapshot (`pns.safe.levels` with the
+hardware `(pns_hardware.EXAMPLE_HARDWARE, label)`, the others with their defaults), and calls
+`read_pypulseq(object())`. It prints what it loaded and ran as JSON; the module fixture runs it
+one time, and each test reads its output.
+
+#### `test_load_reads_the_oracle_files_that_it_reads_with_pypulseq`
+
+**Checks:** The oracle files that load without pypulseq are those that load in the test's own
+interpreter, and there is at least one.
+
+**How:** The test loads each oracle file in its own interpreter, with the same skip, and
+compares the lists of names.
+
+**Assumptions:** Only `load(path)` with the default interpreter `spec` is run. The results are
+not compared with those of the dev environment, only run.
+
+#### `test_each_analysis_of_the_registry_runs_on_each_oracle_file`
+
+**Checks:** `compute` and `to_series` of each analysis of the registry ran without an error for
+each file that loaded, and the registry has `pns.safe.levels`.
+
+**How:** The test compares the list of `file:analysis` pairs that the subprocess ran with each
+loaded file times each analysis ID.
+
+**Assumptions:** The optional parameters have their defaults (no `window`, no thresholds).
+
+#### `test_read_pypulseq_refuses_an_object_that_is_not_a_sequence`
+
+**Checks:** Without pypulseq, `read_pypulseq` imports, and refuses an object that is not a
+pypulseq sequence with its `TypeError` ("read_pypulseq takes a pypulseq.Sequence").
+
+**How:** The subprocess calls `read_pypulseq(object())` and records the message.
+
+**Assumptions:** `read_pypulseq` needs pypulseq only through its argument: without pypulseq, a
+caller has no sequence to give it, so no `ImportError` that names the extra is needed
+(docs/plans/own-parser-tasks.md, section 8, after R14).
 
 ## 3. The package pulseq-cpp-siemens
 

@@ -1,8 +1,12 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import math
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from gap_sequences import (
     DT,
     A,

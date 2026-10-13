@@ -1,9 +1,13 @@
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
 import pypulseq as pp
-import pytest
 from synthetic import (
     GAMMA_1H,
     SYSTEM,

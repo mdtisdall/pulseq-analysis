@@ -4,6 +4,11 @@ The registry of the entry-point group `pulseq_analysis.analyses`, the specificat
 analysis of the package, `compute`, and `to_series` of `pns.safe.levels` (design section 4.4).
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import dataclasses
 import importlib.metadata
 import inspect
@@ -11,7 +16,6 @@ import re
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 from pns_hardware import hardware_for_peak
 from synthetic import (
     EXAMPLE_HW,

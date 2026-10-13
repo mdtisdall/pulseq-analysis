@@ -6,6 +6,11 @@ loop that `diagram_data.diagram_tables` had before it used the index. Its `*_fir
 lists hold play indexes, as `SequenceIndex` does (the old loop kept block ids).
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import dataclasses
 import tracemalloc
@@ -14,7 +19,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from oracles.blocks import sequence_of
 from scale_sequences import build_repeating, build_worst
 from synthetic import (

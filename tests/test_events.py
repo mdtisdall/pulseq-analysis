@@ -5,13 +5,17 @@ tests of the kept results are here too: a measurement gives the same object for 
 a windowed `gradient_peaks` uses the kept values of the events, and a kept result does not keep
 its snapshot alive."""
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import dataclasses
 import gc
 import weakref
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from synthetic import (
     EXAMPLE_HW,
     SYSTEM,

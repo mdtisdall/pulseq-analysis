@@ -1,5 +1,5 @@
 import pytest
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
+from pns_hardware import safe_example_hw
 
 
 def pytest_addoption(parser):
