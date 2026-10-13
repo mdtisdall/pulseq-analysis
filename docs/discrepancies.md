@@ -5,7 +5,9 @@ file is read disagree, or where they leave a question open. For each one it
 gives what each source does, an example, and what the interpreter `spec` of
 pulseq-analysis does and why. It records the package as it is on 2026-10-13.
 The sources and the runs on them are those of 2026-10-09, unless an entry says
-otherwise.
+otherwise. [`docs/specification.md`](specification.md) gives the same
+decisions by rule: the rule of `spec`, each place where the rule does not
+decide, and the codes of its rejections, with the IDs of this record.
 
 The other interpreter, `cpp-siemens`, has its own record:
 [`packages/pulseq-cpp-siemens/docs/specification.md`](../packages/pulseq-cpp-siemens/docs/specification.md),

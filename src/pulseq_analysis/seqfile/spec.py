@@ -19,7 +19,8 @@ rejects the file (Q4). Where they are silent or unclear, section 6 of the plan g
 makers and writers) writes such a file (the user, 2026-10-12). Every rule records its basis in
 `RULES`: the text that it rests on, and, for a rule that is the package's choice, why; the message
 of each such violation says that the specification does not state the rule, and why `spec`
-rejects the file. `docs/discrepancies.md` gives, entry by entry, what `spec` does and why.
+rejects the file. `docs/specification.md` gives the rule, each place where it does not decide,
+and the codes; `docs/discrepancies.md` gives, entry by entry, what `spec` does and why.
 
 **Lines and sections.** The reader reads the file through its "as written" reading
 (`as_written.read_as_written`). A blank line and a line that starts with `#` are skipped anywhere,
