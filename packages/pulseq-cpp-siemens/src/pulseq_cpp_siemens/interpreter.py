@@ -8,7 +8,9 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
 `docs/specification.md` of this package gives what it does and why: the rule, and each exception.
 
 - `CppSiemens`: the interpreter, with its settings (`oversampling`, `rotation`); its `read`
-  gives the model (`SequenceData`), and its `decode` the decoding (`CppSiemensDecoding`).
+  gives the model (`SequenceData`), and its `decode(data, session)` the decoding
+  (`CppSiemensDecoding`) under a scanner session (`pulseq_analysis.synth.Session`). It implements
+  version 1 of the plugin protocol of pulseq-analysis (`protocol`, P22).
 - `CODES`: the code of each rejection, with the ID of its condition (`docs/specification.md`).
 
 `CppSiemens.read(path)` (`read_cpp_siemens`) reads a file in four steps:
@@ -51,6 +53,11 @@ file in the last digits of float32 (D7.2). Where the reader differs from `spec`:
 - `extensions`: `rotations` are the reader's quaternions, divided by their norm (D6.2; the rotation
   of each block, as `GetBlock` attaches it, is `reading.block_rotations()`);
   `skipped_extensions` the extensions that the reader does not know (D2.17 in `spec`).
+- `records`: what the reader ignored (rule 4 of P20): an extension that it does not know
+  (`"extension"`, reason `"unknown"`), and a row of LABELSET or LABELINC whose label
+  `decodeLabel` does not know, which the reader leaves out (`"label"`, reason `"unknown"`): for
+  example `NOSLC`, the specification's spelling of the reader's `NOSCL`, and `PMC` and `TRID`,
+  which the reader ignores (D6.4).
 - `signature`: `matches` is the reader's check of its MD5 hash.
 """
 
@@ -70,11 +77,21 @@ from pulseq_analysis.seqfile.model import (
     TABLE_DTYPES,
     Extensions,
     Rasters,
+    Record,
     SequenceData,
     Shape,
     Signature,
 )
-from pulseq_analysis.synth.scanner import RotationRecord
+from pulseq_analysis.synth.scanner import (
+    FovRecord,
+    RotationRecord,
+    Session,
+    SoftDelay,
+    fov_flags,
+    fov_record,
+    physical_gradients,
+    soft_delay_durations,
+)
 
 __all__ = [
     "CODES",
@@ -112,9 +129,17 @@ class CppSiemens:
     `rotate_vec3_by_quat`, in any version of the file. `"apply"` is the simulation of the
     scanner: the scanner's behaviour for a file older than 1.5.1, the revision that defines the
     extension, is not known (the user, 2026-10-12). It is valid on a file with no rotation, and
-    then rotates no block."""
+    then rotates no block.
+
+    The scanner session (`pulseq_analysis.synth.Session`) is not a setting: `decode(data,
+    session)` applies it (P22). The soft delays of the session set the duration of each block with
+    the reader's own hook `setActualSoftDelay_ru`, and the field of view turns the gradients with
+    the reader's `rotate_vec3_by_quat`, in the order and with the flags of
+    `pulseq_analysis.synth.scanner` (D6.3, D6.4 of `docs/specification.md`)."""
 
     name: ClassVar[str] = "cpp-siemens"
+    # The version of the plugin protocol of pulseq-analysis (`seqfile.interpreters.PROTOCOL`).
+    protocol: ClassVar[int] = 1
     oversampling: str = "center"
     rotation: str = "reader"
 
@@ -140,9 +165,12 @@ class CppSiemens:
         """`read_cpp_siemens(path, self)`."""
         return read_cpp_siemens(path, self)
 
-    def decode(self, data: SequenceData) -> "CppSiemensDecoding":
-        """The decoding of `data`, a model that this interpreter read: `CppSiemensDecoding`."""
-        return CppSiemensDecoding(data)
+    def decode(self, data: SequenceData, session: Session | None = None) -> "CppSiemensDecoding":
+        """The decoding of `data`, a model that this interpreter read, under the scanner session
+        `session` (the neutral one for None): `CppSiemensDecoding`. Raises
+        `pulseq_analysis.synth.SettingError` for a setting of the session that addresses
+        something that the reader did not attach to the file."""
+        return CppSiemensDecoding(data, session)
 
 
 # The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
@@ -570,8 +598,7 @@ def _model(sequence: Any, interpreter: CppSiemens, written: AsWritten) -> Sequen
                 if s.extension and s.extension[0] not in _KNOWN_EXT_TYPES
             )
         ),
-        # What the reader ignored is recorded from task R16 (P20, rule 4).
-        records=(),
+        records=_records(lib, written),
         signature=Signature(
             type=_text(signature["type"]),
             hash=_text(signature["value"]),
@@ -583,6 +610,33 @@ def _model(sequence: Any, interpreter: CppSiemens, written: AsWritten) -> Sequen
         interpreter=interpreter,
         reading=sequence,
     )
+
+
+def _records(lib: Any, written: AsWritten) -> tuple[Record, ...]:
+    """What the reader ignored (the module docstring), in file order: each extension that it does
+    not know, at the header of its first section, and each row of LABELSET or LABELINC that is not
+    in the reader's library of that extension."""
+    records: list[Record] = []
+    seen: set[str] = set()
+    for section in written.extensions():
+        name = section.extension[0] if section.extension else None
+        if name is None:
+            continue
+        if name not in _KNOWN_EXT_TYPES and name not in seen:
+            seen.add(name)
+            records.append(Record("extension", name, "unknown", section.line))
+        if name not in ("LABELSET", "LABELINC"):
+            continue
+        library = lib.labelset if name == "LABELSET" else lib.labelinc
+        for i in range(len(section.rows)):
+            fields = section.rows.fields(i)
+            try:
+                kept = int(fields[0]) in library
+            except (ValueError, IndexError):
+                continue
+            if not kept and len(fields) > 2:
+                records.append(Record("label", fields[2], "unknown", int(section.rows.lines[i])))
+    return tuple(sorted(records, key=lambda r: r.line))
 
 
 def _us(value: Any) -> float | None:
@@ -614,17 +668,65 @@ class CppSiemensDecoding:
     each block's rotation (`rotations`) and applies it to nothing; with the setting
     `rotation="apply"`, `gradients_at` rotates the gradients of each block that has one, with
     the reader's own `rotate_vec3_by_quat` (the simulation of the scanner). `rotation_record`
-    records what was applied."""
+    records what was applied.
 
-    def __init__(self, data: SequenceData) -> None:
+    The scanner session (`session`, P22): the soft delays that it sets give the duration of their
+    blocks through the reader's hook `setActualSoftDelay_ru` (`block_durations`; the shared rule
+    of `pulseq_analysis.synth.scanner.soft_delay_durations`, on the soft delays as `GetBlock`
+    attaches them, D6.3), and `gradients_at` ends each block there. The field of view of the
+    session scales and turns the gradients in the order of `scanner.physical_gradients`, with the
+    reader's `rotate_vec3_by_quat`; the flags are NOROT and `NOSCL`, as the reader keeps them
+    (D6.4). `soft_delay_record` and `fov_record` record what was applied."""
+
+    def __init__(self, data: SequenceData, session: Session | None = None) -> None:
         self.interpreter: CppSiemens = data.interpreter
+        self.session = Session() if session is None else session
         self._reading = data.reading
         self._gradient_raster = data.rasters.gradient
         self._rotation_record: RotationRecord | None = None
+        blocks = data.blocks
+        stored = np.asarray(blocks["duration_ticks"], dtype=np.int64)
+        found = self._reading.block_soft_delays()
+        soft_delays = [
+            SoftDelay(int(b), int(n), int(o) / _US, float(f), _text(h))
+            for b, n, o, f, h in zip(*found, strict=True)
+        ]
+        pure_delay = np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
+        ticks, self.soft_delay_record = soft_delay_durations(
+            self.session,
+            soft_delays,
+            stored,
+            data.rasters.block_duration,
+            pure_delay,
+            interpreter=self.interpreter.name,
+            version=data.version,
+        )
+        given = {hint for hint, _ in self.session.soft_delays}
+        hook = np.full(stored.size, -1, dtype=np.int64)
+        for d in soft_delays:
+            if d.hint in given:
+                hook[d.block] = ticks[d.block]
+        # The actual soft delay of each block for the reader's hook, or None for none.
+        self._actual_ru = hook if (hook >= 0).any() else None
+        actual = self._reading.block_durations_ru(hook) if self._actual_ru is not None else stored
+        self.block_durations = _frozen(actual * data.rasters.block_duration)
+        self.stored_block_durations = _frozen(stored * data.rasters.block_duration)
+        indices, names, values = self._reading.block_label_sets()
+        label_sets = list(zip(indices.tolist(), names, values.tolist(), strict=True))
+        self._norot, self._noscale = (
+            _frozen(a) for a in fov_flags(stored.size, label_sets, "NOSCL")
+        )
+        self.fov_record: FovRecord = fov_record(self.session, self._norot, self._noscale, "NOSCL")
 
     @property
     def block_count(self) -> int:
         return int(self._reading.block_count)
+
+    def fov_flags(self) -> tuple[np.ndarray, np.ndarray]:
+        """The flags NOROT and NOSCL of each block (`pulseq_analysis.synth.scanner.fov_flags`), from
+        the LABELSET events that `GetBlock` attaches (`Sequence.block_label_sets`), as copies. The
+        reader leaves out `NOSLC`, so it sets nothing (D6.4)."""
+        return self._norot.copy(), self._noscale.copy()
 
     def block(self, index: int) -> dict[str, Any]:
         """`GetBlock` and `decodeBlock` of the block `index`: the fields of the C++ oracle's
@@ -664,15 +766,44 @@ class CppSiemensDecoding:
         self, block_index: Any, time_us: Any, rotated: bool | None = None
     ) -> np.ndarray:
         """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index and a time in us from the
-        start of that block: an array (n, 3) of gx, gy and gz (0 before and after the block).
+        start of that block: an array (n, 3) of gx, gy and gz (0 before and after the block, at
+        its actual duration: the reader's hook `setActualSoftDelay_ru` with the session's soft
+        delays).
 
-        `rotated` None follows the interpreter's setting `rotation`. False gives the values as
-        the reader gives them, the logical gradients. True turns the values of each block with a
-        rotation (`rotations`) by its quaternion, with the reader's `rotate_vec3_by_quat`: the
-        gradients that the scanner plays when it applies the rotation."""
-        if rotated is None:
-            rotated = self.interpreter.rotation == "apply"
-        return self._reading.gradients_at(block_index, time_us, rotated=rotated)
+        `rotated` None follows the interpreter's setting `rotation` and the session's field of
+        view. False gives the values as the reader gives them, the logical gradients. True turns
+        the values of each block with a rotation (`rotations`) by its quaternion, with the
+        reader's `rotate_vec3_by_quat`: the gradients that the scanner plays when it applies the
+        rotation, and applies the field of view too. The field of view scales the logical axes of
+        each block without NOSCL before the block's rotation, and turns each block without NOROT
+        after it (`pulseq_analysis.synth.scanner.physical_gradients`)."""
+        rotate_blocks = self.interpreter.rotation == "apply" if rotated is None else rotated
+        session = self.session
+        if (rotated is not None and not rotated) or not (session.rotates or session.scales):
+            return self._reading.gradients_at(
+                block_index, time_us, rotated=rotate_blocks, actual_ru=self._actual_ru
+            )
+        block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
+        logical = self._reading.gradients_at(
+            block_index, time_us, rotated=False, actual_ru=self._actual_ru
+        )
+        block_rows = np.zeros(block_index.size, dtype=bool)
+        quaternions = np.zeros((0, 4))
+        if rotate_blocks:
+            indices, table = self.rotations()
+            row = np.full(self.block_count, -1)
+            row[indices] = np.arange(indices.size)
+            block_rows = row[block_index] >= 0
+            quaternions = table[row[block_index[block_rows]]]
+        return physical_gradients(
+            logical,
+            session,
+            scale_rows=~self._noscale[block_index],
+            block_rows=block_rows,
+            block_quaternions=quaternions,
+            fov_rows=~self._norot[block_index],
+            rotate=cs.rotate_vec3_by_quat,
+        )
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points:
         """The points of the gradient event that the block `block` plays on the axis `axis`
@@ -683,6 +814,13 @@ class CppSiemensDecoding:
         `gradientsAt` gives at the points: the amplitude (a float32) times each sample of a
         shape in float32, and 0 everywhere when the amplitude is 0."""
         return _points(self.block(block)["grad"][axis], self._gradient_raster)
+
+
+def _frozen(a: np.ndarray) -> np.ndarray:
+    """`a` as a read-only array."""
+    a = np.array(a)
+    a.flags.writeable = False
+    return a
 
 
 def _points(grad: Mapping[str, Any], raster_s: float) -> Points:

@@ -18,11 +18,12 @@ These readings are the contract with pulseq-checks (section 7.3 of
 from .as_written import AsWritten, Column, Line, Section, ShapeWritten, Table, read_as_written
 from .errors import NotSupported, SeqFileError, Violation
 from .from_pypulseq import read_pypulseq
-from .interpreters import Interpreter, Plugin, Spec, interpreter, interpreter_names
+from .interpreters import PROTOCOL, Interpreter, Plugin, Spec, interpreter, interpreter_names
 from .model import SequenceData
 from .reading import read_seqfile
 
 __all__ = [
+    "PROTOCOL",
     "AsWritten",
     "Column",
     "Interpreter",

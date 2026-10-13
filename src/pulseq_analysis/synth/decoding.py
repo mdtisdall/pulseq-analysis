@@ -13,6 +13,13 @@
   method gives (P21). It has the methods of the protocol `Decoding`, which is what the package
   uses of a decoding.
 
+`decode(data, session)` applies the scanner session (`scanner.Session`, rule 3 of section 7.8 of
+the plan; the neutral session by default): `spec` with the shared simulation of `scanner`, a
+plugin with its own hooks (P22). Each decoding gives the stored and the actual duration of each
+block (the actual one is the stored one, except where the session sets a soft delay), and records
+what it applied (`rotation_record`, `soft_delay_record`, `fov_record`). `spec` applies the soft
+delays from 1.5.0 and the flags NOROT and NOSLC (the specification's spelling, D2.22) from 1.4.1.
+
 The decodings can differ: a plugin can decode a block at a time, `spec` decodes an event at a
 time. The measurements (`analyses.load`, R14) take their gradients from these decodings, through
 the method `gradient_points` of the protocol (`_played`).
@@ -27,7 +34,17 @@ import numpy as np
 from ..seqfile.interpreters import Spec
 from ..seqfile.model import SequenceData
 from . import events
-from .scanner import RotationRecord
+from .scanner import (
+    FovRecord,
+    RotationRecord,
+    Session,
+    SoftDelay,
+    SoftDelayRecord,
+    fov_flags,
+    fov_record,
+    physical_gradients,
+    soft_delay_durations,
+)
 from .seq_utils import gradient_offsets
 
 __all__ = ["Decoding", "Points", "SpecDecoding", "decode", "rotate"]
@@ -45,26 +62,50 @@ class Decoding(Protocol):
     decoding of a plugin interpreter. Blocks are indexed in play order from 0.
 
     - `interpreter`: the interpreter of the model, with its settings.
+    - `session`: the scanner session that the decoding applies (`scanner.Session`).
     - `block_count`: the number of blocks.
+    - `block_durations` and `stored_block_durations`: the actual and the stored duration of
+      each block (s, float64, read-only): the actual one is the stored one, except for a block
+      whose soft delay the session sets. The measurements use the actual one.
     - `rotations()`: the play indices of the blocks with a rotation (int64), and their
       quaternions, an array (n, 4) of q0, qx, qy and qz of norm 1.
     - `rotation_record`: what the decoding does with the rotations (`scanner.RotationRecord`).
+    - `soft_delay_record` and `fov_record`: what it does with the session's soft delays and
+      field of view (`scanner.SoftDelayRecord`, `scanner.FovRecord`).
+    - `fov_flags()`: the flag NOROT and the flag that turns off the scaling, of each block
+      (two bool arrays, `scanner.fov_flags`).
     - `gradients_at(block_index, time_us, rotated=None)`: the gradients (Hz/m) at each pair of
-      a block index and a time in us from the start of that block, an array (n, 3); `rotated`
-      None follows the interpreter.
+      a block index and a time in us from the start of that block, an array (n, 3), 0 after the
+      actual end of the block; `rotated` None follows the interpreter and the session, False
+      gives the logical gradients, True also rotates each block by its rotation.
     - `gradient_points(key, block, axis)`: the `Points` of the gradient event with the file ID
       `key` that the block `block` plays on the axis `axis` (0, 1, 2 for x, y, z), not
       rotated."""
 
     interpreter: Any
+    session: Session
 
     @property
     def block_count(self) -> int: ...
+
+    @property
+    def block_durations(self) -> np.ndarray: ...
+
+    @property
+    def stored_block_durations(self) -> np.ndarray: ...
 
     def rotations(self) -> tuple[np.ndarray, np.ndarray]: ...
 
     @property
     def rotation_record(self) -> RotationRecord: ...
+
+    @property
+    def soft_delay_record(self) -> SoftDelayRecord: ...
+
+    @property
+    def fov_record(self) -> FovRecord: ...
+
+    def fov_flags(self) -> tuple[np.ndarray, np.ndarray]: ...
 
     def gradients_at(
         self, block_index: Any, time_us: Any, rotated: bool | None = None
@@ -89,11 +130,14 @@ def rotate(quaternions: np.ndarray, vectors: np.ndarray) -> np.ndarray:
 @dataclasses.dataclass(frozen=True, slots=True, eq=False)
 class SpecDecoding:
     """The decoding of a file that the `spec` interpreter read: its events (`events`) by file
-    ID, and its blocks: `blocks` is the block table of the model and `block_durations` the
-    duration of each block (s), in play order from 0.
+    ID, and its blocks: `blocks` is the block table of the model, `block_durations` the actual
+    duration of each block (s) under the session and `stored_block_durations` the duration that
+    the file stores, in play order from 0.
 
     `rotation_blocks` and `rotation_quaternions` are the rotation of each block (`rotations`).
-    Both are empty for a file older than 1.5.1. The arrays are read-only."""
+    Both are empty for a file older than 1.5.1. `norot` and `noscale` are the flags NOROT and
+    NOSLC of each block (`fov_flags`), all False for a file older than 1.4.1. The arrays are
+    read-only."""
 
     interpreter: Spec
     rf: Mapping[int, events.RfEvent]
@@ -101,8 +145,14 @@ class SpecDecoding:
     adc: Mapping[int, events.AdcEvent]
     blocks: np.ndarray
     block_durations: np.ndarray
+    stored_block_durations: np.ndarray
     rotation_blocks: np.ndarray
     rotation_quaternions: np.ndarray
+    session: Session
+    soft_delay_record: SoftDelayRecord
+    fov_record: FovRecord
+    norot: np.ndarray
+    noscale: np.ndarray
 
     @property
     def block_count(self) -> int:
@@ -130,6 +180,10 @@ class SpecDecoding:
             rotated=blocks,
         )
 
+    def fov_flags(self) -> tuple[np.ndarray, np.ndarray]:
+        """The flags NOROT and NOSLC of each block (`Decoding.fov_flags`), as copies."""
+        return self.norot.copy(), self.noscale.copy()
+
     def gradients_at(
         self, block_index: Any, time_us: Any, rotated: bool | None = None
     ) -> np.ndarray:
@@ -137,11 +191,14 @@ class SpecDecoding:
         us from the start of that block: an array (n, 3) of gx, gy and gz
         (`Decoding.gradients_at`). Each event is the straight lines between
         its points (`seq_utils.gradient_offsets`), from its delay to its end, and 0 before and
-        after it; every value is 0 before and after the block.
+        after it; every value is 0 before and after the block (its actual duration).
 
-        `rotated` None or True turns the values of each block with a rotation (`rotations`) by
-        its quaternion (`rotate`): `spec` applies the rotations of the file, from version 1.5.1.
-        False gives the logical gradients, as the events store them."""
+        `rotated` None or True gives the gradients on the physical axes
+        (`scanner.physical_gradients`): the session's gradient scaling of each block without
+        NOSLC, the rotation of each block with a rotation (`rotations`) by its quaternion
+        (`rotate`), as `spec` applies the rotations of the file from version 1.5.1, and the
+        rotation of the session's field of view of each block without NOROT. False gives the
+        logical gradients, as the events store them."""
         block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
         time_us = np.asarray(time_us, dtype=np.float64).reshape(-1)
         if block_index.shape != time_us.shape:
@@ -160,13 +217,20 @@ class SpecDecoding:
                 out[rows, axis] = np.interp(t[rows] - delay, offsets, amp, left=0.0, right=0.0)
         outside = (t < 0) | (t > self.block_durations[block_index])
         out[outside] = 0.0
-        if rotated is None or rotated:
-            row = np.full(self.block_count, -1)
-            row[self.rotation_blocks] = np.arange(self.rotation_blocks.size)
-            turned = np.flatnonzero(row[block_index] >= 0)
-            q = self.rotation_quaternions[row[block_index[turned]]]
-            out[turned] = rotate(q, out[turned])
-        return out
+        if rotated is not None and not rotated:
+            return out
+        row = np.full(self.block_count, -1)
+        row[self.rotation_blocks] = np.arange(self.rotation_blocks.size)
+        turned = row[block_index] >= 0
+        return physical_gradients(
+            out,
+            self.session,
+            scale_rows=~self.noscale[block_index],
+            block_rows=turned,
+            block_quaternions=self.rotation_quaternions[row[block_index[turned]]],
+            fov_rows=~self.norot[block_index],
+            rotate=rotate,
+        )
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points:
         """The `Points` of the gradient event `key` (`Decoding.gradient_points`): the points of
@@ -174,21 +238,121 @@ class SpecDecoding:
         return gradient_offsets(self.gradients[key])
 
 
-def decode(data: SequenceData) -> Decoding:
-    """The decoding of `data` by its interpreter (the module docstring)."""
+def decode(data: SequenceData, session: Session | None = None) -> Decoding:
+    """The decoding of `data` by its interpreter under the scanner session `session` (the
+    neutral `Session()` for None; the module docstring). Raises `scanner.SettingError` for a
+    setting of the session that addresses something the file does not have under the
+    interpreter, and TypeError for a `session` that is not a `Session`."""
+    if session is None:
+        session = Session()
+    if not isinstance(session, Session):
+        raise TypeError(f"session is a pulseq_analysis.synth.Session, not {type(session)!r}")
     if not isinstance(data.interpreter, Spec):
-        return data.interpreter.decode(data)
+        return data.interpreter.decode(data, session=session)
     blocks, quaternions = _block_rotations(data)
+    stored = data.blocks["duration_ticks"].astype(np.int64)
+    ticks, soft_delay_record = soft_delay_durations(
+        session,
+        _soft_delays(data),
+        stored,
+        data.rasters.block_duration,
+        _pure_delay(data.blocks),
+        interpreter=Spec.name,
+        version=data.version,
+        unavailable=None
+        if data.version >= (1, 5, 0)
+        else "soft delays came in revision 1.5.0 (spec:545); in an older file extension DELAYS "
+        "is an extension that spec does not know (D4.6)",
+    )
+    flagged = data.version >= (1, 4, 1)
+    norot, noscale = fov_flags(
+        data.blocks.size, _label_sets(data) if flagged else (), "NOSLC" if flagged else None
+    )
+    norot.flags.writeable = False
+    noscale.flags.writeable = False
+    durations = ticks * data.rasters.block_duration
+    durations.flags.writeable = False
+    stored_durations = data.block_durations_s
+    stored_durations.flags.writeable = False
     return SpecDecoding(
         interpreter=data.interpreter,
         rf=events.decode_rf(data),
         gradients=events.decode_gradients(data),
         adc=events.decode_adc(data),
         blocks=data.blocks,
-        block_durations=data.block_durations_s,
+        block_durations=durations,
+        stored_block_durations=stored_durations,
         rotation_blocks=blocks,
         rotation_quaternions=quaternions,
+        session=session,
+        soft_delay_record=soft_delay_record,
+        fov_record=fov_record(session, norot, noscale, "NOSLC"),
+        norot=norot,
+        noscale=noscale,
     )
+
+
+def _pure_delay(blocks: np.ndarray) -> np.ndarray:
+    """Whether each block has no RF, gradient or ADC event (spec:545)."""
+    return np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
+
+
+def _extension_objects(data: SequenceData, string_id: str) -> list[tuple[int, int]]:
+    """The (play index, object ID) of each object of the extension `string_id` in the extension
+    list of each block, in play order and in the order of each list; empty when the file has no
+    such extension. `spec` rejects a list that does not end and a reference to no object."""
+    type_id = data.extensions.type_ids.get(string_id)
+    if type_id is None:
+        return []
+    by_id = {
+        int(e["id"]): (int(e["type"]), int(e["ref"]), int(e["next"]))
+        for e in data.extensions.entries
+    }
+    lists: dict[int, list[int]] = {0: []}  # list head -> the object IDs of `string_id`
+
+    def objects_of(head: int) -> list[int]:
+        if head not in lists:
+            found, entry = [], head
+            while entry:
+                kind, ref, entry = by_id[entry]
+                if kind == type_id:
+                    found.append(ref)
+            lists[head] = found
+        return lists[head]
+
+    heads = data.blocks["ext"].tolist()
+    return [(block, ref) for block, head in enumerate(heads) for ref in objects_of(int(head))]
+
+
+def _soft_delays(data: SequenceData) -> list[SoftDelay]:
+    """The soft delays of the blocks (`scanner.SoftDelay`), from the DELAYS objects of each
+    block's extension list: the model's table is empty before 1.5.0 (P20, rule 2)."""
+    table = data.extensions.soft_delays
+    if not table.size:
+        return []
+    row = {int(i): r for r, i in enumerate(table["id"])}
+    return [
+        SoftDelay(
+            block=block,
+            num=int(table["num"][row[ref]]),
+            offset=float(table["offset"][row[ref]]),
+            factor=float(table["factor"][row[ref]]),
+            hint=str(table["hint"][row[ref]]),
+        )
+        for block, ref in _extension_objects(data, "DELAYS")
+    ]
+
+
+def _label_sets(data: SequenceData) -> list[tuple[int, str, int]]:
+    """The (play index, name, value) of each LABELSET object of each block's extension list."""
+    table = data.extensions.labelset
+    if not table.size:
+        return []
+    row = {int(i): r for r, i in enumerate(table["id"])}
+    return [
+        (block, str(table["name"][row[ref]]), int(table["value"][row[ref]]))
+        for block, ref in _extension_objects(data, "LABELSET")
+    ]
 
 
 def _block_rotations(data: SequenceData) -> tuple[np.ndarray, np.ndarray]:

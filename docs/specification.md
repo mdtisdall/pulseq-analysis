@@ -17,7 +17,7 @@ Its groups are D1 (the specification is unclear), D2 (silent: `spec` reads the
 file), D3 (silent: `spec` rejects by choice) and D4 (versions); sections 2.1 to
 2.5 below correspond to the groups D4, D1, D2 and D3. A "—" in an ID column
 means that the specification states the rule, so the decision has no entry.
-P1 to P21 and Q1 to Q6 are the decisions of
+P1 to P22 and Q1 to Q6 are the decisions of
 `docs/plans/parser-redesign.md` ("the plan"). Fixtures named without a folder
 are in `tests/seqfiles/`. The other interpreter, `cpp-siemens`, has its own
 record in the plugin pulseq-cpp-siemens
@@ -57,8 +57,8 @@ mechanism of the format only from the revision that introduced it.
 |---|---|---|
 | D4.2 | a 1.4.x `[RF]`, `[GRADIENTS]` or `[ADC]` row | the 1.4 layout: 8, 5 and 6 fields, with no `center`, no `first` and `last`, no ppm offsets, no `use` and no ADC phase shape; `center` is absent and `use` is `u` |
 | D4.3 | time ID -1 of a gradient in a 1.4 file | `ref.unresolved`: -1 is "Updated in v1.5.0" (slide 4) |
-| D4.6 | `extension DELAYS` before 1.5.0; ROTATIONS or RF_SHIMS before 1.5.1; a rotation in a file before 1.5.1; `RequiredExtensions` before 1.5.1 | the extension is one that `spec` does not know: ignored, with a record (reason `"version"`; `valid_1_5_0_extensions_of_1_5_1.seq`); a rotation is not applied; `RequiredExtensions` is not read |
-| D4.7 | a flag of 1.4.1 (`PMC`, `NOROT`, `NOPOS`, `NOSLC`, `ONCE`, spec:526) in an older file | kept, with a record (reason `"version"`) |
+| D4.6 | `extension DELAYS` before 1.5.0; ROTATIONS or RF_SHIMS before 1.5.1; a rotation in a file before 1.5.1; `RequiredExtensions` before 1.5.1 | the extension is one that `spec` does not know: ignored, with a record (reason `"version"`; `valid_1_5_0_extensions_of_1_5_1.seq`); a rotation is not applied; a session's soft delay value is a `SettingError`; `RequiredExtensions` is not read |
+| D4.7 | a flag of 1.4.1 (`PMC`, `NOROT`, `NOPOS`, `NOSLC`, `ONCE`, spec:526) in an older file | kept, with a record (reason `"version"`); `NOROT` and `NOSLC` do not change the field of view of a session |
 
 Why: the specification gives the revision of each mechanism (its table of
 revisions, spec:109-120, and spec:526, spec:545, spec:567, spec:584), and a
@@ -103,6 +103,9 @@ section 6 of the plan chose (Q5).
 | D2.17 | an unknown extension that the file does not require | ignored, with a record | "The interpreter MUST detect unknown extensions and MAY chose to ignore them" (spec:460) |
 | D2.18 | a rotation quaternion | divided by its norm | spec:567: "a normalized rotation quaternion" |
 | D2.19 | a label that the specification does not list | kept as text, with a record; so is `NOSCL`, which the specification spells `NOSLC` (spec:520) | labels do not change the waveforms |
+| D2.20 | a session's field of view and a block's rotation | R_fov R_block S g: the scaling of the logical axes, then the block's rotation, then the rotation of the field of view; not turned in a block with `NOROT`, not scaled in a block with `NOSLC` (`tests/session/scanner_session.seq`) | the specification gives no order; MATLAB Pulseq's `mr.TransformFOV` is the only written one (TransformFOV.m:58-60; the user, 2026-10-13) |
+| D2.21 | a session's soft delay value | `value / factor + offset` on the block duration raster, rounded half away from 0; `SettingError` for an unknown hint, a file before 1.5.0, a hint with two numeric IDs, a block with an event or two soft delays, and a negative duration | spec:545-563; MATLAB's `applySoftDelay` (Sequence.m:2518-2587) is the only written rounding; the user, 2026-10-13 |
+| D2.22 | the flag `NOSLC`, and `NOSCL` of the writers | `NOSLC` turns off the scaling from 1.4.1; `NOSCL` is an unknown label (D2.19), without effect | the specification's spelling (spec:520, spec:537; the user, 2026-10-13) |
 | — | an oversampled gradient (time ID -1) | all the samples, half a raster apart, the first and last at cell centres | spec:420 and slides 4 and 8: N − 1 extra points on the cell edges |
 | — | a signature hash | `Signature.matches` by the rule of spec:223: the md5 of the bytes before `[SIGNATURE]`, without the `\n` right before it; a mismatch is not a rejection (`valid_crlf.seq`, `valid_signature_mismatch.seq`) | the specification says to strip that new line, and has no "must" to verify the hash |
 
@@ -145,6 +148,19 @@ setting `"apply"`.
 Why: each interpreter's default is its own source with a neutral scanner
 session (rule 1 of P20), and the specification describes the rotation as part
 of the file (spec:567; rule 2 of P20).
+
+The scanner session (`synth.Session`, rule 3 of P20) is not a setting of `spec`:
+`decode(data, session)` and `load(path, session=...)` take it, the same for
+every interpreter. `spec` applies its soft delays from 1.5.0 (D2.21, D4.6) and
+its field of view with the flags `NOROT` and `NOSLC` from 1.4.1 (D2.20, D2.22,
+D4.7), by the shared simulation of `synth.scanner`, and records what it applied
+(`soft_delay_record`, `fov_record`). The neutral session (the default) changes
+nothing and is recorded, not warned about (rule 4). A setting that addresses
+something the file does not have is a `SettingError` (rule 8).
+
+Why: the session is an input of the scanner, not content of the file, and one
+`Session` for both interpreters makes their results comparable (rules 3 and 6
+of P20; P22).
 
 ### 2.7 The values in the model
 

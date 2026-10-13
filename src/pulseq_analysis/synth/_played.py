@@ -12,20 +12,24 @@ The measurements read the gradients only through the decoding (`snapshot.Snapsho
   event must not depend on the block that plays it.
 - **The events of a block that `gradients_at` gives**: a block that the decoding rotates by a
   rotation that is not the identity (the blocks of `rotations` when `rotation_record.rotated` is
-  not 0: `spec` from 1.5.1, P20, and a plugin that applies them), and a block with an event
+  not 0: `spec` from 1.5.1, P20, and a plugin that applies them), a block that the scanner
+  session's field of view rotates or scales (the blocks without NOROT, or without the scaling
+  flag, of `fov_flags`, when the session rotates or scales), and a block with an event
   that ends after the end of the block (a plugin can play it; `spec` rejects it,
   `block.event-too-long`; `gradients_at` is 0 after the block). The package does not rotate. The gradients of such a block are straight lines
   between the times of the points of its events, up to the end of the block, so its event of an
-  axis has a point at each of these times, with the value of `gradients_at` there. Where an event
+  axis has a point at each of these times, with the value of `gradients_at` there. The end of a
+  block is its actual duration (`Decoding.block_durations`). Where an event
   of the block has a step (it starts or ends at a value that is not 0, or has two points at one
   time), and at the end of a block that cuts an event, the event has two points at that time: the
   value just before and the value just after, each the straight line of `gradients_at` at two
-  times inside the next segment, carried to its end. A rotated block has an event on each axis;
-  another block on the axes where it has an event.
+  times inside the next segment, carried to its end. A rotated block (by its rotation or by the
+  field of view) has an event on each axis; another block on the axes where it has an event.
 
 `played_gradients(snap)` gives the key of the event of each block and axis: 0 for none, the file
 ID of a decoded event, and a key above the largest file ID for an event that `gradients_at`
-gives (one for each axis of each distinct such block: the same events, rotation and duration).
+gives (one for each axis of each distinct such block: the same events, rotation, flags of the
+field of view and duration).
 Two blocks with one key play the same event. The result is kept on the snapshot.
 """
 
@@ -69,7 +73,7 @@ def _played(snap: Snapshot) -> PlayedGradients:
     """The `PlayedGradients` of `snap`, without the keep of `played_gradients`."""
     data, decoding = snap.data, snap.decoding
     columns = [np.asarray(data.blocks[axis], dtype=np.int64).copy() for axis in _GRAD_COLUMNS]
-    duration = data.block_durations_s
+    duration = decoding.block_durations
 
     # Each decoded event, at the first block and axis that play it.
     stacked = np.stack(columns, axis=1).ravel()  # block * 3 + axis
@@ -81,11 +85,16 @@ def _played(snap: Snapshot) -> PlayedGradients:
     }
 
     # The blocks whose events `gradients_at` gives: those that the decoding rotates (not by the
-    # identity), and those with an event that ends after the end of the block.
+    # identity) or the session's field of view rotates, those that the field of view scales, and
+    # those with an event that ends after the end of the block.
     rotated = np.zeros(duration.size, dtype=bool)
     if decoding.rotation_record.rotated:
         blocks, quaternions = decoding.rotations()
         rotated[blocks[np.any(quaternions[:, 1:] != 0, axis=1)]] = True
+    norot, noscale = decoding.fov_flags()
+    if decoding.session.rotates:
+        rotated |= ~norot
+    scaled = ~noscale if decoding.session.scales else np.zeros(duration.size, dtype=bool)
     # The end of each event, by the position of its key in `keys` (sorted; no table as long as
     # the largest ID).
     end = np.array(
@@ -96,9 +105,10 @@ def _played(snap: Snapshot) -> PlayedGradients:
     for column in columns:
         has_gradient |= column != 0
         too_long |= (column != 0) & (end[np.searchsorted(keys, column)] > duration + TIME_TOLERANCE)
-    special = np.flatnonzero((rotated & has_gradient) | too_long)
+    special = np.flatnonzero(((rotated | scaled) & has_gradient) | too_long)
     if special.size:
-        _from_gradients_at(snap, special, rotated[special], columns, points)
+        flags = norot.astype(np.int64) + 2 * noscale.astype(np.int64)
+        _from_gradients_at(snap, special, rotated[special], flags, columns, points)
     gx, gy, gz = _freeze(*columns)
     return PlayedGradients(gx, gy, gz, MappingProxyType(points))
 
@@ -107,14 +117,16 @@ def _from_gradients_at(
     snap: Snapshot,
     blocks: np.ndarray,
     rotated: np.ndarray,
+    flags: np.ndarray,
     columns: list[np.ndarray],
     points: dict[int, Points],
 ) -> None:
     """Give each of `blocks` (play indices) the events that `gradients_at` gives (the module
     docstring): new keys in `columns`, and their points in `points`. `rotated` says which blocks
-    the decoding rotates: these get an event on each axis, the others on the axes with an event."""
+    the decoding rotates: these get an event on each axis, the others on the axes with an event.
+    `flags` are the flags of the field of view of each block of the sequence (an int)."""
     decoding = snap.decoding
-    duration = snap.data.block_durations_s
+    duration = decoding.block_durations
     quaternion: dict[int, bytes] = {}
     if rotated.any():
         indices, quaternions = decoding.rotations()
@@ -127,6 +139,7 @@ def _from_gradients_at(
         key = (
             tuple(int(column[block]) for column in columns),
             quaternion.get(block) if rotated[i] else None,
+            int(flags[block]),
             float(duration[block]),
         )
         if key not in groups:
@@ -161,7 +174,7 @@ def _plan(
     after it, whether `gradients_at` has a step at each, and the times at which it is read: each
     time, then two times inside each segment (at a quarter and at three quarters of it), in this
     order."""
-    duration = float(snap.data.block_durations_s[block])
+    duration = float(snap.decoding.block_durations[block])
     all_times: list[np.ndarray] = []
     step_times: list[float] = []
     for column in columns:

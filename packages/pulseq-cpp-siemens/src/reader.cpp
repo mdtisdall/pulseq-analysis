@@ -301,6 +301,43 @@ void read_gradient_rows(ExternalSequence& sequence, const std::string& text,
     }
 }
 
+// ---- Arrays for Python. ----
+
+nb::ndarray<nb::numpy, int64_t, nb::ndim<1>> int64_array(const std::vector<int64_t>& values) {
+    const size_t n = values.size();
+    int64_t* out = new int64_t[n > 0 ? n : 1];
+    std::copy(values.begin(), values.end(), out);
+    nb::capsule owner(out, [](void* p) noexcept { delete[] static_cast<int64_t*>(p); });
+    return nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(out, {n}, owner);
+}
+
+nb::ndarray<nb::numpy, double, nb::ndim<1>> double_array(const std::vector<double>& values) {
+    const size_t n = values.size();
+    double* out = new double[n > 0 ? n : 1];
+    std::copy(values.begin(), values.end(), out);
+    nb::capsule owner(out, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+    return nb::ndarray<nb::numpy, double, nb::ndim<1>>(out, {n}, owner);
+}
+
+// Each vector of `vectors` (n, 3) turned by the quaternion of the same row of `quaternions`
+// (n, 4) with the reader's rotate_vec3_by_quat and c = +1, the active rotation: the arithmetic
+// of gradients_at with `rotated`, for the gradients that the package's simulation of the scanner
+// turns (the rotation of a block, and that of the field of view of a session).
+nb::ndarray<nb::numpy, double, nb::shape<-1, 3>> rotate_by_quaternions(
+    nb::ndarray<const double, nb::shape<-1, 4>, nb::c_contig, nb::device::cpu> quaternions,
+    nb::ndarray<const double, nb::shape<-1, 3>, nb::c_contig, nb::device::cpu> vectors) {
+    if (quaternions.shape(0) != vectors.shape(0)) {
+        throw std::invalid_argument("quaternions and vectors differ in length");
+    }
+    const size_t n = vectors.shape(0);
+    double* out = new double[3 * (n > 0 ? n : 1)];
+    nb::capsule owner(out, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+    for (size_t i = 0; i < n; i++) {
+        rotate_vec3_by_quat(out + 3 * i, quaternions.data() + 4 * i, vectors.data() + 3 * i, 1.0);
+    }
+    return nb::ndarray<nb::numpy, double, nb::shape<-1, 3>>(out, {n, 3}, owner);
+}
+
 // ---- The values of a decoded block, as C++ data (built under the mutex, converted after). ----
 
 struct RfValues {
@@ -835,13 +872,24 @@ class Reader {
     // turned by its quaternion with the reader's rotate_vec3_by_quat (c = +1): the gradients
     // that the scanner plays when it applies the rotation. The reader itself never does this
     // (gradientsAt never reads the rotation); it is the package's simulation.
+    //
+    // `actual_ru` is empty, or has one value for each block of the sequence: the actual soft
+    // delay that the scanner's interpreter would set on the block with the reader's hook
+    // SeqBlock::setActualSoftDelay_ru (-1 for none, the reader's default, cpp:1838), so that
+    // gradientsAt ends the block at GetDuration (cpp:3561). The hook is set on the kept block
+    // before each value and set back to -1 after it, so a call does not change another.
     nb::ndarray<nb::numpy, double, nb::shape<-1, 3>> gradients_at(
         nb::ndarray<const int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> block_index,
         nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> time_us,
-        bool rotated) {
+        bool rotated,
+        nb::ndarray<const int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> actual_ru) {
         require_checked();
         if (block_index.shape(0) != time_us.shape(0)) {
             throw std::invalid_argument("block_index and time_us differ in length");
+        }
+        const size_t blocks = static_cast<size_t>(block_count());
+        if (actual_ru.shape(0) != 0 && actual_ru.shape(0) != blocks) {
+            throw std::invalid_argument("actual_ru has no value, or one for each block");
         }
         const size_t n = time_us.shape(0);
         for (size_t i = 0; i < n; i++) {
@@ -865,7 +913,10 @@ class Reader {
                 // they were.
                 std::vector<double> g;
                 SeqBlock* block = blocks_[static_cast<int>(block_index(i))].get();
+                block->setActualSoftDelay_ru(
+                    actual_ru.shape(0) ? static_cast<long>(actual_ru(block_index(i))) : -1);
                 block->gradientsAt(time_us(i), g);
+                block->setActualSoftDelay_ru(-1);
                 if (rotated && block->isRotation()) {
                     rotate_vec3_by_quat(out + 3 * i, block->GetRotationEvent().rotQuaternion,
                                         g.data(), 1.0);
@@ -916,6 +967,98 @@ class Reader {
             nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(out_indices, {n}, owns_indices),
             nb::ndarray<nb::numpy, double, nb::shape<-1, 4>>(out_quaternions, {n, 4},
                                                               owns_quaternions));
+    }
+
+    // The soft delay of each block, as GetBlock attaches it (cpp:1900-1907: the first soft delay
+    // of the block's extension list): the play index of each block for which
+    // SeqBlock::isSoftDelay is true, and its numeric ID, offset (us, an int), factor (a float)
+    // and hint (the bytes up to the first zero, at most 31), as load read them (D2.16 of
+    // pulseq-analysis). GetBlock runs only for a block with an extension list; no block is kept.
+    nb::tuple block_soft_delays() {
+        require_checked();
+        std::vector<int64_t> indices, nums, offsets;
+        std::vector<double> factors;
+        std::vector<std::string> hints;
+        {
+            nb::gil_scoped_release release;
+            std::string dropped;
+            ReaderCall call(dropped, block_raster_us_);
+            const BlockList& list = *sequence_.*get(m_blocks_tag());
+            for (size_t index = 0; index < list.size(); index++) {
+                if (list[index].id[EXT] <= 0) continue;
+                std::unique_ptr<SeqBlock> block(sequence_->GetBlock(static_cast<int>(index)));
+                if (!block->isSoftDelay()) continue;
+                const SoftDelayEvent& s = block->GetSoftDelayEvent();
+                indices.push_back(static_cast<int64_t>(index));
+                nums.push_back(s.numID);
+                offsets.push_back(s.offset);
+                factors.push_back(static_cast<double>(s.factor));
+                hints.push_back(std::string(s.hint, strnlen(s.hint, SOFT_DELAY_HINT_LENGTH)));
+            }
+        }
+        nb::list out_hints;
+        for (const std::string& hint : hints) out_hints.append(nb::bytes(hint.data(), hint.size()));
+        return nb::make_tuple(int64_array(indices), int64_array(nums), int64_array(offsets),
+                              double_array(factors), out_hints);
+    }
+
+    // The LABELSET events of each block, as GetBlock attaches them (the labels that decodeLabel
+    // knows, in the order of the block's list): the play index of the block, the name and the
+    // value of each, as the driver's --dump gives them (a flag is 0 or 1). No block is kept.
+    nb::tuple block_label_sets() {
+        require_checked();
+        std::vector<int64_t> indices, values;
+        std::vector<std::string> names;
+        {
+            nb::gil_scoped_release release;
+            std::string dropped;
+            ReaderCall call(dropped, block_raster_us_);
+            const BlockList& list = *sequence_.*get(m_blocks_tag());
+            for (size_t index = 0; index < list.size(); index++) {
+                if (list[index].id[EXT] <= 0) continue;
+                std::unique_ptr<SeqBlock> block(sequence_->GetBlock(static_cast<int>(index)));
+                std::vector<LabelValue> labels =
+                    label_values(*sequence_, block->GetLabelSetEvents());
+                for (const LabelValue& label : labels) {
+                    indices.push_back(static_cast<int64_t>(index));
+                    names.push_back(label.label);
+                    values.push_back(label.value);
+                }
+            }
+        }
+        nb::list out_names;
+        for (const std::string& name : names) out_names.append(nb::str(name.c_str()));
+        return nb::make_tuple(int64_array(indices), out_names, int64_array(values));
+    }
+
+    // The duration of each block in units of BlockDurationRaster, SeqBlock::GetDuration_ru
+    // (h:706), after the reader's hook SeqBlock::setActualSoftDelay_ru with the value of
+    // `actual_ru` for that block (one for each block; -1 sets nothing, and the block keeps its
+    // stored duration). GetBlock runs only for a block with a value; no block is kept.
+    nb::ndarray<nb::numpy, int64_t, nb::ndim<1>> block_durations_ru(
+        nb::ndarray<const int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> actual_ru) {
+        require_checked();
+        const BlockList& list = *sequence_.*get(m_blocks_tag());
+        if (actual_ru.shape(0) != list.size()) {
+            throw std::invalid_argument("actual_ru has one value for each block");
+        }
+        std::vector<int64_t> durations(list.size());
+        {
+            nb::gil_scoped_release release;
+            std::string dropped;
+            ReaderCall call(dropped, block_raster_us_);
+            const DurationList& stored = *sequence_.*get(m_blockDurations_ru_tag());
+            for (size_t index = 0; index < list.size(); index++) {
+                if (actual_ru(index) < 0) {
+                    durations[index] = stored[index];
+                    continue;
+                }
+                std::unique_ptr<SeqBlock> block(sequence_->GetBlock(static_cast<int>(index)));
+                block->setActualSoftDelay_ru(static_cast<long>(actual_ru(index)));
+                durations[index] = block->GetDuration_ru();
+            }
+        }
+        return int64_array(durations);
     }
 
     // GetBlock and decodeBlock of every block in play order, as the driver's first mode does:
@@ -1003,6 +1146,7 @@ NB_MODULE(_reader, m) {
     m.attr("PULSEQ_COMMIT") = PULSEQ_COMMIT;
     m.attr("SIZEOF_LONG") = static_cast<int>(sizeof(long));
     m.attr("SIZEOF_INT") = static_cast<int>(sizeof(int));
+    m.def("rotate_vec3_by_quat", &rotate_by_quaternions, "quaternions"_a, "vectors"_a);
     nb::class_<Reader>(m, "Reader")
         .def(nb::init<const std::string&>(), "oversampling"_a = "center")
         .def("read_version", &Reader::read_version, "data"_a)
@@ -1014,8 +1158,11 @@ NB_MODULE(_reader, m) {
         .def("decode_block", &Reader::decode_block, "index"_a)
         .def("ensure_decoded", &Reader::ensure_decoded, "indices"_a)
         .def("gradients_at", &Reader::gradients_at, "block_index"_a, "time_us"_a,
-             "rotated"_a = false)
+             "rotated"_a, "actual_ru"_a)
         .def("block_rotations", &Reader::block_rotations)
+        .def("block_soft_delays", &Reader::block_soft_delays)
+        .def("block_label_sets", &Reader::block_label_sets)
+        .def("block_durations_ru", &Reader::block_durations_ru, "actual_ru"_a)
         .def("first_rejected_block", &Reader::first_rejected_block)
         .def_prop_ro("oversampling", &Reader::oversampling)
         .def_prop_ro("messages", &Reader::messages);

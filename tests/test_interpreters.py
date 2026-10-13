@@ -26,13 +26,14 @@ class Fake:
     which interpreter made it."""
 
     name: ClassVar[str] = "fake"
+    protocol: ClassVar[int] = 1
     setting: str = "default"
 
     def read(self, path: Path) -> seqfile.SequenceData:
         assert isinstance(path, Path)
         return dataclasses.replace(read_seqfile(path, "spec"), interpreter=self)
 
-    def decode(self, data: seqfile.SequenceData) -> tuple[str, "Fake"]:
+    def decode(self, data: seqfile.SequenceData, session=None) -> tuple[str, "Fake"]:
         return ("fake decoding", data.interpreter)
 
 

@@ -111,9 +111,9 @@ pulseq-checks.
 | `seqfile.read_as_written(path)` | `seqfile.as_written` | `AsWritten` (2.1) |
 | `seqfile.read_seqfile(path, interpreter="spec")` | `seqfile.reading` | `SequenceData` (2.2), or raises `SeqFileError` or `NotSupported` (2.5) |
 | `seqfile.read_pypulseq(seq, interpreter="spec")` | `seqfile.from_pypulseq` | the `SequenceData` of the file that `seq.write(path)` gives, with `origin` `"pypulseq"` |
-| `synth.decode(data)` | `synth.decoding` | `SpecDecoding` (2.3), or the decoding of a plugin (`pulseq_cpp_siemens.interpreter.CppSiemensDecoding` for `cpp-siemens`, 2.4); both are a `synth.Decoding` |
+| `synth.decode(data, session=None)` | `synth.decoding` | `SpecDecoding` (2.3), or the decoding of a plugin (`pulseq_cpp_siemens.interpreter.CppSiemensDecoding` for `cpp-siemens`, 2.4), under the scanner session (2.8); both are a `synth.Decoding`; raises `synth.SettingError` (2.8) |
 | `seqfile.interpreter_names()` | `seqfile.interpreters` | the names of the installed interpreters: `spec`, then each plugin's (none is imported) |
-| `analyses.load(source, interpreter="spec")` | `analyses.loading` | `synth.Snapshot`, the measurements' input (2.7) |
+| `analyses.load(source, interpreter="spec", session=None)` | `analyses.loading` | `synth.Snapshot`, the measurements' input (2.7) |
 
 On an Apple M1 Max, a file of 20 MB with 900 000 blocks takes 0.3 s to read as
 written, 0.5 s with `spec` and 2.9 s with `cpp-siemens` (`docs/usage.md`).
@@ -198,10 +198,11 @@ reader's own MD5 check.
 
 ### 2.3 The decoding of `spec`
 
-`synth.decode(data)` of a `spec` model gives `synth.SpecDecoding`
-(`interpreter`, and `rf`, `gradients`, `adc`: the events of the model by file
-ID; `blocks`, the block table of the model, and `block_durations` in s, in
-play order from 0). The events are in module `synth.events`:
+`synth.decode(data, session=None)` of a `spec` model gives
+`synth.SpecDecoding` (`interpreter`, `session`, and `rf`, `gradients`, `adc`:
+the events of the model by file ID; `blocks`, the block table of the model;
+`block_durations` and `stored_block_durations` in s, in play order from 0;
+`norot` and `noscale`, the flags of the field of view, 2.8). The events are in module `synth.events`:
 
 - `RfEvent`: `id`, `amplitude`, `mag_id`, `phase_id`, `time_id`, `magnitude`,
   `phase`, `t`, `dwell` (None for a pulse of points, D2.10, D2.11), `shape_dur`,
@@ -216,20 +217,23 @@ The decoder follows the specification and the slides (`docs/usage.md`, "The
 decoder of `spec`"). `model.rf_time_step(times)` tells a pulse of cells from a
 pulse of points. As each decoding (the protocol `synth.Decoding`, 2.4), `SpecDecoding` has:
 
-- `block_count`.
+- `block_count`; `session`; `block_durations` (actual) and
+  `stored_block_durations` (2.8).
 - `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m,
   an array (n, 3), at times in µs from the start of each block. Each event is
   the straight lines between its points (`seq_utils.gradient_offsets`), 0
-  before its delay and after its end, and every value is 0 outside the block.
-  `rotated` None or True turns each block with a rotation by its quaternion,
-  from 1.5.1 (`synth.decoding.rotate`, the active rotation `R(q) v` with q0
-  the scalar part, in float64); `False` gives the logical gradients.
+  before its delay and after its end, and every value is 0 outside the block
+  (its actual duration). `rotated` None or True turns each block with a
+  rotation by its quaternion, from 1.5.1 (`synth.decoding.rotate`, the active
+  rotation `R(q) v` with q0 the scalar part, in float64), and applies the
+  session's field of view (2.8); `False` gives the logical gradients.
 - `rotations()`: the play indices of the blocks whose extension list has a
   ROTATIONS object, and their quaternions (n, 4), divided by their norm (D2.18).
   Both are empty for a file older than 1.5.1, where ROTATIONS is an unknown
   extension (P20, rule 2).
 - `rotation_record`: a `synth.RotationRecord` (2.6) with the setting
   `"apply"`; it never has a warning, since `spec` applies the file's content.
+- `soft_delay_record`, `fov_record` and `fov_flags()` (2.6, 2.8).
 - `gradient_points(key, block, axis)`: the points of the gradient event with
   the file ID `key` that the block plays on the axis (0, 1, 2 for x, y, z), not
   rotated: a tuple `synth.decoding.Points` of the delay in s, the offsets in s
@@ -255,13 +259,17 @@ the reader holds it, misreadings included, with the file's event IDs:
 `labelinc`, `soft_delays`, `rf_shims`, and `signature`. Text is bytes, as in the
 file.
 
-`synth.decode(data)` of a `cpp-siemens` model gives
+`synth.decode(data, session=None)` of a `cpp-siemens` model gives
 `pulseq_cpp_siemens.interpreter.CppSiemensDecoding` (the method
-`CppSiemens.decode`), a view of that reading. A decoding of a plugin is of the
-protocol `synth.Decoding` (module `synth.decoding`), which `SpecDecoding` also
-follows: `interpreter`, `block_count`, `rotations()`, `rotation_record`,
+`CppSiemens.decode(data, session)`), a view of that reading. A decoding of a
+plugin is of the protocol `synth.Decoding` (module `synth.decoding`), which
+`SpecDecoding` also follows: `interpreter`, `session`, `block_count`,
+`block_durations`, `stored_block_durations`, `rotations()`, `rotation_record`,
+`soft_delay_record`, `fov_record`, `fov_flags()`,
 `gradients_at(block_index, time_us, rotated=None)` and
-`gradient_points(key, block, axis)`. `CppSiemensDecoding` has these, and the
+`gradient_points(key, block, axis)`. The plugin class states the version of the
+protocol that it implements (`protocol`, 1; `seqfile.PROTOCOL`), and the package
+uses a plugin only of its own version (2.8). `CppSiemensDecoding` has these, and the
 blocks of the reader. Blocks are in play order from 0:
 
 - `block_count`; `block(index)` and `blocks()`: `GetBlock` and `decodeBlock`,
@@ -269,9 +277,11 @@ blocks of the reader. Blocks are in play order from 0:
   (µs, Hz, Hz/m, rad), after the resampling and the clamps.
 - `gradients_at(block_index, time_us, rotated=None)`:
   `SeqBlock::gradientsAt` in Hz/m, an array (n, 3), 0 before and after the
-  block. `rotated=None` follows the setting `rotation`; `False` gives the
-  reader's own values; `True` turns each block with a rotation by its
-  quaternion, with the reader's own `rotate_vec3_by_quat`.
+  block, whose end is set with the reader's hook `setActualSoftDelay_ru` under a
+  session's soft delays. `rotated=None` follows the setting `rotation` and the
+  session's field of view; `False` gives the reader's own values; `True` turns
+  each block with a rotation by its quaternion, with the reader's own
+  `rotate_vec3_by_quat`, and applies the field of view (2.8).
 - `rotations()`: the play indices of the blocks to which `GetBlock` attaches a
   rotation (the first of the list), and their quaternions (n, 4), q0, qx,
   qy, qz, as the reader normalized them. The same in each setting.
@@ -379,12 +389,15 @@ Rule 4 of section 7.8 of the plan (P20): every result records what was applied
 of the scanner-side settings. Rule 7: these records are part of the contract.
 
 - **`SequenceData.records`**: a tuple of `model.Record` (`kind`, `subject`,
-  `reason`, `line`), in file order, for each thing that `spec` ignored. `kind`
-  is `"extension"`, `"section"` or `"label"`. `reason` is `"unknown"` (D2.4,
-  D2.17, D2.19, and `NOSCL`, which the specification spells `NOSLC`), `"version"`
-  (the file is older than the revision that introduced it: an extension, or a
-  flag of 1.4.1) or `"removed"` (`[DELAYS]`, D2.4). A label's row stays in its
-  table. `cpp-siemens` gives `()` today (section 7).
+  `reason`, `line`), in file order, for each thing that the interpreter ignored.
+  `kind` is `"extension"`, `"section"` or `"label"`. `reason` is `"unknown"`
+  (D2.4, D2.17, D2.19, and `NOSCL`, which the specification spells `NOSLC`,
+  D2.22), `"version"` (the file is older than the revision that introduced it:
+  an extension, or a flag of 1.4.1) or `"removed"` (`[DELAYS]`, D2.4). A label's
+  row stays in its table. Since R16, `cpp-siemens` records an extension that the
+  reader does not know (`"extension"`, `"unknown"`) and each LABELSET or
+  LABELINC row that `decodeLabel` does not know and leaves out of its library
+  (`"label"`, `"unknown"`): `NOSLC`, `PMC`, `TRID` and any unlisted name (D6.4).
 - **`SequenceData.skipped_extensions`**: the extensions that the interpreter
   does not know. For `spec` it follows the version gate: `DELAYS` from 1.5.0,
   `ROTATIONS` and `RF_SHIMS` from 1.5.1 (section 7.8 of the plan, rule 2); the
@@ -403,6 +416,17 @@ of the scanner-side settings. Rule 7: these records are part of the contract.
   of the warning ends with: the record names no interpreter itself. For
   `cpp-siemens` with `rotation="reader"` it says to use
   `CppSiemens(rotation='apply')` for the gradients that the scanner plays.
+- **`synth.SoftDelayRecord`**, from `soft_delay_record` of each decoding (R16):
+  `values` (the session's (hint, value in s) pairs, sorted by hint), `hints`
+  (the hints of the soft delays that the interpreter attaches to the blocks),
+  `blocks` (with a soft delay), `applied` (whose duration the session sets) and
+  `unset` (the hints of the file with no value: at their stored durations).
+  Never a warning: the neutral session is the exported sequence (rule 4).
+- **`synth.FovRecord`**, from `fov_record` of each decoding (R16): `rotation`
+  and `scaling` (the session's), `scaling_flag` (`"NOSLC"` for `spec`, `"NOSCL"`
+  for `cpp-siemens`), `norot` and `noscale` (the blocks with each flag set, a
+  state across blocks), `rotated` and `scaled` (the blocks that the field of
+  view turns or scales). Never a warning.
 
 ### 2.7 `load` and the snapshot (R14)
 
@@ -414,10 +438,12 @@ contract too:
   through the interpreter given by name or as an object (`spec` or a plugin's).
   It raises their `SeqFileError` and `NotSupported`. pypulseq no longer reads a
   file.
-- `synth.Snapshot`: `data` (the `SequenceData`), `decoding`
-  (`synth.decode(data)`, a `synth.Decoding`), `interpreter` (with its settings),
-  `records` (`SequenceData.records`), `rotation_record` (the decoding's
-  `RotationRecord`) and `source` (the path, or None).
+- `synth.Snapshot`: `data` (the `SequenceData`), `session` (R16), `decoding`
+  (`synth.decode(data, session)`, a `synth.Decoding`), `interpreter` (with its
+  settings), `records` (`SequenceData.records`), `rotation_record`,
+  `soft_delay_record` and `fov_record` (the decoding's records) and `source` (the
+  path, or None). `load(source, interpreter, session=None)` takes the session
+  (2.8).
 - `load` emits `RotationRecord.warning()` (a `ScannerSettingWarning`) when it is
   not None: under `CppSiemens(rotation="reader")`, for a file whose blocks play
   a rotation. `load` no longer refuses the rotation extension
@@ -431,6 +457,56 @@ contract too:
   reader gives nothing there.
 - The block table (`seq.index`) keeps the file's IDs; in a block measured from
   `gradients_at`, each axis has an event of its own, numbered after the file's.
+  Its durations are the decoding's actual ones (R16).
+
+### 2.8 The scanner session (R16)
+
+Task R16 adds the inputs of the scanner session (section 7.8 of the plan, rules
+3 to 8; P22). This is a change of the contract.
+
+- **`synth.Session`** (module `synth.scanner`): `soft_delays` (s, by hint; kept
+  as sorted (hint, value) pairs), `fov_rotation` (a quaternion q0, qx, qy, qz,
+  norm 1 within 1e-6, divided by its norm) and `gradient_scaling` (sx, sy, sz,
+  each above 0). `Session()` is the neutral session, the default everywhere:
+  each block at its stored duration, the field of view not rotated or scaled.
+  Frozen, compared by value, hashable. A field that it does not have is a
+  `TypeError`.
+- **The plugin protocol, version 1** (`seqfile.PROTOCOL`): a plugin class has
+  `protocol = 1` and `decode(data, session=None)`. `synth.decode` gives it a
+  `Session`. `seqfile.interpreter` raises `TypeError` for a plugin of another
+  version (or of none, the protocol before R16), naming both versions.
+  `CppSiemens.protocol` is 1.
+- **The stored and the actual durations**: `Decoding.stored_block_durations`
+  (the file's) and `Decoding.block_durations` (under the session's soft delays;
+  the stored ones by default). `SpecDecoding.block_durations` was the stored
+  duration before R16 and is now the actual one. `gradients_at` is 0 after the
+  actual end, and the measurements and the block table use the actual one.
+- **Soft delays** (D2.21, D6.3): a block's duration is `value / factor +
+  offset` on the block duration raster, rounded half away from 0, for each soft
+  delay with a value; `spec` from 1.5.0. `cpp-siemens` takes the soft delays as
+  the reader attaches them (its misreadings included, D2.16) and sets the
+  duration with the reader's hook `setActualSoftDelay_ru`.
+- **The field of view** (D2.20, D2.22, D6.4): R_fov R_block S g, the order of
+  MATLAB's `mr.TransformFOV`; not turned in a block with `NOROT`, not scaled in
+  a block with the scaling flag: `NOSLC` for `spec` (from 1.4.1), `NOSCL` for
+  `cpp-siemens` (the reader drops `NOSLC`). `Decoding.fov_flags()` gives both
+  flags of each block.
+- **`synth.SettingError`** (a `ValueError`, rule 8): `setting` (for example
+  `"soft_delays['TE']"`), `interpreter`, `version` and `reason`. It is raised
+  by `synth.decode` and `load` for a soft delay hint that the file does not have
+  under the interpreter, a file before 1.5.0 under `spec`, a hint with two
+  numeric IDs (or whose numeric ID another hint has), a soft delay in a block
+  with an event or with two soft delays, and a negative duration. The field of
+  view is valid on any file.
+- **The shared simulation** (rule 6), which a plugin may import:
+  `synth.scanner.soft_delay_durations`, `fov_flags`, `physical_gradients`,
+  `fov_record` and `SoftDelay`.
+
+For pulseq-checks: the records describe the package's measurement under a
+session, not the file. A finding about the file (two numeric IDs for one hint, a
+soft delay outside a pure delay block, `NOSCL` against `NOSLC`) stays
+pulseq-checks' own; the `SettingError` is raised only when a session addresses
+it.
 
 ## 3. The four mechanisms
 
@@ -591,8 +667,5 @@ and marks its row done.
 |---|---|
 | R9, the `spec` part | Done: `SpecDecoding.gradients_at`, `rotations()` and `rotation_record` (2.3). |
 | P21 | Done: `cpp-siemens` is a plugin of the sub-project `packages/pulseq-cpp-siemens/` (`pulseq_cpp_siemens.interpreter`), found through the entry-point group `pulseq_analysis.interpreters`; the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`; `gradient_points`; `RotationRecord.hint` (2.2 to 2.6). |
-| R16 | The `Session` of section 7.8 of the plan (soft delays, the field of view), given to `load` and the timeline; `SettingError` (a `ValueError`) for a setting that addresses something the file does not have; the decoding's stored and actual block durations; the records of the mechanisms left at the default, in `SequenceData.records` for both interpreters (`cpp-siemens` gives no record today). |
-| R16 | The record's new entries: the flag `NOSLC` (the specification) against `NOSCL` (the C++ reader, MATLAB, pypulseq); D4.6, an extension used in a file older than the revision that introduced it. The code already records both under `spec` (`Record` reasons `"unknown"` and `"version"`), and since 2026-10-13 the record has their entries: D2.19 (`NOSCL`) and D4.6. |
-
-The order (section 10 of the plan): R16 needs R14, which is done (section
-2.7).
+| R16 | Done: the `Session` of section 7.8 of the plan (soft delays, the field of view), given to `load` and `synth.decode`; the plugin protocol version 1 and `decode(data, session)` (P22); `SettingError`; the decoding's stored and actual block durations; `SoftDelayRecord` and `FovRecord`; the records of `cpp-siemens` (2.3, 2.4, 2.6 to 2.8). |
+| R16 | Done: the record's new entries D2.20 (the order of the field of view), D2.21 (a soft delay value), D2.22 (`NOSLC` against `NOSCL`), and D6.3 and D6.4 of `cpp-siemens`; D4.6 and D4.7 say what a session does in an older file. |
