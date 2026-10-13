@@ -5,7 +5,8 @@ pulseq-analysis gives pulseq-checks so that pulseq-checks can find the
 discrepancies that `docs/discrepancies.md` records. It describes the code of
 pulseq-analysis at commit
 [`6fa807d`](https://github.com/mdtisdall/pulseq-analysis/tree/6fa807d) of
-`main`. Each link names that commit, so a shared copy stays exact. What
+`main`, with the tasks that section 7 lists as done since then (the `spec`
+part of R9). Each link names that commit, so a shared copy stays exact. What
 pulseq-checks does with it is pulseq-checks' own plan: this project writes
 nothing in pulseq-checks' repository, and it does not read its code.
 
@@ -177,7 +178,8 @@ reader's own MD5 check (D53).
 
 `synth.decode(data)` of a `spec` model gives `synth.SpecDecoding`
 (`interpreter`, and `rf`, `gradients`, `adc`: the events of the model by file
-ID). The events are in module `synth.events`:
+ID; `blocks`, the block table of the model, and `block_durations` in s, in
+play order from 0). The events are in module `synth.events`:
 
 - `RfEvent`: `id`, `amplitude`, `mag_id`, `phase_id`, `time_id`, `magnitude`,
   `phase`, `t`, `dwell` (None for a pulse of points, D35, D36), `shape_dur`,
@@ -190,7 +192,27 @@ ID). The events are in module `synth.events`:
 
 The decoder follows the specification and the slides (`docs/usage.md`, "The
 decoder of `spec`"). `model.rf_time_step(times)` tells a pulse of cells from a
-pulse of points. `spec` gives no rotated gradients yet (section 7).
+pulse of points. As `CppSiemensDecoding` (2.4), `SpecDecoding` has:
+
+- `block_count`.
+- `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m,
+  an array (n, 3), at times in µs from the start of each block. Each event is
+  the straight lines between its points (`seq_utils.gradient_offsets`), 0
+  before its delay and after its end, and every value is 0 outside the block.
+  `rotated` None or True turns each block with a rotation by its quaternion,
+  from 1.5.1 (`synth.decoding.rotate`, the active rotation `R(q) v` with q0
+  the scalar part, in float64); `False` gives the logical gradients.
+- `rotations()`: the play indices of the blocks whose extension list has a
+  ROTATIONS object, and their quaternions (n, 4), divided by their norm (D49).
+  Both are empty for a file older than 1.5.1, where ROTATIONS is an unknown
+  extension (P20, rule 2).
+- `rotation_record`: a `synth.RotationRecord` (2.6) with the setting
+  `"apply"`; it never has a warning, since `spec` applies the file's content.
+
+On each fixture with rotations from 1.5.1, its blocks and quaternions are
+those of `cpp-siemens`, and its rotated gradients are those of
+`CppSiemens(rotation="apply")` to float32 precision and those of MATLAB's
+`waveforms_and_times`.
 
 ### 2.4 The reading and decoding of `cpp-siemens`
 
@@ -320,7 +342,8 @@ of the scanner-side settings. Rule 7: these records are part of the contract.
   definition `RequiredExtensions` is read from 1.5.1 too. For `cpp-siemens` it is the extensions that the reader
   ignores, in any version.
 - **`synth.RotationRecord`** (module `synth.scanner`), from
-  `CppSiemensDecoding.rotation_record`: `setting` (`"reader"` or `"apply"`),
+  `CppSiemensDecoding.rotation_record` and `SpecDecoding.rotation_record`:
+  `setting` (`"reader"` or `"apply"`; always `"apply"` for `spec`),
   `blocks` (with a rotation), `not_identity` (whose quaternion has a vector part
   that is not 0), `rotated` (`blocks` with `"apply"`, else 0); `unapplied`; `str`
   (for example "rotation: apply, 5 block(s) rotated"); and `warning()`, a
@@ -408,7 +431,7 @@ means no code.
 | D46 | `[EXTENSIONS]` last | M4 | `oracle/koma_v1.5_unknown_ext.seq` | `section.extensions-last` | reads |
 | D47 | Unknown required extension | — (both reject) | `bad_extension_required_unknown.seq` | `extension.required-unknown` | `extension.required-unknown` |
 | D48 | Two ROTATIONS or RF_SHIMS in a block | M1, M4 | `bad_extension_per_block.seq` | the first | `extension.per-block` |
-| D49 | Played rotation; quaternion norm | M2, M4 | `oracle/pulseq_make_radial.seq`, `oracle/koma_v1.5_rotation_radial_tiny.seq` | normalizes; `rotation.norm`; rotates with `rotation="apply"` | normalizes from 1.5.1; `rotation.zero` |
+| D49 | Played rotation; quaternion norm | M2, M4 | `oracle/pulseq_make_radial.seq`, `oracle/koma_v1.5_rotation_radial_tiny.seq` | normalizes; `rotation.norm`; rotates with `rotation="apply"` | normalizes and rotates from 1.5.1; `rotation.zero` |
 | D50 | Unknown label name | M1 | `valid_label_unknown.seq` | leaves the label out | reads; `Record("label", …, "unknown")` |
 | D51 | Equal events, different IDs | M5 | `oracle/pypulseq_simple_mprage150.seq` | keeps both | keeps both |
 | D52 | No values of a target in the file | — (not about the file) | `valid_1_5_1.seq` | none | none |
@@ -489,14 +512,15 @@ project's test code, not part of the contract.
 ## 7. What is still to come
 
 These parts of the contract are planned, not in the code at `6fa807d`. Each
-task updates this document and `CHANGELOG.md` when it changes the contract.
+task updates this document and `CHANGELOG.md` when it changes the contract,
+and marks its row done.
 
 | Task | What it adds |
 |---|---|
-| R9, the `spec` part | `spec` rotates each block's gradients by its normalized quaternion from 1.5.1, with the package's own rotation in Python, checked against `CppSiemens(rotation="apply")` and MATLAB. Today `spec` only normalizes the quaternions (`SequenceData.extensions.rotations`) and `SpecDecoding` has no rotation. |
+| R9, the `spec` part | Done: `SpecDecoding.gradients_at`, `rotations()` and `rotation_record` (2.3). |
 | R14 | `analyses.load` on an interpreter's output (`interpreter=`): for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. `load` stops refusing the rotation extension (today `synth.extensions.refuse_rotations`), keeps the decoding's `rotation_record` in its result and emits `RotationRecord.warning()`. The waveform across blocks (D42). Today `load` reads with pypulseq. |
 | R16 | The `Session` of section 7.8 of the plan (soft delays, the field of view), given to `load` and the timeline; `SettingError` (a `ValueError`) for a setting that addresses something the file does not have; the decoding's stored and actual block durations; the records of the mechanisms left at the default, in `SequenceData.records` for both interpreters (`cpp-siemens` gives no record today). |
 | R16 | The record's new entries: D57, the flag `NOSLC` (the specification) against `NOSCL` (the C++ reader, MATLAB, pypulseq); D58, an extension used in a file older than the revision that introduced it. The code already records both under `spec` (`Record` reasons `"unknown"` and `"version"`), but the record has no entry for them yet. |
 
-The order (section 10 of the plan): R14 needs R9; the `spec` part of R9 needs
-R11, which is done; R16 needs R14.
+The order (section 10 of the plan): R14 needs R9, which is done; R16 needs
+R14.

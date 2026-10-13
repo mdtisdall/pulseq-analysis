@@ -53,8 +53,8 @@ does not have yet (the flags PMC, NOROT, NOPOS, NOSLC and ONCE of 1.4.1, spec:52
 such a label stays in `Extensions.labelset` or `labelinc`, as written.
 
 **Rotations** (D49). From 1.5.1, each quaternion of ROTATIONS is divided by its norm (spec:567:
-"a normalized rotation quaternion"), and a quaternion of norm 0 is rejected. Applying the
-rotation to the gradients is task R9's.
+"a normalized rotation quaternion"), and a quaternion of norm 0 is rejected. The decoding of
+`spec` rotates each block's gradients by its quaternion (`synth.decoding.SpecDecoding`).
 
 **Time shapes.** An RF time shape (D35 to D37) is regular when its times are `(i + 0.5) d` for a
 step `d` (`model.rf_time_step`): its samples are cells of `d` from the start of the pulse

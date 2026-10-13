@@ -163,7 +163,7 @@ specification does not state, which its message says.
 | [D46](#d46-a-file-whose-last-section-that-starts-with--is-extensions) | `[EXTENSIONS]` last | silent | rejects | reads | reads | rejects (`section.extensions-last`) | accepts |
 | [D47](#d47-an-unknown-extension-that-the-file-requires) | Unknown required extension | must reject | rejects | reads | reads | rejects (`extension.required-unknown`) | rejects |
 | [D48](#d48-a-block-with-more-than-one-rotations-or-rf_shims-object) | Two ROTATIONS or RF_SHIMS in a block | one only | warns, uses the first | rejects | rejects any ROTATIONS | the first, as C++ | rejects |
-| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3; does not rotate | normalizes, rotates | rejects | normalizes; rejects off by 1e-3 (`rotation.norm`); rotates with `rotation="apply"` | normalizes from 1.5.1; rejects norm 0 (choice) |
+| [D49](#d49-a-block-that-plays-a-rotation-or-a-quaternion-that-is-not-normalized) | Played rotation; quaternion norm | normalized quaternion | normalizes; rejects off by 1e-3; does not rotate | normalizes, rotates | rejects | normalizes; rejects off by 1e-3 (`rotation.norm`); rotates with `rotation="apply"` | normalizes and rotates from 1.5.1; rejects norm 0 (choice) |
 | [D50](#d50-a-labelset-or-labelinc-row-with-a-label-name-that-a-reader-does-not-know) | Unknown label name | lists labels | ignores the label | rejects | rejects | ignores the label | reads; records it |
 | [D51](#d51-two-event-rows-with-equal-values-and-different-ids-such-as-amplitudes-0-and--0) | Equal events, different IDs | silent | keeps | keeps | merges, renumbers | keeps | keeps |
 | [D52](#d52-any-file-it-holds-no-dead-time-ringdown-time-or-default-raster-of-a-scanner) | No values of a target in the file | not in the file | none | dead times | dead times, default rasters | none | none |
@@ -1646,17 +1646,26 @@ the measurements emit (task R14).
 
 Package (`spec`): from 1.5.1, divides each quaternion by its norm
 (`SequenceData.extensions.rotations`; `1 1.01 0 0 0` reads as `1 0 0 0`), and
-rejects a quaternion of norm 0 (`rotation.zero`). Before 1.5.1, ROTATIONS is an
-extension that `spec` does not know (D45). Applying the rotation to the
-gradients is the `spec` part of task R9 (P20, section 7.8 of the plan); the measurements do not
-support rotations yet.
+rejects a quaternion of norm 0 (`rotation.zero`). Its decoding rotates the
+gradients of each block with a rotation by its quaternion
+(`SpecDecoding.gradients_at`, with the package's `decoding.rotate`, the active
+rotation in float64; `SpecDecoding.rotations` gives the blocks and their
+quaternions). It applies the content of the file, so it has no setting and no
+warning: `rotation_record` has the setting `"apply"` (P20, rules 2 and 4). It
+agrees with `CppSiemens(rotation="apply")` to float32 precision, and with
+MATLAB's `waveforms_and_times`, on each fixture with rotations from 1.5.1.
+Before 1.5.1, ROTATIONS is an extension that `spec` does not know (D45, D58):
+ignored and recorded, and no block is rotated, where MATLAB and
+`CppSiemens(rotation="apply")` rotate. The measurements do not support
+rotations yet (task R14).
 
 Reason: `cpp-siemens` rejects what the C++ reader rejects (P2), and gives the
 reader's output by default (P20). The rotation is a setting because the scanner
 applies it and the reader does not (rule 2 of P20); it follows the reader, which
 attaches a rotation in any version (the user, 2026-10-12). The specification
-describes a normalized rotation quaternion, from revision 1.5.1 (spec:567);
-`spec` normalizes each, as the C++ reader and MATLAB do, and rejects one of norm
+describes a normalized rotation quaternion applied to the whole block, from
+revision 1.5.1 (spec:567); `spec` applies it from that revision (rule 2 of
+P20), normalizes each, as the C++ reader and MATLAB do, and rejects one of norm
 0, which is no rotation and which no current writer writes (the user's choice;
 the message says so). pulseq-checks reports a norm far from 1. `load` refuses a
 sequence with the rotation extension (`extensions.refuse_rotations`) until it

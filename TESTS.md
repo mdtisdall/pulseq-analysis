@@ -8363,6 +8363,61 @@ functions.
 
 **Assumptions:** The decoding of `cpp-siemens` is tested in `test_cpp_siemens.py`.
 
+#### `test_spec_gradients_at_are_the_lines_between_the_points_of_each_event`
+
+**Checks:** `SpecDecoding.gradients_at` gives the gradients (Hz/m) at block-relative times in µs, an
+array (n, 3): on block 2 of `valid_1_4_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs, rise
+100 µs, flat 200 µs, fall 100 µs, block 500 µs), 0 at -1 and 50 µs, 0.5e6 at 150 µs, 1e6 at 250 µs,
+0.5e6 at 450 µs, 0 at 500 and 501 µs, and 0 on gy and gz. `block_count` is 4. Empty arguments give
+an array (0, 3); arguments of different lengths and a NaN time raise `ValueError`; a block index of
+-1 or 4 raises `IndexError`, as for `cpp-siemens`.
+
+**How:** The test reads the file with `spec` and calls `gradients_at`.
+
+**Assumptions:** The arbitrary gradients and extended trapezoids are compared with `cpp-siemens` by
+`test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply` (`test_cpp_siemens.py`) and with
+MATLAB by `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq`.
+
+#### `test_rotate_is_the_active_rotation_of_a_unit_quaternion`
+
+**Checks:** `decoding.rotate(q, v)` is the active rotation `R(q) v`, q0 the scalar part: a quarter turn
+about z takes x to y, about x takes y to z, about y takes z to x, and the identity keeps a vector (to
+1e-15); for 20 random unit quaternions and vectors it equals `q v q*` with the Hamilton product, to
+1e-12.
+
+**How:** The test computes `q v q*` with its own Hamilton product (seed 0).
+
+**Assumptions:** None.
+
+#### `test_spec_rotates_the_gradients_of_each_block_that_has_a_rotation`
+
+**Checks:** From 1.5.1, `spec` rotates each block's gradients by its normalized quaternion (D49, P20
+rule 2): in `koma_v1.5_rotation_radial_tiny.seq`, `rotations()` gives blocks 0 to 4 with quaternions
+of norm 1 (to 1e-15); the logical gradients (`rotated=False`) are on x only; the rotated ones
+(`rotated` None, the same as True) are those turned by 0, 45, 90, 45 and 0 degrees about z (to 1e-3
+Hz/m). `rotation_record` is `RotationRecord("apply", 5, 3, 5)`, with no warning and the text
+"rotation: apply, 5 block(s) rotated"; the decoding emits no `ScannerSettingWarning`.
+`valid_1_5_1_rotation_not_played.seq` and `valid_1_4_1.seq` have the record
+`RotationRecord("apply", 0, 0, 0)`.
+
+**How:** The test samples 4 times in each of the 5 blocks, with `recwarn`.
+
+**Assumptions:** The angles are those of the file's quaternions, as in
+`test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation`.
+
+#### `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated`
+
+**Checks:** Before 1.5.1, ROTATIONS is an unknown extension for `spec` (P20 rule 2, D58): its
+`records` have the record ("extension", "ROTATIONS", "version"), `rotations()` is empty (shape (0,)
+and (0, 4)), `rotation_record` is `RotationRecord("apply", 0, 0, 0)`, and the gradients of a block
+whose extension list has a ROTATIONS object are not 0 and equal the logical ones (`rotated=False`).
+
+**How:** The test reads `valid_1_5_0_extensions_of_1_5_1.seq` (block 5 plays gx, its list has
+ROTATIONS) and a copy of `valid_1_4_1.seq` in `tmp_path` with a ROTATIONS object (45 degrees about z)
+in the list of block 2, which plays a trapezoid on gx; it samples 10 times inside the block.
+
+**Assumptions:** None.
+
 ### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
 
 `test_cpp_oracle_decode.py` compares the model of `read_seqfile` (the `spec` interpreter), the events of
@@ -8591,7 +8646,7 @@ where MATLAB has no point has no event in the package's model.
 
 - The test (one case for each file) skips a file in which the extension list of a block reaches a
   `ROTATIONS` object: MATLAB rotates the gradients of the block and `strict` does not (U18, U22).
-  `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq` compares such files.
+  `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq` compares such files.
 - It builds the sampler from the model with `_index_from_data`, `_dense_ids`, `decode_gradients`,
   `_points_from_events` and `GradientSampler._from_parts`, and samples it at MATLAB's times.
 - Where MATLAB has several points at one time (a step), the expected value is the first of them: the
@@ -8625,32 +8680,38 @@ and `decode_adc`, joins them in play order and compares them with `t_adc`.
 **Assumptions:** The block start is the sum in play order of the block durations (`_index_from_data`).
 The test does not check the phase or frequency of the samples.
 
-#### `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
+#### `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq`
 
-**Checks:** For each file with a `ROTATIONS` section, the gradients of
-`CppSiemens(rotation="apply")` (each block turned by its quaternion with the reader's
-`rotate_vec3_by_quat`) equal MATLAB's rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on
-each axis, to 1e-6 of the axis's largest value. Its record has as many blocks rotated as blocks with
-a rotation (0 for `valid_1_5_1_rotation_not_played.seq`). Where a block plays a rotation that is not
-the identity, the reader's own gradients (`rotated=False`) differ from MATLAB's.
+**Checks:** For each file with a `ROTATIONS` section and each interpreter, the rotated gradients
+equal MATLAB's rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-6 of
+the axis's largest value: those of `CppSiemens(rotation="apply")` (each block turned by its
+quaternion with the reader's `rotate_vec3_by_quat`), and those of `spec` (each block turned by the
+model's normalized quaternion with `decoding.rotate`), from 1.5.1. The record has as many blocks
+rotated as blocks with a rotation (0 for `valid_1_5_1_rotation_not_played.seq`). Where a block plays
+a rotation that is not the identity, the unrotated gradients (`rotated=False`) differ from MATLAB's.
 
 **How:**
 
-- The test (one case for each file) reads the file with `cpp-siemens` and `rotation="apply"`, and
-  samples `CppSiemensDecoding.gradients_at` at the midpoint of each segment of MATLAB's polyline,
-  with the block and the time in it from the cumulative block durations.
+- The test (one case for each file and interpreter) reads the file with `cpp-siemens` and
+  `rotation="apply"`, or with `spec`, and samples the decoding's `gradients_at` at the midpoint of
+  each segment of MATLAB's polyline, with the block and the time in it from the cumulative block
+  durations.
 - It leaves out the segments where MATLAB guesses the edges of an arbitrary gradient (U21, as the
   test of the waveform), and each segment with an end within 1e-12 s of a block boundary: there
   MATLAB can join the last point of one block to the first sample of the next (in
   `valid_1_5_1.seq`, from a gradient that ends at 282 842 Hz/m to an oversampled gradient whose
-  first sample is 5 µs later), and the reader decodes each block alone (D42).
+  first sample is 5 µs later), and each interpreter decodes each block alone (D42).
+- For `spec` it skips a file older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`): MATLAB rotates
+  in any version, and `spec` reads ROTATIONS from 1.5.1 only (P20, rule 2).
+  `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated` checks that file.
 
 **Assumptions:** The tolerance of 1e-6 covers the reader's float32 amplitudes (P6) against MATLAB's
-float64. `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are the radial cases of
-`docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds an extended
-trapezoid in a rotated block. A file that `cpp-siemens` rejects (`valid_last_section_no_blank.seq`,
-`definitions.skipped`; `valid_rf_time_shapes.seq`, `ub.rf-time-overrun`) is skipped, as a file that
-`spec` rejects is.
+float64; `spec` is in float64. `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are
+the radial cases of `docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds
+an extended trapezoid in a rotated block. A file that an interpreter rejects (for `cpp-siemens`
+`valid_last_section_no_blank.seq`, `definitions.skipped`, and `valid_rf_time_shapes.seq`,
+`ub.rf-time-overrun`; for both a file that MATLAB cannot read) is skipped. The `cpp-siemens` cases
+skip without pulseq-cpp-siemens.
 
 ### 2.25 The sanitized C++ oracle (`test_cpp_oracle_sanitized.py`)
 
@@ -9182,6 +9243,23 @@ replaced by `1 0 0 0`.
 **How:** The test decodes the radial file with `recwarn`.
 
 **Assumptions:** None.
+
+#### `test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply`
+
+**Checks:** On each fixture with a `ROTATIONS` section (`valid_*.seq` and `oracle/*.seq`) that both
+interpreters read: from 1.5.1, `spec` gives the blocks with a rotation that the reader attaches, with
+the same quaternions (to 1e-12), the same `rotation_record`, and the rotated gradients of
+`CppSiemens(rotation="apply")` at 7 times inside each block, to 1e-6 of the largest value. In a file
+older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`), `spec` has no rotation, `cpp-siemens`
+rotates a block that is not the identity, and `spec`'s gradients are the reader's unrotated ones.
+
+**How:** The test (one case for each file) samples both decodings at 5 % to 95 % of each block
+duration, in 7 steps.
+
+**Assumptions:** The tolerance covers the reader's float32 amplitudes (P6). A file that an
+interpreter rejects is skipped (`valid_comment_in_shape.seq`, `valid_last_section_no_blank.seq`,
+`valid_rf_time_shapes.seq`). The times avoid the block boundaries and are where the two decoders draw
+the same lines in these files.
 
 #### `test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install`
 
