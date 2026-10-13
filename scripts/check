@@ -30,6 +30,20 @@ echo "# pytest"
 uv run pytest -q tests --collected-tests-file "$collected_tests"
 
 echo
+echo "# pulseq-cpp-siemens"
+# The package of the C++ reader (packages/pulseq-cpp-siemens) is its own uv project, with its
+# own lock and virtual environment. It is built from the source of the C++ reader that the
+# devShell's PULSEQ_SOURCE_DIR names, and rebuilt on each run. Its tests include the first tier
+# of the fuzzing of its checks against pulseq-cpp-oracle-sanitized: the regression corpus and
+# 200 seeded files (the full set runs in .github/workflows/pulseq-cpp-siemens-fuzz.yml). Its test
+# IDs go to the same file, for the TESTS.md check.
+package=packages/pulseq-cpp-siemens
+uv sync --frozen --project "$package" --no-editable --reinstall-package pulseq-cpp-siemens
+uv run --project "$package" --no-sync pytest -q "$package/tests"
+uv run --project "$package" --no-sync pytest -q --collect-only "$package/tests" \
+  >>"$collected_tests"
+
+echo
 echo "# TESTS.md"
 uv run python scripts/check_tests_md.py --collected "$collected_tests"
 

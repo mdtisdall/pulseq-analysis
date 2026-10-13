@@ -1,0 +1,340 @@
+{
+ "packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point.seq": {
+  "verdict": "undefined-behaviour:ub.gradient-one-point"
+ },
+ "packages/pulseq-cpp-siemens/tests/fixtures/gradient_shape_0.seq": {
+  "verdict": "undefined-behaviour:ub.gradient-shape-0"
+ },
+ "packages/pulseq-cpp-siemens/tests/fixtures/shape_decompress_count_missing.seq": {
+  "verdict": "undefined-behaviour:ub.shape-decompression"
+ },
+ "tests/seqfiles/bad_block_event_too_long_adc.seq": {
+  "sha256": "b5d9b9396477c208eabb1b2e2f9dd3167a8ae760e69b10f6f1880c832a0ca15c",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_block_event_too_long_rf.seq": {
+  "sha256": "a0068e8498bdca8a4685a29b0a63729b2af1bac935a657c8de01c8b64403db82",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_block_event_too_long_trigger.seq": {
+  "sha256": "143f47169b94a804f015f132b70b04fc4622d11db2d464bb0660a2486365f338",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_blocks_empty.seq": {
+  "sha256": "5beabbd4e77aa92a3d2339ee3058ed87b01674d8dceb2fea709942a43dea9e05",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_blocks_order.seq": {
+  "sha256": "d6d0298f1e7b629e5eddaa62445b2403efa86560d3b305bb416ca68f7002e250",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_definitions_duplicate.seq": {
+  "sha256": "8e9eb0285f5f305a6264b55d870bd27600b111c28ba4e6913616167f49ba9488",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_definitions_raster_invalid.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_definitions_raster_missing.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_extension_per_block.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_extension_required_unknown.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_gradient_nonzero_end_align.seq": {
+  "sha256": "6bbc2851bff9b8a0bd08cd4ff8160c5e464b96a561770de7bd1c3fbcdfdbbc64",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_gradient_nonzero_start_delay.seq": {
+  "sha256": "f0a1a25a5b2c753689f2dd669cf6cb1bece8abec7e02abf7452a28614e5c77ee",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_id_gradient_unique.seq": {
+  "sha256": "0fb0ea06d0b1fb452c1ce93424540acf26cd02b62ea5bfa618863486b3299919",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_id_positive.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_id_unique.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_id_unique_block.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_layer1_gradient_ends.seq": {
+  "sha256": "930df095224f5f6f9c1b3d41b77909246032abe62cb46b6edb37089e921f9dc7",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_many.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_raster_adc_dwell.seq": {
+  "sha256": "82eee4ea00c197a60ec35c5f685526b30ffdc5eaa3e952c34909073ea523129a",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_raster_gradient_delay.seq": {
+  "sha256": "cdc3e47a637351d5eb57f46dbf8be6a43493ba8f796ac4810e6c12322c911986",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_raster_gradient_end.seq": {
+  "sha256": "39ec00474f7f443f3badd108fe9a2b578c7699f809ee806a8a585443c0932a4a",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_raster_gradient_flat.seq": {
+  "sha256": "b272efde9f4fc148a12b31864db394b09b95060c1f83db61c7383cb3b3fe3d02",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_raster_gradient_ramp.seq": {
+  "sha256": "5865c702cc1573a63b4c3507f2f486cf198bbc155db20dab76a435e9c7fd9197",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_ref_block_rf.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_ref_extension_cycle.seq": {
+  "verdict": "undefined-behaviour:ub.extension-cycle"
+ },
+ "tests/seqfiles/bad_ref_extension_entry.seq": {
+  "sha256": "1121189590ad758f77bb64b853e09f0482c9dcd89c6ba7a50aae5854782499ee",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_ref_extension_object.seq": {
+  "sha256": "700d89f4511d3bf45af6d6b268d8bac9bf8837c181e75c704dc454e2971591ae",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_ref_extension_type.seq": {
+  "sha256": "b81efe18156363623cc7a39722b688ee0e6d28a6bf337b5fa28994173b43f33d",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_ref_shape.seq": {
+  "verdict": "undefined-behaviour:ub.shape-missing"
+ },
+ "tests/seqfiles/bad_ref_time_id_minus_1_in_1_4.seq": {
+  "sha256": "bf22937c9e2d949ae699a4616b6832b068668118ad276e60d0f148565c7a3da3",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_ref_time_shape.seq": {
+  "verdict": "undefined-behaviour:ub.shape-missing"
+ },
+ "tests/seqfiles/bad_section_delays.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_section_duplicate.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_section_unknown.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_shape_empty.seq": {
+  "verdict": "undefined-behaviour:ub.shape-empty"
+ },
+ "tests/seqfiles/bad_shape_event_length.seq": {
+  "verdict": "undefined-behaviour:ub.rf-shape-lengths"
+ },
+ "tests/seqfiles/bad_shape_length.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_shape_range.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_shape_rf_magnitude_negative.seq": {
+  "sha256": "28c7587dde525634137eb8bb1c48cb8cbdbfd53b8774f89b4c684034ea5dfed9",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_shape_rf_phase_range.seq": {
+  "sha256": "9a489d8c99f16638fcb48b1073ff11293f23eb26560725a2ec98cac6dc090f81",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_shape_rf_time_end.seq": {
+  "verdict": "undefined-behaviour:ub.rf-time-overrun"
+ },
+ "tests/seqfiles/bad_shape_rf_time_grid.seq": {
+  "sha256": "acf7d149d3f124e87d0264e20defb6014486af319332f7b83dbb57ec320fb32b",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_signature_invalid.seq": {
+  "sha256": "edba9a9e7a4e893b112ca02577db9fe4a56a605a08c7e1921ebd9d73131cee75",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_columns.seq": {
+  "sha256": "1121189590ad758f77bb64b853e09f0482c9dcd89c6ba7a50aae5854782499ee",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_encoding.seq": {
+  "sha256": "edba9a9e7a4e893b112ca02577db9fe4a56a605a08c7e1921ebd9d73131cee75",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_integer.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_syntax_integer_plus.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_line.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_line_after_comment.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_syntax_negative.seq": {
+  "sha256": "a47c62c0f12506dd0b70afb0f5ec13bd9f7e5884d5d62758ae63793e8235ad78",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_number.seq": {
+  "sha256": "20affb1fe1fc67abb56673e07ea135347e008d8fa700ce645a0abfae7cd06064",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_syntax_shape.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_syntax_shape_no_blank_line.seq": {
+  "verdict": "undefined-behaviour:ub.shape-missing"
+ },
+ "tests/seqfiles/bad_syntax_use.seq": {
+  "sha256": "7e5660d84dfa4046cc79be7a23906342a068567e277e4e9e3a6368f2c9694add",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_version_invalid.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/bad_version_missing.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/bad_version_unsupported_1_3.seq": {
+  "verdict": "not-supported"
+ },
+ "tests/seqfiles/bad_version_unsupported_1_6.seq": {
+  "verdict": "not-supported"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_epi.seq": {
+  "sha256": "36195f4fea32384b797a25a7b2c1b4228f3d03510b3c7812ec0275d4ed9fa198",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_fid.seq": {
+  "sha256": "09c1907d795513e7b4d1b4ca619b5cb5a840e6a31f7bb2c067f4a63530d50b71",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_gr-time-shaped.seq": {
+  "sha256": "a5b6529add11c96e061d2f4ee9eec878923229fb97f9857447b8b6d41d07a282",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_gr-trapezoidal.seq": {
+  "sha256": "edd0cc6d7d269a6274df839530f96f28460d48aafd990e4782f3b68929512f27",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_gr-uniformly-shaped.seq": {
+  "sha256": "9385784cb23084d19e9ea22b5a76fadf6c08074602f7531b04d080649ea6e2f7",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_label_test.seq": {
+  "sha256": "2488e39d928d9fa5dd665c0efdb696a15e7f948339f593a8f0f41ed6b50140d9",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.4_rf-time-shaped.seq": {
+  "sha256": "8d32c277a9336b02d4c48320a335e0ea1d145c34eae094f26512e771032901af",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.5_rotation_radial_tiny.seq": {
+  "sha256": "17006528861a27f606c8e3b74ac244cecb4df2fc271b9df0f7428b9f23ab59a2",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.5_spiral.seq": {
+  "sha256": "1cbffa6047c0556be0a8e5f390f001f91b2f244c937d34e3b3902caa2f1a849d",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/koma_v1.5_unknown_ext.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/oracle/pulseq_epi_rs.seq": {
+  "sha256": "23a9470e7222f481a83fd4b84ea4f50679486f2faf75f3441229db4478cf1c34",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pulseq_fid.seq": {
+  "sha256": "4d849cb3a5103d10e5e43d120b712780f3bc217dfd75feb12ec974d8d5ab9cbc",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pulseq_make_radial.seq": {
+  "sha256": "ae0bd632ec8baced999627fc03338c9481ca2a6b9b5d69dba25b138f55204e4e",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pulseq_seq4.seq": {
+  "sha256": "f3bc25b81d32dc7c4339020f16711a5d055277bbe3eaae78830762e2b839a68d",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pypulseq_seq6.seq": {
+  "sha256": "8475a09a09e3a8b937dcaf09d73f42bd7d90151ceb6d57c2599ebed678774f9c",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pypulseq_simple_mprage140.seq": {
+  "sha256": "7270e26fd2e01778e845dac3b43819eac98f7fa831dbcd21befc25324f81967a",
+  "verdict": "read"
+ },
+ "tests/seqfiles/oracle/pypulseq_simple_mprage150.seq": {
+  "sha256": "93a38a0bafb005a875285fe629cc60570cf91f000bba4a26fd69fee16d4446a4",
+  "verdict": "read"
+ },
+ "tests/seqfiles/undefined/rf_time_id_minus_1.seq": {
+  "verdict": "undefined-behaviour:ub.rf-time-id-minus-1"
+ },
+ "tests/seqfiles/undefined/shape_decompress_longer.seq": {
+  "verdict": "undefined-behaviour:ub.shape-decompression"
+ },
+ "tests/seqfiles/undefined/version_last.seq": {
+  "verdict": "undefined-behaviour:ub.shape-missing"
+ },
+ "tests/seqfiles/valid_1_4_0.seq": {
+  "sha256": "5aa2c061f2288b8b4079146d3600d61d8f4f0fc6751691083891dab1b0089df0",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_1_4_1.seq": {
+  "sha256": "930df095224f5f6f9c1b3d41b77909246032abe62cb46b6edb37089e921f9dc7",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_1_5_0.seq": {
+  "sha256": "2bf2121014c8c2344ca06b6c0a4e1e23083f918e6f018477be17dd83a16e43b7",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_1_5_1.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_1_5_1_rotation_not_played.seq": {
+  "sha256": "3e38f393200b0d1dccab0daf1fc388bb4a68744af340624f15447de513eea1d2",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_arbitrary_gradient_4us_raster.seq": {
+  "verdict": "rejected"
+ },
+ "tests/seqfiles/valid_comments_between_sections.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_crlf.seq": {
+  "sha256": "2b322e44312d1b57e24c57ac8be257836151c3fd6731183d7829591d2416ac10",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_no_signature.seq": {
+  "sha256": "edba9a9e7a4e893b112ca02577db9fe4a56a605a08c7e1921ebd9d73131cee75",
+  "verdict": "read"
+ },
+ "tests/seqfiles/valid_signature_mismatch.seq": {
+  "sha256": "edba9a9e7a4e893b112ca02577db9fe4a56a605a08c7e1921ebd9d73131cee75",
+  "verdict": "read"
+ }
+}

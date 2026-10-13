@@ -47,6 +47,9 @@ PATH of the devShell and the `ci` devShell), with clang of LLVM 22, the two flag
 
 - AddressSanitizer and UndefinedBehaviorSanitizer (`-fsanitize=address,undefined`,
   `-fno-sanitize-recover=all`);
+- the annotation of the unused capacity of a `std::vector` for AddressSanitizer
+  (`_GLIBCXX_SANITIZE_VECTOR` for libstdc++; libc++ always annotates it), so that a write past the
+  size of a vector inside its capacity is a report of container-overflow on both systems;
 - the assertions of the C++ standard library: `_GLIBCXX_ASSERTIONS` for libstdc++ (Linux) and
   `_LIBCPP_HARDENING_MODE_DEBUG` for libc++ (macOS). They check, for example, the index of
   `std::vector::operator[]`, which the reader takes past the end without a read that

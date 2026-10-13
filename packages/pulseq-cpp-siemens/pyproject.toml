@@ -1,0 +1,65 @@
+# The C++ reader of pulseq/pulseq as a nanobind extension (P12 of docs/plans/parser-redesign.md
+# in pulseq-analysis). Its own distribution, with compiled wheels, so that pulseq-analysis stays
+# pure Python. README.md says how to build, test and release it.
+
+[build-system]
+# Exact versions: the build of a release must not change with a new release of either.
+requires = ["scikit-build-core==1.1.0", "nanobind==3.1.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pulseq-cpp-siemens"
+version = "0.1.0"
+description = "ExternalSequence of pulseq/pulseq, the reader of the Pulseq interpreter on Siemens scanners, in the process"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE", "LICENSE.pulseq"]
+dependencies = ["numpy"]
+
+[dependency-groups]
+test = ["pytest"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.py-api = "cp312"  # nanobind's stable ABI: one wheel per platform for Python 3.12 and later
+build-dir = "build/{wheel_tag}"
+# The sdist carries the reader's files (scripts/fetch_reader.py puts them in third_party/pulseq,
+# which git ignores), so that it builds with no network.
+sdist.include = ["third_party/pulseq/**"]
+sdist.exclude = ["build", ".venv", "tests", "scripts"]
+
+[tool.uv]
+default-groups = ["test"]
+# scripts/check rebuilds the package for each run (--reinstall-package); these files decide
+# whether uv's cache of the build is still valid otherwise.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "pulseq-reader.sha256" },
+    { file = "src/**" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["fuzz: the fuzzing of the checks against the sanitized C++ oracle (tests/test_fuzz.py)"]
+
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = "*-musllinux_*"
+build-verbosity = 1
+test-groups = ["test"]
+# The tests of each wheel, in a clean environment: the fixtures of the repository against the
+# digests of the driver's output (tests/expected_digests.json), the cases of undefined behaviour,
+# the API and the lock. The tests that need the C++ oracle skip (it is in the Nix devShell only).
+test-command = "pytest -v {project}/packages/pulseq-cpp-siemens/tests"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64", "x86_64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "aarch64"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

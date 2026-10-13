@@ -1,0 +1,113 @@
+name: pulseq-cpp-siemens-wheels
+
+# The wheels and the sdist of packages/pulseq-cpp-siemens (P12 of docs/plans/parser-redesign.md),
+# built for the five platforms and tested; nothing is published. Each wheel is installed in a
+# clean environment by cibuildwheel and tested on the fixtures of the repository against
+# tests/expected_digests.json (the driver's output), then once more on a later Python, as the
+# stable ABI promises. The package's tests that need the C++ oracle, and the fuzzing of its
+# checks, run in scripts/check (.github/workflows/check.yml), whose devShell has the oracle.
+
+on:
+  pull_request:
+    paths:
+      - packages/pulseq-cpp-siemens/**
+      - tests/seqfiles/**
+      - .github/workflows/pulseq-cpp-siemens-wheels.yml
+  push:
+    branches: [main]
+    paths:
+      - packages/pulseq-cpp-siemens/**
+      - tests/seqfiles/**
+      - .github/workflows/pulseq-cpp-siemens-wheels.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Put the reader's files in third_party/pulseq (checked against their SHA-256)
+        run: python packages/pulseq-cpp-siemens/scripts/fetch_reader.py
+      - name: Build the sdist
+        run: pipx run build --sdist --outdir dist packages/pulseq-cpp-siemens
+      - name: The sdist carries the reader's files
+        run: |
+          listing=$(tar -tzf dist/*.tar.gz)
+          for name in src/ExternalSequence.h src/ExternalSequence.cpp src/md5.h src/md5.cpp LICENSE; do
+            grep -q "/third_party/pulseq/$name\$" <<<"$listing" || { echo "missing $name"; exit 1; }
+          done
+      - name: A wheel builds from the sdist with no download
+        run: |
+          rm -rf packages/pulseq-cpp-siemens/third_party
+          pipx run build --wheel --outdir wheel-from-sdist \
+            --config-setting=cmake.define.PULSEQ_ALLOW_DOWNLOAD=OFF dist/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  wheels:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            archs: x86_64
+            native: x86_64
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            archs: aarch64
+            native: aarch64
+          - name: windows-amd64
+            runner: windows-2022
+            archs: AMD64
+            native: amd64
+          - name: macos-arm64-and-x86_64
+            # The x86_64 wheel is built on arm64 and tested under Rosetta.
+            runner: macos-14
+            archs: arm64 x86_64
+            native: arm64
+    steps:
+      # Git on the Windows runners turns LF into CRLF on checkout. The reader hashes the bytes of
+      # a file for its signature, so the fixtures must keep the bytes of the repository.
+      - name: Keep the line ends of the fixtures
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: |
+            3.12
+            3.14
+      - name: Put the reader's files in third_party/pulseq (checked against their SHA-256)
+        run: python packages/pulseq-cpp-siemens/scripts/fetch_reader.py
+      - name: Build the wheels, and test each in a clean environment
+        uses: pypa/cibuildwheel@v4.2.1
+        with:
+          package-dir: packages/pulseq-cpp-siemens
+          output-dir: wheelhouse
+        env:
+          CIBW_ARCHS: ${{ matrix.archs }}
+      - name: Test the native wheel on Python 3.14 (the stable ABI)
+        shell: bash
+        run: |
+          python3.14 -m venv /tmp/abi3 || py -3.14 -m venv /tmp/abi3
+          bin=/tmp/abi3/bin; [ -d "$bin" ] || bin=/tmp/abi3/Scripts
+          wheel=$(ls wheelhouse/*.whl | grep -i "${{ matrix.native }}")
+          "$bin/python" -m pip install "$wheel" pytest
+          "$bin/python" -m pytest -q packages/pulseq-cpp-siemens/tests
+      - name: Wheel sizes
+        shell: bash
+        run: ls -l wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.name }}
+          path: wheelhouse/*.whl
