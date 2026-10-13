@@ -36,7 +36,8 @@ arbitrary gradient (see below). It raises:
   `messages`. `decode_block`, `decode` and `gradients_at` raise it when `decodeBlock` returns
   false.
 - `UndefinedBehaviour` (a `Rejected`) for a case of undefined behaviour of the reader (section
-  5.3 of the plan), with its `code` (a key of `CODES`) and its `entry` of `docs/discrepancies.md`.
+  5.3 of the plan), with its `code` (a key of `CODES`) and its `entry`, the ID of its condition
+  (section 2.2 of [`docs/specification.md`](docs/specification.md)).
   No block of such a file is decoded. For `ub.gradient-one-point`, which only `gradientsAt` meets,
   `block` and `time_us` give a block and a time where the reader has it.
 
@@ -130,6 +131,9 @@ extension calls no function whose assert could fail.
 
 ## The `cpp-siemens` interpreter of pulseq-analysis
 
+[`docs/specification.md`](docs/specification.md) gives what `cpp-siemens` does and why: its rule (do
+what the C++ reader does) and each exception to it.
+
 The module `pulseq_cpp_siemens.interpreter` is a plugin of pulseq-analysis (P21 of
 `docs/plans/parser-redesign.md` in that repository): the interpreter `cpp-siemens`. pulseq-analysis
 has no import of this package and no reference to it in its metadata. This package declares an
@@ -199,29 +203,10 @@ rotation (the ROTATIONS extension, D49), below; `ROTATION` lists `"reader"` (the
 `"apply"`. A value that is not listed is a `ValueError`. `str` gives the name with each setting
 that is not its default, for example `cpp-siemens(oversampling='edge')`.
 
-**The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to its entry
-of `docs/discrepancies.md` of pulseq-analysis and what the reader rejects. The reader stops at its
-first error, so a rejection has one reason. Its message is the reader's own.
-
-| Code | Entry | The C++ reader rejects |
-| --- | --- | --- |
-| `version.missing`, `version.invalid` | D02 | no `[VERSION]` section; a line of it that does not decode, or an unknown key |
-| `definitions.raster-missing`, `definitions.raster-invalid` | D11 | a required raster that is not defined; one whose value the reader does not read as a number (`nan`, `inf`, text) |
-| `definitions.skipped` | D56 | the rasters, because the reader skipped `[DEFINITIONS]`: a section that it read before ran to the end of the file with no blank line after it |
-| `extension.required-unknown` | D47 | a required extension that the reader does not know |
-| `section.extensions-last` | D46 | `[EXTENSIONS]` as the last section of the file |
-| `blocks.missing` | — | no `[BLOCKS]` section |
-| `syntax.row` | D14, D15 | a row that does not decode with the reader's `sscanf` format: a fraction in an integer column (`30.5`, an ADC dwell `2500.0`), a field that is not a number, a short row |
-| `syntax.comment-row` | D06 | a `#` line inside a table, which the reader reads as a row |
-| `syntax.shape` | D14 | a line of `[SHAPES]` that does not decode |
-| `ref.unresolved` | D21 | a block that names an RF, gradient or ADC event that the reader did not read |
-| `rotation.norm` | D49 | a quaternion whose norm is more than 1e-3 from 1 |
-| `gradient.raster` | D28 | an arbitrary gradient in a file whose gradient raster is not 10 µs (in `decodeBlock`) |
-| `shape.decompression` | D29 | a shape whose compression the reader cannot decode (a repeat count that is not a whole number) |
-| `shape.ext-trap-lengths` | — | an extended trapezoid whose time shape and waveform differ in length |
-| `cpp.exception` | — | a C++ exception in the reader (for example an RF time shape that ends before 0) |
-| `cpp.rejected` | — | any other rejection |
-| `ub.*` | 5.3 of the plan | a case of the reader's undefined behaviour, or of no end: `ub.shape-missing` (D21, D05, D07), `ub.rf-time-id-minus-1` (D22), `ub.extension-cycle` (D23), `ub.shape-decompression` (D29), `ub.shape-empty` (D33), `ub.rf-shape-lengths` (D34), `ub.rf-time-overrun` and `ub.rf-time-range` (D36), `ub.gradient-time-range`, `ub.gradient-one-point` and `ub.gradient-shape-0` |
+**The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to the ID
+of its condition and what the reader rejects; section 2.5 of
+[`docs/specification.md`](docs/specification.md) lists them. The reader stops at its first error,
+so a rejection has one reason. Its message is the reader's own.
 
 The reader gives a message, not a code. Each message of `load` that returns false is a pattern of
 `_LOAD_MESSAGES`, and `_classify` finds the code from the message. The order in which the patterns

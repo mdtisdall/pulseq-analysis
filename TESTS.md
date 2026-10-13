@@ -7771,7 +7771,7 @@ file is not in `NOT_CHECKED_BY_THE_READER`. It fails with the list.
 
 - When both readers reject a file, the test does not check that they reject it for the same rule.
 - The tables come from a run on the macOS arm64 build, and the comments of the entries that a
-  crash depends on the build come from the matrix of `docs/discrepancies.md` (appendix A) and from
+  crash depends on the build come from the acceptance matrix (`scripts/discrepancy_matrix.py`, run on 2026-10-13) and from
   earlier runs on the Linux build. The test does not show that the oracle never checks a rule.
 - A file of `ORACLE_KNOWN_WRONG` is skipped whatever the verdicts are, also when the oracle changes.
 - The raster skip is a rule on the model, never a file name.
@@ -9871,9 +9871,11 @@ the table. It needs no oracle.
 
 **Checks:** The three fixtures of `packages/pulseq-cpp-siemens/tests/fixtures` are rejected with the
 code of their case of undefined behaviour: `ub.gradient-one-point`, `ub.gradient-shape-0` and
-`ub.shape-decompression` (a repeated value with no count at the end of a shape).
+`ub.shape-decompression` (a repeated value with no count at the end of a shape), and `CODES` gives
+each code the ID of its condition in `packages/pulseq-cpp-siemens/docs/specification.md`: D59, D21
+and D29.
 
-**How:** For each fixture (parametrized), the test reads it and compares the code.
+**How:** For each fixture (parametrized), the test reads it and compares the code and the ID.
 
 **Assumptions:** The package's tests confirm each case with the sanitized oracle.
 

@@ -21,9 +21,9 @@ CASES = {
     SEQFILES / "bad_shape_empty.seq": "ub.shape-empty",  # D33
     SEQFILES / "bad_shape_event_length.seq": "ub.rf-shape-lengths",  # D34
     SEQFILES / "bad_shape_rf_time_end.seq": "ub.rf-time-overrun",  # D36 (2)
-    # gradientsAt of an extended trapezoid of one point reads past its times.
+    # D59: gradientsAt of an extended trapezoid of one point reads past its times.
     UB_FIXTURES / "gradient_one_point.seq": "ub.gradient-one-point",
-    # A [GRADIENTS] row of shape 0: a trapezoid whose ramp and flat times load never sets.
+    # D21: a [GRADIENTS] row of shape 0: a trapezoid whose ramp and flat times load never sets.
     UB_FIXTURES / "gradient_shape_0.seq": "ub.gradient-shape-0",
 }
 
