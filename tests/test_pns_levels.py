@@ -44,7 +44,7 @@ from pulseq_analysis.analyses.pns_levels import (
     bin_samples_for,
     pns_levels,
 )
-from pulseq_analysis.analyses.safe import SafeHardware
+from pulseq_analysis.analyses.safe import SafeHardware, _safe_gwf_to_pns_chunk
 from pulseq_analysis.synth import seq_index
 from pulseq_analysis.synth.seq_index import sequence_index
 
@@ -101,88 +101,90 @@ _SEQUENCES = {
 }
 
 
+def _oracle_model(snap, levels: PnsLevels, scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """The SAFE model of the oracle samples of `snap`, the reference of `pns_levels`: the
+    package's `_safe_gwf_to_pns_chunk` in one chunk, with the example hardware, on the stacked
+    `(N, 3)` samples of the oracle of `sequence_of(snap)` (`oracle.block_samples` at the
+    gradient raster when `levels.on_raster`, else `oracle.sample` at the file times
+    `(k + 0.5) * dt` for `k < levels.num_samples`), each sample times `scale`. Returns
+    `(axis_values, total)`: the percent times 0.01 (`(N, 3)`) and the `sqrt(sum of squares)`
+    of each row, as `pns_levels` computes them. The oracle reads the gradients of the snapshot
+    as it plays them, so the rounding of the written file is not in a difference. The oracles
+    import pypulseq, so they are imported here: the module also runs without it."""
+    from oracles import waveform as oracle
+    from oracles.blocks import sequence_of
+
+    seq = sequence_of(snap)
+    dt = seq.grad_raster_time
+    if levels.on_raster:
+        columns = [oracle.block_samples(seq, axis, dt) for axis in "xyz"]
+    else:
+        t = (np.arange(levels.num_samples) + 0.5) * dt
+        columns = [oracle.sample(seq, axis, t) for axis in "xyz"]
+    gwf = scale * np.stack(columns, axis=1)
+    percent, _ = _safe_gwf_to_pns_chunk(gwf, dt, safe_example_hw(), None)
+    axis_values = 0.01 * percent
+    return axis_values, np.sqrt((axis_values**2).sum(axis=1))
+
+
+def _assert_summary_is_the_model(
+    levels: PnsLevels, axis_values: np.ndarray, total: np.ndarray, scale: float = 1.0
+) -> None:
+    """The peak and the axis peaks of `levels`, times `scale`, equal those of the model
+    (`_oracle_model`) to a relative 1e-9 (the axis peaks also to an absolute 1e-12 of the
+    peak), and the peak time is the centre of the first sample whose total is at least the
+    peak times `1 - PEAK_TOLERANCE`."""
+    peak = total.max()
+    assert levels.num_samples == total.size
+    assert scale * levels.peak_hz_per_t == pytest.approx(peak, rel=1e-9)
+    for i, axis in enumerate("xyz"):
+        assert scale * levels.axis_peaks_hz_per_t[axis] == pytest.approx(
+            axis_values[:, i].max(), rel=1e-9, abs=1e-12 * peak
+        )
+    assert levels.peak_time_s == pytest.approx(
+        (np.flatnonzero(total >= peak * (1 - PEAK_TOLERANCE))[0] + 0.5) * levels.dt_s,
+        abs=1e-12,
+    )
+
+
 @pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
-def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
-    """The peak, the peak time and the axis peaks of `pns_levels` (example hardware)
-    equal `seq.calculate_pns` of the pinned fork within a relative 1e-5 of the peak.
-    `pns_levels` gives Hz/T, so each of its values is divided by `seq.system.gamma`
-    first, as the rule of `docs/usage.md` section 9 says: this also tests that
-    conversion.
-
-    The two are not exactly equal: `calc_pns` samples `seq.get_gradients()` at the
-    file times `(k + 0.5) * dt`, which drift off the ideal raster grid by float
-    rounding of the block start time sums, while
-    `pns_levels` samples each block at its own local raster times `(j + 0.5) * dt`
-    (`GradientSampler.block_samples`), with no such drift. Both then run the same
-    `_safe_gwf_to_pns_chunk`, so the whole difference is that drift. The sequence is read
-    from the file that pypulseq writes (amplitudes of about 6 significant digits), while
-    `calculate_pns` reads the object in memory: the tolerance covers that rounding too.
-    """
+def test_summary_is_the_safe_model_of_the_oracle_samples(build):
+    """The peak, the peak time and the axis peaks of `pns_levels` (example hardware) equal
+    the SAFE model of the oracle samples (`_oracle_model`: the package's
+    `_safe_gwf_to_pns_chunk` on the samples of the model of MATLAB Pulseq) to a relative
+    1e-9. Both are in Hz/T: the model runs on the Hz/m samples, so no gamma is divided."""
     seq = build()
     snap = load(seq)
-    hw = safe_example_hw()
-    _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)
-    ref_peak = float(norm.max())
-    threshold = ref_peak * (1 - PEAK_TOLERANCE)
-    ref_peak_time = float(t[int(np.flatnonzero(norm >= threshold)[0])])
-    ref_axis_peaks = {axis: float(comp[:, i].max()) for i, axis in enumerate("xyz")}
-
     levels = pns_levels(snap, hardware=EXAMPLE_HW)
-    gamma = seq.system.gamma
-    tol = 1e-5 * ref_peak
+    axis_values, total = _oracle_model(snap, levels)
 
     assert levels.reason is None
     assert levels.hardware == EXAMPLE_HW[1]
     assert levels.dt_s == seq.grad_raster_time
     assert levels.on_raster is True
-    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
-    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
-    for axis in "xyz":
-        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
-            ref_axis_peaks[axis], abs=tol
-        )
+    _assert_summary_is_the_model(levels, axis_values, total)
 
 
 @pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
-def test_stored_bins_match_calculate_pns_totals(build):
-    """Each stored bin's minimum and maximum equal the minimum and the maximum of
-    `seq.calculate_pns`'s totals over the same samples, within the same 1e-5-of-peak
-    tolerance as `test_summary_matches_calculate_pns_within_the_fork_tolerance` (same
-    reason: the file-time drift of `calc_pns`'s own gradient sampling). The values of
-    `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md` section 9).
+def test_stored_bins_are_the_extremes_of_the_model_totals(build):
+    """Each stored bin's minimum and maximum equal the minimum and the maximum of the totals
+    of the SAFE model of the oracle samples (`_oracle_model`) over the same samples, for every
+    bin, to a relative 1e-6 (the stored bins are float32, cast outward) and an absolute 1e-12
+    of the peak (the rounding residue of a sample that is 0). A bin is 7 samples, so that each
+    sequence has more than one."""
+    snap = load(build())
+    levels = pns_levels(snap, hardware=EXAMPLE_HW, bin_s=7 * SYSTEM.grad_raster_time)
+    _, total = _oracle_model(snap, levels)
+    starts = range(0, levels.num_samples, levels.bin_samples)
+    ref_min = np.array([total[s : s + levels.bin_samples].min() for s in starts])
+    ref_max = np.array([total[s : s + levels.bin_samples].max() for s in starts])
 
-    `calc_pns`'s own array can be shorter than `pns_levels`'s (a trailing block with no
-    gradient event, for example `gre_sequence`'s TR padding, extends `pns_levels`'s
-    sample count, and its bins, past the last gradient sample `calc_pns` used, into the
-    filters' own decay); only a bin that lies entirely inside `calc_pns`'s array is
-    compared, so that a bin straddling the end of that array (part of it decaying past
-    where `calc_pns` stopped, part of it inside) is not mistaken for a mismatch.
-    """
-    seq = build()
-    snap = load(seq)
-    hw = safe_example_hw()
-    _, norm, _, _ = seq.calculate_pns(hw, do_plots=False)
-    levels = pns_levels(snap, hardware=EXAMPLE_HW)
-    gamma = seq.system.gamma
-    tol = 1e-5 * levels.peak_hz_per_t / gamma
-    nt_ref = norm.shape[0]
-    bin_samples = levels.bin_samples
-    compared = 0
-
-    for i in range(len(levels.level_min_hz_per_t)):
-        s0 = i * bin_samples
-        s1 = min(s0 + bin_samples, levels.num_samples)  # the last bin can be shorter
-        if s1 > nt_ref:
-            break
-        segment = norm[s0:s1]
-        level_min = float(levels.level_min_hz_per_t[i]) / gamma
-        level_max = float(levels.level_max_hz_per_t[i]) / gamma
-        assert level_min == pytest.approx(float(segment.min()), abs=tol)
-        assert level_max == pytest.approx(float(segment.max()), abs=tol)
-        compared += 1
-    assert compared > 0
+    assert len(levels.level_min_hz_per_t) == len(ref_min) > 1
+    atol = 1e-12 * total.max()
+    np.testing.assert_allclose(levels.level_min_hz_per_t, ref_min, rtol=1e-6, atol=atol)
+    np.testing.assert_allclose(levels.level_max_hz_per_t, ref_max, rtol=1e-6, atol=atol)
 
 
 def test_cast_outward_bounds_every_input_value():
@@ -504,35 +506,16 @@ def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
 
 @pytest.mark.pypulseq
 def test_off_raster_block_falls_back_to_sampling():
-    """A file with a block that is not on the gradient raster (`pp.make_delay(1.5 *
-    dt)`, which pypulseq's `add_block` accepts) is reported as `on_raster=False`, and
-    its summary equals `seq.calculate_pns` within a relative 1e-5 of the peak: both
-    sample at the same file times (`test_sampling.py` tests that `GradientSampler.sample` and
-    `seq.get_gradients()` agree to about float rounding), so no drift-based tolerance is
-    needed here; the tolerance covers the rounding of the file that pypulseq writes (amplitudes
-    of about 6 significant digits), which `calculate_pns` does not read. The
-    values of `pns_levels` are divided by `seq.system.gamma` first (`docs/usage.md`
-    section 9)."""
-    seq = _off_raster_sequence()
-    snap = load(seq)
-    hw = safe_example_hw()
-    _, norm, comp, t = seq.calculate_pns(hw, do_plots=False)
-    ref_peak = float(norm.max())
-    tol = 1e-5 * ref_peak
-
+    """A file with a block that is not on the gradient raster (`pp.make_delay(1.5 * dt)`,
+    which pypulseq's `add_block` accepts) is reported as `on_raster=False`, and its summary
+    equals the SAFE model of the oracle samples at the file times `(k + 0.5) * dt`
+    (`_oracle_model`) to a relative 1e-9."""
+    snap = load(_off_raster_sequence())
     levels = pns_levels(snap, hardware=EXAMPLE_HW)
-    gamma = seq.system.gamma
+    axis_values, total = _oracle_model(snap, levels)
+
     assert levels.on_raster is False
-    # pns_levels covers the whole sequence; calculate_pns stops at the last gradient point.
-    assert levels.num_samples >= norm.size
-    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
-    threshold = ref_peak * (1 - PEAK_TOLERANCE)
-    ref_peak_time = float(t[int(np.flatnonzero(norm >= threshold)[0])])
-    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
-    for i, axis in enumerate("xyz"):
-        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
-            float(comp[:, i].max()), abs=tol
-        )
+    _assert_summary_is_the_model(levels, axis_values, total)
 
 
 @pytest.mark.pypulseq
@@ -560,40 +543,6 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
     assert got == reference
     dt = reference.dt_s
     assert reference.num_samples == math.ceil((sequence_index(snap).end_s - 1e-10) / dt)
-
-
-@pytest.mark.pypulseq
-def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns():
-    """An off-raster sequence of more than one chunk at the real `_CHUNK_SAMPLES` (a small
-    trapezoid on x, a delay of 0.35 s, a larger trapezoid on y, a delay of 1.5 gradient-raster
-    steps) has its peak, its peak time and its axis peaks equal to `seq.calculate_pns` within
-    the relative 1e-5 of `test_off_raster_block_falls_back_to_sampling`, each divided by
-    `seq.system.gamma` as there. The peak is in the second chunk, so a chunk that read the
-    samples of the first chunk again gives another peak time."""
-    dt = SYSTEM.grad_raster_time
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(pp.make_trapezoid(channel="x", area=200, system=SYSTEM))
-    seq.add_block(pp.make_delay(0.35))
-    seq.add_block(pp.make_trapezoid(channel="y", area=1000, system=SYSTEM))
-    _add_a_delay(seq, 1.5)
-    snap = load(seq)
-    _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
-    ref_peak = float(norm.max())
-    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
-    tol = 1e-5 * ref_peak
-
-    levels = pns_levels(snap, hardware=EXAMPLE_HW)
-    gamma = seq.system.gamma
-    chunk = levels.bin_samples * math.ceil(_CHUNK_SAMPLES / levels.bin_samples)
-    assert levels.on_raster is False
-    assert levels.num_samples > chunk
-    assert levels.peak_time_s > chunk * dt  # the peak is in the second chunk
-    assert levels.peak_hz_per_t / gamma == pytest.approx(ref_peak, abs=tol)
-    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
-    for i, axis in enumerate("xyz"):
-        assert levels.axis_peaks_hz_per_t[axis] / gamma == pytest.approx(
-            float(comp[:, i].max()), abs=tol
-        )
 
 
 # A bin of 615 samples at the 10 us raster. The intervals of `gre_sequence(num_trs=20)` are
@@ -1068,49 +1017,24 @@ def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair()
 
 
 @pytest.mark.pypulseq
-def test_the_levels_do_not_depend_on_the_gamma_of_the_system():
-    """The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of `SYSTEM`
-    with another gamma, gives exactly equal levels, every field and every interval: the model
-    runs on the Hz/m samples and reads no gamma."""
-    other = copy.copy(SYSTEM)
-    other.gamma = 0.9 * SYSTEM.gamma
-    first, second = load(waveform_sequence(SYSTEM)), load(waveform_sequence(other))
-    hardware = hardware_for_peak(first, 1.5)
-
-    a = pns_levels(first, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
-    b = pns_levels(second, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
-
-    assert other.gamma != SYSTEM.gamma
-    assert a.reason is None
-    assert a.above[_LIMIT]
-    assert_levels_equal(a, b, ignore=())
-
-
-@pytest.mark.pypulseq
-def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calculate_pns():
-    """For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak, the axis
-    peaks and the peak time of `pns_levels`, divided by `seq.system.gamma` (the time is not
-    divided), equal `seq.calculate_pns` within a relative 1e-5 of the peak (the rounding of the
-    written file), as in `test_summary_matches_calculate_pns_within_the_fork_tolerance`. The peak divided by the
-    gamma of 1H does not equal it: the division uses the gamma of the caller."""
+def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_the_limit():
+    """For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and the axis
+    peaks of `pns_levels`, divided by `seq.system.gamma`, equal the fractions of the
+    stimulation limit of the SAFE model of the oracle samples in T/m (each sample divided by
+    `seq.system.gamma`, `_oracle_model`) to a relative 1e-9, and the peak time is that of the
+    model. The peak divided by the gamma of 1H does not equal it: the division uses the gamma
+    of the caller."""
     other = copy.copy(SYSTEM)
     other.gamma = 0.9 * SYSTEM.gamma
     seq = waveform_sequence(other)
     snap = load(seq)
-    _, norm, comp, t = seq.calculate_pns(safe_example_hw(), do_plots=False)
-    ref_peak = float(norm.max())
-    ref_peak_time = float(t[int(np.flatnonzero(norm >= ref_peak * (1 - PEAK_TOLERANCE))[0])])
-    tol = 1e-5 * ref_peak
-
     levels = pns_levels(snap, hardware=EXAMPLE_HW)
+    gamma = seq.system.gamma
+    axis_values, total = _oracle_model(snap, levels, scale=1 / gamma)
 
-    assert seq.system.gamma == 0.9 * GAMMA_1H
-    assert levels.peak_hz_per_t / seq.system.gamma == pytest.approx(ref_peak, abs=tol)
-    assert levels.peak_time_s == pytest.approx(ref_peak_time, abs=1e-9)
-    for i, axis in enumerate("xyz"):
-        got = levels.axis_peaks_hz_per_t[axis] / seq.system.gamma
-        assert got == pytest.approx(float(comp[:, i].max()), abs=tol)
-    assert levels.peak_hz_per_t / GAMMA_1H != pytest.approx(ref_peak, abs=tol)
+    assert gamma == 0.9 * GAMMA_1H
+    _assert_summary_is_the_model(levels, axis_values, total, scale=1 / gamma)
+    assert levels.peak_hz_per_t / GAMMA_1H != pytest.approx(total.max(), rel=1e-5)
 
 
 @pytest.mark.pypulseq

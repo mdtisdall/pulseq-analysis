@@ -303,27 +303,9 @@ def test_a_kept_result_does_not_keep_the_snapshot_alive(measure):
     assert result is not None
 
 
-@pytest.mark.parametrize(
-    "function",
-    [
-        event_points,
-        gradient_peaks,
-        block_gradient_values,
-        lambda seq: pns_levels(seq, hardware=EXAMPLE_HW),
-        gradient_spectrum,
-        GradientSampler,
-    ],
-    ids=[
-        "event_points",
-        "gradient_peaks",
-        "block_gradient_values",
-        "pns_levels",
-        "gradient_spectrum",
-        "GradientSampler",
-    ],
-)
-def test_a_measurement_raises_type_error_that_names_load_for_a_sequence(function):
-    """`event_points`, the measurements and `GradientSampler` raise `TypeError` that names
-    `load` for a `pp.Sequence`, which `load` has not made a snapshot of."""
+def test_event_points_raises_type_error_that_names_load_for_a_sequence():
+    """`event_points` raises `TypeError` that names `load` for a `pp.Sequence`, which `load`
+    has not made a snapshot of. Each measurement and `GradientSampler` has the same test in
+    its own test file."""
     with pytest.raises(TypeError, match="load"):
-        function(spin_echo_sequence())
+        event_points(spin_echo_sequence())

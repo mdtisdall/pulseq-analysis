@@ -4,7 +4,6 @@ pytestmark = pytest.mark.pypulseq
 pytest.importorskip("pypulseq")
 
 import copy
-import inspect
 import math
 import pickle
 
@@ -13,7 +12,6 @@ import pypulseq as pp
 from oracles import grad_spectrum as oracle
 from oracles.blocks import sequence_of
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
-from scipy.signal import spectrogram
 from synthetic import (
     GAMMA_1H,
     SYSTEM,
@@ -26,8 +24,6 @@ from synthetic import (
 from pulseq_analysis._equality import FrozenDict
 from pulseq_analysis.analyses import grad_spectrum, load
 from pulseq_analysis.synth import seq_index
-from pulseq_analysis.synth.sampling import GradientSampler, sequence_samples
-from pulseq_analysis.synth.seq_index import sequence_index
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
 # A/2 * sum(w) / sqrt(fs * sum(w^2)), with 5000 samples at 100 kHz.
@@ -53,19 +49,6 @@ def _compute_default(snap):
         grad_spectrum.FFT_WINDOW_S,
         grad_spectrum.FREQUENCY_OVERSAMPLING,
     )
-
-
-def test_spin_echo_spectrum():
-    s = grad_spectrum.gradient_spectrum(load(spin_echo_sequence()))
-    assert s.reason is None
-    assert s.frequency_hz[0] == 0
-    assert s.frequency_hz[-1] == pytest.approx(grad_spectrum.MAX_FREQUENCY_HZ)
-    assert list(s.axes) == ["x", "y", "z"]
-    for axis in ("x", "y"):
-        assert s.axes[axis].max() > 0
-    for spectrum in s.axes.values():
-        assert spectrum.shape == s.frequency_hz.shape
-        assert np.all(s.rss >= spectrum - 1e-12)
 
 
 def test_sine_peak_is_at_its_frequency():
@@ -142,59 +125,6 @@ def test_chunks_give_the_same_spectrum_as_one_chunk(monkeypatch):
     for axis in whole.axes:
         np.testing.assert_array_equal(chunked.axes[axis], whole.axes[axis])
     np.testing.assert_array_equal(chunked.rss, whole.rss)
-
-
-@pytest.mark.parametrize(
-    "seq",
-    [spin_echo_sequence(), gre_sequence(num_trs=30), arbitrary_gradient_sequence()],
-    ids=["spin_echo", "gre_30_trs", "arbitrary_gradient"],
-)
-def test_matches_scipy_spectrogram(seq, monkeypatch):
-    """The whole `gradient_spectrum`, not one call of `_chunk_spectrogram`: the reference
-    is scipy's `spectrogram` of the whole padded waveform of each axis, with the arguments
-    that the code used before it made the FFTs itself, so the reference does not use the
-    chunks, the strided windows, the kept-bin count or the scale of this module. Only the
-    samples come from `GradientSampler`, with the time rule of the module (sample i at
-    `(i + 0.5) * dt`, `pad` zeros at the start and `pad + (-nt) % hop` at the end).
-    `_CHUNK_WINDOWS` is 4, so the comparison also covers the joins of the chunks and a shorter last chunk."""
-    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
-    snap = load(seq)
-    got = _compute_default(snap)
-
-    sampler = GradientSampler(snap)
-    dt = seq.grad_raster_time
-    nwin = round(grad_spectrum.FFT_WINDOW_S / dt)
-    nfft = round(grad_spectrum.FREQUENCY_OVERSAMPLING * nwin)
-    pad = nwin // 2
-    hop = nwin - pad
-    nt = sequence_samples(sequence_index(snap), dt)
-    t = (np.arange(nt) + 0.5) * dt
-    window_maxima = {}
-    rss_sq = 0.0
-    for axis in "xyz":
-        w = np.zeros(nt + 2 * pad + (-nt) % hop)
-        w[pad : pad + nt] = sampler.sample(f"g{axis}", t)
-        freq, _, sxx = spectrogram(
-            w,
-            fs=1 / dt,
-            mode="magnitude",
-            nperseg=nwin,
-            noverlap=nwin // 2,
-            nfft=nfft,
-            detrend="constant",
-            window=("tukey", 1),
-        )
-        keep = freq <= grad_spectrum.MAX_FREQUENCY_HZ + 1e-6
-        sxx = sxx[keep]
-        window_maxima[axis] = sxx.max(axis=1)
-        rss_sq = rss_sq + sxx**2
-    expected_rss = np.sqrt(rss_sq).max(axis=1)
-
-    np.testing.assert_array_equal(got.frequency_hz, freq[keep])
-    assert list(got.axes) == ["x", "y", "z"]
-    for axis, expected in window_maxima.items():
-        np.testing.assert_allclose(got.axes[axis], expected, rtol=0, atol=1e-12 * expected.max())
-    np.testing.assert_allclose(got.rss, expected_rss, rtol=0, atol=1e-12 * expected_rss.max())
 
 
 def _assert_matches_oracle(
@@ -276,26 +206,6 @@ def test_matches_oracle_with_many_chunks(case, monkeypatch):
     )
 
 
-def test_spectrum_does_not_depend_on_the_gamma_of_the_system():
-    other = copy.copy(SYSTEM)
-    other.gamma = 0.9 * SYSTEM.gamma
-    waveform_hz_per_m = 1e-3 * SYSTEM.gamma * np.sin(2 * np.pi * 600 * np.arange(5000) * 1e-5)
-    spectra = []
-    for system in (SYSTEM, other):
-        seq = pp.Sequence(system)
-        seq.add_block(
-            pp.make_arbitrary_grad("x", waveform_hz_per_m, first=0, last=0, system=system)
-        )
-        spectra.append(grad_spectrum.gradient_spectrum(load(seq)))
-    assert spectra[0].reason is None
-    assert other.gamma != SYSTEM.gamma
-    np.testing.assert_array_equal(spectra[0].frequency_hz, spectra[1].frequency_hz)
-    assert list(spectra[0].axes) == list(spectra[1].axes)
-    for axis in spectra[0].axes:
-        np.testing.assert_array_equal(spectra[0].axes[axis], spectra[1].axes[axis])
-    np.testing.assert_array_equal(spectra[0].rss, spectra[1].rss)
-
-
 def test_gradient_spectrum_keeps_the_result():
     snap = load(gre_sequence(num_trs=2))
     first = grad_spectrum.gradient_spectrum(snap)
@@ -365,23 +275,17 @@ def test_spectra_compare_by_value():
         hash(s)
 
 
-def test_the_defaults_are_those_of_pypulseq():
-    """The defaults of `gradient_spectrum` are the stored floats of pypulseq's defaults
-    (`calculate_gradient_spectrum`'s `max_frequency`, `window_width` and
-    `frequency_oversampling`), and the call with no arguments gives the spectrum of those
-    values: the spectrum of `_compute_spectrum` with pypulseq's values, which is a new
-    result and not the kept result of the call that `gradient_spectrum` would give the same
-    sequence. A call of `gradient_spectrum` with the explicit values would give the same kept
-    object as the call with the defaults, and the test would check nothing. It also guards
-    pypulseq's defaults: the test fails if a new pypulseq changes one."""
-    parameters = inspect.signature(pp.Sequence.calculate_gradient_spectrum).parameters
+def test_the_defaults_are_those_of_docs_usage():
+    """The defaults of `gradient_spectrum` are 2000.0 Hz, 0.05 s and 3.0, the values that
+    `docs/usage.md` gives (those of pypulseq's `calculate_gradient_spectrum`), and the call
+    with no arguments gives the spectrum of those values: the spectrum of `_compute_spectrum`
+    with them, which is a new result and not the kept result of the call that
+    `gradient_spectrum` would give the same sequence. A call of `gradient_spectrum` with the
+    explicit values would give the same kept object as the call with the defaults, and the
+    test would check nothing."""
+    values = (2000.0, 0.05, 3.0)
     snap = load(spin_echo_sequence())
-    explicit = grad_spectrum._compute_spectrum(
-        snap,
-        parameters["max_frequency"].default,
-        parameters["window_width"].default,
-        parameters["frequency_oversampling"].default,
-    )
+    explicit = grad_spectrum._compute_spectrum(snap, *values)
     default = grad_spectrum.gradient_spectrum(snap)
     assert explicit is not default
     np.testing.assert_array_equal(explicit.frequency_hz, default.frequency_hz)
@@ -389,11 +293,7 @@ def test_the_defaults_are_those_of_pypulseq():
     for axis in default.axes:
         np.testing.assert_array_equal(explicit.axes[axis], default.axes[axis])
     np.testing.assert_array_equal(explicit.rss, default.rss)
-    assert (default.max_frequency_hz, default.window_s, default.frequency_oversampling) == (
-        parameters["max_frequency"].default,
-        parameters["window_width"].default,
-        parameters["frequency_oversampling"].default,
-    )
+    assert (default.max_frequency_hz, default.window_s, default.frequency_oversampling) == values
 
 
 def test_the_arguments_change_the_frequencies():

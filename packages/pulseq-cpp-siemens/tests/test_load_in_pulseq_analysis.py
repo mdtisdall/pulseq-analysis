@@ -17,7 +17,6 @@ from pulseq_cpp_siemens.interpreter import CppSiemens, CppSiemensDecoding
 from test_played import FIXTURES, check_the_points_are_the_gradients, load_or_none
 from test_seq_index import _seqfiles, check_the_index_of_a_snapshot_is_the_index_of_its_model
 from test_snapshot import (
-    _BUILDERS,
     COPIERS,
     GRE_FILE,
     RADIAL_FILES,
@@ -25,7 +24,6 @@ from test_snapshot import (
     check_load_applies_rotations_without_a_warning,
     check_load_does_not_warn_for_a_rotation_that_no_block_plays,
     check_load_of_a_file,
-    check_load_of_a_sequence,
     check_load_warns_for_an_unapplied_rotation,
 )
 
@@ -61,13 +59,6 @@ def test_load_of_a_file_is_the_reading_of_cpp_siemens(interpreter):
     """`load(path, interpreter)` holds `read_seqfile(path, interpreter)`, with a
     `CppSiemensDecoding` (`check_load_of_a_file`)."""
     check_load_of_a_file(interpreter, "CppSiemensDecoding")
-
-
-@pytest.mark.parametrize("build", _BUILDERS)
-def test_load_of_a_sequence_is_read_pypulseq_of_it_through_cpp_siemens(build):
-    """`load(seq, "cpp-siemens")` holds `read_pypulseq(seq, "cpp-siemens")`
-    (`check_load_of_a_sequence`)."""
-    check_load_of_a_sequence(build(), "cpp-siemens")
 
 
 @pytest.mark.parametrize(

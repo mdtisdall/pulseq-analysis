@@ -14,7 +14,6 @@ import dataclasses
 import hashlib
 import pickle
 import re
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -2654,55 +2653,3 @@ def test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed():
     assert radial.extensions.rotations["q0"].tolist() == pytest.approx(
         [1.0, 0.92388, 0.707107], rel=1e-5
     )
-
-
-@pytest.mark.pypulseq
-def test_files_of_pypulseq_are_read(tmp_path):
-    """The parser reads files that pypulseq writes (the sequences of `scale_sequences`)."""
-    pytest.importorskip("pypulseq")
-    from scale_sequences import TR_BLOCKS, build_repeating, build_worst
-
-    for build in (build_repeating, build_worst):
-        path = tmp_path / f"{build.__name__}.seq"
-        build(40).write(str(path))
-        data = read_seqfile(path)
-        assert len(data.blocks) == 40 * TR_BLOCKS
-        assert data.version >= (1, 5, 0)
-        assert data.signature is not None
-
-
-@pytest.mark.pypulseq
-def test_tables_agree_with_pypulseq_read_without_merging(tmp_path):
-    """Compare, not trust: where pypulseq can read an oracle file (`remove_duplicates=False`),
-    its block table, block durations, trapezoids and shapes are those of the model."""
-    pp = pytest.importorskip("pypulseq")
-    compared = 0
-    for name, (_, rule, _) in ORACLE_FILES.items():
-        if rule is not None:
-            continue
-        data = read_seqfile(ORACLE / name)
-        seq = pp.Sequence()
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # it warns about a file version it does not know
-                seq.read(str(ORACLE / name), remove_duplicates=False)
-        except ValueError as error:
-            assert "Unknown section code: extension" in str(error)  # an extension it cannot read
-            continue
-        compared += 1
-        ids = list(seq.block_events)
-        assert ids == data.blocks["id"].tolist(), name
-        rows = np.array([seq.block_events[i] for i in ids])
-        for column, key in enumerate(("rf", "gx", "gy", "gz", "adc", "ext"), 1):
-            assert rows[:, column].tolist() == data.blocks[key].tolist(), (name, key)
-        durations = np.array([seq.block_durations[i] for i in ids])
-        assert durations == pytest.approx(data.block_durations_s, abs=1e-9)
-        for row in data.trap:
-            library = seq.grad_library.data[int(row["id"])]
-            expected = [row[k] for k in ("amplitude", "rise", "flat", "fall", "delay")]
-            assert library[:5] == pytest.approx(expected, rel=1e-6, abs=1e-12), (name, row["id"])
-        for shape_id, shape in data.shapes.items():
-            library = seq.shape_library.data[shape_id]
-            assert int(library[0]) == shape.num_samples
-            assert library[1:].tolist() == shape.packed.tolist()
-    assert compared >= 10

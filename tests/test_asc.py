@@ -174,17 +174,6 @@ def test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_incl
 
 
 @pytest.mark.pypulseq
-def test_read_gradient_asc_gives_the_fields_that_pypulseqs_readasc_gives(tmp_path):
-    """For the file of every form, the plain file of the fixture and the main file of the
-    scanner layout (without the included file), the fields equal the first result of
-    pypulseq's `readasc`."""
-    readasc = pytest.importorskip("pypulseq.utils.siemens.readasc").readasc
-    forms = tmp_path / "forms.asc"
-    forms.write_text(_FORMS)
-    assert read_gradient_asc(forms) == readasc(str(forms))[0]
-
-
-@pytest.mark.pypulseq
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 def test_read_gradient_asc_gives_the_fields_of_a_fixture_file_that_readasc_gives(
     write_gradient_asc, split

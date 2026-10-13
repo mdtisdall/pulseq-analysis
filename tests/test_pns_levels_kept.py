@@ -78,7 +78,7 @@ def test_prediction_does_not_sample_at_the_file_times_for_an_on_raster_sequence(
 
 
 def test_prediction_propagates_an_error(monkeypatch):
-    """An error deep inside the SAFE model (the pinned fork's chunk function)
+    """An error deep inside the SAFE model (the chunk function `safe._safe_gwf_to_pns_chunk`)
     propagates out of `pns_levels`."""
     snap = load(spin_echo_sequence())
 

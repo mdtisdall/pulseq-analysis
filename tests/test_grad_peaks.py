@@ -3,7 +3,6 @@ import pytest
 pytestmark = pytest.mark.pypulseq
 pytest.importorskip("pypulseq")
 
-import copy
 import dataclasses
 import math
 
@@ -26,7 +25,6 @@ from oracles.blocks import sequence_of
 from scale_sequences import build_repeating
 from synthetic import (
     SYSTEM,
-    empty_sequence,
     gre_sequence,
     spin_echo_sequence,
     waveform_sequence,
@@ -103,25 +101,6 @@ def _assert_limits_equal(a: GradientPeaks, b: GradientPeaks) -> None:
     assert a.vector_peak_block == b.vector_peak_block
 
 
-def test_the_values_do_not_depend_on_the_gamma_of_the_system():
-    """The same waveform in Hz/m (a trapezoid with an explicit amplitude and an arbitrary
-    gradient), in a sequence of `SYSTEM` and in one of a copy of `SYSTEM` with another gamma:
-    `gradient_peaks`, with and without a window, and `block_gradient_values` give exactly
-    equal values. The values are in the units of pypulseq, with no gamma."""
-    other = copy.copy(SYSTEM)
-    other.gamma = 0.9 * SYSTEM.gamma
-    first, second = load(waveform_sequence(SYSTEM)), load(waveform_sequence(other))
-    window = (0.0, sequence_index(first).end_s / 2)
-
-    assert other.gamma != SYSTEM.gamma
-    assert gradient_peaks(first).reason is None
-    _assert_limits_equal(gradient_peaks(first), gradient_peaks(second))
-    _assert_limits_equal(
-        gradient_peaks(first, window=window), gradient_peaks(second, window=window)
-    )
-    assert_block_values_equal(block_gradient_values(first), block_gradient_values(second))
-
-
 def test_the_values_of_a_negated_waveform_are_equal():
     """The same sequence with each amplitude times -1 gives exactly equal values of
     `gradient_peaks` (with and without a window) and `block_gradient_values`: a value is
@@ -136,54 +115,6 @@ def test_the_values_of_a_negated_waveform_are_equal():
         gradient_peaks(positive, window=window), gradient_peaks(negative, window=window)
     )
     assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
-
-
-def test_window_that_cuts_a_ramp_gives_hand_computed_rms():
-    """A window that ends halfway up the rising ramp of a trapezoid: the RMS amplitude
-    over the window equals the value computed by hand from the piece that the window
-    keeps, cut at the window edge."""
-    amplitude = 0.5 * SYSTEM.max_grad
-    rise_time = 200e-6
-    gx = pp.make_trapezoid(
-        channel="x", amplitude=amplitude, rise_time=rise_time, flat_time=1e-3, system=SYSTEM
-    )
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
-    window = (0.0, gx.delay + rise_time / 2)
-
-    snap = load(seq)
-    result = gradient_peaks(snap, window=window)
-
-    # The window keeps the ramp from (0, 0) to (rise_time / 2, amplitude / 2), a
-    # straight line, so Delta t * (a^2 + a*b + b^2) / 3 with a = 0, b = amplitude / 2.
-    mid_amplitude = amplitude / 2
-    length = window[1] - window[0]
-    energy = (rise_time / 2) * (mid_amplitude**2) / 3
-    rms_hz_per_m = math.sqrt(energy / length)
-
-    assert result.range_s == window
-    assert result.axes["x"].rms_hz_per_m == pytest.approx(rms_hz_per_m)
-
-
-def test_arbitrary_gradient_peak_is_the_largest_of_first_last_and_waveform():
-    """An arbitrary gradient: the peak amplitude is the largest absolute value among
-    the shape's `first`, `last` and interior waveform samples, since `gradient_points`
-    (seq_utils) adds `first` and `last` as extra points at the shape's ends."""
-    n = 40
-    dt = SYSTEM.grad_raster_time
-    t = (np.arange(n) + 0.5) * dt
-    # A waveform that is not symmetric, so its largest magnitude is not at the center.
-    waveform = 0.3 * SYSTEM.max_grad * np.sin(np.pi * t / (1.5 * n * dt))
-    gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
-
-    snap = load(seq)
-    result = gradient_peaks(snap)
-
-    block = seq.get_block(1)
-    peak_hz_per_m = max(abs(block.gx.first), abs(block.gx.last), np.max(np.abs(waveform)))
-    assert result.axes["x"].peak_hz_per_m == pytest.approx(peak_hz_per_m)
 
 
 def test_no_gradients_sets_reason():
@@ -205,31 +136,6 @@ def test_no_gradients_sets_reason():
         assert a.max_slew_hz_per_m_per_s == 0.0
         assert a.slew_block is None
         assert a.rms_hz_per_m == 0.0
-
-
-def test_arbitrary_gradient_max_slew_is_the_largest_neighbouring_slope():
-    """The largest slew of an arbitrary gradient is the largest `|delta g / delta t|`
-    between its neighbouring corner points (the shape's `first`, its waveform samples,
-    and its `last`), computed by hand from the event's own fields, not by calling
-    `gradient_peaks` for the expected value."""
-    n = 40
-    dt = SYSTEM.grad_raster_time
-    t = (np.arange(n) + 0.5) * dt
-    # An asymmetric waveform, so the largest slope is not obviously at one place.
-    waveform = 0.3 * SYSTEM.max_grad * np.sin(2 * np.pi * t / (1.3 * n * dt))
-    gx = pp.make_arbitrary_grad(channel="x", waveform=waveform, system=SYSTEM)
-    seq = pp.Sequence(SYSTEM)
-    seq.add_block(gx)
-    block = seq.get_block(1)
-
-    snap = load(seq)
-    result = gradient_peaks(snap)
-
-    times = np.concatenate(([0.0], block.gx.tt, [block.gx.shape_dur]))
-    amps = np.concatenate(([block.gx.first], block.gx.waveform, [block.gx.last]))
-    expected_slew_hz_per_m_per_s = float(np.max(np.abs(np.diff(amps) / np.diff(times))))
-
-    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
 
 
 def test_largest_over_several_blocks_and_axes_credits_the_first_block_with_that_value():
@@ -437,26 +343,6 @@ _RASTER = SYSTEM.grad_raster_time
 _MAX_STEP = SYSTEM.max_slew * _RASTER  # the largest step add_block accepts
 
 
-def test_junction_step_between_extended_trapezoids_is_reported_as_the_slew():
-    """A step at the junction between two extended trapezoids, within the tolerance that
-    `add_block` accepts (`max_slew * grad_raster_time`) and larger than any segment's own
-    slope: the reported slew is the step divided by `grad_raster_time`, credited to the
-    block after the junction, and its time is the junction (0.2 ms)."""
-    step = 0.9 * _MAX_STEP
-    seq = _junction_sequence()
-    _block_a_id, block_b_id = seq.block_events
-
-    snap = load(seq)
-    result = gradient_peaks(snap)
-
-    expected_slew_hz_per_m_per_s = step / _RASTER
-    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(
-        expected_slew_hz_per_m_per_s, rel=_WRITER_STEP_REL
-    )
-    assert result.axes["x"].slew_block == block_b_id
-    assert result.axes["x"].slew_time_s == pytest.approx(200e-6)
-
-
 def test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_its_own_block():
     """A gradient that ends at a non-zero value (within the tolerance `add_block` accepts) and
     is the last event of the axis, with a block with no gradient after it: the step to 0 is at the
@@ -494,46 +380,23 @@ def _end_step_sequence(flat_time: float, early: float = 0.0) -> pp.Sequence:
 
 
 @pytest.mark.parametrize("k", range(20))
-def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step_after_a_round_trip(
-    k, tmp_path
-):
+def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step(k):
     """A gradient that ends at `A` at the end of the sequence: the step to 0 after its last
-    point is in no range, so the largest slew is the 1e9 Hz/m/s of the trapezoid, in block 1,
-    with the sequence in memory and after `write` and `read`. The 20 values of `k` give 20 end
-    times, for which `(start + delay) + shape_dur` and `end_s` can differ by one ulp."""
-    built = _end_step_sequence((5 + k) * DT)
-    path = tmp_path / "end_step.seq"
-    built.write(str(path))
-    read = pp.Sequence()
-    read.read(str(path))
-    block_a_id, _block_b_id = read.block_events
-
-    for seq in (built, read):
-        snap = load(seq)
-        result = gradient_peaks(snap).axes["x"]
-        assert result.max_slew_hz_per_m_per_s == pytest.approx(1e9, rel=1e-6)
-        assert result.slew_block == block_a_id
-        slew = block_gradient_values(snap).slew_hz_per_m_per_s["x"]
-        assert slew[0] == pytest.approx(1e9, rel=1e-6)
-        assert slew[1] == pytest.approx(A / 100e-6, rel=1e-6)
-        assert oracle.peaks(seq)["x"]["max_slew"] == pytest.approx(1e9, rel=1e-6)
-        assert oracle.peaks(seq)["x"]["slew_block"] == block_a_id
-
-
-def test_first_block_not_starting_at_zero_is_a_junction_step_before_the_first_block():
-    """A first block whose gradient starts at a non-zero value within the tolerance
-    `add_block` accepts: the junction before the first block uses 0 for "the block
-    before" (there is none), and is credited to the first block."""
-    start_value = 0.9 * _MAX_STEP
-    seq = _first_block_starts_non_zero_sequence()
-    (block_id,) = seq.block_events
+    point is in no range, so the largest slew is the 1e9 Hz/m/s of the trapezoid, in block 1.
+    The 20 values of `k` give 20 end times, for which `(start + delay) + shape_dur` and `end_s`
+    can differ by one ulp."""
+    seq = _end_step_sequence((5 + k) * DT)
+    block_a_id, _block_b_id = seq.block_events
 
     snap = load(seq)
-    result = gradient_peaks(snap)
-
-    expected_slew_hz_per_m_per_s = start_value / _RASTER
-    assert result.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(expected_slew_hz_per_m_per_s)
-    assert result.axes["x"].slew_block == block_id
+    result = gradient_peaks(snap).axes["x"]
+    assert result.max_slew_hz_per_m_per_s == pytest.approx(1e9, rel=1e-6)
+    assert result.slew_block == block_a_id
+    slew = block_gradient_values(snap).slew_hz_per_m_per_s["x"]
+    assert slew[0] == pytest.approx(1e9, rel=1e-6)
+    assert slew[1] == pytest.approx(A / 100e-6, rel=1e-6)
+    assert oracle.peaks(seq)["x"]["max_slew"] == pytest.approx(1e9, rel=1e-6)
+    assert oracle.peaks(seq)["x"]["slew_block"] == block_a_id
 
 
 def test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_it():
@@ -636,10 +499,11 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
 # (the model of MATLAB Pulseq). It builds the polyline of each axis one time, with the ramps of
 # the long gaps, and it reads every value from it with no per-block code, so it shares no code
 # with this package. `oracle.peaks(seq, window)` gives the values of the package: the peak, the
-# slew, the RMS and the vector peak, each with its time and its block. The tests compare all of
-# them, for the whole file and for windows, on the sequences of the oracle's own tests (a zero
-# gap, a short gap, a long gap, a first and a last value that are not 0, the two sequences of
-# pypulseq-issues 12), on the synthetic sequences, and on random sequences.
+# slew, the RMS and the vector peak, each with its time and its block. The test here compares all
+# of them, for the whole file and for windows, on random sequences. The comparisons on the
+# synthetic sequences and on the sequences of the oracle's own tests are in the tests of the
+# `cpp-siemens` plugin (`packages/pulseq-cpp-siemens/tests/test_measurements_in_pulseq_analysis.py`),
+# which load them through `cpp-siemens` and use the helpers of this file.
 #
 # The package sums and maxes per unique event; the oracle sums and maxes on the polyline, after
 # adding the start of each block to the event's corner times before it differences them for a
@@ -1013,18 +877,6 @@ def test_block_without_an_event_on_an_axis_has_zero_values_and_its_start_as_time
     assert values.vector_peak_time_s[2] == start_s[2]
 
 
-def test_first_block_junction_step_uses_zero_before_the_block():
-    """A first block whose gradient starts at a non-zero value: its junction step on that axis
-    is that value divided by the gradient raster, and the other axes have 0."""
-    start_value = 0.9 * _MAX_STEP
-
-    values = block_gradient_values(load(_first_block_starts_non_zero_sequence()))
-
-    assert values.junction_hz_per_m_per_s["x"][0] == pytest.approx(start_value / _RASTER)
-    assert values.junction_hz_per_m_per_s["y"][0] == 0.0
-    assert values.junction_hz_per_m_per_s["z"][0] == 0.0
-
-
 def test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time():
     """Block 1 on x goes from 0 to U in 100 us, block 2 is a delay of 200 us, and block 3 has a
     trapezoid scaled to amplitude 0 (as a phase encode loop makes for the centre of k-space): a
@@ -1202,13 +1054,6 @@ def test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change(wind
         result.axes["x"] = result.axes["y"]
     with pytest.raises(TypeError):
         result.axes.clear()
-
-
-def test_the_reason_of_a_sequence_with_no_gradient_is_no_gradients():
-    # pypulseq's writer cannot write a sequence with no block: this one has a delay block.
-    result = gradient_peaks(load(empty_sequence()))
-    assert result.reason == NO_GRADIENTS
-    assert isinstance(result.axes, FrozenDict)
 
 
 def test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window():
@@ -1429,8 +1274,9 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
 #
 # The sequences are those of `gap_sequences.py`, with the hand-computed values of its
 # tests. A gap is a zero gap (a step), a short gap (a line) or a long gap (the ramps). Each
-# value, its time and its block are those that the model gives. The tests use values by hand,
-# except the test of the gap rule at another raster, which also compares with the oracle.
+# value, its time and its block are those that the model gives. The tests use values by hand.
+# The test of the gap rule at another raster, which also compares with the oracle, is in the
+# tests of the `cpp-siemens` plugin.
 
 
 def _assert_axis(

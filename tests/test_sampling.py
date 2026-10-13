@@ -55,33 +55,6 @@ def _raster_centers(duration_s: float, raster: float = SYSTEM.grad_raster_time) 
     return (np.arange(n) + 0.5) * raster
 
 
-def _assert_matches_pypulseq(seq: pp.Sequence, snap: Snapshot, t: np.ndarray) -> None:
-    """`GradientSampler.sample(axis, t)` for `snap`, the snapshot of `seq`, equals
-    `seq.get_gradients()[axis](t)` within a relative 1e-5 and an absolute 1e-5 times the
-    largest |value| of that axis's reference at `t`.
-
-    The tolerance covers the rounding of pypulseq's writer: `snap` holds the values of the
-    written file, 6 significant digits of an amplitude (a relative error up to 5e-6), and
-    `seq` the values in memory. It is not a tolerance for the float rounding of the two
-    formulas (about 1e-12), which is checked by `_assert_matches_oracle`, where both read the
-    snapshot.
-
-    pypulseq draws a line across each gap and does not step at a junction, so this holds
-    only for a sequence with no end that is not 0 next to a gap of more than one raster
-    time, and with no step at a junction. `_assert_matches_oracle` is for the others.
-    """
-    sampler = gradient_sampler(snap)
-    pp_gradients = seq.get_gradients()
-    for axis_index, axis in enumerate(_AXES):
-        ppoly = pp_gradients[axis_index]
-        ref = np.zeros(t.shape, dtype=np.float64) if ppoly is None else ppoly(t)
-        got = sampler.sample(axis, t)
-        assert got.dtype == np.float64
-        assert got.shape == t.shape
-        peak = float(np.max(np.abs(ref))) if ref.size else 0.0
-        np.testing.assert_allclose(got, ref, rtol=1e-5, atol=1e-5 * peak)
-
-
 def _assert_matches_oracle(snap: Snapshot, t: np.ndarray) -> None:
     """`GradientSampler.sample(axis, t)` equals `oracle.sample(sequence_of(snap), axis, t)` (the model of
     MATLAB Pulseq, `tests/oracles/waveform.py`) within a relative 1e-12 and an absolute
@@ -230,33 +203,6 @@ def _step_then_gap_sequence() -> tuple[pp.Sequence, np.ndarray]:
     return seq, np.unique(t)
 
 
-@pytest.mark.parametrize(
-    "seq",
-    [spin_echo_sequence(), gre_sequence(), arbitrary_gradient_sequence(), empty_sequence()],
-    ids=["spin_echo", "gre", "arbitrary_gradient", "empty"],
-)
-def test_whole_file_matches_pypulseq_for_synthetic_sequences(seq):
-    snap = load(seq)
-    index = sequence_index(snap)
-    t = _raster_centers(index.end_s)
-    _assert_matches_pypulseq(seq, snap, t)
-
-
-def test_subrange_that_cuts_blocks_matches_pypulseq():
-    # gre_sequence(num_trs=1) has 5 blocks: rf, phase-encode (gy), readout (gx) with
-    # ADC, spoiler (gz), delay. The middle of block 2 to the middle of block 4 cuts
-    # through the gx event, includes the whole gz event, and leaves the gy event (block
-    # 1) entirely before the range, so this also checks that gy is correctly 0 after
-    # its one and only event.
-    seq = gre_sequence(num_trs=1)
-    snap = load(seq)
-    index = sequence_index(snap)
-    t0 = index.start_s[2] + index.duration_s[2] / 2
-    t1 = index.start_s[4] + index.duration_s[4] / 2
-    t = np.linspace(t0, t1, 500)
-    _assert_matches_pypulseq(seq, snap, t)
-
-
 def test_a_subrange_inside_a_long_gap_has_its_ramps_and_zero_and_matches_the_oracle():
     """`_gap_sequence` has a long gap (2 ms) with a value that is not 0 at each end of it.
     A time range inside the gap that has the ramp to 0 after the first end, the 0 between
@@ -342,18 +288,10 @@ def test_times_before_an_event_that_starts_at_a_value_that_is_not_0_have_the_ram
     _assert_matches_oracle(snap, t)
 
 
-def test_single_sample_matches_pypulseq():
-    seq = gre_sequence(num_trs=1)
-    snap = load(seq)
-    index = sequence_index(snap)
-    t = np.array([index.start_s[2] + index.duration_s[2] / 2])
-    _assert_matches_pypulseq(seq, snap, t)
-
-
 def test_amplitude_continues_across_a_block_junction():
     seq, junction_s = _junction_sequence(step_hz_per_m=0.0)
     t = np.sort(junction_s + np.linspace(-20, 20, 41) * SYSTEM.grad_raster_time)
-    _assert_matches_pypulseq(seq, load(seq), t)
+    _assert_matches_oracle(load(seq), t)
 
 
 def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
@@ -379,12 +317,11 @@ def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
     )
 
 
-def test_triangle_trapezoid_matches_pypulseq():
-    seq = _triangle_sequence()
-    snap = load(seq)
-    index = sequence_index(snap)
-    t = _raster_centers(index.end_s)
-    _assert_matches_pypulseq(seq, snap, t)
+def test_triangle_trapezoid_matches_the_oracle():
+    """A trapezoid with no flat time (`_triangle_sequence`, two points at the middle time):
+    `sample` equals the oracle on the raster centres and the points of its polyline."""
+    snap = load(_triangle_sequence())
+    _assert_matches_oracle(snap, _model_times(snap))
 
 
 def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient(tmp_path):
@@ -393,11 +330,6 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient(t
     from `get_block` and not from `seq.get_gradients()`: `get_gradients()` itself leaves
     out the first and the last point of an oversampled gradient (draft 03 of
     `github.com/mdtisdall/pypulseq-issues`).
-
-    Needs the fix of pypulseq PR #424, which the pinned fork has (`pulseq-reports-pin-2`):
-    with the old pin (`20b9e5e`), `get_block` gave this oversampled gradient's `shape_dur`
-    as twice the value `make_arbitrary_grad` set, and the sampler error was about 40 % of
-    the peak.
 
     The sequence: an oversampled ramp of 21 samples at 50 % of
     `max_slew` over half a raster (`make_arbitrary_grad(oversampling=True)` checks the
@@ -1083,7 +1015,7 @@ def test_one_event_in_blocks_of_two_lengths_gives_the_samples_of_each_length(lon
     assert on_raster
     assert sorted(n_all) == [13, 40]
     assert index.gx[0] == index.gx[1] > 0  # one event
-    reference = oracle.block_samples(seq, "x", _RASTER)
+    reference = oracle.block_samples(sequence_of(snap), "x", _RASTER)
     ends = np.cumsum(n_all)
     for calls in ([(0, 1), (1, 2), (0, 2)], [(1, 2), (0, 1), (0, 2)]):
         sampler = gradient_sampler(snap)

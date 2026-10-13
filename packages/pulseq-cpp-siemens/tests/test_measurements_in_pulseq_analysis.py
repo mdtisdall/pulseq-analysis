@@ -39,7 +39,6 @@ from gap_sequences import (
 from oracles import grad_spectrum as spectrum_oracle
 from oracles import waveform as oracle
 from oracles.blocks import sequence_of
-from pypulseq.utils.safe_pns_prediction import _safe_gwf_to_pns_chunk
 from random_gaps import random_gap_sequence
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
@@ -84,7 +83,6 @@ from test_sampling import (
     _model_sequence,
     _model_times,
     _name_of,
-    _off_raster_events_sequence,
     _sample_ranges,
     check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot,
     check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid,
@@ -102,6 +100,7 @@ from test_series import (
 from pulseq_analysis.analyses import grad_spectrum, load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.analyses.pns_levels import PEAK_TOLERANCE, pns_levels
+from pulseq_analysis.analyses.safe import _safe_gwf_to_pns_chunk
 from pulseq_analysis.synth.sampling import gradient_sampler, raster_block_lengths
 from pulseq_analysis.synth.seq_index import sequence_index
 from pulseq_analysis.synth.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
@@ -1009,9 +1008,10 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
 ):
     """For a sequence with a short gap or a long gap and ends that are not 0 next to it (and
     the first value and the last value of an axis that are not 0), `pns_levels` equals the SAFE
-    model of the fork, `_safe_gwf_to_pns_chunk` in one chunk on the stacked `(N, 3)` samples of
-    the oracle (`oracle.block_samples` at the gradient raster, `oracle.sample` at the file times
-    `(k + 0.5) * dt` for the sequence that has a block that is not on the raster), with the
+    model of the package, `_safe_gwf_to_pns_chunk` of `pulseq_analysis.analyses.safe`, in one
+    chunk on the stacked `(N, 3)` samples of the oracle (`oracle.block_samples` at the gradient
+    raster, `oracle.sample` at the file times `(k + 0.5) * dt` for the sequence that has a
+    block that is not on the raster), with the
     percent times 0.01 and the total `sqrt(sum of squares)`, as `pns_levels` does. The peak
     and the axis peaks are equal to a relative 1e-9, and each bin of one sample (`bin_s=dt`)
     holds the total of its sample. `calculate_pns` of pypulseq is not the reference: it draws
@@ -1125,14 +1125,11 @@ def test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand():
     """`_off_raster_events_sequence` at times in the two ramps (half a raster time long, at 3.3
     to 3.8 and 8.2 to 8.7 raster times), with hand values, and 0 between the ramps and after
     the last point."""
-    seq = _off_raster_events_sequence()
     snap = _load_model("off_raster_events")
     t = _RASTER * np.array([3.3, 3.5, 3.8, 5.0, 8.2, 8.5, 8.7, 11.7, 12.0])
     expected = _A * np.array([1.0, 0.6, 0.0, 0.0, 0.0, 0.3, 0.5, 0.0, 0.0])
     got = gradient_sampler(snap).sample("gx", t)
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-9 * _A)
-    # A line across the gap, which pypulseq draws, would give about 0.8 A at 5.
-    assert abs(seq.get_gradients()[0](t[3]) - 0.0) > 0.5 * _A
 
 
 def test_hand_made_ramp_and_no_event_block():
