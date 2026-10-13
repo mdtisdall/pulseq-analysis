@@ -66,6 +66,7 @@ P12 to P17 follow the review of R2, R3 and R4 (2026-10-12).
 | P17 | The findings move to pulseq-checks (the user, 2026-10-12, after the review). pulseq-analysis keeps the readings, the interpreters, their coded rejections and the measurements; it has no `Finding` type, catalogue, `compare` or warnings. pulseq-checks finds each discrepancy from pulseq-analysis's public readings (7.4), and owns the catalogue, the severity and the reports (7.5). |
 | P18 | R6b (2026-10-12): `pulseq-cpp-siemens` is the extra `cpp-siemens` of pulseq-analysis; how a git-URL install gets it is decided at release time; today's strict reader stays as the interim interpreter `strict` until R11 (5.4); and `CppSiemens(oversampling=...)` exposes the reader's three sampling modes of an oversampled gradient (`"center"`, `"edge"`, `"preserve"`), in pulseq-cpp-siemens and its oracle. |
 | P19 | The default interpreter is the fast one (the user, 2026-10-12, in R6b): `strict` until R11, then `spec`. `cpp-siemens` decodes every block with the C++ reader to give its verdict (P2), about seven times as long (4 s for a file of 21 MB with 900 000 blocks, against 0.6 s), so it is read by name: `interpreter="cpp-siemens"`. This replaces "`cpp-siemens` (the default)" of section 1 and Q6. |
+| P20 | Scanner-side settings (the user, 2026-10-12, after `docs/plans/scanner-settings-study.md`): the eight rules of section 7.8. Each interpreter's default is its own source with a neutral scanner session; `spec` applies content of the file only from the revision that introduced it; `cpp-siemens` gives the reader's output and offers the package's simulation as opt-in settings; scanner-session inputs are one `Session`, the same for both; every result records what was applied; a setting that addresses something the file does not have is an error. Amends Q3 and R9. |
 
 The choice between "C++ reader first" and "specification first" is no longer open, so
 `docs/plans/spec-first-study.md` is not needed. It is not committed; its readings of the
@@ -77,7 +78,7 @@ specification feed section 6.
 |---|---|---|
 | Q1 | Versions outside 1.4.0–1.5.x (D03) | Both interpreters refuse them as **not supported by the package**: a separate exception (for example `NotImplementedError`), which says nothing about the file. |
 | Q2 | The undefined behaviour of the C++ reader (section 5.3) | `cpp-siemens` rejects each case, with its own code. |
-| Q3 | Rotations (D49) | `cpp-siemens` applies the rotation to the gradients, as the scanner plays them; `load` no longer refuses the rotation extension. `spec` applies it too. |
+| Q3 | Rotations (D49) | Amended by P20 (section 7.8): `cpp-siemens` gives the reader's unrotated gradients and the quaternion by default, with a `ScannerSettingWarning` from `load`, and rotates them with `CppSiemens(rotation="apply")`; `spec` rotates from version 1.5.1. `load` no longer refuses the rotation extension. |
 | Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file, with every violation. pulseq-checks reports that `cpp-siemens` reads it. |
 | Q5 | `spec` where the specification is silent | Section 6, row by row. |
 | Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` (the default was changed by P19: `strict`, then `spec`), or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
@@ -157,7 +158,7 @@ and its record entry establishes it with the oracle first.
 | D46 | Reject | Accepts | Reject (P9, section 8). |
 | D47 | Reject | Rejects | No change. |
 | D48 | Play | Rejects | Two rotations or shims in a block: the first, as C++. Finding. |
-| D49 | Play / Reject | Reads as written; `load` refuses rotations | A quaternion within 1e-3 of unit norm: divided by its norm (cpp:1286-1292), and the gradients rotated (Q3). Further: reject, as C++. Finding where the norm is not 1. |
+| D49 | Play / Reject | Reads as written; `load` refuses rotations | A quaternion within 1e-3 of unit norm: divided by its norm (cpp:1286-1292) and given with the block's unrotated gradients, as the reader gives them, in any version; rotated with `CppSiemens(rotation="apply")` (P20). Further: reject, as C++. |
 | D50 | Play | Reads | No change (C++ ignores the label). Finding. |
 | D51 | Play | Keeps | No change. Finding (pypulseq merges). |
 | D52 | — | None | Not about the file. No change. |
@@ -305,7 +306,7 @@ text of the specification by hand, with a citation for each.
 | D46 | Silent on order | Accept. |
 | D47 | Must reject | Reject. |
 | D48 | One rotation and one shim per block | Reject two. |
-| D49 | A "normalized rotation quaternion"; the specification's own example has a norm of 1 + 2.3e-7 | **Chosen**: divide the quaternion by its norm, with a finding when the norm as read is more than 1e-3 from 1; reject a quaternion of norm 0. Apply the rotation (Q3). |
+| D49 | A "normalized rotation quaternion", from revision 1.5.1 (spec:567); the specification's own example has a norm of 1 + 2.3e-7 | **Chosen**: from 1.5.1, divide the quaternion by its norm, with a finding when the norm as read is more than 1e-3 from 1, reject a quaternion of norm 0, and rotate the block's gradients (P20). Before 1.5.1, `ROTATIONS` is an unknown extension: ignored and recorded (D45, D58). |
 | D50 | Lists the labels "supported at the moment" | **Chosen**: ignore an unknown label, with a finding (labels do not change the waveforms). |
 | D51 | Silent | Keep both. |
 | D52 | Not in the file | No change. |
@@ -374,6 +375,8 @@ analyses.load(path, interpreter="strict") -> ...  # the measurements (R14); "spe
 
 # An interpreter by name, or as an object with its settings:
 seqfile.read_seqfile(path, interpreter=CppSiemens(oversampling="edge"))  # D43
+seqfile.read_seqfile(path, interpreter=CppSiemens(rotation="apply"))  # D49, P20
+analyses.load(path, session=Session(soft_delays={"TE": 5e-3}))  # P20, section 7.8
 ```
 
 R6b exports these names from the subpackages (R3 left them empty). `"cpp-siemens"` and
@@ -457,8 +460,9 @@ around them.
 | Shared state | None | `SeqBlock` keeps rasters in static variables that each load sets (cpp:807, 1540): one file at a time in a process, behind a lock |
 | Work in R6 to R10 | Port each quirk and prove it | The checks for undefined behaviour and the findings diff |
 
-The rotation (Q3), the timeline across blocks, the sampling and the measurements are the
-package's own in either case. The "as written" reading, the `spec` reader and the checks for
+The simulation of the scanner's interpreter (section 7.8: rotations, soft delays, the field of
+view), the timeline across blocks, the sampling and the measurements are the package's own in
+either case. The "as written" reading, the `spec` reader and the checks for
 undefined behaviour are needed in either case.
 
 **R2, the prototype.** On `chore/cpp-wrapper-prototype`:
@@ -667,6 +671,93 @@ in its own task, R13.
   same commit for a git-URL install; a C++ compiler is needed); how a release gets it (wheels from
   an index, or this source) is decided at release time (the user, 2026-10-12).
 
+### 7.8 Scanner-side settings (P20)
+
+`docs/plans/scanner-settings-study.md` found that the reader applies none of the information
+that the scanner's interpreter acts on, and that no driver or binding calls the reader's hooks.
+`cpp-siemens` therefore gives the sequence as exported: logical axes at the isocentre, each
+block's stored duration, one repetition, no trigger waits, unrotated gradients, one RF channel,
+and ppm offsets not weighted. The mechanisms are of two kinds:
+
+- **content of the file** that the reader leaves to the scanner: ROTATIONS and RF_SHIMS;
+- **inputs of the scanner session**, which are not in the file: the values of soft delays, the
+  orientation, position and gradient scaling of the field of view, the system frequency for the
+  ppm terms, the number of repetitions (`ONCE`), and when input triggers arrive.
+
+The rules (the user, 2026-10-12):
+
+1. **Each interpreter's default is its own source, with a neutral scanner session**: the
+   sequence as exported, as above. This is a defined case, not a missing value.
+2. **Content of the file follows each interpreter's source, and `spec` gates it by version.**
+   `spec` applies a mechanism only from the revision of the format that introduced it; in an
+   older file the section is an unknown extension, ignored as D45 says and recorded (D58).
+   `cpp-siemens` gives the reader's output, which reads these extensions by name in any version,
+   and offers the package's simulation as an opt-in setting (`CppSiemens(rotation="apply")`), as
+   `CppSiemens(oversampling=...)` already does for D43.
+
+   | Mechanism | Introduced in | Source |
+   |---|---|---|
+   | `TRIGGERS` (the first generic extension) | 1.3.0 | spec:109 |
+   | Labels (`LABELSET`, `LABELINC`) | 1.3.1 | spec:517 |
+   | The flags `PMC`, `NOROT`, `NOPOS`, `NOSLC`, `ONCE` | 1.4.1 | spec:526 |
+   | Soft delays (`DELAYS`) | 1.5.0 | spec:545 |
+   | `ROTATIONS`, `RF_SHIMS`, `RequiredExtensions` | 1.5.1 | spec:567, 584; cpp:784, 1505 |
+
+   The package reads 1.4.0 to 1.5.x (Q1), so only the last three rows are gated in practice.
+3. **Scanner-session inputs are one `Session`, the same for both interpreters**, for example
+   `Session(soft_delays={hint: value}, fov=..., repetitions=..., b0=...)`, given to `load` and the
+   timeline (R14). `cpp-siemens` uses the reader's hooks where they exist
+   (`setActualSoftDelay_ru`, the position helpers); `spec` computes the same quantity by the
+   specification's rule (for example `input / factor + offset`); a test checks that they agree.
+4. **Every result records what was applied, and warns only where content of the file was left
+   unapplied.** A result records the interpreter and its settings, the session values used, and
+   the mechanisms that the file uses that were left at the default (for example "rotations
+   present, not applied", "soft delays at their stored durations"). A `ScannerSettingWarning` is
+   emitted only when the file's own content is not applied: today, `cpp-siemens`'s unrotated
+   default for a file that plays a rotation. A neutral session is recorded, not warned about.
+   This warning describes the package's measurement, not the file, so it is consistent with P17.
+5. **A setting is offered only when a measurement depends on it.** Rotations, soft delays and the
+   orientation and gradient scaling of the field of view get settings (they change gradient
+   measurements, the timeline, and PNS on physical axes). RF shims, the ppm terms and the RF and
+   ADC position offsets change nothing the package measures: recorded, no setting. Repetitions and
+   trigger waits are recorded until a measurement needs them.
+6. **The simulation is the package's own, one implementation per mechanism, shared by both
+   interpreters**, and documented as a simulation. `cpp-siemens` uses the reader's own helpers
+   where they exist (`rotate_vec3_by_quat`), so that its arithmetic is the reader's. The order of
+   the field-of-view rotation and ROTATIONS is given by no source; the documentation states the
+   order the package uses.
+7. **The records are part of the contract with pulseq-checks** (section 7.3): the settings, the
+   session values, and the mechanisms left at the default. A change to them goes in
+   `CHANGELOG.md` and the document of C1.
+8. **A setting that addresses something the file does not have is an error.** A setting that
+   names content of the file (for example `soft_delays={"TE": ...}`) raises `SettingError` (a
+   `ValueError`, naming the setting, the interpreter, the file's version and the reason) when the
+   file has no such content under the interpreter: under `spec` because the version predates the
+   mechanism, or because no soft delay has that hint; under `cpp-siemens` because the reader
+   attached nothing that matches. Modes and session-wide values (`rotation="apply"`,
+   `oversampling`, the field of view, `b0`, `repetitions`) stay valid on any file, and the result
+   records what they applied (for example "rotation: apply, 0 blocks rotated"). A setting that the
+   interpreter does not have (for example `rotation=` for `spec`) is a `TypeError` when the
+   interpreter object is made.
+
+**Open:** for `CppSiemens(rotation="apply")` on a file older than 1.5.1, whether the simulation
+follows the reader (rotates what the reader attached) or is gated by version as `spec` is. The
+sources do not say what the scanner's interpreter does; the user decides before R9.
+
+**Further decisions of the study:**
+
+- Soft delays: by hint, as the specification and MATLAB; the duration rounded to the block
+  duration raster, as MATLAB's `round`; `SettingError` for an unknown hint (rule 8) and for a
+  negative duration. The decoding reports both the stored and the actual duration of a block;
+  the timeline uses the actual one, which is the stored one by default (a change of the contract
+  of section 7.3).
+- The field of view: an orientation and a gradient scaling, the identity by default (a
+  transversal slice at the isocentre). No setting for the position offsets or the ppm terms.
+- New record entries: D57, the flag `NOSLC` (the specification's spelling, spec:520, 537) against
+  `NOSCL` (the reader, MATLAB and pypulseq; the reader drops `NOSLC` with a warning), an upstream
+  report to consider; D58, an extension used in a file older than the revision that introduced it
+  (the reader and MATLAB read it by name, the specification has no such extension).
+
 ## 8. D46: `[EXTENSIONS]` as the last section
 
 The C++ reader finds each section through an index of the lines that start with `[`
@@ -724,7 +815,7 @@ blocks of labels only, with no shape and no signature.
 | R6b | `feature/cpp-siemens` | The `cpp-siemens` interpreter in pulseq-analysis, on R6a: the version gate on the "as written" reading, `SequenceData` from the reader's libraries (P14), the rejection codes (5.2, 5.3), the `interpreter` argument, the exports and the contract (7.3). Each rule of today becomes a rejection of `cpp-siemens`, moves to `spec` (R11), or is removed. The record's "Package" text for `cpp-siemens`, and the new D56, follow; pulseq-checks adapts. |
 | R7 | — | Moved to pulseq-checks (P17): the findings of D18, D30–D32, D34, D35–D37. |
 | R8 | — | Moved to pulseq-checks (P17): the findings of D28, D29, D39–D43. |
-| R9 | `feature/rotations` | D49: the gradients rotated by the normalized quaternion (Q3), for both interpreters; `load` no longer refuses the rotation extension. |
+| R9 | `feature/rotations` | D49 (P20, section 7.8): the quaternion of each block in both readings and decodings; `CppSiemens(rotation="apply")` and `spec` (from 1.5.1) rotate each block's gradients by it; the records of rule 4 for rotations; `load` no longer refuses the rotation extension. Needs the open question of 7.8 decided. The `spec` part needs R11. |
 | R10 | — | Moved to pulseq-checks (P17): the findings of D04, D06–D10, D12, D14, D16, D19, D20, D24, D54, D56. |
 | R11 | `feature/spec-interpreter` | The `spec` reader (section 6) on the "as written" reading, with every violation in its rejection, and its decoder in Python, adapted from task 2's `events.py`, with its fixtures. The record's "Package" text for `spec` follows. |
 | R12 | — | Moved to pulseq-checks (P17): the comparison of the two interpreters, and the four-source test. |
@@ -732,12 +823,14 @@ blocks of labels only, with no shape and no signature.
 | R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output: for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. The C++-replica code of task 2 retired. A baseline of today's `load` explains each difference. |
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
+| R16 | `feature/scanner-session` | The `Session` of section 7.8 (soft delays, the field of view), its records and `SettingError` (rules 3 to 8), for both interpreters; the decoding's stored and actual durations; record entries D57 and D58. |
 
 R6 is split in two (2026-10-12): R6a, the package, needs only R2 and R4 and runs in parallel
 with R5; R6b, the interpreter, needs R5 and R6a. Elsewhere in this plan, "R6" means both, and
 a part of it names R6a or R6b. R5 needs R3. R9 needs R6. R11 needs R5 and R6 (the `interpreter`
 argument). R6, R9 and R11 share `docs/discrepancies.md` and `TESTS.md`, so they merge in turn.
-R14 needs R6 and R9; the `spec` interpreter joins `load` when R11 is done. R15 needs R6. C1
+R14 needs R6 and R9; the `spec` interpreter joins `load` when R11 is done. R15 needs R6. R16
+needs R14 (the `Session` acts on the timeline). C1
 needs R5; R6 and R11 update its document.
 
 Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
