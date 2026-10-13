@@ -3,8 +3,9 @@
 Each figure draws what the readers give for a small Pulseq file that this script writes: MATLAB
 Pulseq (the JSON of `pulseq-matlab-oracle`, `tests/matlab_oracle`), the C++ reader of the
 scanner (`pulseq-cpp-oracle --dump` and `--sample`, `tests/cpp_oracle`) and the package
-(`reader.read_seqfile` and `events`). The values are the outputs of the readers, not a copy of
-their rules. Run it in the devShell, where both oracles are on the PATH:
+(`seqfile.read_seqfile`, the `spec` interpreter, and `synth.events`). The values are the outputs
+of the readers, not a copy of their rules. Run it in the devShell, where both oracles are on the
+PATH:
 
     nix develop --command uv run python scripts/discrepancy_figures.py
 
@@ -27,7 +28,7 @@ matplotlib.use("svg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile import SeqFileError, read_seqfile
 from pulseq_analysis.synth.events import decode_gradients, decode_rf
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -209,7 +210,7 @@ def rf_time_shapes(paths: dict[str, Path], matlab: dict, cpp: str) -> None:
         paths["rf_regular_step_2"],
         matlab,
         cpp,
-        "Regular time shape, step 2 µs, times 1, 3, …, 39 µs (stored 1 2 2 17)",
+        "Cells: step 2 µs, times 1, 3, …, 39 µs (stored 1 2 2 17)",
     )
     rf_panel(
         axes[1],
@@ -217,7 +218,7 @@ def rf_time_shapes(paths: dict[str, Path], matlab: dict, cpp: str) -> None:
         paths["rf_regular_offset"],
         matlab,
         cpp,
-        "Regular time shape, step 1 µs, times 10, 11, …, 29 µs (stored 10 1 1 17)",
+        "Points for spec, cells for C++: times 10, 11, …, 29 µs (stored 10 1 1 17)",
     )
     rf_panel(
         axes[2],
@@ -225,7 +226,7 @@ def rf_time_shapes(paths: dict[str, Path], matlab: dict, cpp: str) -> None:
         paths["rf_resampled"],
         matlab,
         cpp,
-        "Other time shape, times 1, 2, 4, 7, 10 µs (stored uncompressed)",
+        "Points: times 1, 2, 4, 7, 10 µs (stored uncompressed)",
     )
     axes[-1].set_xlabel("time from the start of the block (µs)")
     axes[0].legend(loc="center left", bbox_to_anchor=(0.0, 0.45), frameon=False, fontsize=8)

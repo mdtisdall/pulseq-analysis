@@ -1,18 +1,37 @@
-"""Tests of the decoded events and the gradient waveform of the package against the C++ oracle:
-the reader `ExternalSequence` of pulseq/pulseq (the reader of the Pulseq interpreter on the
+"""Tests of the decoded events and the gradient waveform of the `spec` interpreter against the C++
+oracle: the reader `ExternalSequence` of pulseq/pulseq (the reader of the Pulseq interpreter on the
 scanner), in the modes `--dump` and `--sample` of `pulseq-cpp-oracle` (`tests/oracles/cpp.py`;
 `tests/cpp_oracle/README.md` has the fields and their units).
 
-Each test compares each file of `tests/seqfiles/` that `read_strict` and the oracle accept,
-except the files of `ORACLE_KNOWN_WRONG` and those with an arbitrary gradient on a gradient raster
-other than 10 us (`decodeBlock` fails on them). The event values of the reader are `float` (32
-bits), so two values agree when they differ by at most `REL` times the largest magnitude of the
+Each test compares each file of `tests/seqfiles/` that `spec` (`seqfile.read_seqfile`, decoded by
+`synth.events`) and the oracle accept, except the files of `ORACLE_KNOWN_WRONG`, those that the two
+read as different sequences (`READ_DIFFERENTLY`) and those with an arbitrary gradient on a gradient
+raster other than 10 us (`decodeBlock` fails on them). The event values of the reader are `float`
+(32 bits), so two values agree when they differ by at most `REL` times the largest magnitude of the
 event. An integer field agrees when it is equal.
 
 A difference means that the reader of the scanner holds another value than the package, for a
 file that the parser accepts: for an event, the scanner plays something else than the package
 reads in the file. A test fails with each difference, with the rule of the reader for the field
-when `READER_RULES` has it. It does not skip a difference.
+when `READER_RULES` has it. It does not skip a difference, except where `spec` differs from the
+reader by design: each such field is compared after the change that the design makes (or not
+compared), and is recorded as a property of the test with the entry of `docs/discrepancies.md`
+that explains it. The fields are:
+
+- an RF pulse of points (an RF time shape that is not regular, D36; the reader resamples it to
+  cells): the duration, the dwell and the samples are not compared;
+- an RF magnitude below 0 and an RF phase outside [0, 2 pi - 1e-4], which `spec` plays as written
+  (D31, D32) and the reader clamps: compared after the reader's clamp;
+- the samples of an oversampled gradient (time ID -1), all of them in `spec` and every second one
+  in the reader (D43): compared at the even indices;
+- the ROTATIONS and RF_SHIMS objects in a file before 1.5.1, which `spec` does not read and the
+  reader does (D45): not compared;
+- the soft delay offset with a fraction, which the reader misreads (D16);
+- the signature of a file with CRLF line ends (D53).
+
+The test of the gradient waveform samples at the centres of the raster cells and at the ends of
+the events, where the lines between all the samples of an oversampled gradient (`spec`) and those
+between its even samples (the reader) agree.
 
 The module skips when the binary is not on the PATH, as outside the Nix devShell.
 """
@@ -31,8 +50,8 @@ from test_cpp_oracle import (
     arbitrary_gradient_off_the_10_us_raster,
 )
 
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_seqfile
 from pulseq_analysis.seqfile.model import SequenceData
-from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
 from pulseq_analysis.synth import _events, events, sampling, seq_index
 
 pytestmark = pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
@@ -44,13 +63,14 @@ _AXES = ("gx", "gy", "gz")
 
 # The reasons of the planned skips (docs/plans/own-parser-tasks.md, section 4.7). Each skip is by
 # a rule on the model, never by the name of a file.
-SKIPPED_FIRST_LAST_1_4 = (
-    "first and last of an arbitrary gradient of a 1.4 file: the reader sets them to "
-    "FLOAT_UNDEFINED (ExternalSequence.cpp:1085-1086)"
-)
 SKIPPED_BLOCK_BOUNDARY = (
     "a time at a block boundary: gradientsAt works inside one block and does not join blocks"
 )
+
+# The files that both interpreters read, as different sequences: the corpus leaves them out. Each
+# value is the entry of `docs/discrepancies.md` and what differs. None today: `spec` rejects a
+# section that appears twice (D10), which the reader reads as its last copy.
+READ_DIFFERENTLY: dict[str, str] = {}
 
 # The labels that the reader knows (`decodeLabel`, ExternalSequence.cpp:2355-2404): a counter
 # or a flag. It keeps no other label in a block (1880-1899): PMC and TRID are ignored, and another
@@ -107,8 +127,11 @@ def corpus():
         name = path.relative_to(SEQFILES).as_posix()
         if name in ORACLE_KNOWN_WRONG:
             continue
+        if name in READ_DIFFERENTLY:
+            skipped.append(f"{name}: {READ_DIFFERENTLY[name]}")
+            continue
         try:
-            data = read_strict(path)
+            data = read_seqfile(path)
         except (SeqFileError, NotSupported):
             continue
         if arbitrary_gradient_off_the_10_us_raster(data):
@@ -117,7 +140,8 @@ def corpus():
         try:
             dump = cpp.dump(path)
         except cpp.OracleError as error:
-            # `test_the_oracle_and_read_strict_accept_and_reject_the_same_files` reports it.
+            # `test_the_oracle_and_spec_accept_and_reject_the_same_files_but_those_of_the_tables`
+            # reports it.
             skipped.append(f"{name}: the oracle does not accept it: {error}")
             continue
         files.append(_File(name, path, data, dump))
@@ -136,28 +160,43 @@ def _floats(values) -> np.ndarray:
 
 class _Differences:
     """The differences found in one file, each as one line of text. A line of a field of
-    `READER_RULES` ends with the rule of the reader for that field."""
+    `READER_RULES` ends with the rule of the reader for that field. A comparison with `by_design`
+    (a reason that starts with the entry of `docs/discrepancies.md`) that finds a difference
+    records the reason in `designed` and no line: `spec` differs from the reader there on
+    purpose."""
 
     def __init__(self, name: str) -> None:
         self.name = name
         self.lines: list[str] = []
+        self.designed: set[str] = set()
 
-    def add(self, where: str, text: str, field: str | None = None) -> None:
+    def add(self, where: str, text: str, field: str | None = None, by_design: str | None = None):
+        if by_design:
+            self.designed.add(f"{field}: {by_design}")
+            return
         rule = f" ({READER_RULES[field]})" if field in READER_RULES else ""
         self.lines.append(f"{self.name}: {where}: {text}{rule}")
 
-    def equal(self, where: str, field: str, ours, theirs) -> None:
+    def equal(self, where: str, field: str, ours, theirs, by_design: str | None = None) -> None:
         """An integer, a text or a flag: equal, or a difference."""
         if ours != theirs:
-            self.add(where, f"{field}: package {ours!r}, oracle {theirs!r}", field)
+            self.add(where, f"{field}: package {ours!r}, oracle {theirs!r}", field, by_design)
 
-    def close(self, where: str, field: str, ours, theirs, scale: float | None = None) -> None:
+    def close(
+        self,
+        where: str,
+        field: str,
+        ours,
+        theirs,
+        scale: float | None = None,
+        by_design: str | None = None,
+    ) -> None:
         """Floats (one or an array) that agree to `REL` times `scale`, by default the largest
         magnitude of the two."""
         ours, theirs = _floats(ours), _floats(theirs)
         if ours.shape != theirs.shape:
             text = f"{field}: package {ours.size} values, oracle {theirs.size} values"
-            self.add(where, text, field)
+            self.add(where, text, field, by_design)
             return
         if scale is None:
             scale = max(np.abs(ours).max(initial=0.0), np.abs(theirs).max(initial=0.0))
@@ -167,7 +206,7 @@ class _Differences:
             return
         if ours.ndim == 0:
             text = f"{field}: package {float(ours)!r}, oracle {float(theirs)!r}"
-            self.add(where, text, field)
+            self.add(where, text, field, by_design)
             return
         i = int(np.flatnonzero(wrong)[0])
         self.add(
@@ -176,16 +215,44 @@ class _Differences:
             f"{REL:g} x {scale:.9g}; the first at [{i}]: package {float(ours.flat[i])!r}, "
             f"oracle {float(theirs.flat[i])!r}",
             field,
+            by_design,
         )
 
 
-def _compare_rf(diff: _Differences, where: str, ev: events.RfEvent, rf: dict) -> None:
+# The reasons of the differences by design (the module docstring lists them).
+DESIGNED_RF_POINTS = (
+    "D36: an RF time shape that is not regular is points in `spec`, cells in the reader"
+)
+DESIGNED_RF_MAGNITUDE = "D31: `spec` plays a magnitude below 0 as written, the reader sets it to 0"
+DESIGNED_RF_PHASE = (
+    "D32: `spec` plays a phase outside [0, 1) turns as written, the reader clamps it"
+)
+DESIGNED_EXTENSION_SKIPPED = (
+    "D45: an extension that the version of the file does not have is skipped by `spec` and read "
+    "by the reader"
+)
+DESIGNED_SOFT_DELAY_FRACTION = (
+    "D16: the reader reads a soft delay offset with a fraction as two values and moves the rest "
+    "of the row; `spec` reads the offset as a float"
+)
+DESIGNED_OVERSAMPLED = (
+    "D43: `spec` keeps all the samples of an oversampled gradient, the reader every second one"
+)
+
+
+def _shape_samples(data: SequenceData, shape_id: int) -> np.ndarray:
+    """The decompressed samples of the shape `shape_id`."""
+    return data.shapes[shape_id].samples()
+
+
+def _compare_rf(
+    diff: _Differences, where: str, data: SequenceData, ev: events.RfEvent, rf: dict
+) -> None:
     """The RF event `ev` of the package against `rf` of the dump."""
     diff.close(where, "amplitude (Hz)", ev.amplitude, rf["amplitude"])
     diff.equal(where, "mag_id", ev.mag_id, rf["mag_shape"])
     diff.equal(where, "phase_id", ev.phase_id, rf["phase_shape"])
     diff.equal(where, "time_id", ev.time_id, rf["time_shape"])
-    diff.close(where, "shape_dur (us)", ev.shape_dur * 1e6, rf["shape_dur_us"])
     # The reader marks the center of a 1.4 file, which has none, with -1
     # (ExternalSequence.cpp:1037).
     center = -1.0 if ev.center is None else ev.center * 1e6
@@ -196,12 +263,38 @@ def _compare_rf(diff: _Differences, where: str, ev: events.RfEvent, rf: dict) ->
     diff.close(where, "freq_offset (Hz)", ev.freq_offset, rf["freq_offset"])
     diff.close(where, "phase_offset (rad)", ev.phase_offset, rf["phase_offset"])
     diff.equal(where, "use", ev.use, rf["use"])
-    # The package's samples are one dwell apart, in cells that fill `shape_dur`.
-    dwell = ev.shape_dur / ev.magnitude.size if ev.magnitude.size else np.nan
-    diff.close(where, "dwell (us)", dwell * 1e6, rf["dwell_us"])
+    # A pulse of points is not the reader's cells: its duration, dwell and samples differ.
+    points = DESIGNED_RF_POINTS if ev.dwell is None else None
+    dwell = np.nan if ev.dwell is None else ev.dwell * 1e6
+    diff.close(where, "shape_dur (us)", ev.shape_dur * 1e6, rf["shape_dur_us"], by_design=points)
+    diff.close(where, "dwell (us)", dwell, rf["dwell_us"], by_design=points)
+    # The reader sets a magnitude sample below 0 to 0 (D31) and clamps the phase to
+    # [0, 2 pi - 1e-4] (D32); `spec` plays both as written. Only an event whose samples are out of
+    # those ranges differs by design: every other one must agree.
     magnitude = _floats(rf["magnitude"]) * np.float64(rf["amplitude"])
-    diff.close(where, "magnitude (Hz)", ev.magnitude, magnitude)
-    diff.close(where, "phase (rad)", ev.phase, rf["phase"])
+    negative = bool((_shape_samples(data, ev.mag_id) < 0).any())
+    outside = bool(((ev.phase < 0) | (ev.phase > 2 * np.pi - 1e-4)).any())
+    diff.close(
+        where,
+        "magnitude (Hz)",
+        ev.magnitude,
+        magnitude,
+        by_design=points or (DESIGNED_RF_MAGNITUDE if negative else None),
+    )
+    diff.close(
+        where,
+        "phase (rad)",
+        ev.phase,
+        rf["phase"],
+        by_design=points or (DESIGNED_RF_PHASE if outside else None),
+    )
+    if negative or outside:
+        # The values that the reader plays are the clamped ones.
+        clamped = np.where(ev.magnitude < 0, 0.0, ev.magnitude) if ev.amplitude >= 0 else None
+        if clamped is not None:
+            diff.close(where, "magnitude, clamped (Hz)", clamped, magnitude, by_design=points)
+        phase = np.clip(ev.phase, 0.0, 2 * np.pi - 1e-4)
+        diff.close(where, "phase, clamped (rad)", phase, rf["phase"], by_design=points)
 
 
 def _magnitude(ev: events.GradEvent) -> float:
@@ -211,11 +304,8 @@ def _magnitude(ev: events.GradEvent) -> float:
     return max(np.abs(ev.waveform).max(initial=0.0), abs(ev.first), abs(ev.last))
 
 
-def _compare_gradient(
-    diff: _Differences, where: str, ev: events.GradEvent, grad: dict, version: tuple
-) -> str | None:
-    """The gradient event `ev` of the package against `grad` of the dump. Returns a planned
-    skip, or `None`."""
+def _compare_gradient(diff: _Differences, where: str, ev: events.GradEvent, grad: dict) -> None:
+    """The gradient event `ev` of the package against `grad` of the dump."""
     diff.close(where, "amplitude (Hz/m)", ev.amplitude, grad["amplitude"])
     diff.equal(where, "delay (us)", _us(ev.delay), grad["delay_us"])
     if isinstance(ev, events.Trapezoid):
@@ -224,31 +314,40 @@ def _compare_gradient(
             diff.equal(where, "rise_time (us)", _us(ev.rise_time), grad["ramp_up_us"])
             diff.equal(where, "flat_time (us)", _us(ev.flat_time), grad["flat_us"])
             diff.equal(where, "fall_time (us)", _us(ev.fall_time), grad["ramp_down_us"])
-        return None
+        return
     # An arbitrary gradient with a time shape is an extended trapezoid of the reader.
     kind = "ext_trap" if ev.time_id > 0 else "arbitrary"
     diff.equal(where, "kind", kind, grad["kind"])
     if kind != grad["kind"]:
-        return None
+        return
     scale = _magnitude(ev)
     if kind == "ext_trap":
         diff.equal(where, "tt (us)", [_us(t) for t in ev.tt], grad["times_us"])
         shape = _floats(grad["shape"]) * np.float64(grad["amplitude"])
         diff.close(where, "waveform with a time shape (Hz/m)", ev.waveform, shape, scale)
-        return None
-    diff.equal(where, "shape_id", ev.shape_id, grad["wave_shape"])
-    diff.equal(where, "time_id", ev.time_id, grad["time_shape"])
-    diff.equal(where, "oversampled", ev.time_id == -1, grad["oversampled"])
-    # An oversampled gradient (time ID -1) has the samples of the centres of the raster cells
-    # at the even indices (`tt = (i + 1) / 2 * dt`), which are the samples of the dump.
-    waveform = ev.waveform[::2] if ev.time_id == -1 else ev.waveform
-    samples = _floats(grad["samples"]) * np.float64(grad["amplitude"])
-    diff.close(where, "waveform (Hz/m)", waveform, samples, scale)
-    if version < (1, 5, 0):
-        return SKIPPED_FIRST_LAST_1_4
-    diff.close(where, "first (Hz/m)", ev.first, grad["first"], scale)
-    diff.close(where, "last (Hz/m)", ev.last, grad["last"], scale)
-    return None
+    else:
+        diff.equal(where, "shape_id", ev.shape_id, grad["wave_shape"])
+        diff.equal(where, "time_id", ev.time_id, grad["time_shape"])
+        diff.equal(where, "oversampled", ev.time_id == -1, grad["oversampled"])
+        # An oversampled gradient (time ID -1) has the samples of the centres of the raster cells
+        # at the even indices (`tt = (i + 1) / 2 * dt`), which are the samples of the dump;
+        # `spec` keeps all of them.
+        waveform = ev.waveform[::2] if ev.time_id == -1 else ev.waveform
+        samples = _floats(grad["samples"]) * np.float64(grad["amplitude"])
+        diff.close(where, "waveform (Hz/m)", waveform, samples, scale)
+        if ev.time_id == -1:
+            diff.close(
+                where,
+                "waveform (Hz/m)",
+                ev.waveform,
+                samples,
+                scale,
+                by_design=DESIGNED_OVERSAMPLED,
+            )
+    # The dump has `first` and `last` of an arbitrary gradient only.
+    if kind == "arbitrary":
+        diff.close(where, "first (Hz/m)", ev.first, grad["first"], scale)
+        diff.close(where, "last (Hz/m)", ev.last, grad["last"], scale)
 
 
 def _compare_adc(diff: _Differences, where: str, ev: events.AdcEvent, adc: dict) -> None:
@@ -309,21 +408,26 @@ def _kept(objects: list, holds) -> object | None:
 def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head: int, block):
     """The extension objects of the block (the list that starts at `head`) against the dump."""
     ext = data.extensions
-    objects = _extension_objects(data, head)
+    # `spec` skips an extension that the version of the file does not have yet, and one that it
+    # does not know (D45). The reader reads the first kind, and keeps no object of the second.
+    skipped = set(data.skipped_extensions)
+    objects = [(kind, ref) for kind, ref in _extension_objects(data, head) if kind not in skipped]
 
     def rows(string_id: str, table: np.ndarray) -> list[np.void]:
         by_id = _rows_by_id(table)
         return [by_id[ref] for kind, ref in objects if kind == string_id]
 
-    def present(field: str, ours) -> bool:
-        """Whether both have the object, after a difference when one has it only."""
+    def present(field: str, ours, kind: str) -> bool:
+        """Whether both have the object, after a difference when one has it only: by design when
+        `spec` skipped the extension `kind`."""
         if (ours is None) != (block[field] is None):
-            diff.equal(where, field, ours is not None, block[field] is not None)
+            by_design = DESIGNED_EXTENSION_SKIPPED if kind in skipped else None
+            diff.equal(where, field, ours is not None, block[field] is not None, by_design)
         return ours is not None and block[field] is not None
 
     # A trigger of type 0 is no trigger for the reader (`isTrigger`).
     trigger = _kept(rows("TRIGGERS", ext.triggers), lambda row: int(row["type"]) != 0)
-    if present("trigger", trigger):
+    if present("trigger", trigger, "TRIGGERS"):
         theirs = block["trigger"]
         diff.equal(where, "trigger type", int(trigger["type"]), theirs["type"])
         diff.equal(where, "trigger channel", int(trigger["channel"]), theirs["channel"])
@@ -332,13 +436,19 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
 
     # A soft delay with a negative number is no soft delay for the reader (`isSoftDelay`).
     soft_delay = _kept(rows("DELAYS", ext.soft_delays), lambda row: int(row["num"]) >= 0)
-    if present("soft_delay", soft_delay):
+    if present("soft_delay", soft_delay, "DELAYS"):
         theirs = block["soft_delay"]
         diff.equal(where, "soft delay num", int(soft_delay["num"]), theirs["num_id"])
-        diff.equal(where, "soft delay offset (us)", _us(soft_delay["offset"]), theirs["offset_us"])
-        diff.close(where, "soft delay factor", soft_delay["factor"], theirs["factor"])
+        # The reader reads the offset as an integer, so it reads a fraction as two values and
+        # moves the rest of the row (D16).
+        offset = _us(soft_delay["offset"])
+        fraction = DESIGNED_SOFT_DELAY_FRACTION if offset != round(offset) else None
+        diff.equal(where, "soft delay offset (us)", offset, theirs["offset_us"], fraction)
+        diff.close(
+            where, "soft delay factor", soft_delay["factor"], theirs["factor"], by_design=fraction
+        )
         # The reader keeps the first 31 characters of the hint.
-        diff.equal(where, "soft delay hint", str(soft_delay["hint"])[:31], theirs["hint"])
+        diff.equal(where, "soft delay hint", str(soft_delay["hint"])[:31], theirs["hint"], fraction)
 
     diff.equal(
         where, "labelset", _expected_labels(rows("LABELSET", ext.labelset)), block["labelset"]
@@ -348,7 +458,7 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
     )
 
     rotation = _kept(rows("ROTATIONS", ext.rotations), lambda row: True)
-    if present("rotation", rotation):
+    if present("rotation", rotation, "ROTATIONS"):
         q = np.array([rotation[k] for k in ("q0", "qx", "qy", "qz")], dtype=np.float64)
         # The reader divides the quaternion by its norm (ExternalSequence.cpp:1286-1293).
         diff.close(where, "rotation (normalized)", q / np.linalg.norm(q), block["rotation"])
@@ -356,7 +466,7 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
     # An RF shim of no channel is no RF shim for the reader (`hasRfShim`).
     shims = [ref for kind, ref in objects if kind == "RF_SHIMS"]
     shim_id = _kept(shims, lambda ref: ext.rf_shims[ref].shape[0] > 0)
-    if present("rf_shim", shim_id):
+    if present("rf_shim", shim_id, "RF_SHIMS"):
         ours, theirs = ext.rf_shims[shim_id], block["rf_shim"]
         diff.equal(where, "rf shim id", shim_id, theirs["id"])
         diff.equal(where, "rf shim channels", ours.shape[0], theirs["nchan"])
@@ -365,16 +475,15 @@ def _compare_extensions(diff: _Differences, where: str, data: SequenceData, head
 
 
 def _compare_file(f: _File) -> tuple[list[str], set[str]]:
-    """The differences of one file, and the planned skips that it met."""
+    """The differences of one file, and the differences by design that it has."""
     data, dump = f.data, f.dump
     diff = _Differences(f.name)
-    skips: set[str] = set()
     rf_events = events.decode_rf(data)
     grad_events = events.decode_gradients(data)
     adc_events = events.decode_adc(data)
     if len(dump["blocks"]) != len(data.blocks):
         diff.equal("file", "number of blocks", len(data.blocks), len(dump["blocks"]))
-        return diff.lines, skips
+        return diff.lines, diff.designed
     for k, (row, block) in enumerate(zip(data.blocks, dump["blocks"], strict=True)):
         where = f"block {k} (ID {int(row['id'])})"
         diff.equal(where, "index", k, block["index"])
@@ -386,7 +495,7 @@ def _compare_file(f: _File) -> tuple[list[str], set[str]]:
         if (rf_id != 0) != (block["rf"] is not None):
             diff.equal(where, "rf", rf_id != 0, block["rf"] is not None)
         elif rf_id:
-            _compare_rf(diff, f"{where} rf {rf_id}", rf_events[rf_id], block["rf"])
+            _compare_rf(diff, f"{where} rf {rf_id}", data, rf_events[rf_id], block["rf"])
 
         for c, axis in enumerate(_AXES):
             grad_id = int(row[axis])
@@ -394,11 +503,7 @@ def _compare_file(f: _File) -> tuple[list[str], set[str]]:
             if (grad_id != 0) != (theirs is not None):
                 diff.equal(where, axis, grad_id != 0, theirs is not None)
             elif grad_id:
-                skip = _compare_gradient(
-                    diff, f"{where} {axis} {grad_id}", grad_events[grad_id], theirs, data.version
-                )
-                if skip:
-                    skips.add(skip)
+                _compare_gradient(diff, f"{where} {axis} {grad_id}", grad_events[grad_id], theirs)
 
         adc_id = int(row["adc"])
         if (adc_id != 0) != (block["adc"] is not None):
@@ -407,28 +512,37 @@ def _compare_file(f: _File) -> tuple[list[str], set[str]]:
             _compare_adc(diff, f"{where} adc {adc_id}", adc_events[adc_id], block["adc"])
 
         _compare_extensions(diff, f"{where} extensions", data, int(row["ext"]), block)
-    return diff.lines, skips
+    return diff.lines, diff.designed
 
 
 def test_the_decoded_events_equal_the_dump_of_the_cpp_reader(corpus, record_property):
-    """Each field of each decoded event, the block durations and the extension objects."""
+    """Each field of each decoded event, the block durations and the extension objects. The
+    differences by design (the module docstring) are recorded, each with its files."""
     assert corpus.files, "no file to compare"
     differences = []
-    skips: dict[str, list[str]] = {}
+    designed: dict[str, list[str]] = {}
     for f in corpus.files:
         lines, met = _compare_file(f)
         differences += lines
-        for skip in met:
-            skips.setdefault(skip, []).append(f.name)
+        for reason in met:
+            designed.setdefault(reason, []).append(f.name)
+    record_property("skipped", "; ".join(corpus.skipped))
     record_property(
-        "skipped",
-        "; ".join(corpus.skipped + [f"{reason}: {', '.join(n)}" for reason, n in skips.items()]),
+        "by_design",
+        "; ".join(f"{reason}: {', '.join(names)}" for reason, names in sorted(designed.items())),
     )
     assert not differences, "\n".join(differences)
 
 
+# The files with an md5 signature on which `spec` and the reader differ, with the entry of
+# `docs/discrepancies.md`: `spec` hashes the bytes before the `\n` before `[SIGNATURE]` (spec:223),
+# the reader drops an empty line (`\n` or `\r\n`) and keeps the `\r` of the other line ends.
+SIGNATURE_BY_DESIGN = {"valid_crlf.seq": "D53"}
+
+
 def test_signature_matches_equals_the_signature_check_of_the_cpp_reader(corpus):
-    """For each file with an md5 signature, `signature.matches` against `signature_ok`. The
+    """For each file with an md5 signature, `signature.matches` against `signature_ok`, except
+    the files of `SIGNATURE_BY_DESIGN`, where `spec` finds no match and the reader finds one. The
     reader lowers the case of the type (ExternalSequence.cpp:1633)."""
     compared = [
         f for f in corpus.files if f.data.signature and f.data.signature.type.lower() == "md5"
@@ -437,9 +551,42 @@ def test_signature_matches_equals_the_signature_check_of_the_cpp_reader(corpus):
     differences = []
     for f in compared:
         diff = _Differences(f.name)
-        diff.equal("[SIGNATURE]", "signature", f.data.signature.matches, f.dump["signature_ok"])
+        if f.name in SIGNATURE_BY_DESIGN:
+            diff.equal("[SIGNATURE]", "signature (spec)", f.data.signature.matches, False)
+            diff.equal("[SIGNATURE]", "signature (oracle)", f.dump["signature_ok"], True)
+        else:
+            diff.equal("[SIGNATURE]", "signature", f.data.signature.matches, f.dump["signature_ok"])
         differences += diff.lines
     assert not differences, "\n".join(differences)
+    assert {f.name for f in compared} >= set(SIGNATURE_BY_DESIGN)
+
+
+def test_a_regular_rf_time_shape_equals_the_dump_and_a_pulse_of_points_does_not(
+    tmp_path, record_property
+):
+    """`valid_rf_time_shapes.seq` without the block of RF 3 (the short uncompressed pulse, which
+    the reader reads past its end and crashes on): RF 2 has a regular time shape `1 2 2 47`
+    (50 samples, times 1, 3, ..., 99: cells of 2 us), which the two read alike; RF 4 and 5 are
+    points, which `spec` joins by lines and the reader resamples to cells of 1 us (D36)."""
+    text = (SEQFILES / "valid_rf_time_shapes.seq").read_text()
+    without_rf_3 = text.replace("11 20  3  0  0  0  0  0\n", "")
+    assert without_rf_3 != text
+    path = tmp_path / "rf_time_shapes.seq"
+    path.write_text(without_rf_3)
+    data = read_seqfile(path)
+    dump = cpp.dump(path)
+    lines, designed = _compare_file(_File(path.name, path, data, dump))
+    assert not lines, "\n".join(lines)
+    rf = events.decode_rf(data)
+    assert rf[2].dwell == pytest.approx(2e-6) and rf[2].magnitude.size == 50
+    assert rf[2].shape_dur == pytest.approx(100e-6)
+    assert rf[4].dwell is None and rf[5].dwell is None
+    reader = [block["rf"] for block in dump["blocks"][-3:]]
+    assert [r["time_shape"] for r in reader] == [12, 18, 21]
+    assert [r["dwell_us"] for r in reader] == [2, 1, 1]
+    assert [r["dwell_us"] * len(r["magnitude"]) for r in reader] == [100, 100, 10]
+    assert any(reason.startswith("dwell (us): D36") for reason in designed)
+    record_property("by_design", "; ".join(sorted(designed)))
 
 
 def _sample_times(data: SequenceData, grad_events) -> tuple[np.ndarray, np.ndarray]:
@@ -475,8 +622,8 @@ def test_the_gradient_waveform_equals_gradients_at_of_the_cpp_reader(corpus, rec
     times of a block before its first gradient event and after its last one are not sampled:
     there the reader gives 0 on each axis, since no event of the block covers them, and the
     10 M cells of the corpus would take more than the time budget of the test. The scale of a
-    value is the largest magnitude of the event of the block on the axis, or 0 when the block
-    has no event on the axis."""
+    value is the largest magnitude of the event of the block on the axis, or the largest of the
+    axis when the block has no event on it."""
     differences = []
     sampled = []
     for f in corpus.files:
@@ -499,6 +646,11 @@ def test_the_gradient_waveform_equals_gradients_at_of_the_cpp_reader(corpus, rec
             magnitudes = np.array(
                 [_magnitude(grads[int(i)]) if i else 0.0 for i in data.blocks[axis]]
             )
+            # The sampler joins the events of neighbouring blocks with a ramp (D42), which starts
+            # at 0 half a raster before the next event. A block with no event on the axis can
+            # hold the start of that ramp, at a value that is rounding noise against the
+            # amplitudes of the axis, so its scale is the largest of the axis.
+            magnitudes[magnitudes == 0] = magnitudes.max(initial=0.0)
             wrong = np.flatnonzero(np.abs(ours - theirs[:, c]) > REL * magnitudes[block_index])
             for i in wrong[:5].tolist():
                 k = int(block_index[i])

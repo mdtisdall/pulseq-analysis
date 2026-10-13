@@ -803,9 +803,9 @@ an `id` that is not a `str`, a `version` that is not an `int` (a `bool` too), a
 `str`. A test checks that the signature of each `compute` agrees with
 its spec. `registry.registry()` raises `registry.RegistryError` for two
 analyses with one ID, an entry point that cannot load, an object with no
-`spec.id`, and an entry point whose name is not the `spec.id` of its object.
+`Analysis.spec.id`, and an entry point whose name is not the `Analysis.spec.id` of its object.
 The message names the packages (and, for the last case, the entry point and
-the `spec.id`).
+the `Analysis.spec.id`).
 
 ## 7. The checks of `load`
 
@@ -831,7 +831,7 @@ file.
 
 ### 7.1 The interpreters of Pulseq files
 
-`reading.read_seqfile(path, interpreter="cpp-siemens")` reads a file through
+`reading.read_seqfile(path, interpreter="spec")` reads a file through
 an interpreter (`docs/usage.md`, "The interpreters"). Two modules do the work:
 
 - `cpp_siemens.read_cpp_siemens` runs the C++ reader through pulseq-cpp-siemens
@@ -848,29 +848,43 @@ an interpreter (`docs/usage.md`, "The interpreters"). Two modules do the work:
   has no message (it is printed at a debug level), so it is found from the
   libraries. The model is built from the libraries (`cpp_siemens._model`); the
   extension gives each event as a dict of the reader's struct.
-- `reader.read_strict` is the interim `strict` interpreter: it gives a
-  `model.SequenceData` of a Pulseq text file (versions 1.4.0 to 1.5.x), or
-  raises `errors.SeqFileError` with the `errors.Violation` of every rule that
-  the file breaks (`reader.RULES`, at most `reader.MAX_LOCATIONS` for each
-  rule). The module docstring of `reader` gives each rule with its source in
-  the specification (section 5.4 of `docs/plans/parser-redesign.md` says what
-  becomes of each); the docstring of `model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`, `model.Shape`,
-  `model.Signature`, `model.Extensions` and `model.decompress_shape` are part
-  of the model. `reader.RANGE_TOLERANCE` and `reader.TOLERANCE_NS` are the
-  tolerances of the shape range rule and of the raster rules.
+- `spec.read_spec` is the `spec` interpreter: it gives a `model.SequenceData`
+  of a Pulseq text file (versions 1.4.0 to 1.5.x), or raises
+  `errors.SeqFileError` with the `errors.Violation` of every rule that the file
+  breaks (`spec.RULES`, at most `spec.MAX_LOCATIONS` for each rule). The module
+  docstring of `spec` and each `spec.Rule` give the rule's basis: the lines of
+  the specification, the slides that its section 2.6 cites, or the package's
+  choice and why (section 6 of `docs/plans/parser-redesign.md`); `_Report.add`
+  appends the reason of a choice to the message of each such violation. The
+  docstring of `model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`,
+  `model.Shape`, `model.Signature`, `model.Extensions` and
+  `model.decompress_shape` are part of the model.
 
 `load` does not use the interpreters yet (task R14).
 
-The strict reader is built on the "as written" reading (`as_written.read_as_written`,
+The `spec` reader is built on the "as written" reading (`as_written.read_as_written`,
 documented in `docs/usage.md`). The reading splits the text at its headers with
 one regular expression that finds the blank, `#` and header lines, so a run of
 data lines is a slice of the text with no loop over its lines, and it types each
 table with `numpy.loadtxt` when the text is printable ASCII (after it replaces
-any other white space with a space), else one field at a time. The reader keeps
-the rows of each section up to its first blank or `#` line (`reader._sections`),
-takes the typed values of a table whose rows are clean (`reader._accept`), and
-reads a table that is not clean again one cell at a time (`reader._slow_table`),
-which gives the message of each bad cell.
+any other white space with a space), else one field at a time. The reader takes
+every row of a section (a blank or `#` line ends nothing), types them by the
+columns of the version (`spec._rows`), and finds the bad cells from
+the reading's `counts` and `valid` arrays with no second pass over the text
+(`spec._read_table`), so a clean table costs no loop over its rows. In
+`[SHAPES]` it walks the data lines itself (`spec._shapes_of`): the reading takes
+a `num_samples` line only right after its `shape_id` line, and `spec` skips a
+comment between them. The checks across tables work on whole columns
+(`numpy.searchsorted` on the sorted IDs for each reference, pointer doubling for
+the cycles of the extension lists); only the shapes are read one at a time.
+
+### 7.2 The decoder of `spec`
+
+`synth.events` decodes the model of `spec` into events by file ID. An RF time
+shape is cells or points by `model.rf_time_step`; for points,
+`RfEvent.signal` interpolates the real and imaginary parts linearly
+(`numpy.interp`), which is the straight line of the complex signal between two
+points. A shape that several events use is decompressed once.
 
 ## 8. `Series`: checks and the array encoding
 

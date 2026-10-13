@@ -10,7 +10,7 @@
   with the setting `rotation="apply"`, `gradients_at` rotates the gradients of each block that
   has one, with the reader's own `rotate_vec3_by_quat` (the package's simulation of the
   scanner). `rotation_record` records what was applied (`scanner.RotationRecord`).
-- `strict`: the package's decoding of the events (`events`), `StrictDecoding`: each event of the
+- `spec`: the package's decoder of the events (`events`), `SpecDecoding`: each event of the
   model by its ID.
 
 The two kinds differ: the C++ reader decodes a block at a time, and an event can decode
@@ -24,19 +24,19 @@ from typing import Any
 
 import numpy as np
 
-from ..seqfile.interpreters import CppSiemens, Strict
+from ..seqfile.interpreters import CppSiemens, Spec
 from ..seqfile.model import SequenceData
 from . import events
 from .scanner import RotationRecord
 
-__all__ = ["CppSiemensDecoding", "StrictDecoding", "decode"]
+__all__ = ["CppSiemensDecoding", "SpecDecoding", "decode"]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class StrictDecoding:
-    """The events of a file that the `strict` interpreter read (`events`), by file ID."""
+class SpecDecoding:
+    """The events of a file that the `spec` interpreter read (`events`), by file ID."""
 
-    interpreter: Strict
+    interpreter: Spec
     rf: Mapping[int, events.RfEvent]
     gradients: Mapping[int, events.GradEvent]
     adc: Mapping[int, events.AdcEvent]
@@ -104,11 +104,11 @@ class CppSiemensDecoding:
         return self._reading.gradients_at(block_index, time_us, rotated=rotated)
 
 
-def decode(data: SequenceData) -> StrictDecoding | CppSiemensDecoding:
+def decode(data: SequenceData) -> SpecDecoding | CppSiemensDecoding:
     """The decoding of `data` by its interpreter (the module docstring)."""
     if isinstance(data.interpreter, CppSiemens):
         return CppSiemensDecoding(data)
-    return StrictDecoding(
+    return SpecDecoding(
         interpreter=data.interpreter,
         rf=events.decode_rf(data),
         gradients=events.decode_gradients(data),

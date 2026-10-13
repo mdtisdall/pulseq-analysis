@@ -76,7 +76,7 @@ guide writes a module by the last part of its path: `snapshot.load` is
 | `pulseq_analysis.synth.extensions` | The refusal of the Pulseq extensions that the measurements do not support, which `load` calls. | [2](#2-before-you-start) |
 | `pulseq_analysis.seqfile.as_written` | The "as written" reading of a Pulseq text file: its sections, rows and typed fields, with line numbers. | [8](#the-as-written-reading) |
 | `pulseq_analysis.seqfile.reading` | `read_seqfile`: a Pulseq text file through an interpreter, into a `SequenceData`. | [8](#the-interpreters) |
-| `pulseq_analysis.seqfile.interpreters` | The interpreters `cpp-siemens` and `strict`, and their settings. | [8](#the-interpreters) |
+| `pulseq_analysis.seqfile.interpreters` | The interpreters `spec` and `cpp-siemens`, and their settings. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.cpp_siemens` | The `cpp-siemens` interpreter: the C++ reader of the scanner, and the codes of its rejections. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.errors` | `SeqFileError` and `NotSupported`. | [8](#the-interpreters) |
 | `pulseq_analysis.synth.decoding` | `decode`: the decoding of a file by its interpreter. | [8](#the-interpreters) |
@@ -494,8 +494,8 @@ An analysis is an object that has the following, as the protocol
 - `compute(snap, **params)`: the full Python value, the kept result of its
   function (`gradient.peaks` with a `window` is not kept). `snap` is a
   `Snapshot`. The parameters are keyword-only: a runner gives the names in
-  `spec.necessary` and can leave out the others, which then have their
-  `spec.defaults`.
+  `Analysis.spec.necessary` and can leave out the others, which then have their
+  `Analysis.spec.defaults`.
 - `to_series(value)`: a tuple of `Series`, the part of the value that can go
   into JSON. `()` for an analysis with nothing for JSON, and for a value with
   `NO_GRADIENTS`.
@@ -583,7 +583,7 @@ group `pulseq_analysis.analyses` (`registry.GROUP`). The name of an entry point
 is the ID, and its object is the analysis. `registry.registry()` gives a dict
 from each installed ID to its analysis, and raises `registry.RegistryError`
 for two analyses with one ID, an entry point that does not load, an object
-with no `spec.id`, or an entry point whose name is not the `spec.id` of its
+with no `Analysis.spec.id`, or an entry point whose name is not the `Analysis.spec.id` of its
 object. `registry.registry(strict=False)` leaves such an entry point out
 instead, with an `registry.RegistryWarning` (a `UserWarning`) that has the text
 of the error, and gives the other analyses. Of two entry points with one ID, the
@@ -613,7 +613,7 @@ The event columns use the smallest of uint8, uint16 and uint32 that holds K.
 Convert a value with `int(x)` when you need a Python `int`. This layout is the
 contract of the analysis `seq.index` version 1: a caller that reads the index
 through the registry can rely on it, and a change of the layout raises
-`spec.version` of `seq.index`.
+`Analysis.spec.version` of `seq.index`.
 
 `has_gradients(index)` is true when the index has a gradient event on any
 axis. `rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` give a tuple of
@@ -671,18 +671,21 @@ where the interpreters and the other readers of the format disagree.
 
 | Interpreter | Name | What it reads |
 |---|---|---|
+| `interpreters.Spec` | `"spec"` (the default) | The file as the Pulseq specification (1.5.3 draft) and the slide set that its section 2.6 cites for timing describe it: a rejection, with every violation, where they say "must"; a documented reading where they are silent (`spec`). Pure Python. |
 | `interpreters.CppSiemens` | `"cpp-siemens"` | The file as the C++ reader of the scanner's interpreter on Siemens systems reads it (`ExternalSequence` of pulseq/pulseq at `c7469123`), run in the process: what that reader reads, misreadings included, and a rejection of what it rejects. It needs the package pulseq-cpp-siemens: install `pulseq-analysis[cpp-siemens]`. |
-| `interpreters.Strict` | `"strict"` (the default) | The strict rules of the package from before the interpreters (`reader.RULES`). Interim: the `spec` interpreter (task R11) replaces it, also as the default. Pure Python. |
 
 The default is the fast interpreter: `cpp-siemens` decodes every block with the
-C++ reader to give its verdict, and takes about seven times as long (below).
+C++ reader to give its verdict, and takes about six times as long as `spec`. On an
+Apple M1 Max, a file of 20 MB with 900 000 blocks (the blocks of
+`tests/seqfiles/valid_1_5_0.seq`, repeated) takes 0.3 s to read as written, 0.5 s
+with `spec` and 2.9 s with `cpp-siemens`.
 Name `"cpp-siemens"` to get what the scanner's reader reads.
 
 ```python
 from pulseq_analysis.seqfile import CppSiemens, read_seqfile
 from pulseq_analysis.synth import decode
 
-strict = read_seqfile("sequence.seq")  # interpreter="strict", the default
+spec = read_seqfile("sequence.seq")  # interpreter="spec", the default
 data = read_seqfile("sequence.seq", interpreter="cpp-siemens")
 data.interpreter  # CppSiemens(oversampling='center')
 edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
@@ -697,7 +700,7 @@ rotated = decode(read_seqfile("sequence.seq", interpreter=CppSiemens(rotation="a
 rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotation
 ```
 
-**`reading.read_seqfile(path, interpreter="strict")`** (also
+**`reading.read_seqfile(path, interpreter="spec")`** (also
 `seqfile.read_seqfile`) takes an interpreter by name or as an object;
 `interpreters.interpreter(value)` gives the object of a name, with its default
 settings, and `interpreters.INTERPRETERS` maps each name to its class
@@ -729,10 +732,10 @@ or `"preserve"` (all of them); `interpreters.OVERSAMPLING` lists them.
 `CppSiemens(rotation=...)` is what the decoding does with each block's rotation
 (the ROTATIONS extension, D49), below; `interpreters.ROTATION` lists `"reader"`
 (the default) and `"apply"`. A setting that an interpreter does not have
-(`Strict(rotation="apply")`) raises `TypeError`. On an
+(`Spec(rotation="apply")`) raises `TypeError`. On an
 Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for
 the "as written" reading, 1.4 s for `load` and the checks, and 2.2 s for
-`decodeBlock` of every block (`strict` takes 0.6 s).
+`decodeBlock` of every block.
 
 `cpp_siemens.CODES` maps each code of a rejection of `cpp-siemens` to its entry
 of `docs/discrepancies.md` and what the reader rejects. The reader stops at its
@@ -762,7 +765,7 @@ first error, so a rejection has one reason. Its message is the reader's own.
 model, from the reader's float32 values (P6): its `SequenceData.reading` is
 the reader's object (a `pulseq_cpp_siemens.Sequence`), with the libraries as
 the reader holds them (`SequenceData.reading.libraries`). It differs from the model of
-`strict` where the reader does: the reader keeps no block ID, so a block's `id`
+`spec` where the reader does: the reader keeps no block ID, so a block's `id`
 is its position in play order from 1; a 1.4 RF event has `center` NaN (the
 reader holds -1, D38); `use` is any character (D17); `first` and `last` of a
 1.4 gradient with a time shape are the reader's sentinel `FLOAT_UNDEFINED`
@@ -778,8 +781,8 @@ by its interpreter. For `cpp-siemens` it gives a `decoding.CppSiemensDecoding`:
 `block(index)` and `blocks()` are `GetBlock` and `decodeBlock` of a block (the
 fields of the C++ oracle's `--dump`, `tests/cpp_oracle/README.md`, in the
 reader's units), and `gradients_at(block_index, time_us)` is
-`SeqBlock::gradientsAt` in Hz/m. For `strict` it gives a
-`decoding.StrictDecoding` with the events of the model by file ID:
+`SeqBlock::gradientsAt` in Hz/m. For `spec` it gives a
+`decoding.SpecDecoding` with the events of the model by file ID:
 `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`, into
 `events.RfEvent`, `events.Trapezoid`, `events.ArbitraryGradient` (together
 `events.GradEvent`) and `events.AdcEvent`. These three refuse the model of
@@ -819,14 +822,94 @@ what the reader gives, and simulates the scanner by a setting (section 7.8 of
   runs on the interpreters (task R14). Until then `load` refuses a sequence
   with rotations, as before.
 
-**`strict`.** `reader.read_strict(path)` reads with the rules of
-`reader.RULES`, and its `SeqFileError` has every violation (at most
-`reader.MAX_LOCATIONS` for each rule). The model is made of `model.Rasters`,
-`model.Shape`, `model.Signature` and `model.Extensions`;
+**`spec`.** `spec.read_spec(path)` reads with the rules of `spec.RULES`, and its
+`SeqFileError` has every violation (at most `spec.MAX_LOCATIONS` for each rule,
+and a count of the rest). Its sources are the specification
+(`doc/specification.tex` of pulseq/pulseq at `c7469123`, 1.5.3 draft) and, for
+timing, the slide set that its section 2.6 cites
+(`doc/pulseq_shapes_and_times.pdf`). Where they say "must", `spec` rejects the
+file. Where they are silent, section 6 of `docs/plans/parser-redesign.md` gives
+the reading, and `spec` rejects a file only where no current writer (MATLAB
+Pulseq, pypulseq) writes such a file. Each rule is a `spec.Rule`: `text`,
+`source` (the lines of the specification, the slides, the entries of
+`docs/discrepancies.md`), and `choice`, which says why the package rejects the
+file when the specification does not state the rule. The message of a violation
+of such a rule ends with "(the specification does not state this rule: …)", so a
+reader of the error sees that it is the package's choice and why.
+
+| Code | Basis | `spec` rejects |
+|---|---|---|
+| `version.missing` | spec:201; D02 | no `[VERSION]` section |
+| `version.invalid` | spec:193-198; D04 | a line of `[VERSION]` that is not `major`, `minor` or `revision` with an integer (`minor 5.0`), a key missing, or repeated |
+| `definitions.raster-missing`, `definitions.raster-invalid` | spec:267-276; D11 | a required raster that is missing, or not one finite number above 0 |
+| `definitions.raster-commensurate` | slide 11 | an RF or gradient raster that is neither an integer multiple nor a divisor of the block duration raster |
+| `section.duplicate` | choice; D10 | a section that appears twice, or two `extension` sections with one `STRING_ID` (the readers disagree on what a second copy means; only the first is read) |
+| `syntax.encoding` | choice; D14 | a byte that is not UTF-8 (the specification gives no encoding; MATLAB Pulseq and pypulseq fail on it) |
+| `syntax.line` | choice; D06 | a data line before the first section |
+| `syntax.columns`, `syntax.integer`, `syntax.number` | the tables of spec:293-455; D14 | a row with too few or too many fields; a value that is not of its column's type (`30.5` in an integer column); NaN or infinity in a float column (a choice) |
+| `syntax.use` | spec:356-357; D17 | an RF `use` that is not one of `e r i s p o u` |
+| `syntax.negative` | choice; D14 | a negative block duration, delay, rise, flat or fall time, number of samples, dwell time or trigger duration (spec:176 stores integers as unsigned, but defines negative values elsewhere) |
+| `syntax.shape` | spec:602-612; D07 | a shape without its `shape_id` and `num_samples` lines, a line of `[SHAPES]` outside a shape, or a shape with no blank line after it (a choice) |
+| `id.positive`, `id.unique`, `id.gradient-unique` | spec:181-183, spec:403; D19 | an ID that is not positive; an ID used twice in a class (for blocks a choice); a gradient ID in `[GRADIENTS]` and `[TRAP]` |
+| `ref.unresolved` | spec:178-186, spec:478, spec:349, spec:395, slide 4; D21-D23 | a reference to nothing; a list of extensions that does not end; time ID -1 for an RF event, or in a 1.4 file |
+| `blocks.empty`, `block.event-too-long` | spec:318; D24, D25 | no block; an event longer than its block |
+| `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat` | spec:275, spec:290; slides 5, 10; D26 | a time off its raster |
+| `raster.rf-delay`, `raster.adc-delay` | slides 9, 10 | an RF event or an ADC that does not start on an edge of the RF raster |
+| `raster.gradient-vertex` | choice (slides 4 and 6 conflict) | a vertex of a gradient time shape off the gradient raster |
+| `gradient.nonzero-start-delay`, `gradient.nonzero-end-align` | spec:420; slide 6; D27 | a gradient that starts above 0 after a delay, or ends above 0 before its block ends |
+| `shape.length`, `shape.range` | spec:626, spec:624; D29, D30 | a shape that does not decompress to `num_samples`; an amplitude shape outside [-1, 1] |
+| `shape.empty`, `shape.event-length` | choice; D33, D34, D44 | a shape with no sample that an event uses; the shapes of one event of different lengths, or an ADC phase shape whose length is not the number of ADC samples |
+| `shape.time-order` | choice; D35-D37 | an RF time shape of one sample, a time shape whose times do not increase, an RF time shape that starts before 0 |
+| `shape.oversampled-length` | spec:420, slides 4, 8; D43 | an oversampled gradient (time ID -1) with an even number of samples |
+| `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584; D47, D48 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
+| `layer1.gradient-ends` | choice; D39, D40 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |
+| `rotation.zero` | choice; D49 | a quaternion of ROTATIONS of norm 0 (from 1.5.1 `spec` divides each quaternion by its norm) |
+| `signature.invalid` | spec:223-232; D54 | `[SIGNATURE]` without one `Type` and one `Hash` |
+
+What `spec` reads where the specification is silent (section 6 of the plan, and
+`docs/discrepancies.md` entry by entry): a blank or `#` line anywhere, also
+inside a table or a shape (in a shape a blank line ends it); a section that the
+format does not have, and `[DELAYS]`, are ignored; a definition that appears
+twice is the last; blocks play in file order, whatever their IDs; an extension
+is read from the version that introduced it (`extension DELAYS` from 1.5.0,
+ROTATIONS and RF_SHIMS from 1.5.1, section 7.8 of the plan), and in an older
+file it is unknown and ignored (`SequenceData.skipped_extensions`); from 1.5.1
+a quaternion of ROTATIONS is divided by its norm (applying the rotation is task
+R9's); an RF magnitude below 0 and an RF phase
+outside [0, 1) play as written; any gradient raster that the slides allow plays
+on its own raster; the signature is checked by the rule of the specification
+(`AsWritten.signed_bytes()`), and a mismatch is not a rejection.
+
+**Records.** `SequenceData.records` has a `model.Record` (`kind`, `subject`,
+`reason`, `line`) for each thing that `spec` ignored, in file order: an
+`"extension"` that it does not know (`reason` `"unknown"`, D45) or that the
+version of the file does not have yet (`"version"`); a `"section"` that the
+format does not have (`"unknown"`, D08) or removed (`"removed"`: `[DELAYS]`,
+D09); and a `"label"` of `LABELSET` or `LABELINC` that the specification does not
+list (`"unknown"`, D50: also `NOSCL`, which the specification spells `NOSLC`)
+or that the version does not have yet (`"version"`: the flags `PMC`, `NOROT`,
+`NOPOS`, `NOSLC` and `ONCE` of 1.4.1). The row of such a label stays in the
+table. The records are part of the contract with pulseq-checks (P20, rule 7, of
+the plan); task R16 adds the records of the mechanisms left at the default, and
+`cpp-siemens` gives no record until then.
+
+**The decoder of `spec`** (`synth.events`) follows the specification and the
+slides. An RF event with no time shape is cells of the RF raster, each sample at
+the centre of its cell. An RF time shape whose times are `(i + 0.5) d`
+(`model.rf_time_step`) is cells of `d` (slide 9); any other is points at its
+times, joined by straight lines of the complex signal, the linear interpolation
+that the C++ reader names as its intent (its FIXME, `ExternalSequence.cpp:2033`)
+but does not do. `RfEvent.dwell` is the dwell of cells, or None for points, and
+`RfEvent.signal(times)` gives the complex signal at any times. An arbitrary
+gradient is a straight line between its samples (at the cell centres for time ID
+0; all the samples, half a raster apart, for time ID -1; the vertices of a time
+shape), from `first` to `last` (`seq_utils.gradient_offsets`). An ADC phase
+modulation is in rad, one value for each sample. The model is made of
+`model.Rasters`, `model.Shape`, `model.Signature` and `model.Extensions`;
 `model.TABLE_DTYPES` has the dtype of each table, and `model.decompress_shape`
-decompresses a shape. `reader.RANGE_TOLERANCE`, `reader.TOLERANCE_NS`,
-`reader.FIRST_TIME_TOLERANCE` and `reader.RF_TIME_TOLERANCE` are the limits of
-its rules. Section 5.4 of `docs/plans/parser-redesign.md` says what becomes of each rule.
+decompresses a shape. `spec.RANGE_TOLERANCE`, `spec.TOLERANCE_NS`,
+`spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and `model.TIME_TOLERANCE`
+are the limits of its rules.
 
 **The contract with pulseq-checks.** The "as written" reading, the
 `cpp-siemens` reading (`SequenceData.reading`) and its decoding
@@ -836,7 +919,7 @@ plan). A change to any of them is noted in `CHANGELOG.md`.
 
 ### A pypulseq sequence in memory
 
-`seqfile.read_pypulseq(seq, interpreter="strict")` (also
+`seqfile.read_pypulseq(seq, interpreter="spec")` (also
 `from_pypulseq.read_pypulseq`) reads a `pypulseq.Sequence` built in memory
 through an interpreter, by name or as an object, as `read_seqfile` reads a
 file. It writes the sequence to Pulseq text with pypulseq's own writer, so what
@@ -847,7 +930,7 @@ for that file, with `origin` `"pypulseq"` in place of `"file"`.
 ```python
 from pulseq_analysis.seqfile import read_pypulseq
 
-data = read_pypulseq(seq)  # interpreter="strict", the default
+data = read_pypulseq(seq)  # interpreter="spec", the default
 cpp = read_pypulseq(seq, interpreter="cpp-siemens")
 ```
 
@@ -903,9 +986,9 @@ at 1. A line is blank (only white space), a comment (its first character that
 is not white space is `#`), a header (`[NAME]`, or `extension STRING_ID type`)
 or data. A section runs from its header to the line before the next header: a
 blank or `#` line does not end it, and the rows after it belong to the section.
-Which rows a reader takes is the reader's choice (`strict` ends a section at
-the first blank or `#` line, as `read.m`; the C++ reader ends a table at a
-blank line and reads a `#` line as a row). A byte that is not UTF-8 is kept,
+Which rows a reader takes is the reader's choice (`spec` skips a blank or `#`
+line anywhere; the C++ reader ends a table at a blank line and reads a `#` line
+as a row; MATLAB's `read.m` ends a section at either). A byte that is not UTF-8 is kept,
 as a lone surrogate in its line, and `AsWritten.not_utf8` gives the offset of
 the first one.
 
@@ -967,8 +1050,7 @@ rows of the section, with one column `sample` (float).
 | `rows` | A `range` of row indices of `Section.rows`: the rows after these lines, up to the next `shape_id` line or the end of the section. A blank line does not end them here. |
 
 Every array of the reading is read-only. On an Apple M1 Max, a file of 21 MB
-with 916 266 blocks takes about 0.3 s to read as written, and about 0.5 s with
-`strict`.
+with 916 266 blocks takes about 0.3 s to read as written.
 
 ## 9. Units and gamma
 

@@ -30,7 +30,7 @@ reason.
 
 **The model from the libraries.** Where the reader holds a value, the model has it, in the units
 of the model (s, Hz, Hz/m) from the reader's float32 values (P6), so a value can differ from the
-file in the last digits of float32 (D18). Where the reader differs from `strict`:
+file in the last digits of float32 (D18). Where the reader differs from `spec`:
 
 - `blocks`: the reader keeps no block ID, so `id` is the position in play order, from 1. Play
   order is file order (D20).
@@ -184,7 +184,7 @@ def _engine() -> Any:
     except ImportError as error:
         raise ImportError(
             "the interpreter cpp-siemens needs the package pulseq-cpp-siemens: install "
-            "pulseq-analysis[cpp-siemens], or read with interpreter='strict'"
+            "pulseq-analysis[cpp-siemens], or read with interpreter='spec'"
         ) from error
     return pulseq_cpp_siemens
 
@@ -494,6 +494,8 @@ def _model(sequence: Any, interpreter: CppSiemens, written: AsWritten) -> Sequen
                 if s.extension and s.extension[0] not in _KNOWN_EXT_TYPES
             )
         ),
+        # What the reader ignored is recorded from task R16 (P20, rule 4).
+        records=(),
         signature=Signature(
             type=_text(signature["type"]),
             hash=_text(signature["value"]),

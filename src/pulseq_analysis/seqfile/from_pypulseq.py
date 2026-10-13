@@ -46,7 +46,7 @@ __all__ = ["SOURCE", "read_pypulseq"]
 SOURCE = "<pypulseq.Sequence>"
 
 
-def read_pypulseq(seq: Any, interpreter: "str | Interpreter" = "strict") -> SequenceData:
+def read_pypulseq(seq: Any, interpreter: "str | Interpreter" = "spec") -> SequenceData:
     """Write `seq` with pypulseq's writer, and read the text through `interpreter`, as
     `read_seqfile` reads a file (the module docstring). `seq` is not changed.
 
