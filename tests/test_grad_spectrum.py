@@ -6,20 +6,8 @@ import pickle
 import numpy as np
 import pypulseq as pp
 import pytest
-from gap_sequences import (
-    delayed_sequence,
-    early_end_sequence,
-    gap_of_1_5_raster_times_sequence,
-    long_gap_sequence,
-    negated,
-    non_zero_ends_sequence,
-    short_gap_from_0_sequence,
-    short_gap_sequence,
-    short_gap_to_0_sequence,
-    zero_gap_sequence,
-)
 from oracles import grad_spectrum as oracle
-from random_gaps import random_gap_sequence
+from oracles.blocks import sequence_of
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
 from scipy.signal import spectrogram
 from synthetic import (
@@ -32,11 +20,10 @@ from synthetic import (
 )
 
 from pulseq_analysis._equality import FrozenDict
-from pulseq_analysis.analyses import grad_spectrum
+from pulseq_analysis.analyses import grad_spectrum, load
 from pulseq_analysis.synth import seq_index
 from pulseq_analysis.synth.sampling import GradientSampler, sequence_samples
 from pulseq_analysis.synth.seq_index import sequence_index
-from pulseq_analysis.synth.snapshot import load
 
 # A Hann window's amplitude spectral density of a 1 mT/m sine on a frequency bin:
 # A/2 * sum(w) / sqrt(fs * sum(w^2)), with 5000 samples at 100 kHz.
@@ -247,8 +234,11 @@ def _assert_matches_oracle(
     ids=["spin_echo", "gre", "arbitrary_gradient", "empty", "sine"],
 )
 def test_matches_oracle_on_synthetic_sequences(seq):
+    snap = load(seq)
     _assert_matches_oracle(
-        grad_spectrum.gradient_spectrum(load(seq)), oracle.gradient_spectrum(seq), seq
+        grad_spectrum.gradient_spectrum(snap),
+        oracle.gradient_spectrum(sequence_of(snap)),
+        sequence_of(snap),
     )
 
 
@@ -273,55 +263,12 @@ def test_matches_oracle_with_many_chunks(case, monkeypatch):
     monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
     seq = _MANY_CHUNK_SEQUENCES[case](_MANY_CHUNK_BLOCKS // TR_BLOCKS)
     tol = 1e-12 * max(1.0, seq.duration()[0])
+    snap = load(seq)
     _assert_matches_oracle(
-        grad_spectrum.gradient_spectrum(load(seq)), oracle.gradient_spectrum(seq), seq, tol=tol
-    )
-
-
-_GAP_SEQUENCES = {
-    "zero_gap": zero_gap_sequence,
-    "short_gap": short_gap_sequence,
-    "long_gap": long_gap_sequence,
-    "non_zero_ends": non_zero_ends_sequence,
-    "issue_12_delayed": delayed_sequence,
-    "issue_12_early_end": early_end_sequence,
-    "gap_of_1_5_raster_times": gap_of_1_5_raster_times_sequence,
-    "short_gap_from_0": short_gap_from_0_sequence,
-    "short_gap_to_0": short_gap_to_0_sequence,
-}
-# The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on
-# the sign).
-_GAP_SEQUENCES |= {
-    f"negated_{name}": (lambda build=_GAP_SEQUENCES[name]: negated(build()))
-    for name in (
-        "zero_gap",
-        "short_gap",
-        "long_gap",
-        "non_zero_ends",
-        "issue_12_delayed",
-        "issue_12_early_end",
-    )
-}
-# The random sequences of `random_gaps` (random signs, zero, short and long gaps).
-_GAP_SEQUENCES |= {
-    f"random_gaps_{seed}": (lambda seed=seed: random_gap_sequence(np.random.default_rng(seed)))
-    for seed in range(8)
-}
-
-
-@pytest.mark.parametrize("build", _GAP_SEQUENCES.values(), ids=_GAP_SEQUENCES.keys())
-def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform(build):
-    """The spectrum of a sequence with a short gap, a long gap, or a step at a junction, and
-    ends that are not 0 next to it (and a first and a last value that are not 0), equals the
-    spectrum that the oracle calculates from `oracle.sample` (the model of MATLAB Pulseq).
-    pypulseq's `calculate_gradient_spectrum` draws a line across a long gap
-    (pypulseq-issues 12) and gives another spectrum, so it is not the reference here. The
-    sequences are the hand sequences of `gap_sequences`, each also with every amplitude negated,
-    a gap of 1.5 raster times between two values that are not 0, a short gap from 0 to a value
-    that is not 0 and from one to 0, and the 8 random sequences of `random_gaps` (seeds 0 to 7)."""
-    seq = build()
-    _assert_matches_oracle(
-        grad_spectrum.gradient_spectrum(load(seq)), oracle.gradient_spectrum(seq), seq
+        grad_spectrum.gradient_spectrum(snap),
+        oracle.gradient_spectrum(sequence_of(snap)),
+        sequence_of(snap),
+        tol=tol,
     )
 
 

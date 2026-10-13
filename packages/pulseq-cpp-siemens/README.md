@@ -180,7 +180,9 @@ release of this package depends on pulseq-analysis is decided at release time.
 - `OVERSAMPLING` (the modes of `load`, above) and `ROTATION` (`"reader"`, `"apply"`).
 - `CODES`: the code of each rejection.
 - `read_cpp_siemens(path, interpreter)`: `CppSiemens.read`.
-- `CppSiemensDecoding`: the decoding, a `pulseq_analysis.synth.Decoding`.
+- `CppSiemensDecoding`: the decoding, a `pulseq_analysis.synth.Decoding`. The measurements of
+  pulseq-analysis (`load(path, "cpp-siemens")`) take their gradients from it, through
+  `gradient_points` and `gradients_at`.
 
 It is about six times as long as the `spec` interpreter of pulseq-analysis, which is why `spec` is
 the default. On an Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for the

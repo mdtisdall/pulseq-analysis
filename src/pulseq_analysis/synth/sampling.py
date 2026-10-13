@@ -1,10 +1,10 @@
 """The gradient waveform of one axis at given times, from the sequence index.
 
 The waveform is a polyline in Hz/m, the model of MATLAB Pulseq (`docs/implementation.md`, "The
-gradient waveform"). With `dt = seq.grad_raster_time`:
+gradient waveform"). With `dt` the gradient raster of the snapshot's data:
 
 1. The points. For each block, in play order, that has an event on the axis: the corner
-   or sample points of that event (`seq_utils.gradient_offsets`), at the times
+   or sample points of that event as the decoding gives them (`_played`), at the times
    `(block start + delay) + offsets`, with the event's amplitudes.
 2. Between two consecutive events on the axis, with `last_time` and `last` of the earlier
    event, `first_time` and `first` of the later one, and `gap = first_time - last_time`:
@@ -260,7 +260,7 @@ class GradientSampler:
         Block `i` has `n_i` samples (`raster_block_lengths`), at the local times
         `(j + 0.5) * dt`, `j = 0 .. n_i - 1`, from the block start. The value of a sample
         is the waveform of the module docstring at that time. It is the block's own event
-        on `axis` (its points at `delay + offset`, `seq_utils.gradient_offsets`, a
+        on `axis` (its points at `delay + offset`, as the decoding gives them (`_played`), a
         straight line between two points, and 0 before the first point and after the last
         point; at a local time that two points have (a step), the value before the step, as
         `sample` has it; a sample within `TIME_TOLERANCE` after the last point has the value

@@ -11,7 +11,7 @@ recorded, not warned about.
   extension, D6.2). `rotation_record` of each decoding (`decoding.Decoding`) gives it. `spec`
   applies the rotations of a file from 1.5.1 (P20, rule 2), so its record never has a warning.
 - `ScannerSettingWarning`: the warning; `RotationRecord.warning()` gives it, or None. The
-  decoding does not emit it: the measurements (`load`, task R14) emit it, so that a reader of the
+  decoding does not emit it: the measurements (`analyses.load`) emit it, so that a reader of the
   decoding (pulseq-checks) is not warned about the reader's own output.
 
 The records are part of the contract with pulseq-checks (section 7.3 of the plan): a change to

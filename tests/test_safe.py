@@ -18,6 +18,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses import pns_levels as pns_levels_module
 from pulseq_analysis.analyses.pns_levels import BIN_S, _compute_levels
 from pulseq_analysis.analyses.safe import (
@@ -26,7 +27,6 @@ from pulseq_analysis.analyses.safe import (
     SafeHardware,
     _safe_gwf_to_pns_chunk,
 )
-from pulseq_analysis.synth.snapshot import load
 
 # The numbers of pypulseq's `safe_example_hw()`: three axes, with the fields of `SAFE_FIELDS`.
 _EXAMPLE_AXES = {
@@ -388,10 +388,10 @@ def test_safe_and_asc_import_neither_pypulseq_nor_matplotlib():
     assert result.returncode == 0, result.stderr
 
 
-def test_only_snapshot_extensions_and_seq_index_import_pypulseq():
-    """Of the modules of `src/pulseq_analysis` and its subpackages, only `snapshot`,
-    `extensions` and `seq_index` have an `import` of pypulseq (found in the syntax tree of each
-    file)."""
+def test_no_module_imports_pypulseq():
+    """No module of `src/pulseq_analysis` or its subpackages has an `import` of pypulseq (found
+    in the syntax tree of each file, also inside a function): `read_pypulseq` calls the `write`
+    of the sequence that the caller gives it."""
     importing = set()
     for path in sorted(_SRC.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -403,4 +403,4 @@ def test_only_snapshot_extensions_and_seq_index_import_pypulseq():
                 continue
             if any(name.split(".")[0] == "pypulseq" for name in names):
                 importing.add(path.stem)
-    assert importing == {"snapshot", "extensions", "seq_index"}
+    assert importing == set()

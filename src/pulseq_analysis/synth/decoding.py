@@ -13,8 +13,9 @@
   method gives (P21). It has the methods of the protocol `Decoding`, which is what the package
   uses of a decoding.
 
-The decodings can differ: a plugin can decode a block at a time, so that an event decodes
-differently in two blocks. Task R14 builds the measurements (`load`) on these decodings.
+The decodings can differ: a plugin can decode a block at a time, `spec` decodes an event at a
+time. The measurements (`analyses.load`, R14) take their gradients from these decodings, through
+the method `gradient_points` of the protocol (`_played`).
 """
 
 import dataclasses

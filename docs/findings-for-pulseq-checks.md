@@ -70,7 +70,8 @@ reports (section 7.5 of the plan).
 
 - No `Finding` type, no catalogue, no `compare`, and no warnings about a file.
   The one warning, `synth.ScannerSettingWarning`, is about the package's
-  measurement, not the file (section 2.6), and the decoding does not emit it.
+  measurement, not the file (section 2.6): `analyses.load` emits it (section
+  2.7), and the decoding does not.
 - No strict reader. The former `seqfile.reader` and the interim interpreter
   `strict` are removed (R11). `spec` replaces them, with these changes to the
   former rule names (section 5.4 of the plan):
@@ -112,6 +113,7 @@ pulseq-checks.
 | `seqfile.read_pypulseq(seq, interpreter="spec")` | `seqfile.from_pypulseq` | the `SequenceData` of the file that `seq.write(path)` gives, with `origin` `"pypulseq"` |
 | `synth.decode(data)` | `synth.decoding` | `SpecDecoding` (2.3), or the decoding of a plugin (`pulseq_cpp_siemens.interpreter.CppSiemensDecoding` for `cpp-siemens`, 2.4); both are a `synth.Decoding` |
 | `seqfile.interpreter_names()` | `seqfile.interpreters` | the names of the installed interpreters: `spec`, then each plugin's (none is imported) |
+| `analyses.load(source, interpreter="spec")` | `analyses.loading` | `synth.Snapshot`, the measurements' input (2.7) |
 
 On an Apple M1 Max, a file of 20 MB with 900 000 blocks takes 0.3 s to read as
 written, 0.5 s with `spec` and 2.9 s with `cpp-siemens` (`docs/usage.md`).
@@ -277,6 +279,14 @@ blocks of the reader. Blocks are in play order from 0:
   draws its straight lines for the gradient that the block plays on the axis,
   as the reader decoded it (not rotated), as `synth.decoding.Points` (2.3). It
   takes the block because the reader decodes an event in each block.
+  For a gradient with a time shape, in any version, the points run from the
+  amplitude times the first sample (the first segment carried back to the
+  delay when the first time is after 0) to the amplitude times the last
+  sample: `gradientsAt` never reads `first` or `last`, where `spec` plays the
+  `first` and `last` of a 1.5 file. They differ when these are not the end
+  samples (run, R14: the file that pypulseq writes for
+  `gap_sequences.short_arbitrary_sequence`, a 3-sample gradient that the writer
+  gives a time shape; `spec` rejects it, D1.3 and `gradient.nonzero-end-align`).
 - `rotation_record`: a `synth.RotationRecord` (2.6).
 
 These are the reader's values bit for bit, on each platform (section 6).
@@ -394,6 +404,34 @@ of the scanner-side settings. Rule 7: these records are part of the contract.
   `cpp-siemens` with `rotation="reader"` it says to use
   `CppSiemens(rotation='apply')` for the gradients that the scanner plays.
 
+### 2.7 `load` and the snapshot (R14)
+
+Task R14 puts the measurements on the interpreters. These are part of the
+contract too:
+
+- `analyses.load(source, interpreter="spec")`: a path is read with
+  `seqfile.read_seqfile`, a `pypulseq.Sequence` with `seqfile.read_pypulseq`,
+  through the interpreter given by name or as an object (`spec` or a plugin's).
+  It raises their `SeqFileError` and `NotSupported`. pypulseq no longer reads a
+  file.
+- `synth.Snapshot`: `data` (the `SequenceData`), `decoding`
+  (`synth.decode(data)`, a `synth.Decoding`), `interpreter` (with its settings),
+  `records` (`SequenceData.records`), `rotation_record` (the decoding's
+  `RotationRecord`) and `source` (the path, or None).
+- `load` emits `RotationRecord.warning()` (a `ScannerSettingWarning`) when it is
+  not None: under `CppSiemens(rotation="reader")`, for a file whose blocks play
+  a rotation. `load` no longer refuses the rotation extension
+  (`synth.extensions` is removed).
+- The measurements take the gradients only through the decoding (the protocol
+  `synth.Decoding`): `gradient_points` for the decoded event of each block and
+  axis (for `cpp-siemens`, the reader's decoding of the event and the points of
+  its `gradientsAt`), and `gradients_at` for a block that the decoding rotates or
+  that has an event after the block's end. Between blocks, every interpreter
+  uses the package's waveform (MATLAB's ramps and lines, D2.14, D7.4): the
+  reader gives nothing there.
+- The block table (`seq.index`) keeps the file's IDs; in a block measured from
+  `gradients_at`, each axis has an event of its own, numbered after the file's.
+
 ## 3. The four mechanisms
 
 pulseq-checks finds each discrepancy of the record with one of four mechanisms
@@ -450,7 +488,7 @@ means no code.
 | D2.11, D3.9, D5.8, D5.9 | Other RF time shape | M2 (1), M4 | `bad_shape_rf_time_end.seq`, `bad_shape_time_order.seq` | as C++; `ub.rf-time-overrun` | points; `shape.time-order` |
 | D2.12 | RF time shape that ends inside its last dwell | M2, M4 | none | dwell × samples | `N d`, or the last point |
 | D2.13 | Time-ID-0 gradient between its samples | — (agree) | `valid_1_5_1.seq` | straight lines | straight lines |
-| D2.14, D7.4 | Gap between gradient events | M2 | none | one block at a time | 0 in a block; across blocks: R14 |
+| D2.14, D7.4 | Gap between gradient events | M2 | none | one block at a time; `load` joins blocks with MATLAB's rule (section 2.7) | 0 in a block; across blocks MATLAB's rule |
 | D2.15, D3.8, D7.6 | ADC phase modulation shape | M4 | `valid_1_5_1.seq`, `bad_shape_adc_phase_length.seq` | rad | rad, one per sample; `shape.event-length` |
 | D2.16 | Soft delay offset `-100.5`; long hint | M1, M4 | `valid_soft_delay_fraction.seq` | misreads (-100 µs, factor 0.5); cuts the hint to 31 characters | reads -100.5 µs and the whole hint |
 | D2.17, D4.6 | Unknown extension, not required | M2 | `oracle/koma_v1.5_unknown_ext.seq`, `valid_1_5_0_extensions_of_1_5_1.seq` | ignores (`skipped_extensions`) | ignores; `Record("extension", …)` |
@@ -553,9 +591,8 @@ and marks its row done.
 |---|---|
 | R9, the `spec` part | Done: `SpecDecoding.gradients_at`, `rotations()` and `rotation_record` (2.3). |
 | P21 | Done: `cpp-siemens` is a plugin of the sub-project `packages/pulseq-cpp-siemens/` (`pulseq_cpp_siemens.interpreter`), found through the entry-point group `pulseq_analysis.interpreters`; the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`; `gradient_points`; `RotationRecord.hint` (2.2 to 2.6). |
-| R14 | `analyses.load` on an interpreter's output (`interpreter=`): for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. `load` stops refusing the rotation extension (today `synth.extensions.refuse_rotations`), keeps the decoding's `rotation_record` in its result and emits `RotationRecord.warning()`. The waveform across blocks (D7.4). Today `load` reads with pypulseq. |
 | R16 | The `Session` of section 7.8 of the plan (soft delays, the field of view), given to `load` and the timeline; `SettingError` (a `ValueError`) for a setting that addresses something the file does not have; the decoding's stored and actual block durations; the records of the mechanisms left at the default, in `SequenceData.records` for both interpreters (`cpp-siemens` gives no record today). |
 | R16 | The record's new entries: the flag `NOSLC` (the specification) against `NOSCL` (the C++ reader, MATLAB, pypulseq); D4.6, an extension used in a file older than the revision that introduced it. The code already records both under `spec` (`Record` reasons `"unknown"` and `"version"`), and since 2026-10-13 the record has their entries: D2.19 (`NOSCL`) and D4.6. |
 
-The order (section 10 of the plan): R14 needs R9, which is done; R16 needs
-R14.
+The order (section 10 of the plan): R16 needs R14, which is done (section
+2.7).

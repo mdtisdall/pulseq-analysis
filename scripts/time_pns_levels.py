@@ -13,7 +13,7 @@ those thresholds, and without it the default of `pns_levels` is used (no thresho
 peak is in Hz/T. Run it in the devShell:
 
     nix develop --command uv run python scripts/time_pns_levels.py [--blocks N] \
-[--repeat R] [--thresholds-hz-per-t T [T ...]] [--json OUT]
+[--repeat R] [--interpreter spec|cpp-siemens] [--thresholds-hz-per-t T [T ...]] [--json OUT]
 
 `--blocks` must be at least `TR_BLOCKS` (one TR), and the thresholds are checked with
 the validation of `pns_levels` before the sequence is built. The build of the sequence is
@@ -23,6 +23,9 @@ the JSON, one time.
 `sequence_index` keeps its result on the snapshot, so the first run also builds the block
 table and the later runs do not. The minimum is thus the time of the PNS model, the sampling
 and the bins, without the block table.
+
+`--interpreter cpp-siemens` needs the plugin of packages/pulseq-cpp-siemens: run the script in
+the environment of that package (`uv run --project packages/pulseq-cpp-siemens --no-sync`).
 """
 
 import argparse
@@ -51,19 +54,19 @@ def git_commit() -> str:
     return commit + ("-dirty" if git("status", "--porcelain", "--untracked-files=no") else "")
 
 
-def load_times(seq) -> tuple[float, float, object]:
-    """The time of `load(seq)`, the time of `load(path)` for the file that `seq.write` makes
-    (the write is not timed), and the `Snapshot` of `load(seq)`."""
-    from pulseq_analysis.synth.snapshot import load
+def load_times(seq, interpreter: str = "spec") -> tuple[float, float, object]:
+    """The time of `load(seq, interpreter)`, the time of `load(path, interpreter)` for the file
+    that `seq.write` makes (the write is not timed), and the `Snapshot` of `load(seq)`."""
+    from pulseq_analysis.analyses import load
 
     start = time.perf_counter()
-    snap = load(seq)
+    snap = load(seq, interpreter)
     load_seq_s = time.perf_counter() - start
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "sequence.seq"
         seq.write(str(path))
         start = time.perf_counter()
-        load(path)
+        load(path, interpreter)
         load_path_s = time.perf_counter() - start
     return load_seq_s, load_path_s, snap
 
@@ -93,6 +96,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--blocks", type=int, default=1_000_000, help="blocks of the sequence")
     parser.add_argument("--repeat", type=int, default=3, help="number of timed runs")
+    parser.add_argument(
+        "--interpreter", choices=("spec", "cpp-siemens"), default="spec", help="of load"
+    )
     parser.add_argument(
         "--thresholds-hz-per-t",
         type=float,
@@ -131,7 +137,7 @@ def main() -> None:
     seq = build_repeating(n_trs)
     build_s = time.perf_counter() - start
     print(f"build {build_s:.1f} s (not part of the result)")
-    load_seq_s, load_path_s, snap = load_times(seq)
+    load_seq_s, load_path_s, snap = load_times(seq, args.interpreter)
     print(f"load(seq) {load_seq_s:.2f} s, load(path) {load_path_s:.2f} s (not part of the result)")
 
     hardware = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
@@ -158,6 +164,7 @@ def main() -> None:
     if args.json:
         report = {
             "blocks": blocks,
+            "interpreter": args.interpreter,
             "build_seconds": build_s,
             "load_seq_seconds": load_seq_s,
             "load_path_seconds": load_path_s,

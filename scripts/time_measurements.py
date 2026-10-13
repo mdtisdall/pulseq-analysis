@@ -10,7 +10,8 @@ in `build_worst` each TR has a new phase-encode event. Then it times the two way
 snapshot, and calls the public functions in this order, on the snapshot of `load(seq)`, and
 times each call:
 
-1. `load(seq)`: the copy of the sequence, with the checks.
+1. `load(seq)`: the write of the sequence with pypulseq's writer, and the read of its text
+   through the interpreter (`--interpreter`, `spec` by default).
 2. `load(path)`: the read of the file that `seq.write` makes (the write is not timed).
 3. `sequence_index(snap)`: the block table.
 4. `gradient_peaks(snap)`: the first call of a gradient measurement. It reads the points of
@@ -26,7 +27,10 @@ sequence and a new snapshot, so it keeps nothing from the repeat before it. The 
 each row is the minimum over the repeats. Run it in the devShell:
 
     nix develop --command uv run python scripts/time_measurements.py [--blocks N] \
-[--case repeating|worst] [--repeat R] [--json OUT]
+[--case repeating|worst] [--repeat R] [--interpreter spec|cpp-siemens] [--json OUT]
+
+`--interpreter cpp-siemens` needs the plugin of packages/pulseq-cpp-siemens: run the script in
+the environment of that package (`uv run --project packages/pulseq-cpp-siemens --no-sync`).
 """
 
 import argparse
@@ -71,7 +75,7 @@ def median_window_time(snap, index, n_blocks, rng):
     return float(np.median(times[1:]))
 
 
-def run_once(build, n_trs, rng):
+def run_once(build, n_trs, rng, interpreter):
     from scale_sequences import TR_BLOCKS
 
     from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
@@ -81,7 +85,7 @@ def run_once(build, n_trs, rng):
 
     seq = build(n_trs)
     rows = {}
-    rows["load(seq)"], rows["load(path)"], snap = load_times(seq)
+    rows["load(seq)"], rows["load(path)"], snap = load_times(seq, interpreter)
     rows["sequence_index"], index = timed(lambda: sequence_index(snap))
     rows["gradient_peaks, first call"], _ = timed(lambda: gradient_peaks(snap))
     rows["block_gradient_values"], _ = timed(lambda: block_gradient_values(snap))
@@ -102,6 +106,9 @@ def main() -> None:
     parser.add_argument("--blocks", type=int, default=100_000, help="blocks of the sequence")
     parser.add_argument("--case", choices=("repeating", "worst"), default="repeating")
     parser.add_argument("--repeat", type=int, default=3, help="number of timed runs")
+    parser.add_argument(
+        "--interpreter", choices=("spec", "cpp-siemens"), default="spec", help="of load"
+    )
     parser.add_argument("--json", type=Path, metavar="OUT", help="write the results as JSON")
     args = parser.parse_args()
     if args.repeat < 1:
@@ -117,7 +124,7 @@ def main() -> None:
     runs = []
     for i in range(args.repeat):
         print(f"run {i + 1} of {args.repeat}", file=sys.stderr)
-        rows, index, spectrum = run_once(build, n_trs, rng)
+        rows, index, spectrum = run_once(build, n_trs, rng, args.interpreter)
         runs.append(rows)
 
     info = machine()
@@ -133,6 +140,7 @@ def main() -> None:
     if args.json:
         report = {
             "case": args.case,
+            "interpreter": args.interpreter,
             "blocks": int(index.num_blocks),
             "unique_gradient_events": int(index.grad_first.size),
             "duration_s": float(index.end_s),

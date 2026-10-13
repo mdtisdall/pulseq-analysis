@@ -25,14 +25,13 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
-    raster_4us_sequence,
     spin_echo_sequence,
 )
 
 from pulseq_analysis._equality import FrozenDict, values_equal
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.registry import GRADIENT_SPECTRUM, PNS_SAFE_LEVELS
 from pulseq_analysis.analyses.series import Series, SeriesKind, decode_array, encode_array
-from pulseq_analysis.synth.snapshot import load
 
 _NON_FINITE_MIN = np.array([-np.inf, 0.0, np.nan, 1.5, -np.inf], dtype=np.float32)
 _NON_FINITE_MAX = np.array([np.inf, np.inf, np.nan, 1.5, 0.0], dtype=np.float32)
@@ -481,22 +480,17 @@ _SEQUENCES = [
     pytest.param(empty_sequence, id="empty"),
     pytest.param(arbitrary_gradient_sequence, id="arbitrary_gradient"),
     pytest.param(border_sequence, id="border"),
-    pytest.param(raster_4us_sequence, id="raster_4us"),
     pytest.param(lambda: build_repeating(10), id="build_repeating_10"),
 ]
 
 
-@pytest.mark.parametrize(("thresholds", "bin_s"), _PNS_CASES)
-@pytest.mark.parametrize("builder", _SEQUENCES)
-def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
+def check_the_series_of_pns_safe_levels_are_valid(snap, thresholds, bin_s):
     """Each series of `pns.safe.levels` (`pns_total`, and `pns_above_<k>` for each threshold)
-    for each synthetic sequence and for `build_repeating(10)`, with and without thresholds and
-    with bins that divide the level and bins that do not, is a valid `Series` (the constructor
-    does not raise: the `coord_end` of `pns_total`, `num_samples * dt_s`, is in the range of its
+    of `snap`, with `thresholds` and `bin_s`, is a valid `Series` (the constructor does not
+    raise: the `coord_end` of `pns_total`, `num_samples * dt_s`, is in the range of its
     `coord_step`, `bin_samples * dt_s`, with the tolerance), and it equals the series that
     `from_obj` reads from the strict JSON text of its `to_obj`. A sequence with no gradient
     gives no series."""
-    snap = load(builder())
     kwargs = {} if bin_s is None else {"bin_s": bin_s}
     levels = PNS_SAFE_LEVELS.compute(
         snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds, **kwargs
@@ -514,18 +508,31 @@ def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
         assert _round_trip(s) == s
 
 
+@pytest.mark.parametrize(("thresholds", "bin_s"), _PNS_CASES)
 @pytest.mark.parametrize("builder", _SEQUENCES)
-def test_the_series_of_gradient_spectrum_is_valid(builder):
-    """The series of `gradient.spectrum` for each synthetic sequence and for
-    `build_repeating(10)` is a valid `Series` that equals the series that `from_obj` reads from
-    its `to_obj`. A sequence with no gradient gives no series."""
-    snap = load(builder())
+def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
+    """The series of `pns.safe.levels` for each synthetic sequence that `spec` reads and for
+    `build_repeating(10)`, with and without thresholds and with bins that divide the level and
+    bins that do not, are valid (`check_the_series_of_pns_safe_levels_are_valid`)."""
+    check_the_series_of_pns_safe_levels_are_valid(load(builder()), thresholds, bin_s)
 
+
+def check_the_series_of_gradient_spectrum_is_valid(snap, has_gradient):
+    """The series of `gradient.spectrum` of `snap` is a valid `Series` that equals the series
+    that `from_obj` reads from its `to_obj`. A sequence with no gradient (`has_gradient` false)
+    gives no series."""
     series = GRADIENT_SPECTRUM.to_series(GRADIENT_SPECTRUM.compute(snap))
 
     for s in series:
         assert Series.from_obj(s.to_obj()) == s
-    assert len(series) == (0 if builder is empty_sequence else 1)
+    assert len(series) == (1 if has_gradient else 0)
+
+
+@pytest.mark.parametrize("builder", _SEQUENCES)
+def test_the_series_of_gradient_spectrum_is_valid(builder):
+    """The series of `gradient.spectrum` for each synthetic sequence that `spec` reads and for
+    `build_repeating(10)` is valid (`check_the_series_of_gradient_spectrum_is_valid`)."""
+    check_the_series_of_gradient_spectrum_is_valid(load(builder()), builder is not empty_sequence)
 
 
 @pytest.mark.parametrize(

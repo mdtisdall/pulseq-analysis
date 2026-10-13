@@ -1,18 +1,20 @@
 """The peak amplitude, the peak slew rate and the RMS amplitude of a sequence's gradients.
 
-The gradient of each logical axis (x, y, z) is the polyline of the model of MATLAB Pulseq
+The gradient of each axis (x, y, z) is the polyline of the model of MATLAB Pulseq
 (`docs/implementation.md`, "The gradient waveform"). This module computes the values of that polyline
 for each axis and for the three-axis vector, over a time range. It does not compare them with
 limits: a caller that has the hardware limits compares the values with them.
 
-The axes are the logical sequence axes, not the physical gradient axes of a scanner. The
-scanner rotates the logical axes onto the physical ones for the prescribed orientation, so on
-an oblique slice one physical axis can see amplitude up to the vector peak,
-`GradientPeaks.vector_peak_hz_per_m`, even when no single logical axis is near the limit.
+The axes are those of the gradients as the decoding of the snapshot gives them: the logical
+axes of the file, each block turned by its rotation where the decoding applies it (`spec` from
+1.5.1, and a plugin interpreter that applies them; `analyses.load`). They are not the physical gradient axes
+of a scanner. The scanner rotates them onto the physical ones for the prescribed orientation, so
+on an oblique slice one physical axis can see amplitude up to the vector peak,
+`GradientPeaks.vector_peak_hz_per_m`, even when no single axis is near the limit.
 
-The model of one axis. `dt` is the `grad_raster_time` of the sequence of the snapshot (the
-`GradientRasterTime` that the file declares), not the raster of its `system`. The points of each gradient event are those of
-`seq_utils.gradient_offsets`, at the times `(block start + delay) + offset`, as the Pulseq
+The model of one axis. `dt` is the gradient raster of the snapshot's data (the
+`GradientRasterTime` that the file declares). The points of each gradient event are those of
+the decoding (`_played`), at the times `(block start + delay) + offset`, as the Pulseq
 specification treats them: the event is piecewise linear between them. Between two consecutive
 events on the axis (the blocks between them have no event on the axis), the gap is `first_time -
 last_time`, with the first point of the later event and the last point of the earlier event:
@@ -57,8 +59,8 @@ the side where the value is (`_vector_candidates`). Of equal values, the first i
 and in one block the line or the step into the event is before the segments of the event.
 
 This computes the per-event values (`_EventData`) for each unique gradient event, with numpy over
-the points of `_events.event_points` (which reads one block with `get_block` for each unique event,
-one time for each snapshot). It then makes the values of each block one time for each snapshot
+the points of `_events.event_points` (which takes each unique event from the decoding one time
+for each snapshot). It then makes the values of each block one time for each snapshot
 (`_BlockData`; the per-event values are made with it and are not kept):
 for each axis the peak, the slew with the ramps, the junction (the step or the line into the
 event) and the RMS integral of the piece of the block, with their times, and the vector peak. The
@@ -68,7 +70,7 @@ blocks whose time range is whole in the window and a sum of their RMS integrals,
 blocks: the blocks whose time range a window edge crosses. The time range of a block holds its
 pieces: the line into it starts at the last point of the earlier event, up to `dt +
 TIME_TOLERANCE` before the event, and can cross blocks shorter than `dt`, and a ramp to 0 ends
-`dt / 2` after the event. It reads no block with `get_block` for a window, and
+`dt / 2` after the event. It decodes no block for a window, and
 its cost is the number of blocks of the window, not the number of unique events or the number
 of blocks of the file. An edge block is made from the exact polylines of the axes near it
 (`_exact_edge_blocks`, from the points of `_events.event_points`). The vector peak of each block
@@ -81,7 +83,7 @@ caller that needs each place where a value is above a limit. It gives copies of 
 of its event. The junction of a block is the step or the line into its event, and 0 for a long
 gap and for a block with no event on the axis.
 
-Both public functions take a `snapshot.Snapshot` (`snapshot.load`) as their first argument
+Both public functions take a `snapshot.Snapshot` (`analyses.load`) as their first argument
 and keep their results on it (`snapshot._kept_results`): `gradient_peaks` for `window=None`,
 and `block_gradient_values`. The values of each block (`_BlockData`) are kept too, so a call of
 `gradient_peaks` with a window uses them. A result with a window is not kept, because a caller
@@ -955,8 +957,8 @@ def _range_result(
     other blocks of `[a, b)` are the edge blocks: the blocks whose time range an edge crosses
     (the line into a block starts up to `dt + TIME_TOLERANCE` before its event, and a ramp ends
     `dt / 2` after it, so an edge has no fixed number of them). They are made from the exact
-    polylines of the events near them (`_exact_edge_blocks`, from the points of `_events.event_points`). No block is read with
-    `get_block`.
+    polylines of the events near them (`_exact_edge_blocks`, from the points of
+    `_events.event_points`). No block is decoded.
 
     The run is computed before the edge blocks, so each candidate for a credit (an edge block)
     is compared with `_credit_goes_to`, which gives the result of a single pass over the blocks
@@ -1036,7 +1038,7 @@ def _range_result(
 
 def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None) -> GradientPeaks:
     """The peak amplitude, the peak slew rate and the RMS amplitude of the gradients of `snap`
-    (`snapshot.load`), on each logical axis and as a three-axis vector.
+    (`analyses.load`), on each axis and as a three-axis vector.
 
     With `window=None`, the range is the whole sequence, `(0.0, total_duration)`.
     Otherwise `window` is `(start_s, end_s)` in seconds from the sequence start; it
@@ -1071,13 +1073,12 @@ def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None)
     per-event values `_event_values` of the points of `_events.event_points`), and combine them
     with numpy over the blocks of the range: an `argmax` and a sum of the RMS integrals over the
     blocks that lie whole in the range, and the points of `_events.event_points` for the few
-    edge blocks (`_range_result`). It reads no block with `get_block` for a window. The one
-    `get_block` call for each unique gradient event is in `_events.event_points`, one time for
-    each snapshot.
+    edge blocks (`_range_result`). It decodes no block for a window: each unique gradient event
+    is taken from the decoding in `_events.event_points`, one time for each snapshot.
 
     Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
-    A snapshot has no rotation (`snapshot.load` refuses it), so the numbers are of the logical
-    axes as they are stored.
+    The axes are those of the decoding (the module docstring): a block's rotation is in the
+    numbers where the decoding applies it.
     """
     if window is not None:
         if not isinstance(window, tuple | list) or len(window) != 2:
@@ -1138,12 +1139,12 @@ def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None)
 
 
 def block_gradient_values(snap: Snapshot) -> BlockGradientValues:
-    """The gradient values of each block of `snap` (`snapshot.load`), in play order
+    """The gradient values of each block of `snap` (`analyses.load`), in play order
     (`BlockGradientValues`).
 
     These are the values that `gradient_peaks` takes the largest of for the whole file, kept
     for each block: the peak amplitude and the peak slew of the block's event and its ramps on
-    each logical axis, the junction (the step or the line into its event), and the peak of the
+    each axis, the junction (the step or the line into its event), and the peak of the
     three-axis vector. The slope, the ramps and the junction follow the rules of the module
     docstring.
 
@@ -1156,13 +1157,12 @@ def block_gradient_values(snap: Snapshot) -> BlockGradientValues:
     the per-event values `_event_values` of `_events.event_points`), both shared with
     `gradient_peaks` and built one time for each snapshot. Its result holds copies
     of the arrays of `_BlockData`, so a caller cannot change what `gradient_peaks` uses. It
-    computes the peak of |G| of each block from the exact polylines of the whole file. It reads
-    one block with `get_block` for each unique gradient event (in `_events.event_points`, one
-    time for each snapshot), and no other block.
+    computes the peak of |G| of each block from the exact polylines of the whole file. It takes
+    each unique gradient event from the decoding (in `_events.event_points`, one time for each
+    snapshot).
 
     Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
-    A snapshot has no rotation (`snapshot.load` refuses it), so the values are of the logical
-    axes as they are stored.
+    The axes are those of the decoding, as for `gradient_peaks`.
     """
     _check_snapshot(snap)
     index = sequence_index(snap)

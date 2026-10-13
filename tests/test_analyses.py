@@ -21,6 +21,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.asc import hardware_from_asc
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.analyses.grad_spectrum import (
@@ -45,7 +46,6 @@ from pulseq_analysis.analyses.registry import (
 )
 from pulseq_analysis.analyses.series import SeriesKind
 from pulseq_analysis.synth.seq_index import sequence_index
-from pulseq_analysis.synth.snapshot import load
 
 _RASTERS = ("GradientRasterTime", "BlockDurationRaster")
 _INDEX_RASTERS = ("BlockDurationRaster",)

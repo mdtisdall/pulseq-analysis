@@ -463,6 +463,24 @@ agent reviews it before the converter.
 
 ## 7. Task 5a: `feature/load-on-model`
 
+**Replaced by task R14 of `docs/plans/parser-redesign.md` (P15), done on branch
+`feature/load-on-interpreters`.** `load(source, interpreter="spec")` is
+`pulseq_analysis.analyses.load`: a path through `seqfile.read_seqfile`, a
+`pypulseq.Sequence` through `seqfile.read_pypulseq` (R15, which replaced task 4's
+`from_pypulseq`). The `Snapshot` holds the interpreter's `SequenceData` and its
+decoding, and the measurements take their gradients only through the decoding
+(`synth._played`); the rotation extension is no longer refused (the decoding's
+`rotation_record` and its warning, P20). The deep copy, the block cache,
+`extensions` and `seq_index.rf_events`, `grad_events` and `adc_events` are gone,
+and no module of `src/` imports pypulseq. Items 6 (the `hardware` of
+`pns_levels`) and 7.3's builder fixes were not needed in this form: the
+`SafeHardware` and its namespace form stayed as they were, and the tests that
+load a builder that `spec` rejects do it with `cpp-siemens`, in the tests of the
+plugin (packages/pulseq-cpp-siemens). The baseline comparison of 7.2
+was run for both interpreters; its differences and their causes are in the PR
+of R14 and in `CHANGELOG.md`. The rest of this section is kept as the record of
+the first plan.
+
 The change of the public interface. pypulseq is still a required dependency.
 
 ### 7.1 Result
@@ -540,6 +558,23 @@ The main agent owns `TESTS.md`, `CHANGELOG.md` and the baseline.
 ## 8. Task 5b: `chore/pypulseq-optional`
 
 No change of behaviour. The order matters.
+
+**After R14 (2026-10-13).** No module of `src/` imports pypulseq: `read_pypulseq`
+calls the methods of the sequence that it is given. What is left for this task:
+the steps below as written, with `from_pypulseq` (`seqfile/from_pypulseq.py`,
+R15) in place of `convert.py` in step 4, and `read_pypulseq` in place of
+`from_pypulseq` in step 7 (it needs pypulseq only through its argument, so
+without pypulseq a caller has no sequence to give it, and no `ImportError` is
+needed). The tests still import pypulseq widely (the builders of
+`tests/synthetic.py`, `tests/gap_sequences.py`, `tests/random_gaps.py`,
+`tests/scale_sequences.py`, the oracles' comparisons with pypulseq's
+`get_gradients`, `calculate_pns` and `calculate_gradient_spectrum`, and the
+fork-only functions of step 1). `scripts/doc_figures.py`,
+`scripts/discrepancy_matrix.py` and `scripts/time_pns_levels.py` import it too.
+pypulseq 1.5.0.post1's `Sequence.remove_duplicates`, which `read_pypulseq`
+calls, raises `KeyError` for an oversampled arbitrary gradient (time ID -1,
+D43): a release with that fixed, or a way around it in `read_pypulseq`, belongs
+with the move to a release (step 2).
 
 1. **Golden values first, with the fork still pinned.** Some tests compare with
    functions that only the fork has (`_safe_gwf_to_pns_chunk` and

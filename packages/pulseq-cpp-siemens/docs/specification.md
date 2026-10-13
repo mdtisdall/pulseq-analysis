@@ -202,6 +202,10 @@ settings for the rest (P7, P18, P20). A result records the settings it used.
   unapplied. With `rotation="apply"`, `gradients_at` turns each block's gradients by its
   quaternion with the reader's own `rotate_vec3_by_quat`, in any version, as the reader attaches
   it.
+- The measurements of pulseq-analysis (`analyses.load`, R14): `load` emits the
+  `ScannerSettingWarning` of `rotation_record.warning()`, so a measurement of the default says
+  that its gradients are the logical ones; the decoding does not emit it. With `"apply"`, the
+  measurements take each rotated block's gradients from `gradients_at`.
 - Why: the default is the reader's output (P20); `"apply"` simulates what the scanner plays, with
   the reader's arithmetic. What the scanner does with a rotation in a file older than 1.5.1 is not
   known.
@@ -241,6 +245,11 @@ The same condition in `spec`: [D2.7](../../../docs/discrepancies.md#d27-a-defini
 
 - The reader holds: events inside one block; `gradientsAt` joins no blocks (`cpp:3561-3566`).
 - The model holds: `gradients_at` gives 0 after a block's end and between blocks.
+- The measurements of pulseq-analysis (`analyses.load`, R14): each block's events are the
+  reader's decoding (`gradient_points`), and a block with an event that goes on after the block's
+  end is cut there, as `gradients_at` gives it. Between blocks the measurements use the package's
+  waveform, as for `spec` (MATLAB's ramps and lines, `docs/implementation.md` §1.3 of
+  pulseq-analysis): the reader gives nothing there.
 
 The same condition in `spec`: [D2.14](../../../docs/discrepancies.md#d214-a-gap-between-two-gradient-events-on-one-axis).
 

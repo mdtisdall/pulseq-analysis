@@ -19,13 +19,17 @@ import-linter contract (`[tool.importlinter]` of `pyproject.toml`, run by
 
 | Layer | Subpackage | Modules |
 |---|---|---|
-| The analyses | `pulseq_analysis.analyses` | `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
-| The waveforms | `pulseq_analysis.synth` | `snapshot`, `extensions`, `seq_index`, `seq_utils`, `sampling`, `events`, `_events` |
-| The files | `pulseq_analysis.seqfile` | `as_written`, `reader`, `model` |
+| The analyses | `pulseq_analysis.analyses` | `loading` (`load`), `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
+| The waveforms | `pulseq_analysis.synth` | `decoding`, `scanner`, `snapshot`, `_played`, `seq_index`, `seq_utils`, `sampling`, `events`, `_events` |
+| The files | `pulseq_analysis.seqfile` | `as_written`, `interpreters`, `reading`, `spec`, `from_pypulseq`, `model`, `errors` |
 
 The last part of the path of each module is unique, so the two documents
-write a module by it: `snapshot.load` is
-`pulseq_analysis.synth.snapshot.load`.
+write a module by it: `snapshot.Snapshot` is
+`pulseq_analysis.synth.snapshot.Snapshot`. `load` is `pulseq_analysis.analyses.load`
+(module `loading`). The class `Snapshot` stays in the waveforms layer, because the
+waveform modules (`seq_index`, `_events`, `sampling`) keep their results on it;
+`load`, which reads a file and emits the warning of a measurement, is in the
+analyses layer.
 
 Contents:
 
@@ -35,7 +39,7 @@ Contents:
 4. [Kept results](#4-kept-results)
 5. [The result objects](#5-the-result-objects)
 6. [Argument checks](#6-argument-checks)
-7. [The checks of `load`](#7-the-checks-of-load)
+7. [What `load` does](#7-what-load-does)
 8. [`Series`: checks and the array encoding](#8-series-checks-and-the-array-encoding)
 
 ## 1. The gradient waveform
@@ -74,15 +78,61 @@ use pypulseq's line across each gap.
 
 ### 1.2 The events
 
-In this section, `dt` is `snap.sequence.grad_raster_time`, the `GradientRasterTime` of
-the file. It is not the raster of `snap.sequence.system`. `TIME_TOLERANCE` is 1e-9 s
-(`seq_utils.TIME_TOLERANCE`).
+In this section, `dt` is `snap.data.rasters.gradient`, the `GradientRasterTime` of
+the file. `TIME_TOLERANCE` is 1e-9 s (`seq_utils.TIME_TOLERANCE`).
 
 The waveform of one axis is a polyline. A gradient event gives its points at
-the times `(block start + delay) + offset`, with its amplitudes
-(`seq_utils.gradient_points`). A trapezoid has its corner points. An extended
-trapezoid has its corner points, and an arbitrary gradient has its sample
-points. Between two points of one event, the waveform is a straight line.
+the times `(block start + delay) + offset`, with its amplitudes. A trapezoid
+has its corner points. An extended trapezoid has its corner points, and an
+arbitrary gradient has its sample points, with `first` at its start and `last`
+at its end. Between two points of one event, the waveform is a straight line.
+
+The events are those of the decoding of the snapshot (`_played`): the
+measurements take the gradients only through the decoding, and they decode
+nothing themselves.
+
+- **A decoded event**: the points that the decoding gives of the event, by its
+  file ID, in the first block and axis that play it
+  (`Decoding.gradient_points`, a method of the protocol `synth.Decoding`). That
+  block gives the event's points in every block, so a plugin's decoding of a
+  gradient event must not depend on the block that plays it.
+  - `spec`: the decoded event of `events`, and its points by
+    `seq_utils.gradient_offsets`.
+  - `cpp-siemens` (the plugin): the C++ reader's decoding of the event
+    (`decodeBlock`). The reader decodes a gradient event from the event and
+    the shapes alone, so that block gives its decoding in every block (the
+    plugin's tests check this on every fixture). The points are those between
+    which the reader's `SeqBlock::gradientsAt` draws its straight lines: times
+    in whole µs divided by 1e6, and the values that `gradientsAt` gives at them
+    (a float32 amplitude times a float32 sample, D7.2). A gradient with a time
+    shape runs from its first to its last sample, whatever `first` and `last`
+    the file writes, and one whose first time is after 0 gets a point at its
+    delay, where `gradientsAt` carries its first segment backwards (D4.5;
+    `docs/findings-for-pulseq-checks.md`, 2.4). An event whose amplitude is 0
+    is 0 everywhere, as `gradientsAt` gives it.
+- **A block whose gradients the decoding gives with `gradients_at`**: a block
+  that the decoding rotates by a rotation that is not the identity (`spec`
+  from 1.5.1, `CppSiemens(rotation="apply")`; D2.18, D6.2), and a block with an
+  event that ends after the end of the block (`spec` rejects it,
+  `block.event-too-long`; `cpp-siemens` plays such a file, D7.4, and
+  `oversampling="preserve"` stretches an oversampled gradient, D6.1). The
+  package does not rotate: the decoding's `gradients_at` does. The gradients
+  of such a block are straight lines between the times of the points of its
+  events, up to the end of the block (`gradients_at` is 0 after it), so each
+  axis gets one event with a point at each of these times and the value of
+  `gradients_at` there. At a step of an event (it starts or ends at a value
+  that is not 0, or has two points at one time), the event has two points at
+  that time: the value just before and the value just after, each the
+  straight line of `gradients_at` at two times inside the next segment,
+  carried to its end. A rotated block has an event on each axis; another block
+  on the axes that have an event. The block table numbers these events after
+  the events of the file (section 2.5).
+
+`test_played.py` checks, on every fixture, that the straight lines of the
+points equal `gradients_at` at the middle of each segment and at each point that
+is not a step, to 1e-7 of the largest value; the plugin's tests check the same
+for each setting of `cpp-siemens` (1e-7 is the float32 rounding of the reader's
+values).
 
 ### 1.3 The gaps
 
@@ -235,7 +285,7 @@ waveform, so an edge is not limited to one or two blocks.
   of the axis, in the block of the last event, when that point is more than
   `TIME_TOLERANCE` before the end of the sequence.
 - `junction_hz_per_m_per_s` is the step into the event of the block across a
-  zero gap, `|last - first|` divided by `snap.sequence.grad_raster_time`, or the slope of
+  zero gap, `|last - first|` divided by `snap.data.rasters.gradient`, or the slope of
   the line into it across a short gap, `|last - first|` divided by the gap. It
   is 0 for a long gap, and for a block with no event on the axis. For the first
   event of the axis it is the step from 0. Its time is the time of the first
@@ -256,7 +306,7 @@ the blocks that have the largest value.
 ### 2.2 `pns_levels`
 
 **The samples.** The model takes one sample of each axis for each gradient
-raster time `dt = snap.sequence.grad_raster_time`. Sample `k` is at the time
+raster time `dt = snap.data.rasters.gradient`. Sample `k` is at the time
 `(k + 0.5) * dt`. The value of a sample is the waveform of section 1 at that
 time: a line across a gap of one raster time or less, a ramp to 0 and a ramp
 from 0 across a longer gap, and a step at a block junction.
@@ -390,20 +440,20 @@ Otherwise it is `ceil((index.end_s - 1e-10) / dt)`, and at least 0.
 
 ### 2.5 The block table
 
-`sequence_index` reads `snap.sequence.block_events` and
-`snap.sequence.block_durations`, with no `get_block`. It numbers the unique events of each kind from 1, in the order of
+`sequence_index` reads the block table of the snapshot's data
+(`SequenceData.blocks`) and its durations (`SequenceData.block_durations_s`)
+as arrays. It numbers the unique events of each kind from 1, in the order of
 their first use: block by block in play order, and in one block in the order
 gx, gy, gz. The three gradient axes share one number space, so one event that
 plays on x and on y has one number. The event columns use the smallest of
 uint8, uint16 and uint32 that holds the number of unique events.
 
-`rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` read one block
-with `get_block` for each unique event, not for each block. Each gives a tuple of
-`(number, event)` in the order of the numbers, made on its first call and kept
-on the snapshot (section 4). pypulseq keeps each block that `get_block` reads
-when `seq.use_block_cache` is true, and nothing removes it, so `load` sets
-`use_block_cache` to False on the private sequence of the snapshot: the block
-cache cannot reach a caller.
+The gradient events are those of section 1.2: the file IDs of the events of
+the file, and for a block whose gradients come from `gradients_at`, a key for
+each axis above the largest file ID (one set of keys for each distinct such
+block: the same events, rotation and duration). So in a rotated block the
+three axes have events of their own. The IDs of the file are kept: two equal
+rows with different IDs are two events (pypulseq's reading merged them).
 
 ## 3. Algorithms and cost
 
@@ -434,24 +484,29 @@ K that grows with B.
 
 Each gradient measurement starts from some of the same parts. The package makes
 each part one time for each snapshot and keeps it (section 4), so only the first
-measurement that needs a part pays for it. `snapshot.load` is before all of
-them: for a path it reads the file, and for a `pp.Sequence` it makes
-`copy.deepcopy` of it. It also checks the sequence (section 7). Its cost is in
-the first two rows of the table of section 3.5: for 100,000 blocks, `load(seq)`
-takes 0.12 s (K = 258) to 0.31 s (K = 20,002), and `load(path)` 0.36 s to 1.09 s.
+measurement that needs a part pays for it. `load` is before all of
+them: it reads the file through the interpreter (for a `pp.Sequence`, it
+writes the sequence with pypulseq's writer first), and decodes it (for `spec`,
+every event of the model; for `cpp-siemens`, nothing until a block is asked
+for). Its cost is in the
+first two rows of the table of section 3.5.
 
-- **The block table** (`sequence_index`). One read of `block_events` into
-  an array and of `block_durations` into a vector (a Python loop over the
-  rows only for a file whose rows differ in length), then numpy: a cumulative
-  sum for the starts, and a lookup table over the event IDs that numbers the
-  events in the order of their first use (`np.unique` of the used IDs when the
-  largest ID is more than 16 times the number of entries). It calls no
-  `get_block`. Time O(B), memory O(B), also for a large ID.
-- **The points of the unique gradient events.** One `get_block` and one
-  `seq_utils.gradient_offsets` for each unique gradient event, in a Python
-  loop. The points go into flat arrays for all the events, and all the
-  measurements share them. Time O(K) calls of pypulseq, plus O(P). This is a
-  part whose cost grows with K: about 9 µs for each unique event (section 3.5).
+- **The played gradients** (`_played.played_gradients`). The event of each
+  block and axis (section 1.2): one `np.unique` of the gradient columns, and
+  the points of each unique event, in a Python loop (for `cpp-siemens`, one
+  `decodeBlock` of the first block that plays it). Then, only for the blocks
+  whose gradients come from `gradients_at`, one call of `gradients_at` for all
+  of them. Time O(B log B + K + P), plus O(the points of those blocks).
+- **The block table** (`sequence_index`). The block table of the data and its
+  durations as arrays, and the played gradient columns, then numpy: a
+  cumulative sum for the starts, and a lookup table over the event IDs that
+  numbers the events in the order of their first use (`np.unique` of the used
+  IDs when the largest ID is more than 16 times the number of entries). Time
+  O(B), memory O(B), also for a large ID.
+- **The points of the unique gradient events.** The points of the played
+  gradients of each unique event, into flat arrays for all the events, which
+  all the measurements share. Time O(K + P). This is a part whose cost grows
+  with K (section 3.5).
   The first call of `gradient_peaks` also makes the values of each unique event
   (`_event_values`), with numpy over the pooled points of all the events: less
   than 0.1 µs for each of them. So that first call grows by about 9 µs for each
@@ -560,8 +615,7 @@ less one hop (half a window) for each 256 windows, is sampled twice.
 
 **The other calls.** `Series` checks, `to_obj`, `from_obj`, `encode_array` and
 `decode_array` takes time O(n) for n values. `asc.read_gradient_asc` takes time
-O(the size of the file and of its included files). `extensions.refuse_rotations`
-takes time O(1); `load` calls it one time. `registry.registry()` reads the entry
+O(the size of the file and of its included files). `registry.registry()` reads the entry
 points of the installed packages. An analysis `compute` is its function.
 
 ### 3.4 Summary
@@ -569,7 +623,7 @@ points of the installed packages. An analysis `compute` is its function.
 | Call | Time | Memory | Grows most with |
 |---|---|---|---|
 | `sequence_index` | O(B) | O(B) | blocks |
-| First gradient measurement (the points of the unique events) | O(K) `get_block` | O(P) | unique events |
+| First gradient measurement (the played gradients and the points of the unique events) | O(B log B + K + P) | O(B + P) | blocks, unique events |
 | `gradient_peaks(snap)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
 | `gradient_peaks(snap, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
 | `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
@@ -578,69 +632,37 @@ points of the installed packages. An analysis `compute` is its function.
 
 ### 3.5 Measured times
 
-These times are from an Apple M1 Max, on 2026-10-07, with Python 3.12.14,
-numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, at commit `c920d17` (the code of
-`0.1.0rc6`). The sequences are those of `tests/scale_sequences.py`: a GRE TR of
-5 blocks (6 ms), with a phase-encode table of 256 entries (`build_repeating`) or
-with a new phase-encode event in each TR (`build_worst`).
+These times are from an Apple M1 Max, on 2026-10-13, with Python 3.12.14,
+numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, with the code of task R14 (`load`
+on the interpreters), through `spec`. The sequences are those of
+`tests/scale_sequences.py`: a GRE TR of 5 blocks (6 ms), with a phase-encode table
+of 256 entries (`build_repeating`) or with a new phase-encode event in each TR
+(`build_worst`). The 1,000,000-block column is one run; the others the minimum
+of three.
 
 | Call | 100,000 blocks, 120 s, K = 258 | 100,000 blocks, 140 s, K = 20,002 | 1,000,000 blocks, 1198 s, K = 258 |
 |---|---|---|---|
-| `load(seq)` | 0.12 s | 0.31 s | 1.36 s |
-| `load(path)` | 0.36 s | 1.09 s | 3.58 s |
-| `sequence_index` | 22 ms | 22 ms | 0.23 s |
-| `gradient_peaks(snap)`, first call | 47 ms | 0.22 s | 0.57 s |
-| `block_gradient_values`, after it | 0.5 ms | 0.5 ms | 3.8 ms |
+| `load(seq)` | 0.58 s | 1.89 s | 5.95 s |
+| `load(path)` | 0.07 s | 0.92 s | 0.70 s |
+| `sequence_index` | 19 ms | 80 ms | 0.22 s |
+| `gradient_peaks(snap)`, first call | 47 ms | 65 ms | 0.53 s |
+| `block_gradient_values`, after it | 0.5 ms | 0.4 ms | 3.7 ms |
 | `gradient_peaks`, a window of 1 block | 0.4 ms | 0.4 ms | 0.4 ms |
 | `gradient_peaks`, a window of 1 TR | 0.7 ms | 0.7 ms | 0.7 ms |
 | `gradient_peaks`, a window of 1000 TRs | 0.8 ms | 0.8 ms | 0.8 ms |
-| `sample`, 1,000,000 times | 6 ms | 7 ms | 23 ms |
-| `gradient_spectrum` | 0.88 s | 1.03 s | 8.8 s |
-| `pns_levels` | 0.89 s | – | 8.9 s |
-| `pns_levels`, 3 thresholds | – | – | 10.5 s |
+| `sample`, 1,000,000 times | 6 ms | 6 ms | 24 ms |
+| `gradient_spectrum` | 0.89 s | 1.04 s | 8.8 s |
+| `pns_levels` | – | – | 9.0 s |
+| `pns_levels`, 3 thresholds | – | – | 13.0 s |
 
-Each row is the time of its call after the rows above it, on the same
-snapshot, so the first call of `gradient_peaks` does not include the block
-table. The `load` rows are of a snapshot that the later rows do not use: `load(seq)`
-copies the sequence that the script built, and `load(path)` reads the file that
-`seq.write` made from it (the write is not timed). The time of the first call of
-`gradient_peaks` grows by about 9 µs for each unique gradient event (the second
-column), almost all of it to read the event (`_events._read_points`).
-`scripts/time_pns_levels.py` builds only `build_repeating`, so the `pns_levels`
-rows have no value for `build_worst`. The three thresholds are 1.0, 0.8 and 0.5 of
-the stimulation limit of the example hardware, in Hz/T. `pns_levels` takes about
-75 ns for each sample, and `gradient_spectrum` about 73 ns.
-
-Four more measurements, on the same machine and software, at commit `22b57af`
-(2026-10-07). The sequences are those of `tests/scale_sequences.py`, and
-`scripts/` has no script for these:
-
-- The 19 µs of the first call of `gradient_peaks` were about 7 µs for each unique
-  event to read it (`_events._read_points`) and about 13 µs in
-  `grad_peaks._event_values`, the best of 3 runs on `build_worst(20000)`
-  (K = 20,002). `_event_values` is now vectorised: less than 0.1 µs for each event.
-- `pns_levels._compute_levels`, with no kept result, the block table and the
-  points already made, on about 14 million samples: `build_repeating(23333)`
-  (K = 258) 1.19 s, and `build_worst(20000)` (K = 20,002) 1.59 s. The 0.40 s
-  difference is about 20 µs for each of the 19,744 more unique events. The cache of
-  `block_samples` held 19,978 arrays, 5.8 MB, for `build_worst(20000)`, and 258
-  arrays, 0.08 MB, for `build_repeating(20000)`.
-- The peak memory (`tracemalloc`) of `gradient_spectrum` with the defaults on
-  `build_repeating(4000)` and on `build_repeating(10000)`: 54 MB in both cases.
-  The peak memory of `_compute_levels` on `build_repeating(4000)`: 5.8 MB with
-  the default `bin_s`, and 34 MB with a `bin_s` of 2 s.
-- For `build_repeating(20000)` (100,000 blocks), the first `sample` on one axis
-  of a new sampler takes about 0.14 ms more than a later one, for the scan of the
-  blocks. For the first sampler of the sequence it takes about 0.5 ms more, for
-  the gaps of the axis.
-
-To measure again:
-
-```
-nix develop --command uv run python scripts/time_measurements.py --blocks 100000
-nix develop --command uv run python scripts/time_measurements.py --blocks 100000 --case worst
-nix develop --command uv run python scripts/time_pns_levels.py --blocks 100000
-```
+`load(seq)` writes the sequence with pypulseq's writer before the read
+(`read_pypulseq`, task R15): the writer is most of its time. `load(path)` of
+`spec` decodes every event of the file, so it grows with K. `sequence_index`
+includes the played gradients (section 3.2), which take the points of each unique
+event. With `cpp-siemens`, `load(path)` takes 0.44 s (K = 258) and 0.63 s
+(K = 20,002) for 100,000 blocks, because the reader decodes every block to give its
+verdict, and `sequence_index` 20 ms and 0.15 s (one `decodeBlock` for each unique
+gradient event); the other rows are within 10 % of those of `spec`.
 
 `scripts/time_measurements.py` builds a new sequence for each repeat, and
 gives the minimum over the repeats. `scripts/time_pns_levels.py` times the
@@ -649,16 +671,17 @@ with the machine and the commit.
 
 ## 4. Kept results
 
-A `Snapshot` (`snapshot.load`, see the module docstring of `pulseq_analysis.synth.snapshot`)
-holds a private sequence that does not change, and a dict of kept results. Each
-measurement keeps its result in the dict on its first use, under a key made from
-the measurement and its arguments. There is no stamp and no check of a change:
-the sequence of a snapshot cannot change, so a kept result is never old.
+A `Snapshot` (`load`, see the module docstring of `pulseq_analysis.synth.snapshot`)
+holds the `SequenceData` of an interpreter and its decoding, which do not change,
+and a dict of kept results. Each measurement keeps its result in the dict on its
+first use, under a key made from the measurement and its arguments. There is no
+stamp and no check of a change: the data of a snapshot cannot change, so a kept
+result is never old.
 
 | Function | Key of the kept result |
 |---|---|
 | `sequence_index` | the snapshot |
-| `rf_events`, `grad_events`, `adc_events` | the snapshot, for each function |
+| `_played.played_gradients` | the snapshot |
 | `gradient_peaks` | the snapshot, for `window=None` only |
 | `block_gradient_values` | the snapshot |
 | `pns_levels` | the snapshot, hardware, tuple of thresholds (in its order) and `bin_s` |
@@ -676,20 +699,18 @@ A different `bin_s` is another kept result of `pns_levels`, also when it gives
 the same `bin_samples`. The same thresholds in another order are another kept
 result too, because the order of `above` is the order of `thresholds_hz_per_t`.
 
-**What keeps a result true.** `load(path)` reads the file into a sequence that no
-other object holds, and `load(seq)` holds `copy.deepcopy(seq)`, which shares no
-mutable object with `seq`. So `seq.add_block`, `seq.mod_grad_axis`,
-`seq.set_block`, `seq.apply_soft_delay` and a direct write into `seq.block_events`
-or a library change the caller's sequence and not the snapshot. A caller and an
-analysis must not change `snap.sequence`, or an object that they get from it (for
-example a block from `get_block`): nothing in the package stops it, and a kept
-result would then be wrong. The tuples of `rf_events`, `grad_events` and
-`adc_events` hold the events of the private sequence, and these must not change
-either.
+**What keeps a result true.** `load(path)` reads the file, and `load(seq)`
+reads the text that pypulseq's writer makes of `seq`: the snapshot holds no
+object of the caller. So a change of `seq` after `load` (`add_block`,
+`mod_grad_axis`, a direct write into a library) does not change the snapshot.
+The `SequenceData` is immutable (its arrays are read-only), and so are the
+decoded events of `spec`. The decoding of `cpp-siemens` holds the reader's
+object, which decodes a block on request and keeps it; nothing that a caller can
+reach changes it.
 
 A snapshot is equal only to itself, and its hash is the identity hash, so it can
 be the key of a dict. A copy from `pickle` or `copy.deepcopy` is a new snapshot
-with a copy of the sequence and no kept results: it makes them again. The kept
+of the same data (decoded again) with no kept results: it makes them again. The kept
 results go away with the snapshot. `gradient_sampler(snap)` makes a new sampler
 for each call, from the kept points and gaps.
 
@@ -807,27 +828,28 @@ analyses with one ID, an entry point that cannot load, an object with no
 The message names the packages (and, for the last case, the entry point and
 the `Analysis.spec.id`).
 
-## 7. The checks of `load`
+## 7. What `load` does
 
-`load` refuses the Pulseq rotation extension
-(`extensions.refuse_rotations`, `NotImplementedError`), for each sequence and
-each file. A measurement does not call the check: a snapshot has passed it.
+`load(source, interpreter="spec")` reads a path with `reading.read_seqfile`, and
+a `pp.Sequence` with `from_pypulseq.read_pypulseq` (the text of its writer, read
+as a file). It raises what they raise: `SeqFileError` for a file that the
+interpreter rejects, and `NotSupported` for a file outside the package's scope.
+Then `Snapshot(data, source)` decodes the data (`decoding.decode`).
 
-`load` does not read the `[SIGNATURE]` hash. No result uses it: the kept
-results are on the snapshot object, and no result, `Series` or `meta` holds
-the hash. So a sequence that `add_block` built in memory, which has no hash,
-and a file with no `[SIGNATURE]` section load. `load` does not change
-`signature_value`: `snap.sequence.signature_value` is that of the source (`''`
-for a sequence built in memory).
+`load` does not refuse the rotation extension. The snapshot keeps the
+decoding's rotation record (`Snapshot.rotation_record`, rule 4 of section 7.8
+of `docs/plans/parser-redesign.md`), and `load` emits its
+`ScannerSettingWarning` (`RotationRecord.warning()`) when blocks play a
+rotation that the decoding does not apply: under `CppSiemens(rotation="reader")`,
+the default of `cpp-siemens`. `spec` (from 1.5.1) and
+`CppSiemens(rotation="apply")` rotate, and the measurements take the rotated
+gradients (section 1.2). The decoding never emits the warning, so that a reader
+of the decoding is not warned about the reader's own output.
 
-A caller who requires a hash checks that `seq.signature_value` is a `str` that
-is not `''`, on the source before `load` or on `snap.sequence`. pypulseq's
-`write` signs a sequence, but it also changes the definition `TotalDuration`,
-so call it on the source and `load` the file, never on `snap.sequence`. The
-presence of a hash does not prove that it is the hash of the sequence:
-pypulseq keeps `signature_value` on the object when the object changes
-(`add_block` after `read`), and its `read` does not check the hash against the
-file.
+`load` does not check the `[SIGNATURE]` hash: the interpreters read it
+(`SequenceData.signature`), and no result uses it. A sequence that `add_block`
+built in memory is written with its signature (`read_pypulseq`), and a file with
+no `[SIGNATURE]` section loads.
 
 ### 7.1 The interpreters of Pulseq files
 
@@ -865,8 +887,6 @@ The interpreter `cpp-siemens` is the plugin of the sub-project
 that distribution. How it works (the steps of its reading, the classification
 of the reader's messages, the model from the reader's libraries and its
 decoding) is in `packages/pulseq-cpp-siemens/README.md`.
-
-`load` does not use the interpreters yet (task R14).
 
 The `spec` reader is built on the "as written" reading (`as_written.read_as_written`,
 documented in `docs/usage.md`). The reading splits the text at its headers with

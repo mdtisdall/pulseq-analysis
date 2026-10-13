@@ -103,7 +103,7 @@ def _validated_arguments(
     window_s = real("window_s", window_s, positive=True)
     frequency_oversampling = real("frequency_oversampling", frequency_oversampling)
     _check_snapshot(snap)
-    dt = snap.sequence.grad_raster_time
+    dt = snap.data.rasters.gradient
     nwin = round(window_s / dt)
     if nwin < 2:
         raise ValueError(
@@ -140,7 +140,7 @@ def gradient_spectrum(
     window_s: float = FFT_WINDOW_S,
     frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
 ) -> GradientSpectrum:
-    """The spectrum of each gradient axis of `snap` (`snapshot.load`) up to `max_frequency_hz`,
+    """The spectrum of each gradient axis of `snap` (`analyses.load`) up to `max_frequency_hz`,
     and its RSS, in Hz/m/sqrt(Hz) (see the module docstring for the conversion).
 
     The waveform is the model of MATLAB Pulseq (see the module docstring), not the one of
@@ -202,7 +202,7 @@ def _compute_spectrum(
 
     # The file's raster ([DEFINITIONS]): `Sequence.read` does not change the `system` of the
     # sequence.
-    dt = snap.sequence.grad_raster_time
+    dt = snap.data.rasters.gradient
     nwin = round(window_s / dt)
     nfft = round(frequency_oversampling * nwin)
     freq = np.fft.rfftfreq(nfft, dt)

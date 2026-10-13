@@ -82,7 +82,7 @@ specification feed section 6.
 |---|---|---|
 | Q1 | Versions outside 1.4.0–1.5.x (D4.1) | Both interpreters refuse them as **not supported by the package**: a separate exception (for example `NotImplementedError`), which says nothing about the file. |
 | Q2 | The undefined behaviour of the C++ reader (section 5.3) | `cpp-siemens` rejects each case, with its own code. |
-| Q3 | Rotations (D2.18, D6.2) | Amended by P20 (section 7.8): `cpp-siemens` gives the reader's unrotated gradients and the quaternion by default, with a `ScannerSettingWarning` from `load`, and rotates them with `CppSiemens(rotation="apply")`, in any version (the user, 2026-10-12); `spec` rotates from version 1.5.1. `load` no longer refuses the rotation extension once it runs on the interpreters (R14); until then it refuses it (the user, in R9). |
+| Q3 | Rotations (D2.18, D6.2) | Amended by P20 (section 7.8): `cpp-siemens` gives the reader's unrotated gradients and the quaternion by default, with a `ScannerSettingWarning` from `load`, and rotates them with `CppSiemens(rotation="apply")`, in any version (the user, 2026-10-12); `spec` rotates from version 1.5.1. `load` no longer refuses the rotation extension: it runs on the interpreters (R14), keeps the rotation record and emits the warning (the user, in R9). |
 | Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file, with every violation. pulseq-checks reports that `cpp-siemens` reads it. |
 | Q5 | `spec` where the specification is silent | Section 6, row by row. |
 | Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` (the default was changed by P19: `strict`, then `spec`), or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
@@ -338,8 +338,8 @@ One library, in three layers and a base. A layer imports only from the layers be
 |---|---|---|---|
 | Base | `pulseq_analysis` (top-level modules) | Shared helpers | `_equality`, `_validate` |
 | Files | `pulseq_analysis.seqfile` | The "as written" reading, the `spec` reader, the `cpp-siemens` reading (through `pulseq-cpp-siemens`), `SequenceData`, `SeqFileError`; the pypulseq path of R15 | `reader`, `model` |
-| Waveforms | `pulseq_analysis.synth` | The two decoders, the events, the block index, sampling | `events`, `_events`, `seq_index`, `seq_utils`, `sampling`, `snapshot`, `extensions` |
-| Analyses | `pulseq_analysis.analyses` | The measurements and `load`; SAFE and the `.asc` reader | `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
+| Waveforms | `pulseq_analysis.synth` | The two decoders, the snapshot, the events, the block index, sampling | `decoding`, `scanner`, `events`, `_events`, `_played`, `seq_index`, `seq_utils`, `sampling`, `snapshot` |
+| Analyses | `pulseq_analysis.analyses` | The measurements and `load`; SAFE and the `.asc` reader | `loading`, `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
 
 - **The rule is enforced.** An import-linter `layers` contract in `scripts/check` (a new dev
   dependency) fails on an import from a higher layer. The code respects the order already:
@@ -353,9 +353,11 @@ One library, in three layers and a base. A layer imports only from the layers be
 - **R3 named the modules** `seqfile/reader.py` (the former `seqfile.py`) and
   `analyses/registry.py` (the former `analyses.py`). The subpackages export nothing yet; R6b
   exports the entry points of 7.3 from them.
-- **`snapshot` and `extensions`** hold today's `load`, which is built on pypulseq, and
-  `seq_index` and `_events` import `snapshot`. They sit in the waveform layer until task 5a
-  builds `load` on the model; `load` then moves to the analyses layer.
+- **`load` and `snapshot`** (R14): `load` is in the analyses layer (`analyses.loading`,
+  exported as `analyses.load`). The class `Snapshot` stays in the waveform layer: `seq_index`,
+  `_events`, `_played` and `sampling` keep their results on it, so it cannot move above them
+  under the contract; it holds the `SequenceData` and its decoding, and imports nothing of
+  the analyses. `extensions` is removed.
 - **The public names change** (for example `pulseq_analysis.events` becomes
   `pulseq_analysis.synth.events`), with no aliases: nothing is released yet, and pulseq-checks
   adapts. The task that moves them (R3) changes no behaviour.
@@ -775,14 +777,13 @@ version), also in a file older than 1.5.1; it is not gated by version as `spec` 
 scanner's interpreter does with a rotation in a file older than 1.5.1 is not known (no source says),
 and `docs/usage.md` and D6.2 say so.
 
-**Where the rotation record and warning live until R14 (the user, 2026-10-12, in R9):** the
+**Where the rotation record and warning live (the user, 2026-10-12, in R9; done in R14):** the
 decoding of `cpp-siemens` records what it applied (`CppSiemensDecoding.rotation_record`: the
 setting, the blocks with a rotation, those that are not the identity, and those rotated), and
-`RotationRecord.warning()` gives the `ScannerSettingWarning`; the decoding does not emit it. Today's
-`load` (on pypulseq) keeps refusing the rotation extension: pypulseq 1.5.0.post1 cannot read a file
-with ROTATIONS anyway, and only an unreleased pypulseq could give it a sequence with rotations,
-whose blocks the package could not count. R14's `load` stops refusing, keeps the record in its
-result and emits the warning.
+`RotationRecord.warning()` gives the `ScannerSettingWarning`; the decoding does not emit it.
+R14's `load` no longer refuses the rotation extension, keeps the record on the snapshot
+(`Snapshot.rotation_record`) and emits the warning. The measurements take the rotated gradients
+from the decoding's `gradients_at` (`synth._played`); the package does not rotate.
 
 **Further decisions of the study:**
 
@@ -860,7 +861,7 @@ blocks of labels only, with no shape and no signature.
 | R11 | `feature/spec-interpreter` | The `spec` reader (section 6) on the "as written" reading, with every violation in its rejection, and its decoder in Python, adapted from task 2's `events.py`, with its fixtures. The record's "Package" text for `spec` follows. |
 | R12 | — | Moved to pulseq-checks (P17): the comparison of the two interpreters, and the four-source test. |
 | R13 | `chore/oracle-build-flags` | The C++ oracle of flake.nix built with `-fsigned-char -ffp-contract=off`, as the wrapper (7.6). Done (#105). |
-| R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output: for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. The C++-replica code of task 2 retired. A baseline of today's `load` explains each difference. `load` stops refusing the rotation extension (`extensions.refuse_rotations`), keeps the decoding's `rotation_record` in its result and emits `RotationRecord.warning()` (R9, 7.8). |
+| R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output. Done (the PR of this branch): `analyses.load(source, interpreter="spec")` reads through `spec` or a plugin interpreter (P21) and gives a `synth.Snapshot` of the `SequenceData` and its decoding. The measurements take the gradients only through the protocol `synth.Decoding` (`synth._played`): `gradient_points` for each decoded event (for `cpp-siemens`, the reader's decoding and the points of its `gradientsAt`), and `gradients_at` for a rotated block or a block with an event after its end; between blocks, the package's waveform for every interpreter (D2.14, D7.4). `load` no longer refuses the rotation extension (`extensions` is removed), keeps the decoding's `rotation_record` on the snapshot and emits `RotationRecord.warning()` (R9, 7.8). A baseline of the pypulseq-based `load` explains each difference (CHANGELOG). The tests through `cpp-siemens` are in the plugin's tests. Task 2's C++-replica code was already retired by R11; R14 also removes the pypulseq path of `seq_index` and `seq_utils`, and `seq_index.rf_events`/`grad_events`/`adc_events`. |
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 | R16 | `feature/scanner-session` | The `Session` of section 7.8 (soft delays, the field of view), its records and `SettingError` (rules 3 to 8), for both interpreters; the decoding's stored and actual durations; record entries for the flag `NOSLC` and D4.6. |
