@@ -1,8 +1,3 @@
-import pytest
-
-pytestmark = pytest.mark.pypulseq
-pytest.importorskip("pypulseq")
-
 import copy
 import dataclasses
 import itertools
@@ -11,10 +6,10 @@ import pickle
 from fractions import Fraction
 
 import numpy as np
-import pypulseq as pp
+import pytest
 from asserts import assert_levels_equal
+from optional_pypulseq import pp
 from pns_hardware import hardware_for_peak
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from synthetic import (
     EXAMPLE_HW,
     GAMMA_1H,
@@ -23,6 +18,7 @@ from synthetic import (
     border_sequence,
     empty_sequence,
     gre_sequence,
+    safe_example_hw,
     spin_echo_sequence,
     waveform_sequence,
 )
@@ -105,6 +101,7 @@ _SEQUENCES = {
 }
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
 def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
     """The peak, the peak time and the axis peaks of `pns_levels` (example hardware)
@@ -147,6 +144,7 @@ def test_summary_matches_calculate_pns_within_the_fork_tolerance(build):
         )
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
 def test_stored_bins_match_calculate_pns_totals(build):
     """Each stored bin's minimum and maximum equal the minimum and the maximum of
@@ -254,6 +252,7 @@ def test_an_interval_of_one_sample_spans_one_sample_interval_from_its_first_samp
     assert interval.peak_time_s == 2.5 * dt
 
 
+@pytest.mark.pypulseq
 def test_bin_samples_for_matches_the_formula():
     """`bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
     `wanted` is the whole number of samples of `bin_s` (the new test below checks the snap).
@@ -306,6 +305,7 @@ def test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster():
     assert bin_samples_for(0, dt) == 500
 
 
+@pytest.mark.pypulseq
 def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
     """`bin_s=1e-3` at the 10 us raster gives `bin_samples == 100` (`bin_samples * dt_s` is
     the bin) and `ceil(num_samples / 100)` bins, and each total of a bin (the totals of the
@@ -351,6 +351,7 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
     assert np.array_equal(fine.level_min_hz_per_t[:100].min(), levels.level_min_hz_per_t[0])
 
 
+@pytest.mark.pypulseq
 def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
     """With `MAX_BINS` set small, a `bin_s` that would give more bins gets a longer bin:
     `bin_samples == ceil(num_samples / MAX_BINS)` and no more than `MAX_BINS` bins, the
@@ -377,6 +378,7 @@ def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
     assert len(long_bin.level_min_hz_per_t) == 1
 
 
+@pytest.mark.pypulseq
 def test_result_does_not_depend_on_chunk_samples(monkeypatch):
     """The stored level and the summary do not depend on the chunk size: the fork's
     chunk function is exact for any chunk size, so a difference would be an error of
@@ -405,6 +407,7 @@ def test_result_does_not_depend_on_chunk_samples(monkeypatch):
         assert got.bin_samples == reference.bin_samples
 
 
+@pytest.mark.pypulseq
 def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatch):
     """A block of 10,000 samples that holds events on x and z (with a delay before the first
     one) and is cut by many chunk ends gives the same result with chunks of 1 bin, of 2 bins
@@ -433,6 +436,7 @@ def test_a_block_longer_than_a_chunk_does_not_depend_on_chunk_samples(monkeypatc
         assert_levels_equal(got, reference, ignore=())
 
 
+@pytest.mark.pypulseq
 def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks():
     """A trapezoid and then one delay block of 1 s (100,000 samples, three real chunks) gives
     exactly the result of the trapezoid and then ten delay blocks of 0.1 s: the samples of
@@ -455,6 +459,7 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
     assert_levels_equal(levels, expected, ignore=())
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
 def test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly(build):
     """`hardware=(SafeHardware.from_namespace(struct), label)` gives every field of the
@@ -469,6 +474,7 @@ def test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly(build):
     assert_levels_equal(levels, expected, ignore=())
 
 
+@pytest.mark.pypulseq
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
     bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware."""
@@ -484,6 +490,7 @@ def test_no_gradients():
     assert levels.above == {}
 
 
+@pytest.mark.pypulseq
 def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
     """A sequence with no gradient event and two thresholds gives `above` with the two keys,
     in the order of `thresholds_hz_per_t`, each with `()`."""
@@ -495,6 +502,7 @@ def test_no_gradients_gives_an_empty_tuple_for_each_threshold():
     assert levels.above == {_LIMIT: (), 0.5 * _LIMIT: ()}
 
 
+@pytest.mark.pypulseq
 def test_off_raster_block_falls_back_to_sampling():
     """A file with a block that is not on the gradient raster (`pp.make_delay(1.5 *
     dt)`, which pypulseq's `add_block` accepts) is reported as `on_raster=False`, and
@@ -527,6 +535,7 @@ def test_off_raster_block_falls_back_to_sampling():
         )
 
 
+@pytest.mark.pypulseq
 def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(monkeypatch):
     """An off-raster sequence (the samples come from `GradientSampler.sample` at the file
     times, chunk by chunk) of more than three chunks gives the result of one chunk, every
@@ -553,6 +562,7 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
     assert reference.num_samples == math.ceil((sequence_index(snap).end_s - 1e-10) / dt)
 
 
+@pytest.mark.pypulseq
 def test_an_off_raster_sequence_of_more_than_one_real_chunk_matches_calculate_pns():
     """An off-raster sequence of more than one chunk at the real `_CHUNK_SAMPLES` (a small
     trapezoid on x, a delay of 0.35 s, a larger trapezoid on y, a delay of 1.5 gradient-raster
@@ -598,6 +608,7 @@ def _sample_range(interval: PnsInterval, dt: float) -> tuple[int, int]:
     return round(interval.start_s / dt), round(interval.end_s / dt) - 1
 
 
+@pytest.mark.pypulseq
 def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
     """`above[_LIMIT]` is empty if and only if `peak_hz_per_t < _LIMIT`; the largest interval
     peak is `peak_hz_per_t`; the intervals are in time order, do not touch, and have the times
@@ -621,6 +632,7 @@ def test_a_sequence_below_the_limit_has_no_interval_and_one_above_it_has_some():
         assert a.end_s + dt / 2 < b.start_s  # at least one sample below the limit between them
 
 
+@pytest.mark.pypulseq
 def test_a_threshold_equal_to_the_peak_gives_an_interval():
     """A threshold that is exactly `peak_hz_per_t` gives one interval or more, and the
     peak of the largest one is the threshold: a total at the threshold is in an interval
@@ -633,6 +645,7 @@ def test_a_threshold_equal_to_the_peak_gives_an_interval():
     assert max(i.peak_hz_per_t for i in levels.above[peak]) == peak
 
 
+@pytest.mark.pypulseq
 def test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_number():
     """An off-raster sequence (a trapezoid on x and four delays of 1.5 gradient-raster steps,
     which are 6 steps together) whose `end_s / dt` is above a whole number by float
@@ -657,6 +670,7 @@ def test_an_off_raster_sequence_that_ends_at_a_whole_number_of_samples_has_that_
     assert levels.num_samples == whole
 
 
+@pytest.mark.pypulseq
 def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     """With chunks of 1 bin, with a chunk size that has an interval across the end of a
     chunk, and with the normal `_CHUNK_SAMPLES`, `pns_levels` gives the same result, every
@@ -686,6 +700,7 @@ def test_the_intervals_do_not_depend_on_chunk_samples(monkeypatch):
     assert got.above[_LIMIT] == reference.above[_LIMIT]
 
 
+@pytest.mark.pypulseq
 def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkeypatch):
     """A threshold far below the peak gives an interval that covers three chunks or more of
     1 bin (the open run goes over more than one chunk end, with a chunk that is all above the
@@ -711,6 +726,7 @@ def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkey
     assert got.above == reference.above
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     ("build", "on_raster"),
     [(lambda: gre_sequence(num_trs=20), True), (_off_raster_sequence, False)],
@@ -757,6 +773,7 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
     assert levels.above[_LIMIT] == tuple(expected)
 
 
+@pytest.mark.pypulseq
 def test_two_separate_intervals_are_in_time_order():
     """Two equal trapezoids on x with a 50 ms gap give two intervals, the first before the
     gap and the second after it, with hardware for which one trapezoid alone gives one
@@ -796,6 +813,7 @@ def _chunk_across_an_interval(intervals: tuple[PnsInterval, ...], levels: PnsLev
     raise AssertionError("no chunk size of 1 to 19 bins has an interval across a chunk end")
 
 
+@pytest.mark.pypulseq
 def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     """`thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)` gives, for each threshold, the intervals of
     the call with that one threshold, and the other fields of the result do not change. The
@@ -850,6 +868,7 @@ def test_two_thresholds_in_one_call_give_the_runs_of_two_calls(monkeypatch):
     assert all(type(key) is float for key in keys)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     ("thresholds", "error"),
     [
@@ -884,6 +903,7 @@ def test_pns_levels_refuses_bad_thresholds_before_the_snapshot_type(thresholds, 
         pns_levels(spin_echo_sequence(), thresholds_hz_per_t=thresholds, hardware=EXAMPLE_HW)
 
 
+@pytest.mark.pypulseq
 def test_pns_levels_takes_numpy_and_fraction_thresholds():
     """A threshold that is a NumPy real scalar or a `Fraction` (any `numbers.Real`, not a
     `bool`) is valid. The key of `above` is `float(t)`, and the result is that of the
@@ -901,6 +921,7 @@ def test_pns_levels_takes_numpy_and_fraction_thresholds():
     assert_levels_equal(levels, from_floats, ignore=())
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     ("bin_s", "error"),
     [
@@ -932,7 +953,11 @@ def test_pns_levels_refuses_a_bad_bin_s_before_the_snapshot_type(bin_s, error):
 
 
 @pytest.mark.parametrize(
-    "source", [spin_echo_sequence, lambda: "sequence.seq"], ids=["sequence", "path"]
+    "source",
+    [
+        pytest.param(spin_echo_sequence, id="sequence", marks=pytest.mark.pypulseq),
+        pytest.param(lambda: "sequence.seq", id="path"),
+    ],
 )
 def test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot(source):
     """`pns_levels` with good other arguments raises `TypeError` that names `load` for a
@@ -941,6 +966,7 @@ def test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot(source)
         pns_levels(source(), hardware=EXAMPLE_HW)
 
 
+@pytest.mark.pypulseq
 def test_pns_levels_takes_an_int_or_a_numpy_bin_s():
     """A `bin_s` that is an `int` or a NumPy float (any real number, not a `bool`) is
     accepted and gives the levels of the equal `float` (the calculation of `bin_s=1.0`, with
@@ -954,6 +980,7 @@ def test_pns_levels_takes_an_int_or_a_numpy_bin_s():
     )
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc, split):
     """`pns_levels` with `hardware_from_asc(path)` has the hardware name and the 8 kept
@@ -974,6 +1001,7 @@ def test_asc_hardware_file_is_used_for_the_levels(write_gradient_asc, split):
     assert levels.peak_time_s == default.peak_time_s
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
@@ -992,6 +1020,7 @@ def test_the_arrays_of_the_levels_are_read_only(make_seq):
     np.testing.assert_array_equal(levels.level_max_hz_per_t, before)
 
 
+@pytest.mark.pypulseq
 def test_levels_compare_by_value():
     """`==` compares the fields of two results by value, also with more than one bin (where
     the `__eq__` of `dataclasses` raises), a `PnsLevels` is not hashable, and a copy from `pickle`
@@ -1025,6 +1054,7 @@ def test_levels_compare_by_value():
         hash(levels)
 
 
+@pytest.mark.pypulseq
 def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair():
     """`hardware=(safe_example_hw(), label)` gives the levels of the call with `EXAMPLE_HW`
     (another struct object, another label), exactly, except the hardware name, which is the
@@ -1037,6 +1067,7 @@ def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair()
         assert_levels_equal(levels, default, ignore=("hardware",))
 
 
+@pytest.mark.pypulseq
 def test_the_levels_do_not_depend_on_the_gamma_of_the_system():
     """The same waveform in Hz/m, in a sequence of `SYSTEM` and in one of a copy of `SYSTEM`
     with another gamma, gives exactly equal levels, every field and every interval: the model
@@ -1055,6 +1086,7 @@ def test_the_levels_do_not_depend_on_the_gamma_of_the_system():
     assert_levels_equal(a, b, ignore=())
 
 
+@pytest.mark.pypulseq
 def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calculate_pns():
     """For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak, the axis
     peaks and the peak time of `pns_levels`, divided by `seq.system.gamma` (the time is not
@@ -1081,6 +1113,7 @@ def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_calc
     assert levels.peak_hz_per_t / GAMMA_1H != pytest.approx(ref_peak, abs=tol)
 
 
+@pytest.mark.pypulseq
 def test_the_levels_of_a_negated_waveform_are_equal():
     """The same sequence with each amplitude times -1 gives exactly equal levels, every field
     and every interval, with two thresholds that both have intervals: the model of `-g` is
@@ -1098,6 +1131,7 @@ def test_the_levels_of_a_negated_waveform_are_equal():
     assert_levels_equal(a, b, ignore=())
 
 
+@pytest.mark.pypulseq
 def test_the_default_has_no_thresholds():
     """`pns_levels(snap, hardware=...)` without thresholds has `above == {}`, also for a
     sequence with a peak above the limit, and `thresholds_hz_per_t=()` gives the same result,
@@ -1119,6 +1153,7 @@ def _every_dict(levels: PnsLevels) -> list[dict]:
     return [levels.hw, *levels.hw.values(), levels.axis_peaks_hz_per_t, levels.above]
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     "make_seq", [spin_echo_sequence, empty_sequence], ids=["spin_echo", "no_gradients"]
 )
@@ -1146,6 +1181,7 @@ def test_the_dicts_of_the_levels_are_read_only_frozen_dicts(make_seq):
         assert d == before
 
 
+@pytest.mark.pypulseq
 def test_the_reason_without_gradients_is_the_object_of_seq_index():
     """`pns_levels.NO_GRADIENTS` and `grad_spectrum.NO_GRADIENTS` are `seq_index.NO_GRADIENTS`
     (one object), and the `reason` of a result is it."""
@@ -1155,6 +1191,7 @@ def test_the_reason_without_gradients_is_the_object_of_seq_index():
     assert levels.reason is seq_index.NO_GRADIENTS
 
 
+@pytest.mark.pypulseq
 def test_gradients_that_all_have_the_amplitude_zero_have_no_peak_time_and_one_run(monkeypatch):
     """A sequence whose only gradient is a trapezoid of the amplitude 0 (long enough for
     several chunks) has `reason` None, a peak of 0 and of each axis, `peak_time_s` None and

@@ -122,31 +122,41 @@ The line length is 100.
 ### Tests without pypulseq
 
 **Checks:** The tests that do not need pypulseq pass in an environment
-without it, and each test module that needs pypulseq says so.
+without it, and each test that needs pypulseq says so.
 
 **How:** After the pytest run of the dev environment, `scripts/check` runs
 `uv run --no-dev --isolated --with pytest pytest -q -m "not pypulseq" tests`:
 an environment with the package, its dependencies (numpy and scipy) and pytest,
 and without the `dev` group, so without pypulseq. `pyproject.toml` declares the
 markers `pypulseq` and `cpp_oracle`, and pytest runs with `--strict-markers`,
-so a misspelt marker fails. A test module that needs pypulseq (directly or
-through `synthetic.py`, `gap_sequences.py`, `random_gaps.py`,
-`scale_sequences.py` or the oracles of `tests/oracles/`) starts, after its
-docstring, with `pytestmark = pytest.mark.pypulseq` and
+so a misspelt marker fails. A test that needs pypulseq, directly or through
+a builder of `synthetic.py` or `scale_sequences.py`, has the marker (on the
+test, or on one parameter, with `pytest.param(..., marks=...)`), and
+`-m "not pypulseq"` leaves it out. These helpers, `tests/oracles/blocks.py`
+and the test modules with tests both with and without pypulseq take `pp` from
+`tests/optional_pypulseq.py`: pypulseq when it is installed, and otherwise a
+stand-in whose attributes are stand-ins and whose call raises `ImportError`
+("needs the `pypulseq` marker"). So these modules import without pypulseq,
+and their other tests run. A module whose tests all need pypulseq (for example
+`test_grad_peaks.py`, `test_sampling.py`, or a module that imports
+`gap_sequences.py`, `random_gaps.py` or the waveform and spectrum oracles)
+starts, after its docstring, with `pytestmark = pytest.mark.pypulseq` and
 `pytest.importorskip("pypulseq")`, before its other imports: without pypulseq,
-the module is skipped. A single test that needs pypulseq has the marker on the
-test, and `-m "not pypulseq"` leaves it out. `tests/conftest.py` and
-`tests/pns_hardware.py` do not import pypulseq: the example SAFE hardware of
-the tests is `pns_hardware.EXAMPLE_HARDWARE` and `pns_hardware.safe_example_hw()`,
-with the numbers of pypulseq's `safe_example_hw()`, which a test of section 2.21
-checks. The modules of the C++ oracle have the marker `cpp_oracle`.
+the module is skipped. `tests/conftest.py`, `tests/pns_hardware.py` and the
+constants of `synthetic.py` do not need pypulseq: the example SAFE hardware of
+the tests is `synthetic.safe_example_hw()`, `synthetic.EXAMPLE_HW` and
+`pns_hardware.EXAMPLE_HARDWARE`, with the numbers of pypulseq's
+`safe_example_hw()`, which a test of section 2.21 checks. Without pypulseq,
+`synthetic.SYSTEM` is a stand-in too. The modules of the C++ oracle have the
+marker `cpp_oracle`.
 
 **Assumptions:**
 
-- A module that imports pypulseq without the marker and the `importorskip`
-  fails its collection in this run: that is the guard. A module that imports
-  pypulseq only inside a test function without the marker is not found until
-  the test runs.
+- The guard: a module that imports pypulseq directly without the marker and
+  the `importorskip` fails its collection in this run, and a test without the
+  marker that calls pypulseq through `optional_pypulseq` fails with its
+  `ImportError`. A test that only reads an attribute of the stand-in (no call),
+  for example in a comparison, fails on its assertion instead.
 - The dev environment pins pypulseq from the fork (`[tool.uv.sources]`), and
   the tests with the marker run only with the fork. No check runs the tests
   with a pypulseq release.
@@ -5769,7 +5779,8 @@ interpreter and `source`, no kept results, and equal results, made again
 **Checks:** `_check_snapshot` raises `TypeError` that names `load` for a `pp.Sequence`, `None`
 and a path, and nothing for a `Snapshot`.
 
-**How:** Parametrized over the three values.
+**How:** Parametrized over functions that make the three values, so that the
+`pp.Sequence` is built when the test runs; that case has the marker `pypulseq`.
 
 **Assumptions:** None.
 
@@ -7232,7 +7243,7 @@ golden values, the outputs of the fork's functions for the same inputs, in
 `tests/golden/safe_fork.npz`: `tests/golden/make_golden.py` wrote them with the fork pinned,
 and `tests/golden/README.md` gives the fork commit. The comparisons are exact
 (`numpy.testing.assert_array_equal` or `==`), because the port does the same float operations.
-The numbers of pypulseq's example hardware are those of `pns_hardware.EXAMPLE_AXES`, and one
+The numbers of pypulseq's example hardware are those of `synthetic.EXAMPLE_AXES`, and one
 test compares them with `safe_example_hw()`. Only that test and the comparison of the levels
 (which builds synthetic sequences) need pypulseq; they have the marker `pypulseq`.
 
@@ -7357,7 +7368,7 @@ for the samples of one chunk or of the next.
 
 #### `test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware`
 
-**Checks:** `pns_hardware.safe_example_hw()` has the attributes and values of pypulseq's
+**Checks:** `synthetic.safe_example_hw()` has the attributes and values of pypulseq's
 `safe_example_hw()` (the name, `checksum`, `dependency` and the nine fields of each axis), and
 `pns_hardware.EXAMPLE_HARDWARE` equals `SafeHardware.from_namespace` of pypulseq's.
 

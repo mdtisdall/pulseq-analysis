@@ -1,5 +1,5 @@
 import pytest
-from pns_hardware import safe_example_hw
+from synthetic import safe_example_hw
 
 
 def pytest_addoption(parser):

@@ -60,7 +60,13 @@ cache-keys = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["fuzz: the fuzzing of the checks against the sanitized C++ oracle (tests/test_fuzz.py)"]
+# `pypulseq` and `cpp_oracle` are the markers of the tests of pulseq-analysis, whose modules
+# these tests import (its pyproject.toml declares them).
+markers = [
+    "fuzz: the fuzzing of the checks against the sanitized C++ oracle (tests/test_fuzz.py)",
+    "pypulseq: a test of pulseq-analysis that needs pypulseq",
+    "cpp_oracle: a test of pulseq-analysis that needs pulseq-cpp-oracle",
+]
 
 [tool.cibuildwheel]
 build = "cp312-*"

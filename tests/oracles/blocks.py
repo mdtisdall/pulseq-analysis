@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import NamedTuple
 
 import numpy as np
-import pypulseq as pp
+from optional_pypulseq import pp
 
 from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.snapshot import Snapshot

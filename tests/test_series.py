@@ -4,11 +4,6 @@
 `encode_array` writes an array in the form of `encode_tables` of pulseq-reports.
 """
 
-import pytest
-
-pytestmark = pytest.mark.pypulseq
-pytest.importorskip("pypulseq")
-
 import base64
 import copy
 import gzip
@@ -21,6 +16,7 @@ from dataclasses import replace
 from fractions import Fraction
 
 import numpy as np
+import pytest
 from scale_sequences import build_repeating
 from synthetic import (
     EXAMPLE_HW,
@@ -512,6 +508,7 @@ def check_the_series_of_pns_safe_levels_are_valid(snap, thresholds, bin_s):
         assert _round_trip(s) == s
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(("thresholds", "bin_s"), _PNS_CASES)
 @pytest.mark.parametrize("builder", _SEQUENCES)
 def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
@@ -532,6 +529,7 @@ def check_the_series_of_gradient_spectrum_is_valid(snap, has_gradient):
     assert len(series) == (1 if has_gradient else 0)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("builder", _SEQUENCES)
 def test_the_series_of_gradient_spectrum_is_valid(builder):
     """The series of `gradient.spectrum` for each synthetic sequence that `spec` reads and for

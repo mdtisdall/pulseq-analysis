@@ -6,11 +6,6 @@ loop that `diagram_data.diagram_tables` had before it used the index. Its `*_fir
 lists hold play indexes, as `SequenceIndex` does (the old loop kept block ids).
 """
 
-import pytest
-
-pytestmark = pytest.mark.pypulseq
-pytest.importorskip("pypulseq")
-
 import copy
 import dataclasses
 import tracemalloc
@@ -18,7 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import pypulseq as pp
+import pytest
+from optional_pypulseq import pp
 from oracles.blocks import sequence_of
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
@@ -126,6 +122,7 @@ def _assert_index_matches_reference(snap: Snapshot) -> None:
     assert np.array_equal(index.adc_first, ref.adc_first)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     "builder",
     [
@@ -152,6 +149,7 @@ def test_dense_columns_and_first_arrays_match_the_reference_numbering(builder):
     _assert_index_matches_reference(load(builder()))
 
 
+@pytest.mark.pypulseq
 def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_libraries():
     """The RF, gradient and ADC events are registered in the libraries in the reverse of the
     order of their first use, so the library ids are 2, 1 for the two RF events, 3, 2, 1 for
@@ -209,6 +207,7 @@ def test_dense_numbering_follows_the_first_use_and_not_the_order_in_the_librarie
     assert [snap.decoding.gradients[int(i)].amplitude for i in first_ids] == [1e5, 2e5, 3e5]
 
 
+@pytest.mark.pypulseq
 def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
     snap = load(build_repeating(50))
     seq = sequence_of(snap)
@@ -229,6 +228,7 @@ def test_start_s_is_the_sequential_sum_and_end_s_is_its_final_value():
     )
 
 
+@pytest.mark.pypulseq
 def test_dtype_is_uint8_for_a_sequence_with_few_unique_events():
     index = sequence_index(load(gre_sequence()))
     assert index.rf_first.size <= 255
@@ -241,6 +241,7 @@ def test_dtype_is_uint8_for_a_sequence_with_few_unique_events():
     assert index.adc.dtype == np.uint8
 
 
+@pytest.mark.pypulseq
 def test_dtype_widens_to_uint16_past_255_unique_gradient_events():
     """`build_repeating`'s phase-encode table alone has 256 amplitudes (`PE_STEPS`), so
     260 TRs give more than 255 unique gradient events (the phase-encode events, plus
@@ -274,6 +275,7 @@ def test_the_dtype_of_the_dense_columns_changes_at_255_and_at_65_535_unique_even
     assert dense[-1] == unique
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(("unique", "dtype"), [(255, np.uint8), (256, np.uint16)])
 def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
     """A sequence with K different trapezoids on x (K unique gradient events): the index has
@@ -294,6 +296,7 @@ def test_the_dtype_of_the_index_changes_at_255_unique_events(unique, dtype):
     assert index.gx[-1] == unique
 
 
+@pytest.mark.pypulseq
 def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb(tmp_path):
     """A file with a large event ID must not make a table in proportion to the ID. The file of
     three trapezoids on x (amplitudes 1e5, 2e5, 1e5) gets the ID 10**8 for its second trapezoid,
@@ -338,6 +341,7 @@ def test_an_event_id_of_1e8_builds_the_index_in_less_than_100_mb(tmp_path):
     assert index.grad_first.tolist() == [0, 1]
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("build", [gre_sequence, empty_sequence])
 def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
     index = sequence_index(load(build()))
@@ -358,6 +362,7 @@ def test_the_arrays_of_the_index_are_read_only_and_a_copy_is_writable(build):
             copied[0] = copied[0]
 
 
+@pytest.mark.pypulseq
 def test_two_indexes_of_two_equal_sequences_are_equal_and_not_hashable():
     first = sequence_index(load(gre_sequence()))
     second = sequence_index(load(gre_sequence()))
@@ -381,6 +386,7 @@ def _delay_only() -> pp.Sequence:
     return seq
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     ("build", "expected"),
     [
@@ -431,6 +437,7 @@ def test_sequence_index_of_a_sequence_with_no_blocks():
         assert arr.size == 0
 
 
+@pytest.mark.pypulseq
 def test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another():
     """Two calls of `sequence_index` with one snapshot give the same object. A second snapshot
     of the same sequence gives its own, equal index."""
@@ -444,7 +451,13 @@ def test_sequence_index_is_kept_for_one_snapshot_and_made_again_for_another():
     assert other == first
 
 
-@pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(gre_sequence, id="sequence", marks=pytest.mark.pypulseq),
+        pytest.param(lambda: "sequence.seq", id="path"),
+    ],
+)
 def test_a_function_of_the_index_raises_type_error_that_names_load_for_a_non_snapshot(build):
     """`sequence_index` raises `TypeError` that names `load` for a `pp.Sequence` and for a path:
     it takes a `Snapshot`."""
@@ -489,6 +502,7 @@ def test_the_index_of_a_snapshot_is_the_index_of_its_model_for_each_file():
     check_the_index_of_a_snapshot_is_the_index_of_its_model("spec")
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     "build",
     [spin_echo_sequence, gre_sequence, empty_sequence, arbitrary_gradient_sequence],

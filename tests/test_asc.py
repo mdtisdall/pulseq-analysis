@@ -2,7 +2,7 @@ import dataclasses
 import re
 
 import pytest
-from pns_hardware import safe_example_hw
+from synthetic import safe_example_hw
 
 from pulseq_analysis.analyses.asc import (
     hardware_from_asc,

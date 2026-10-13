@@ -11,7 +11,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from pns_hardware import EXAMPLE_AXES, EXAMPLE_HARDWARE, safe_example_hw
+import synthetic
+from pns_hardware import EXAMPLE_HARDWARE
+from synthetic import EXAMPLE_AXES, safe_example_hw
 
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses import pns_levels as pns_levels_module
@@ -288,7 +290,7 @@ HW_CHECK_CASES = {
     "no-g-scale": lambda: _namespace_without("z", "g_scale"),
 }
 
-# The names of the builders of `synthetic.py`, which needs pypulseq.
+# The names of the builders of `synthetic.py`, which need pypulseq.
 SEQUENCES = {
     "spin_echo": "spin_echo_sequence",
     "gre": "gre_sequence",
@@ -331,7 +333,7 @@ def golden():
 
 @pytest.mark.pypulseq
 def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
-    """`pns_hardware.safe_example_hw()` has the attributes and values of pypulseq's
+    """`synthetic.safe_example_hw()` has the attributes and values of pypulseq's
     `safe_example_hw()`, and `EXAMPLE_HARDWARE` is its `SafeHardware`."""
     module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
     hardware = module.safe_example_hw()
@@ -387,7 +389,6 @@ def test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly(
     `_safe_gwf_to_pns_chunk` in its place (the golden values), for the example hardware, with
     thresholds (so that the intervals are compared) and a chunk size of 1000 samples (so that
     the state passes from chunk to chunk)."""
-    synthetic = pytest.importorskip("synthetic")
     snap = load(getattr(synthetic, SEQUENCES[seq_id])())
     monkeypatch.setattr(pns_levels_module, "_CHUNK_SAMPLES", 1000)
     own = _compute_levels(snap, synthetic.EXAMPLE_HW, THRESHOLDS, BINS[bin_id])

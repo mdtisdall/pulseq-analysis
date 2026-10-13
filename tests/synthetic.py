@@ -1,30 +1,58 @@
 """Small synthetic pypulseq sequences for the tests of pulseq-analysis. They do not use the
-package, and the oracles of `tests/oracles/` are independent of it too."""
+package, and the oracles of `tests/oracles/` are independent of it too. The module imports
+without pypulseq (`optional_pypulseq`): its constants are then there, `SYSTEM` is a stand-in,
+and a builder raises `ImportError`."""
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
-import pypulseq as pp
-from pypulseq.event_lib import EventLibrary
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
+from optional_pypulseq import HAVE_PYPULSEQ, Missing, pp
 
 # The gamma of 1H (Hz/T), the default of pypulseq's Opts. The package has no
 # gamma: the tests use this value to convert its values to tesla.
 GAMMA_1H = 42.576e6
 
-# pypulseq's example SAFE hardware, which is not a real scanner. The package has no
-# default hardware: the tests give this pair.
+# The numbers of pypulseq's `safe_example_hw()` (`pypulseq.utils.safe_pns_prediction`), which is
+# not a real scanner, by axis: tau1, tau2, tau3 (ms), a1, a2, a3, stim_limit, stim_thresh (T/m/s),
+# g_scale. `test_safe.py` checks `safe_example_hw()` below against pypulseq's.
+EXAMPLE_NAME = "MP_GPA_EXAMPLE"
+EXAMPLE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")
+EXAMPLE_AXES = {
+    "x": (0.20, 0.03, 3.00, 0.40, 0.10, 0.50, 30.0, 24.0, 0.35),
+    "y": (1.50, 2.50, 0.15, 0.55, 0.15, 0.30, 15.0, 12.0, 0.31),
+    "z": (2.00, 0.12, 1.00, 0.42, 0.40, 0.18, 25.0, 20.0, 0.25),
+}
+
+
+def safe_example_hw() -> SimpleNamespace:
+    """A new namespace with the attributes and values of pypulseq's `safe_example_hw()`."""
+    return SimpleNamespace(
+        name=EXAMPLE_NAME,
+        checksum="1234567890",
+        dependency="",
+        **{
+            axis: SimpleNamespace(**dict(zip(EXAMPLE_FIELDS, values, strict=True)))
+            for axis, values in EXAMPLE_AXES.items()
+        },
+    )
+
+
+# The example SAFE hardware. The package has no default hardware: the tests give this pair.
 EXAMPLE_HW = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
 
-SYSTEM = pp.Opts(
-    max_grad=28,
-    grad_unit="mT/m",
-    max_slew=150,
-    slew_unit="T/m/s",
-    rf_ringdown_time=20e-6,
-    rf_dead_time=100e-6,
-    adc_dead_time=10e-6,
-)
+if HAVE_PYPULSEQ:
+    SYSTEM = pp.Opts(
+        max_grad=28,
+        grad_unit="mT/m",
+        max_slew=150,
+        slew_unit="T/m/s",
+        rf_ringdown_time=20e-6,
+        rf_dead_time=100e-6,
+        adc_dead_time=10e-6,
+    )
+else:
+    SYSTEM = Missing("synthetic.SYSTEM")
 
 NUM_SAMPLES = 64
 CENTER = NUM_SAMPLES // 2
@@ -187,7 +215,7 @@ def with_rotation_library() -> pp.Sequence:
     """A `gre_sequence` with one rotation stored the way pypulseq draft PR #372 stores
     it: a `rotation_library` (an `EventLibrary` of scalar-first unit quaternions)."""
     seq = gre_sequence(num_trs=2)
-    seq.rotation_library = EventLibrary()
+    seq.rotation_library = pp.event_lib.EventLibrary()
     seq.rotation_library.insert(1, QUATERNION)
     return seq
 
