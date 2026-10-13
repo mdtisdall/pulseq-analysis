@@ -79,8 +79,8 @@ class Rejected(Exception):
 
 class UndefinedBehaviour(Rejected):
     """The C++ reader would have undefined behaviour on the file, or would not end, so no block
-    of it is decoded. `code` names the case (a key of `CODES`); `entry` is its entry of
-    docs/discrepancies.md of pulseq-analysis."""
+    of it is decoded. `code` names the case (a key of `CODES`); `entry` is the ID of its
+    condition (section 2.2 of docs/specification.md)."""
 
     def __init__(self, case: _checks.Case):
         super().__init__(f"{case.code} ({case.entry}): {case.message}")

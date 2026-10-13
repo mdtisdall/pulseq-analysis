@@ -14,7 +14,10 @@ The plan behind it is
 [`docs/plans/parser-redesign.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/docs/plans/parser-redesign.md)
 ("the plan"), task C1 (section 7.5). "Dnn" is an entry of
 [`docs/discrepancies.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/docs/discrepancies.md)
-("the record"). "Pnn" and "Qnn" are decisions of the plan's sections 2 and 3.
+("the record"). Since the split of 2026-10-13, that record gives what `spec`
+does; what `cpp-siemens` does is in
+`packages/pulseq-cpp-siemens/docs/specification.md` (its rule, to do what the C++
+reader does, and each exception), with the same IDs and D59, D60. "Pnn" and "Qnn" are decisions of the plan's sections 2 and 3.
 "The C++ reader" is `ExternalSequence` of pulseq/pulseq at `c7469123`, the
 reader of the scanner's interpreter on Siemens systems. Every module name below
 is under `pulseq_analysis` unless it says otherwise.
@@ -412,7 +415,7 @@ which; the column names of `AsWritten` are those of `SequenceData`, but the
 
 "Mechanism" is from section 7.4 of the plan; "—" means that section 7.4 lists
 none for the entry (section 5 says which choice that leaves). M4 is marked
-where the two interpreters differ in the record's summary. Fixtures are in
+where the two interpreters differ. Fixtures are in
 `tests/seqfiles/` unless the path says otherwise; "none" means that the record
 gives a run in the text of the entry, not a fixture. Codes are today's: "reads"
 means no code.
@@ -476,9 +479,11 @@ means no code.
 | D54 | `[SIGNATURE]` without `Type` or `Hash` | M3, M4 | `bad_signature_invalid.seq` | reads | `signature.invalid` |
 | D55 | `STRING_ID` that is a word | — (agree) | `valid_1_5_1.seq` | text | text |
 
-The fixtures `ub.gradient-one-point` and `ub.gradient-shape-0` have no entry of
-the record: `packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point.seq`
-and `gradient_shape_0.seq`. Each fixture's verdict under the C++ reader is in
+| D59 | Extended trapezoid of one point at a time above 0 (only in the `cpp-siemens` record) | M4 | `packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point.seq` | `ub.gradient-one-point` | `gradient.nonzero-end-align` (the fixture's other condition, D27) |
+| D60 | Extended trapezoid time that does not fit a `long` (only in the `cpp-siemens` record) | M4 | `packages/pulseq-cpp-siemens/tests/fuzz_corpus/gradient-time-range.seq` | `ub.gradient-time-range` | `definitions.raster-invalid`, `layer1.gradient-ends` (the fixture's other conditions) |
+
+The fixture of `ub.gradient-shape-0` is
+`packages/pulseq-cpp-siemens/tests/fixtures/gradient_shape_0.seq` (D21). Each fixture's verdict under the C++ reader is in
 `packages/pulseq-cpp-siemens/tests/expected_digests.json`.
 
 ## 5. Categories, and the choices left to pulseq-checks

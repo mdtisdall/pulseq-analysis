@@ -1,5 +1,7 @@
-"""The acceptance matrix of `docs/discrepancies.md`: each `.seq` file of `tests/seqfiles` (the
-fixtures and `oracle/`) through the four readers, as a Markdown table on stdout.
+"""The acceptance matrix that the entries of `docs/discrepancies.md` cite: each `.seq` file of
+`tests/seqfiles` (the fixtures and `oracle/`) through the four readers, as a Markdown table on
+stdout. The document does not keep the table (its appendix); this script may suit a separate
+report on the discrepancies better than this package.
 
 - pulseq-analysis: `seqfile.read_seqfile` with its default interpreter, `spec`. "accept", or the
   rule IDs of the violations, or "not supported" for a version outside 1.4.0 to 1.5.x.

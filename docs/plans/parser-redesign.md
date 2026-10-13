@@ -4,7 +4,9 @@ Branch `docs/parser-redesign`. This plan changes the goal of `read_seqfile` and 
 of task 2 (`docs/plans/own-parser-tasks.md`, merged in #100). It comes before tasks 4, 5a, 5b
 and 6 of that plan, and section 10 says how they fit.
 
-The entries D01a to D55 are those of `docs/discrepancies.md` (the record). "The C++ reader" is
+The entries D01a to D56 are those of `docs/discrepancies.md` (the record of `spec`); what
+`cpp-siemens` does is in `packages/pulseq-cpp-siemens/docs/specification.md` (its record), with
+the same IDs and D59, D60. "The C++ reader" is
 `ExternalSequence` of pulseq/pulseq at `c746912`, the reader of the scanner's interpreter on
 Siemens systems. "cpp:N" is a line of `src/ExternalSequence.cpp` at that commit. "The
 specification" is the Pulseq specification 1.5.3 (draft), cited by section. In this plan an
@@ -38,8 +40,8 @@ In this plan, "with a finding" or "Finding." means that pulseq-checks reports th
 pulseq-analysis only plays it.
 
 This replaces the order of preference of 2026-10-09 (C++ reader, then the specification, then
-MATLAB, then pypulseq). The record's section 4 reviews the package against that order; it is
-rewritten for this goal (section 11).
+MATLAB, then pypulseq). The record's section 4 reviewed the package's former reader against that
+order; it was removed when the record was split by interpreter (section 11).
 
 ## 2. Decisions (the user, 2026-10-12)
 
@@ -833,8 +835,8 @@ blocks of labels only, with no shape and no signature.
 - **`spec` readings.** Each row of section 6 has a fixture and a test that cites the
   specification. MATLAB's `waveforms_and_times` is a second opinion where it follows the
   specification (for example D28, D35, D36, D43), not a reference.
-- **The record.** Each entry of `docs/discrepancies.md` gives what each interpreter does, with
-  a fixture and a test of it. The tests of the findings (each disagreement of the four sources
+- **The records.** Each entry of `docs/discrepancies.md` gives what `spec` does, and the record
+  of `cpp-siemens` gives its rule and each exception, each with a fixture and a test of it. The tests of the findings (each disagreement of the four sources
   has a finding, and each finding matches a disagreement) are pulseq-checks' (7.5).
 
 ## 10. Tasks
@@ -859,7 +861,7 @@ blocks of labels only, with no shape and no signature.
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 | R16 | `feature/scanner-session` | The `Session` of section 7.8 (soft delays, the field of view), its records and `SettingError` (rules 3 to 8), for both interpreters; the decoding's stored and actual durations; record entries D57 and D58. |
-| R17 | `feature/cpp-siemens-as-plugin` | P21: `cpp-siemens` as a plugin of pulseq-analysis. The entry-point group `pulseq_analysis.interpreters`, the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`, the adapter, `CppSiemens` and `CppSiemensDecoding` in `pulseq_cpp_siemens.interpreter`, the tests that read through `cpp-siemens` in the package's tests, and the docs. Then the cpp-siemens record of `docs/discrepancies.md` moves to the package. |
+| R17 | `feature/cpp-siemens-as-plugin` | P21: `cpp-siemens` as a plugin of pulseq-analysis. The entry-point group `pulseq_analysis.interpreters`, the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`, the adapter, `CppSiemens` and `CppSiemensDecoding` in `pulseq_cpp_siemens.interpreter`, the tests that read through `cpp-siemens` in the package's tests, and the docs. Then the cpp-siemens record of `docs/discrepancies.md` moves to the package: done (`docs/record-split`, section 11). |
 
 R6 is split in two (2026-10-12): R6a, the package, needs only R2 and R4 and runs in parallel
 with R5; R6b, the interpreter, needs R5 and R6a. Elsewhere in this plan, "R6" means both, and
@@ -878,10 +880,16 @@ Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
 
 ## 11. Documents
 
-- `docs/discrepancies.md`: section 4 is rewritten for this goal. Each entry's "Package" and
-  "Reason" text gives what each interpreter plays or rejects. R6 rewrites them for
-  `cpp-siemens`, and R11 for `spec`. Which finding pulseq-checks gives is pulseq-checks'
-  documentation.
+- `docs/discrepancies.md`: the record of `spec` (the user, 2026-10-13). Each entry keeps its
+  source table (the specification, the C++ reader, MATLAB Pulseq, pypulseq), its example, what
+  `spec` does and why. Its section 4, the review of the former strict reader against the order
+  of preference, was removed; commit `49a7e2c` is the last that has it. Its appendix keeps the
+  scripts of the acceptance matrix and the figures, not the matrix itself.
+- `packages/pulseq-cpp-siemens/docs/specification.md`: the record of `cpp-siemens` (the user,
+  2026-10-13): its rule (P1 to P3) and each exception (the version gate, the undefined behaviour,
+  the settings, the reader's values in the model, the codes), with the same IDs; D59 and D60 are
+  only there. `CODES` and `UndefinedBehaviour.entry` cite it. Which finding pulseq-checks gives
+  is pulseq-checks' documentation.
 - `docs/usage.md`: the interpreters, the "as written" reading, each interpreter's rejections,
   and the contract of 7.3; a pointer to pulseq-checks for the findings.
 - `CHANGELOG.md`: the files that `cpp-siemens` now accepts, and those it now rejects (D15, D28,

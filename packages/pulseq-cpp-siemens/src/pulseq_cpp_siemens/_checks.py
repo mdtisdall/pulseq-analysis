@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1
 
-# The code of each case, with its entry of docs/discrepancies.md (pulseq-analysis).
+# The code of each case, with the ID of its condition (section 2.2 of docs/specification.md).
 CODES = {
     "ub.shape-missing": "D21",
     "ub.rf-time-id-minus-1": "D22",
@@ -42,9 +42,9 @@ CODES = {
     "ub.rf-shape-lengths": "D34",
     "ub.rf-time-overrun": "D36",
     "ub.rf-time-range": "D36",
-    "ub.gradient-time-range": "D29",
-    "ub.gradient-one-point": "—",
-    "ub.gradient-shape-0": "—",
+    "ub.gradient-time-range": "D60",
+    "ub.gradient-one-point": "D59",
+    "ub.gradient-shape-0": "D21",
 }
 
 _F32_TWO = np.float32(2)
@@ -52,8 +52,8 @@ _F32_TWO = np.float32(2)
 
 @dataclass(frozen=True)
 class Case:
-    """A case of undefined behaviour: its code (a key of `CODES`), its entry of
-    docs/discrepancies.md, and what the reader would do."""
+    """A case of undefined behaviour: its code (a key of `CODES`), the ID of its
+    condition (docs/specification.md), and what the reader would do."""
 
     code: str
     entry: str

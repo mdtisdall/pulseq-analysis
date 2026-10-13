@@ -123,17 +123,17 @@ def test_each_fixture_has_its_rejection_code(name):
 
 @needs_oracles
 @pytest.mark.parametrize(
-    ("name", "code"),
+    ("name", "code", "entry"),
     [
-        ("gradient_one_point.seq", "ub.gradient-one-point"),
-        ("gradient_shape_0.seq", "ub.gradient-shape-0"),
-        ("shape_decompress_count_missing.seq", "ub.shape-decompression"),
+        ("gradient_one_point.seq", "ub.gradient-one-point", "D59"),
+        ("gradient_shape_0.seq", "ub.gradient-shape-0", "D21"),
+        ("shape_decompress_count_missing.seq", "ub.shape-decompression", "D29"),
     ],
 )
-def test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code(name, code):
+def test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code(name, code, entry):
     path = PACKAGE_FIXTURES / name
     assert verdict(path) == code
-    assert CODES[code][0] in ("D29", "—")
+    assert CODES[code][0] == entry
 
 
 def edit(text, old, new):

@@ -5,11 +5,11 @@ scanner's interpreter on Siemens systems reads it (`ExternalSequence` of pulseq/
 through the entry-point group `pulseq_analysis.interpreters`, so that
 `pulseq_analysis.seqfile.read_seqfile(path, "cpp-siemens")` finds it, and pulseq-analysis does
 not import this package. This module needs pulseq-analysis; the rest of the package does not.
-Section 5 of the plan gives what it reads and rejects, entry by entry.
+`docs/specification.md` of this package gives what it does and why: the rule, and each exception.
 
 - `CppSiemens`: the interpreter, with its settings (`oversampling`, `rotation`); its `read`
   gives the model (`SequenceData`), and its `decode` the decoding (`CppSiemensDecoding`).
-- `CODES`: the code of each rejection, with its entry of `docs/discrepancies.md`.
+- `CODES`: the code of each rejection, with the ID of its condition (`docs/specification.md`).
 
 `CppSiemens.read(path)` (`read_cpp_siemens`) reads a file in four steps:
 
@@ -29,7 +29,7 @@ Section 5 of the plan gives what it reads and rejects, entry by entry.
    `gradients_at`.
 
 **The rejections.** The reader gives a message, not a code. `CODES` gives each code of a
-rejection, with its entry of `docs/discrepancies.md`, and `_classify` finds it from the reader's
+rejection, with the ID of its condition, and `_classify` finds it from the reader's
 message, and where the message is not enough, from the "as written" reading. The reasons of a
 `SeqFileError` of `cpp-siemens` are the code, the section and the line (where the message quotes
 a row), and the reader's message. The reader stops at its first error, so a rejection has one
@@ -148,13 +148,13 @@ class CppSiemens:
 # The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
 _MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
 
-# The codes of the rejections of `cpp-siemens`: each code, its entry of docs/discrepancies.md
-# ("—" for none), and what the reader rejects. The `ub.*` codes are those of the checks of this
+# The codes of the rejections of `cpp-siemens`: each code, the ID of its condition ("—" for
+# none; section 2.5 of docs/specification.md), and what the reader rejects. The `ub.*` codes are those of the checks of this
 # package (`pulseq_cpp_siemens.CODES`, section 5.3 of the plan).
 CODES: MappingProxyType[str, tuple[str, str]] = MappingProxyType(
     {
         "version.missing": ("D02", "the file has no [VERSION] section"),
-        "version.invalid": ("D02", "a line of [VERSION] does not decode, or has an unknown key"),
+        "version.invalid": ("D04", "a line of [VERSION] does not decode, or has an unknown key"),
         "definitions.raster-missing": ("D11", "a required raster is not defined"),
         "definitions.raster-invalid": (
             "D11",
@@ -169,7 +169,7 @@ CODES: MappingProxyType[str, tuple[str, str]] = MappingProxyType(
         "blocks.missing": ("—", "the file has no [BLOCKS] section"),
         "syntax.row": ("D14", "a row does not decode with the reader's sscanf format"),
         "syntax.comment-row": ("D06", "a `#` line inside a table, which the reader reads as a row"),
-        "syntax.shape": ("D14", "a line of [SHAPES] does not decode"),
+        "syntax.shape": ("D07", "a line of [SHAPES] does not decode"),
         "ref.unresolved": ("D21", "a block names an event that the reader did not read"),
         "rotation.norm": ("D49", "a quaternion's norm is more than 1e-3 from 1"),
         "gradient.raster": (
@@ -191,9 +191,12 @@ CODES: MappingProxyType[str, tuple[str, str]] = MappingProxyType(
         "ub.rf-shape-lengths": ("D34", "an RF phase shape shorter than its magnitude"),
         "ub.rf-time-overrun": ("D36", "the RF resampling reads past the time shape"),
         "ub.rf-time-range": ("D36", "an RF time shape's last time does not fit an int"),
-        "ub.gradient-time-range": ("D29", "an extended trapezoid time does not fit a long"),
-        "ub.gradient-one-point": ("—", "gradientsAt reads past an extended trapezoid of one point"),
-        "ub.gradient-shape-0": ("—", "a [GRADIENTS] row of shape 0, which load leaves unset"),
+        "ub.gradient-time-range": ("D60", "an extended trapezoid time does not fit a long"),
+        "ub.gradient-one-point": (
+            "D59",
+            "gradientsAt reads past an extended trapezoid of one point",
+        ),
+        "ub.gradient-shape-0": ("D21", "a [GRADIENTS] row of shape 0, which load leaves unset"),
     }
 )
 
