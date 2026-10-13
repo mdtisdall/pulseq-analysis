@@ -28,7 +28,7 @@ jobs:
   sdist:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -47,7 +47,7 @@ jobs:
           rm -rf packages/pulseq-cpp-siemens/third_party
           pipx run build --wheel --outdir wheel-from-sdist \
             --config-setting=cmake.define.PULSEQ_ALLOW_DOWNLOAD=OFF dist/*.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -81,7 +81,7 @@ jobs:
       # a file for its signature, so the fixtures must keep the bytes of the repository.
       - name: Keep the line ends of the fixtures
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: |
@@ -107,7 +107,7 @@ jobs:
       - name: Wheel sizes
         shell: bash
         run: ls -l wheelhouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.name }}
           path: wheelhouse/*.whl
