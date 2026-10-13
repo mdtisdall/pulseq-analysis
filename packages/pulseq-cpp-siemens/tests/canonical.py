@@ -104,12 +104,12 @@ def wrapper_dump(sequence, blocks: list[dict] | None = None) -> dict:
     }
 
 
-def read(path: Path) -> tuple[str, object, list[dict] | None]:
+def read(path: Path, oversampling: str = "center") -> tuple[str, object, list[dict] | None]:
     """The package's verdict on a file, in the words of tests/expected_digests.json, with the
-    sequence and its decoded blocks when it reads the file: `load`, then `decode` of each
-    block, as the driver does."""
+    sequence and its decoded blocks when it reads the file: `load` in the sampling mode
+    `oversampling`, then `decode` of each block, as the driver does."""
     try:
-        sequence = cs.load(path)
+        sequence = cs.load(path, oversampling=oversampling)
         blocks = sequence.decode()
     except cs.NotSupported:
         return "not-supported", None, None
@@ -118,6 +118,16 @@ def read(path: Path) -> tuple[str, object, list[dict] | None]:
     except cs.Rejected:
         return "rejected", None, None
     return "read", sequence, blocks
+
+
+def has_oversampled_gradient(sequence) -> bool:
+    """Whether a block of the sequence uses an oversampled arbitrary gradient (a wave shape and
+    time shape -1): the only gradient that the sampling mode of the reader changes."""
+    libraries = sequence.libraries
+    used = {g for row in libraries.blocks.tolist() for g in row[2:5] if g in libraries.grad}
+    return any(
+        libraries.grad[g]["wave_shape"] != 0 and libraries.grad[g]["time_shape"] == -1 for g in used
+    )
 
 
 def sample_points(dump: dict) -> tuple[np.ndarray, np.ndarray]:
@@ -172,13 +182,22 @@ def driver() -> str | None:
     return None
 
 
-def run_driver(mode: str, path: Path, stdin: str | None = None) -> tuple[str, str]:
+def oversampling_option(oversampling: str) -> list[str]:
+    """The driver's leading option for a sampling mode of oversampled gradients; none for the
+    reader's default, so that the call with no option is tested too."""
+    return [] if oversampling == "center" else [f"--oversampling={oversampling}"]
+
+
+def run_driver(
+    mode: str, path: Path, stdin: str | None = None, oversampling: str = "center"
+) -> tuple[str, str]:
     """("ok", stdout), ("reject", stderr) or ("crash", reason) for one call of the driver. The
-    mode "" is the driver's first mode: load and decode, the exit status only."""
+    mode "" is the driver's first mode: load and decode, the exit status only. `oversampling` is
+    the sampling mode of oversampled gradients (`--oversampling`)."""
     try:
         result = subprocess.run(
-            [driver(), *([mode] if mode else []), str(path)], input=stdin,
-            capture_output=True, text=True, timeout=TIMEOUT, check=False,
+            [driver(), *oversampling_option(oversampling), *([mode] if mode else []), str(path)],
+            input=stdin, capture_output=True, text=True, timeout=TIMEOUT, check=False,
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         return "crash", f"no end in {TIMEOUT} s"
@@ -189,8 +208,10 @@ def run_driver(mode: str, path: Path, stdin: str | None = None) -> tuple[str, st
     return "crash", f"exit status {result.returncode}: {result.stderr[-300:]}"
 
 
-def driver_samples(path: Path, block_index: np.ndarray, time_us: np.ndarray) -> np.ndarray:
+def driver_samples(
+    path: Path, block_index: np.ndarray, time_us: np.ndarray, oversampling: str = "center"
+) -> np.ndarray:
     lines = "".join(f"{b} {t!r}\n" for b, t in zip(block_index.tolist(), time_us.tolist()))
-    verdict, out = run_driver("--sample", path, lines)
+    verdict, out = run_driver("--sample", path, lines, oversampling)
     assert verdict == "ok", out
     return np.array(out.split(), dtype=np.float64).reshape(-1, 3)

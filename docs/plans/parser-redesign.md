@@ -17,13 +17,13 @@ pulseq-analysis turns a Pulseq file into waveforms, and it measures them. It doe
 whether a file is valid, and it performs no checks. It reads a file through one of two
 **interpreters**:
 
-- **`cpp-siemens`** (the default): a faithful replica of the C++ reader, the reader of the
+- **`cpp-siemens`** (by name, P19): a faithful replica of the C++ reader, the reader of the
   scanner's interpreter on Siemens systems, with all its limits. If the C++ reader makes a
   waveform, `cpp-siemens` makes the same waveform, including the reader's misreadings, clamps,
   resampling, defaults and its 10 µs gradient raster. If the C++ reader rejects a file,
   `cpp-siemens` rejects it. Its engine is the C++ reader itself, wrapped and run in the
   process (P11, 7.6), in its own precompiled package (P12).
-- **`spec`**: as true as possible to the written specification. It reads each field as the
+- **`spec`** (the default, P19): as true as possible to the written specification. It reads each field as the
   specification types it, takes any raster that the file defines, and gives no waveform where
   the specification says a file "must" not be as it is. Where the specification is silent, it
   makes a documented choice (section 6).
@@ -64,6 +64,8 @@ P12 to P17 follow the review of R2, R3 and R4 (2026-10-12).
 | P15 | Task 5a of `own-parser-tasks.md` is re-planned here as R14: `load` runs on an interpreter's output. The C++-replica code of task 2 (`_rf_resample`, `_rf_time_step`, the RF decoding of `events.py`) is retired once the wrapper covers it. |
 | P16 | Task 4 of `own-parser-tasks.md` is re-planned here as R15: a `pypulseq.Sequence` built in memory is written to `.seq` text with pypulseq's writer, then read through an interpreter. |
 | P17 | The findings move to pulseq-checks (the user, 2026-10-12, after the review). pulseq-analysis keeps the readings, the interpreters, their coded rejections and the measurements; it has no `Finding` type, catalogue, `compare` or warnings. pulseq-checks finds each discrepancy from pulseq-analysis's public readings (7.4), and owns the catalogue, the severity and the reports (7.5). |
+| P18 | R6b (2026-10-12): `pulseq-cpp-siemens` is the extra `cpp-siemens` of pulseq-analysis; how a git-URL install gets it is decided at release time; today's strict reader stays as the interim interpreter `strict` until R11 (5.4); and `CppSiemens(oversampling=...)` exposes the reader's three sampling modes of an oversampled gradient (`"center"`, `"edge"`, `"preserve"`), in pulseq-cpp-siemens and its oracle. |
+| P19 | The default interpreter is the fast one (the user, 2026-10-12, in R6b): `strict` until R11, then `spec`. `cpp-siemens` decodes every block with the C++ reader to give its verdict (P2), about seven times as long (4 s for a file of 21 MB with 900 000 blocks, against 0.6 s), so it is read by name: `interpreter="cpp-siemens"`. This replaces "`cpp-siemens` (the default)" of section 1 and Q6. |
 
 The choice between "C++ reader first" and "specification first" is no longer open, so
 `docs/plans/spec-first-study.md` is not needed. It is not committed; its readings of the
@@ -78,7 +80,7 @@ specification feed section 6.
 | Q3 | Rotations (D49) | `cpp-siemens` applies the rotation to the gradients, as the scanner plays them; `load` no longer refuses the rotation extension. `spec` applies it too. |
 | Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file, with every violation. pulseq-checks reports that `cpp-siemens` reads it. |
 | Q5 | `spec` where the specification is silent | Section 6, row by row. |
-| Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` by default, or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
+| Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` (the default was changed by P19: `strict`, then `spec`), or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
 
 Two choices give a finding of pulseq-checks although the file reads: a repeated section or
 definition (D10, D12), and an RF time shape read as points (D35, D36), where the reading goes
@@ -117,7 +119,7 @@ and its record entry establishes it with the oracle first.
 | D08 | Play | Rejects | Ignore an unknown section, as C++. Finding. |
 | D09 | Play | Rejects | Ignore `[DELAYS]` from 1.4.0, as C++. Finding. |
 | D10 | Play | Rejects | A section twice: the last, as C++. Finding. |
-| D11 | Reject / Play | Presence and value | Reject what C++ rejects (a missing raster; nan and inf; 0 or negative `GradientRasterTime`); accept the other values as C++ does. To establish what C++ plays with a raster of 0 or below for the others. Finding. |
+| D11 | Reject / Play | Presence and value | Reject what C++ rejects (a missing raster; nan and inf; a `GradientRasterTime` other than 10 µs, 0 and below included, only in a file with an arbitrary gradient: `gradient.raster`, D28); accept the other values as C++ does (R6b's runs: a gradient raster of 0 with trapezoids only, and 0 or negative values of the other rasters, read). Finding. |
 | D12 | Play | Rejects | A definition twice: the last. Finding. |
 | D13 | Play | Text | As C++ (text and numbers). Finding where they differ. |
 | D14 | Reject / Play | Strict | Per form: reject what C++ rejects (`30.5` in an integer column of `[BLOCKS]`); reproduce `+30`, the misread `100.5` RF delay (P3), short and long rows, NaN and negative values as C++ holds them. Finding. |
@@ -125,7 +127,7 @@ and its record entry establishes it with the oracle first.
 | D16 | Play | Reads | Reproduce the misreading of `-100.5` and the 31-character hint (P3). Finding. |
 | D17 | Play | Rejects | Any `use` character, as C++. Finding. |
 | D18 | Play | float64 | P6. Finding where float32 changes a value. |
-| D19 | Play | Rejects | IDs that are not positive or not unique: the last wins, as C++. To establish per table. Finding. |
+| D19 | Play | Rejects | IDs that are not positive or not unique: the last wins, as C++; a `[TRAP]` row replaces a `[GRADIENTS]` row of the same ID (one library, `[TRAP]` read later; R6b's runs). Finding. |
 | D20 | Play | Rejects | Block IDs out of order: file order, as C++. Finding. |
 | D21 | Reject / Play | Rejects | Reject an event that does not exist (as C++) and a missing shape (UB, 5.3). Reproduce the extension cases (the list ends; an empty object; a label left out). Finding. |
 | D22 | Play / Reject | Rejects | Time ID -1 for a 1.4 gradient: as C++. For an RF event, the reader looks up the time shape -1, which does not exist (a case of D21): reject (`ub.rf-time-id-minus-1`, 5.3). |
@@ -162,7 +164,7 @@ and its record entry establishes it with the oracle first.
 | D53 | Play | As C++ | No change. Finding (CRLF). |
 | D54 | Play | Rejects | Accept, as C++. Finding. |
 | D55 | Agree | Text | No change. |
-| D56 | Play / Reject | Accepts | The last section with no blank line after it: reading it fails the stream at the end of the file, and the reader skips each section that it reads after it, in its own order, until it resets the stream after `[SHAPES]` (as D05). For example a file with no `[SHAPES]` section loses its definitions and is rejected ("AdcRasterTime is not present"); with a `[SHAPES]` section it reads. Writers always end with a blank line. Reproduced by the wrapper; finding. New entry of the record (R10). |
+| D56 | Play / Reject | Accepts | The last section with no blank line after it: reading it fails the stream at the end of the file, and the reader skips each section that it reads after it, in its own order, until it resets the stream after `[SHAPES]` (as D05). For example a file whose last section is `[TRAP]` loses its definitions and is rejected ("AdcRasterTime is not present", `definitions.skipped`); a `[SHAPES]` section helps only when it comes after the failing section (R6b's runs: `[SHAPES]` before `[TRAP]` does not), `[DEFINITIONS]` last gives 0 blocks, and `[BLOCKS]` last reads. Writers always end with a blank line. Reproduced by the wrapper; finding. New entry of the record (R6b). |
 
 ### 5.2 What `cpp-siemens` rejects
 
@@ -199,6 +201,53 @@ check of `ub.gradient-shape-0` reads the rows of `[GRADIENTS]` and `[TRAP]` agai
 reader's own `getline` and `sscanf`, as the version gate reads `[VERSION]`, since in the
 libraries such an event looks like a `[TRAP]` row. Their fixtures are in
 `packages/pulseq-cpp-siemens/tests/fixtures/`.
+
+### 5.4 Today's rules (R6b)
+
+`cpp-siemens` applies none of the rules of the strict reader (`seqfile.reader`): it rejects what
+the C++ reader rejects, with the codes of `seqfile.cpp_siemens.CODES`. Until R11, the strict
+reader stays as the interim interpreter `strict` (the user, 2026-10-12), with its rules, except
+that a version outside 1.4.0–1.5.x raises the "not supported" exception (Q1). For R11, each rule
+is kept for `spec`, changed, or removed (section 6):
+
+| Rule | `cpp-siemens` | `spec` (R11) |
+|---|---|---|
+| `version.missing` | `version.missing` | Kept (D02). |
+| `version.invalid` | `version.invalid`, for a line that does not decode; `5.0` reads as 5 (D04) | Kept (D04). |
+| `version.unsupported` | `NotSupported` (Q1) | Removed here already: `NotSupported` (Q1). |
+| `definitions.raster-missing` | `definitions.raster-missing` | Kept (D11). |
+| `definitions.raster-invalid` | `definitions.raster-invalid` for nan and inf; `gradient.raster` for a gradient raster of 0 or below with an arbitrary gradient | Kept (D11). |
+| `definitions.duplicate` | Reads the last (D12) | Removed: the last wins (D12). |
+| `section.unknown` | Ignores it (D08) | Removed: ignored (D08). |
+| `section.delays` | Ignores it (D09) | Removed: ignored (D09). |
+| `section.duplicate` | Reads the last (D10) | Removed: the copies read as one (D10). |
+| `syntax.encoding` | Reads the bytes | Kept (D14), to settle in R11. |
+| `syntax.line` | Drops the rows after a blank line (D06) | Changed: rows after a blank or `#` line are read (D06); a data line before the first header stays. |
+| `syntax.columns` | `syntax.row` for too few fields; reads a longer row (D14) | Kept (D14). |
+| `syntax.integer` | `syntax.row` for `30.5` and `1e2`; reads `+30` (D14) | Kept, but `+30` reads as 30 (D14). |
+| `syntax.number` | Reads NaN and inf as the reader holds them (D14) | Kept (D14). |
+| `syntax.use` | Any character (D17) | Kept (D17). |
+| `syntax.negative` | Reads negative values (D14) | Kept for delays (D14); to settle in R11 for the others. |
+| `syntax.shape` | `syntax.shape` for a line that does not decode; a shape with no blank line after it ends the section (D07, then `ub.shape-missing`) | Kept (D07). |
+| `id.positive`, `id.unique`, `id.gradient-unique` | The last wins (D19) | Kept (D19). |
+| `ref.unresolved` | `ref.unresolved` (events), `ub.shape-missing` (shapes), `ub.extension-cycle` (D23); reads the extension cases (D21) | Kept (D21, D23). |
+| `blocks.empty` | Reads an empty sequence (D24) | Kept (D24). |
+| `blocks.order` | File order (D20) | Removed: file order (D20). |
+| `block.event-too-long` | Reads it (D25) | Kept (D25). |
+| `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat` | Reads it (D26); `syntax.row` for a dwell with a decimal point (D15) | Kept (D26). |
+| `gradient.nonzero-start-delay`, `gradient.nonzero-end-align` | Reads it (D27) | Kept (D27). |
+| `shape.length` | `ub.shape-decompression` for a longer shape; reads a shorter one (D29) | Kept (D29). |
+| `shape.range` | Clamps (D30) | Kept (D30). |
+| `shape.rf-magnitude-negative` | Clamps to 0 (D31) | Removed: a negative magnitude plays (D31). |
+| `shape.rf-phase-range` | Clamps (D32) | Removed: the phase plays as written (D32). |
+| `shape.empty` | `ub.shape-empty` (D33) | Kept (D33). |
+| `shape.rf-time-grid` | Plays the step, the first time ignored (D35) | Removed: read as the format's tools read it (D35). |
+| `shape.rf-time-end` | `ub.rf-time-overrun` (D36) | Removed: read as points (D36). |
+| `shape.event-length` | `ub.rf-shape-lengths` for a shorter RF phase; plays a longer one (D34); `shape.ext-trap-lengths` for an extended trapezoid | Kept (D34). |
+| `extension.required-unknown` | `extension.required-unknown` (D47) | Kept (D47). |
+| `extension.per-block` | The first (D48) | Kept (D48). |
+| `layer1.gradient-ends` | Reads it, with the reader's `FLOAT_UNDEFINED` ends (D39, D40) | Kept (D39, D40). |
+| `signature.invalid` | Reads it (D54) | Kept (D54). |
 
 ## 6. The `spec` interpreter
 
@@ -319,9 +368,9 @@ The measurements (R14) take the waveforms of one interpreter.
 
 ```python
 seqfile.read_as_written(path) -> AsWritten  # the "as written" reading (P13), with line numbers
-seqfile.read_seqfile(path, interpreter="cpp-siemens") -> SequenceData  # .interpreter
+seqfile.read_seqfile(path, interpreter="strict") -> SequenceData  # .interpreter; "spec" from R11
 synth.decode(data) -> ...  # the events and the waveform of each block, by data.interpreter
-analyses.load(path, interpreter="cpp-siemens") -> ...  # the measurements
+analyses.load(path, interpreter="strict") -> ...  # the measurements (R14); "spec" from R11
 
 # An interpreter by name, or as an object with its settings:
 seqfile.read_seqfile(path, interpreter=CppSiemens(oversampling="edge"))  # D43
@@ -611,8 +660,12 @@ in its own task, R13.
 - **Wheels:** cibuildwheel for macOS (arm64, x86_64), Linux (manylinux x86_64, aarch64) and
   Windows (x86_64), stable ABI `cp312-abi3`; the sdist carries the reader's files. It is
   released only when the pinned commit or a check changes.
-- **pulseq-analysis** stays pure Python and depends on it. Whether the dependency is required,
-  or an extra so that `spec` works without it, is settled in R6b.
+- **pulseq-analysis** stays pure Python and depends on it through the extra
+  `pulseq-analysis[cpp-siemens]` (the user, 2026-10-12, in R6b): without it, `strict` (and later
+  `spec`) works, and `cpp-siemens` raises `ImportError` that names the extra. Until a release,
+  `[tool.uv.sources]` takes the package from `packages/pulseq-cpp-siemens` (uv builds it from the
+  same commit for a git-URL install; a C++ compiler is needed); how a release gets it (wheels from
+  an index, or this source) is decided at release time (the user, 2026-10-12).
 
 ## 8. D46: `[EXTENSIONS]` as the last section
 

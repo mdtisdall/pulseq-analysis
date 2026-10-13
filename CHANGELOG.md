@@ -74,6 +74,35 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `Section`, `Table`, `Column`, `Line`, `ShapeWritten`) are part of the
   contract with pulseq-checks, which compares it with what an interpreter
   read; `docs/usage.md` documents them.
+- The interpreters (`docs/usage.md`, "The interpreters"). `read_seqfile(path,
+  interpreter="strict")` (`seqfile.read_seqfile`) reads a file through
+  an interpreter, by name or as an object (`interpreters.CppSiemens`,
+  `interpreters.Strict`), and `SequenceData.interpreter` records it with its
+  settings:
+  - `cpp-siemens`, by name: the C++ reader of the scanner's interpreter on
+    Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), in
+    the process, through the package pulseq-cpp-siemens of
+    `packages/pulseq-cpp-siemens/` (the extra `pulseq-analysis[cpp-siemens]`).
+    It reads what the reader reads, misreadings included, and rejects what it
+    rejects, with a code for each reason (`cpp_siemens.CODES`; `ub.*` for a
+    case of the reader's undefined behaviour). Its model is built from the
+    reader's own libraries, and `SequenceData.reading` keeps the reader's
+    object. `CppSiemens(oversampling="center" | "edge" | "preserve")` sets
+    the reader's sampling mode of an oversampled arbitrary gradient (D43).
+  - `strict`, the default: the strict reader of the package
+    (`reader.read_strict`), with its rules, until the `spec` interpreter
+    replaces it, also as the default. The default is the fast interpreter:
+    `cpp-siemens` decodes every block to give its verdict, about seven times
+    as long.
+- `errors.NotSupported` (a `NotImplementedError`): a file that the package
+  does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x,
+  a binary Pulseq file, a folder.
+- `synth.decode(data)` (`decoding.decode`): the decoding of a model by its
+  interpreter. For `cpp-siemens`, the reader's own `decodeBlock` of each block
+  and `gradientsAt` (`decoding.CppSiemensDecoding`); for `strict`, the events
+  of `events` (`decoding.StrictDecoding`).
+- `docs/discrepancies.md` has a new entry, D56: the last section of a file
+  with no blank line after it.
 
 ### Changed
 
@@ -133,6 +162,28 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   line, where it gave `shape.length` with a message of numpy. It reads a file
   of 21 MB with 916 266 blocks in 0.51 s, where it took 0.56 s (Apple M1 Max).
 - The spec of each analysis is not changed: each `spec.version` stays 1.
+- `read_seqfile` reads through the interpreter `strict` by default, with the
+  same verdicts as before (but `NotSupported`, below). `read_seqfile(path,
+  "cpp-siemens")` reads what the C++ reader reads. Among the fixtures it reads
+  42 files that `strict` rejects (for example an unknown section, a definition
+  twice, IDs out of order, a shape outside [-1, 1]), and it rejects three that
+  `strict` reads: `valid_arbitrary_gradient_4us_raster.seq` (an arbitrary
+  gradient on a gradient raster other than 10 µs, `gradient.raster`, D28),
+  `oracle/koma_v1.5_unknown_ext.seq` (`[EXTENSIONS]` as the last section,
+  `section.extensions-last`, D46) and `undefined/version_last.seq`
+  (`[VERSION]` as the last section, so the reader reads no shape:
+  `ub.shape-missing`, D05). It also rejects an ADC dwell time written with a
+  decimal point (`syntax.row`, D15) and a quaternion whose norm is more than
+  1e-3 from 1 (`rotation.norm`, D49).
+- `reader.read_seqfile` is `reader.read_strict`. `SeqFileError` and
+  `Violation` are in `errors` (`reader` still has them); a `SeqFileError` has
+  `interpreter` and `codes`, and its message names the interpreter.
+- A version outside 1.4.0 to 1.5.x raises `NotSupported`, also in `strict`;
+  the rule `version.unsupported` is removed.
+- `SequenceData` has two new fields: `interpreter` and `reading` (not compared
+  by `==`).
+- `events.decode_rf`, `events.decode_gradients` and `events.decode_adc` raise
+  `TypeError` for the model of `cpp-siemens`: its decoding is the reader's.
 
 ### Removed
 

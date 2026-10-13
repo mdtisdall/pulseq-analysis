@@ -17,19 +17,21 @@ from pulseq_analysis.seqfile.reader import (
     RULES,
     SeqFileError,
     Violation,
-    read_seqfile,
+    read_strict,
 )
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 ORACLE = SEQFILES / "oracle"
+
+# The fixtures of a version outside 1.4.0 to 1.5.x, which the package does not read (Q1 of
+# docs/plans/parser-redesign.md): `NotSupported`, not a rule.
+NOT_SUPPORTED = {"bad_version_unsupported_1_3.seq", "bad_version_unsupported_1_6.seq"}
 
 # The rule that each `bad_*.seq` fixture of `tests/seqfiles` breaks, and only that rule. Each
 # fixture is a copy of a valid fixture with one change.
 FIXTURE_RULES = {
     "bad_version_missing.seq": "version.missing",
     "bad_version_invalid.seq": "version.invalid",
-    "bad_version_unsupported_1_3.seq": "version.unsupported",
-    "bad_version_unsupported_1_6.seq": "version.unsupported",
     "bad_definitions_raster_missing.seq": "definitions.raster-missing",
     "bad_definitions_raster_invalid.seq": "definitions.raster-invalid",
     "bad_definitions_duplicate.seq": "definitions.duplicate",
@@ -118,7 +120,7 @@ def _write(directory, text, name):
 
 def violations_of(path):
     with pytest.raises(SeqFileError) as info:
-        read_seqfile(path)
+        read_strict(path)
     return info.value
 
 
@@ -141,14 +143,14 @@ def violations_of(path):
     ],
 )
 def test_valid_fixture_loads_with_its_version(name, version):
-    data = read_seqfile(SEQFILES / name)
+    data = read_strict(SEQFILES / name)
     assert isinstance(data, SequenceData)
     assert data.version == version
     assert data.origin == "file"
 
 
 def test_valid_1_5_1_fixture_has_the_values_of_the_file():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     assert data.rasters == Rasters(gradient=1e-5, rf=1e-6, adc=1e-7, block_duration=1e-5)
     assert data.definitions["FOV"] == ("0.1", "0.1", "0.005")
     assert data.definitions["Name"] == ("valid_1_5_1",)
@@ -188,7 +190,7 @@ def test_valid_1_5_1_fixture_has_the_values_of_the_file():
 
 
 def test_valid_1_5_1_fixture_has_the_extensions_of_the_file():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     ext = data.extensions
     assert ext.entries["next"].tolist() == [2, 0, 0, 0, 0, 3, 0]
     assert ext.type_ids == {
@@ -211,7 +213,7 @@ def test_valid_1_5_1_fixture_has_the_extensions_of_the_file():
 
 
 def test_extension_tables_of_a_file_without_extensions_are_empty():
-    ext = read_seqfile(SEQFILES / "valid_1_4_0.seq").extensions
+    ext = read_strict(SEQFILES / "valid_1_4_0.seq").extensions
     for table in (ext.entries, ext.triggers, ext.labelset, ext.labelinc, ext.soft_delays):
         assert len(table) == 0
     assert len(ext.rotations) == 0
@@ -221,14 +223,14 @@ def test_extension_tables_of_a_file_without_extensions_are_empty():
 
 def test_valid_1_4_fixtures_have_the_1_5_layout_with_the_values_of_the_format():
     for name in ("valid_1_4_0.seq", "valid_1_4_1.seq"):
-        data = read_seqfile(SEQFILES / name)
+        data = read_strict(SEQFILES / name)
         (rf,) = data.rf
         assert (rf["freq_ppm"], rf["phase_ppm"], rf["use"]) == (0, 0, "u")
         assert np.isnan(rf["center"])
         assert rf["delay"] == 1e-4
         assert data.adc["phase_shape_id"].tolist() == [0]
         assert (data.adc["freq_ppm"][0], data.adc["phase_ppm"][0]) == (0, 0)
-    data = read_seqfile(SEQFILES / "valid_1_4_1.seq")
+    data = read_strict(SEQFILES / "valid_1_4_1.seq")
     # The gradient with a time shape: the amplitude times the first and last sample.
     (grad,) = data.grad
     assert grad["first"] == pytest.approx(400000 * 0.2)
@@ -237,11 +239,11 @@ def test_valid_1_4_fixtures_have_the_1_5_layout_with_the_values_of_the_format():
 
 
 def test_signature_matches_is_reported_and_is_not_a_rule():
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq").signature.matches is True
-    assert read_seqfile(SEQFILES / "valid_crlf.seq").signature.matches is True
-    signature = read_seqfile(SEQFILES / "valid_signature_mismatch.seq").signature
+    assert read_strict(SEQFILES / "valid_1_5_1.seq").signature.matches is True
+    assert read_strict(SEQFILES / "valid_crlf.seq").signature.matches is True
+    signature = read_strict(SEQFILES / "valid_signature_mismatch.seq").signature
     assert (signature.type, signature.hash, signature.matches) == ("md5", "0" * 32, False)
-    assert read_seqfile(SEQFILES / "valid_no_signature.seq").signature is None
+    assert read_strict(SEQFILES / "valid_no_signature.seq").signature is None
 
 
 def _signature_variants():
@@ -290,20 +292,20 @@ def test_signature_matches_hashes_the_lines_as_the_scanner_reader_does(
     signature = b"[SIGNATURE]" + newline + b"Type md5" + newline + b"Hash " + digest + newline
     path = tmp_path / "signed.seq"
     path.write_bytes(before + signature)
-    assert read_seqfile(path).signature.matches is True
+    assert read_strict(path).signature.matches is True
     # The same file with a hash of the bytes before the line end that precedes `[SIGNATURE]`
     # does not match, unless the two rules hash the same bytes.
     cut = (before + signature).find(b"\n[SIGNATURE]")
     old = hashlib.md5((before + signature)[:cut]).hexdigest().encode()
     path.write_bytes(before + signature.replace(digest, old))
-    assert read_seqfile(path).signature.matches is (old == digest)
+    assert read_strict(path).signature.matches is (old == digest)
 
 
-def test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file(tmp_path):
+def test_read_strict_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file(tmp_path):
     path = SEQFILES / "valid_1_4_0.seq"
-    assert read_seqfile(str(path)) == read_seqfile(path)
+    assert read_strict(str(path)) == read_strict(path)
     with pytest.raises(FileNotFoundError):
-        read_seqfile(tmp_path / "missing.seq")
+        read_strict(tmp_path / "missing.seq")
 
 
 # ---- The rules ----
@@ -311,7 +313,7 @@ def test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_fil
 
 def test_each_bad_fixture_is_listed_and_each_rule_has_a_fixture():
     files = {p.name for p in SEQFILES.glob("bad_*.seq")}
-    assert files - {"bad_many.seq"} == set(FIXTURE_RULES)
+    assert files - {"bad_many.seq"} - NOT_SUPPORTED == set(FIXTURE_RULES)
     covered = set(FIXTURE_RULES.values()) | {
         rule for _, rule, _ in ORACLE_FILES.values() if rule is not None
     }
@@ -327,10 +329,16 @@ def test_bad_fixture_breaks_its_rule_and_no_other(name, rule):
     assert str(SEQFILES / name) in str(error)
 
 
+@pytest.mark.parametrize("name", sorted(NOT_SUPPORTED))
+def test_a_version_outside_1_4_to_1_5_is_not_supported(name):
+    with pytest.raises(reader.NotSupported, match="outside 1.4.0 to 1.5.x") as caught:
+        read_strict(SEQFILES / name)
+    assert isinstance(caught.value, NotImplementedError)
+
+
 @pytest.mark.parametrize(
     ("name", "section", "line"),
     [
-        ("bad_version_unsupported_1_3.seq", "VERSION", 4),
         ("bad_version_missing.seq", None, None),
         ("bad_definitions_raster_missing.seq", "DEFINITIONS", None),
         ("bad_definitions_raster_invalid.seq", "DEFINITIONS", 13),
@@ -427,9 +435,9 @@ def test_syntax_of_numbers_in_a_table(tmp_path):
         "1 1000000. 100 200 100 100\n",
     ):
         assert (
-            read_seqfile(_write(tmp_path, base.replace(amplitude, good), "g.seq")).trap[
-                "amplitude"
-            ][0]
+            read_strict(_write(tmp_path, base.replace(amplitude, good), "g.seq")).trap["amplitude"][
+                0
+            ]
             == 1e6
         )
     for bad in ("1 inf 100 200 100 100\n", "1 1,5 100 200 100 100\n", "1 1e999 100 200 100 100\n"):
@@ -454,11 +462,11 @@ def test_an_empty_file_and_a_file_with_only_a_version_list_what_is_missing(tmp_p
 def test_a_comment_with_a_non_ascii_character_is_read(tmp_path):
     text = (SEQFILES / "valid_no_signature.seq").read_text()
     path = _write(tmp_path, text.replace("# NUM DUR", "# duration in \u00b5s, NUM DUR"), "mu.seq")
-    assert read_seqfile(path) == read_seqfile(SEQFILES / "valid_no_signature.seq")
+    assert read_strict(path) == read_strict(SEQFILES / "valid_no_signature.seq")
 
 
 def test_comments_and_blank_lines_between_sections_are_read_as_nothing():
-    plain = read_seqfile(SEQFILES / "valid_comments_between_sections.seq")
+    plain = read_strict(SEQFILES / "valid_comments_between_sections.seq")
     assert plain.skipped_extensions == ()
     assert plain.blocks["id"].tolist() == list(range(1, 10))
     assert len(plain.shapes) == 9 and len(plain.extensions.labelset) == 1
@@ -514,8 +522,8 @@ def test_definitions_and_signature_skip_comments_and_blanks_before_the_first_lin
     """`read.m` skips them for these two sections (`skipComments`, line 460), and for no other."""
     text = (SEQFILES / "valid_1_5_1.seq").read_text()
     path = _write(tmp_path, text.replace("[DEFINITIONS]\n", "[DEFINITIONS]\n# a\n\n# b\n"), "d.seq")
-    expected = read_seqfile(SEQFILES / "valid_1_5_1.seq")
-    unsigned = dataclasses.replace(read_seqfile(path), signature=None)  # the hash changes
+    expected = read_strict(SEQFILES / "valid_1_5_1.seq")
+    unsigned = dataclasses.replace(read_strict(path), signature=None)  # the hash changes
     assert unsigned == dataclasses.replace(expected, signature=None)
     # After the first line, a comment ends the section: the rest of the signature is not read.
     signed = (SEQFILES / "valid_1_5_1.seq").read_text()
@@ -531,7 +539,7 @@ def test_a_comment_line_ends_a_shape_like_a_blank_line(tmp_path):
     blank and `#` lines to the next `shape_id` (line 659)."""
     text = (SEQFILES / "valid_no_signature.seq").read_text()
     path = _write(tmp_path, text.replace("\n\nshape_id 2", "\n# a comment\nshape_id 2"), "e.seq")
-    assert read_seqfile(path) == read_seqfile(SEQFILES / "valid_no_signature.seq")
+    assert read_strict(path) == read_strict(SEQFILES / "valid_no_signature.seq")
     # A comment among the samples cuts the shape: the samples after it are outside a shape.
     cut = text.replace("0.3\n0.4\n0.5\n", "0.3\n# a comment\n0.4\n0.5\n")
     rules = {v.rule for v in violations_of(_write(tmp_path, cut, "cut.seq")).violations}
@@ -583,7 +591,7 @@ def test_a_repeated_block_id_is_id_unique_and_not_blocks_order(tmp_path):
 def test_required_extensions_is_an_extension_rule_from_1_5_1_only(tmp_path):
     text = (SEQFILES / "valid_1_5_0.seq").read_text()
     path = _write(tmp_path, text.replace("Name valid_1_5_0", "RequiredExtensions FOO"), "r.seq")
-    data = read_seqfile(path)
+    data = read_strict(path)
     assert data.definitions["RequiredExtensions"] == ("FOO",)
     assert data.required_extensions == ()
 
@@ -613,7 +621,7 @@ def _with_shape(directory, shape_id, samples):
 def test_an_rf_magnitude_sample_below_minus_the_tolerance_is_rejected(tmp_path, sample, rule):
     path = _with_shape(tmp_path, 1, [0.5] * 98 + [sample, sample])
     if rule is None:
-        read_seqfile(path)
+        read_strict(path)
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {rule}
@@ -639,7 +647,7 @@ def test_an_rf_phase_sample_outside_0_to_1_is_rejected_and_a_full_turn_is_not(
 ):
     path = _with_shape(tmp_path, 2, [0.25] * 98 + [sample, sample])
     if rule is None:
-        read_seqfile(path)
+        read_strict(path)
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {rule}
@@ -648,9 +656,9 @@ def test_an_rf_phase_sample_outside_0_to_1_is_rejected_and_a_full_turn_is_not(
 
 def test_the_rf_shape_rules_do_not_check_a_gradient_shape_or_the_phase_shape_of_an_adc(tmp_path):
     """A negative gradient waveform, and a shape of the ADC phase beyond [0, 1), are valid."""
-    gradient = read_seqfile(_with_shape(tmp_path, 4, [-0.5] * 10))
+    gradient = read_strict(_with_shape(tmp_path, 4, [-0.5] * 10))
     assert gradient.shapes[4].samples().tolist() == [-0.5] * 10
-    adc = read_seqfile(_with_shape(tmp_path, 8, [-2] + [3] * 7))
+    adc = read_strict(_with_shape(tmp_path, 8, [-2] + [3] * 7))
     assert adc.adc["phase_shape_id"].tolist() == [0, 8]
     assert adc.shapes[8].samples().tolist() == [-2] + [3] * 7
 
@@ -685,7 +693,7 @@ def test_a_shape_with_no_sample_used_by_an_rf_or_gradient_event_is_shape_empty(
     text += "\n\nshape_id 10\nnum_samples 0\n\nshape_id 11\nnum_samples 0\n"
     path = _write(tmp_path, text, "empty.seq")
     if empty is None:
-        assert read_seqfile(path).shapes[10].num_samples == 0
+        assert read_strict(path).shapes[10].num_samples == 0
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {"shape.empty"}
@@ -711,7 +719,7 @@ def test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0(tmp_path, first_t
     assert old in text
     path = _write(tmp_path, text.replace(old, new), "start.seq")
     if rule is None:
-        assert read_seqfile(path).grad["time_id"].tolist() == [4]
+        assert read_strict(path).grad["time_id"].tolist() == [4]
     else:
         error = violations_of(path)
         assert {v.rule for v in error.violations} == {rule}
@@ -721,7 +729,7 @@ def test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0(tmp_path, first_t
     old15 = "shape_id 6\nnum_samples 5\n0\n1\n3\n6\n10\n"
     assert old15 in text15
     late = text15.replace(old15, old15.replace("\n0\n1\n", "\n0.5\n1\n"))
-    assert read_seqfile(_write(tmp_path, late, "late.seq")).grad["time_id"].max() > 0
+    assert read_strict(_write(tmp_path, late, "late.seq")).grad["time_id"].max() > 0
 
 
 def _with_rf_time_shape(directory, time_samples, packed=None, n=100):
@@ -769,7 +777,7 @@ def test_an_rf_time_shape_that_the_reader_takes_as_regular_has_its_times_at_the_
 ):
     path = _with_rf_time_shape(tmp_path, None, packed)
     if rule is None:
-        assert read_seqfile(path).rf["time_id"].tolist() == [12]
+        assert read_strict(path).rf["time_id"].tolist() == [12]
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {rule}
@@ -791,7 +799,7 @@ def test_an_rf_time_shape_that_the_reader_resamples_must_not_be_read_past_its_en
 ):
     path = _with_rf_time_shape(tmp_path, 2, packed, n=2)
     if rule is None:
-        assert read_seqfile(path).rf["time_id"].tolist() == [12]
+        assert read_strict(path).rf["time_id"].tolist() == [12]
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {rule}
@@ -815,7 +823,7 @@ def test_the_end_of_an_rf_event_with_a_time_shape_is_the_end_that_the_reader_pla
         packed = [f"{x:.9g}" for x in times]
     path = _with_rf_time_shape(tmp_path, None, packed)
     if rule is None:
-        read_seqfile(path)
+        read_strict(path)
         return
     error = violations_of(path)
     assert {v.rule for v in error.violations} == {rule}
@@ -853,10 +861,12 @@ def test_random_edits_of_valid_files_give_a_model_or_a_seqfile_error(tmp_path):
             lines = lines or [""]
         path.write_text("\n".join(lines))
         try:
-            read_seqfile(path)
+            read_strict(path)
             outcomes["model"] += 1
         except SeqFileError as error:
             assert error.violations
+            outcomes["error"] += 1
+        except reader.NotSupported:
             outcomes["error"] += 1
     assert outcomes["model"] > 0 and outcomes["error"] > 100
 
@@ -937,7 +947,7 @@ def test_decompress_shape_rejects_a_code_that_is_not_num_samples_long(packed, nu
 
 
 def test_a_shape_of_the_file_is_decompressed_to_num_samples_when_read():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     assert data.shapes[9].num_samples == 15
     assert len(data.shapes[9].samples()) == 15
     assert data.shapes[9].samples()[-1] == pytest.approx(0.0)
@@ -948,7 +958,7 @@ def test_a_shape_of_the_file_is_decompressed_to_num_samples_when_read():
 
 
 def test_model_arrays_are_read_only_and_cannot_be_made_writable():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     arrays = [data.blocks, data.rf, data.grad, data.trap, data.adc, data.extensions.entries]
     arrays += [data.extensions.rotations, data.shapes[1].packed, data.extensions.rf_shims[1]]
     for array in arrays:
@@ -964,7 +974,7 @@ def test_model_arrays_are_read_only_and_cannot_be_made_writable():
 
 
 def test_model_mappings_and_fields_cannot_be_changed():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     for mapping in (
         data.definitions,
         data.shapes,
@@ -1002,19 +1012,21 @@ def test_model_without_values_of_a_target():
         "skipped_extensions",
         "signature",
         "origin",
+        "interpreter",
+        "reading",
     }
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     text = " ".join(str(t.dtype.names) for t in (data.rf, data.grad, data.trap, data.adc))
     assert not re.search(r"dead|ringdown|gamma|limit|b0", text)
 
 
 def test_models_are_equal_by_value_and_not_hashable(tmp_path):
-    first = read_seqfile(SEQFILES / "valid_1_4_1.seq")
-    second = read_seqfile(SEQFILES / "valid_1_4_1.seq")
+    first = read_strict(SEQFILES / "valid_1_4_1.seq")
+    second = read_strict(SEQFILES / "valid_1_4_1.seq")
     assert first is not second
     assert first == second  # also with the NaN `center`
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq") == read_seqfile(SEQFILES / "valid_1_5_1.seq")
-    assert first != read_seqfile(SEQFILES / "valid_1_4_0.seq")
+    assert read_strict(SEQFILES / "valid_1_5_1.seq") == read_strict(SEQFILES / "valid_1_5_1.seq")
+    assert first != read_strict(SEQFILES / "valid_1_4_0.seq")
     assert first != "valid_1_4_1.seq"
     with pytest.raises(TypeError):
         hash(first)
@@ -1024,11 +1036,11 @@ def test_models_are_equal_by_value_and_not_hashable(tmp_path):
         .read_text()
         .replace("1 1000 1 2 0 100 0 0", "1 1001 1 2 0 100 0 0")
     )
-    assert read_seqfile(_write(tmp_path, text, "changed.seq")) != first
+    assert read_strict(_write(tmp_path, text, "changed.seq")) != first
 
 
 def test_models_survive_pickle_and_deepcopy_with_their_values_and_immutability():
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     for clone in (pickle.loads(pickle.dumps(data)), copy.deepcopy(data)):
         assert clone == data
         assert not clone.blocks.flags.writeable
@@ -1052,7 +1064,7 @@ def test_oracle_file_loads_or_breaks_the_rule_that_it_must(name, expected):
         error = violations_of(path)
         assert {v.rule for v in error.violations} == {rule}
         return
-    data = read_seqfile(path)
+    data = read_strict(path)
     assert data.version == version
     assert (data.signature.matches if data.signature else None) is matches
     assert len(data.blocks) > 0
@@ -1071,7 +1083,7 @@ def test_oracle_corpus_has_each_feature_of_the_task():
     oversampled, compressed and uncompressed shapes, labels, triggers, soft delays, rotations,
     an extension that the parser skips, and signatures."""
     loaded = {
-        n: read_seqfile(ORACLE / n) for n, (_, rule, _) in ORACLE_FILES.items() if rule is None
+        n: read_strict(ORACLE / n) for n, (_, rule, _) in ORACLE_FILES.items() if rule is None
     }
     assert {d.version[:2] for d in loaded.values()} == {(1, 4), (1, 5)}
     time_ids = {t for d in loaded.values() for t in d.grad["time_id"].tolist()}
@@ -1095,7 +1107,7 @@ def test_oracle_amplitude_shapes_are_within_the_tolerance_of_the_range():
     for name, (_, rule, _) in ORACLE_FILES.items():
         if rule is not None:
             continue
-        data = read_seqfile(ORACLE / name)
+        data = read_strict(ORACLE / name)
         ids = set(data.rf["mag_id"].tolist()) | set(data.grad["shape_id"].tolist())
         excess += [
             np.abs(data.shapes[i].samples()).max() - 1 for i in ids if data.shapes[i].num_samples
@@ -1105,7 +1117,7 @@ def test_oracle_amplitude_shapes_are_within_the_tolerance_of_the_range():
 
 
 def test_oracle_spiral_of_1_5_has_the_oversampled_gradients_of_the_file():
-    data = read_seqfile(ORACLE / "koma_v1.5_spiral.seq")
+    data = read_strict(ORACLE / "koma_v1.5_spiral.seq")
     oversampled = data.grad[data.grad["time_id"] == -1]
     assert len(oversampled) > 0
     for row in oversampled:
@@ -1113,7 +1125,7 @@ def test_oracle_spiral_of_1_5_has_the_oversampled_gradients_of_the_file():
 
 
 def test_oracle_fid_of_the_pulseq_repository_has_the_values_of_the_text():
-    data = read_seqfile(ORACLE / "pulseq_fid.seq")
+    data = read_strict(ORACLE / "pulseq_fid.seq")
     assert data.definitions["Name"] == ("fid",)
     assert data.blocks["duration_ticks"][:4].tolist() == [43, 2000, 324, 100000]
     assert data.blocks["rf"][:4].tolist() == [1, 0, 0, 0]
@@ -1121,7 +1133,7 @@ def test_oracle_fid_of_the_pulseq_repository_has_the_values_of_the_text():
 
 
 def test_oracle_1_4_gradient_with_a_time_shape_has_its_end_samples():
-    data = read_seqfile(ORACLE / "koma_v1.4_gr-time-shaped.seq")
+    data = read_strict(ORACLE / "koma_v1.4_gr-time-shaped.seq")
     (grad,) = data.grad
     assert (grad["amplitude"], grad["time_id"], grad["delay"]) == (1257918.64134, 2, 0.0)
     assert (grad["first"], grad["last"]) == (0.0, 0.0)
@@ -1129,17 +1141,17 @@ def test_oracle_1_4_gradient_with_a_time_shape_has_its_end_samples():
 
 
 def test_oracle_label_extensions_of_a_1_4_file():
-    ext = read_seqfile(ORACLE / "koma_v1.4_label_test.seq").extensions
+    ext = read_strict(ORACLE / "koma_v1.4_label_test.seq").extensions
     assert ext.labelset["name"].tolist() == ["REV", "ECO", "ECO", "ECO", "LIN"]
     assert ext.labelset["value"].tolist() == [0, 0, 2, 1, 0]
     assert ext.labelinc.tolist() == [(1, 1, "LIN")]
 
 
 def test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed():
-    data = read_seqfile(ORACLE / "koma_v1.5_unknown_ext.seq")
+    data = read_strict(ORACLE / "koma_v1.5_unknown_ext.seq")
     assert data.skipped_extensions == ("UNKNOWN1", "UNKNOWN2")
     assert data.extensions.type_ids == {"UNKNOWN1": 1, "UNKNOWN2": 2}
-    radial = read_seqfile(ORACLE / "koma_v1.5_rotation_radial_tiny.seq")
+    radial = read_strict(ORACLE / "koma_v1.5_rotation_radial_tiny.seq")
     assert radial.required_extensions == ("ROTATIONS",)
     assert radial.extensions.rotations["q0"].tolist() == [1.0, 0.92388, 0.707107]
 
@@ -1152,7 +1164,7 @@ def test_files_of_pypulseq_are_read(tmp_path):
     for build in (build_repeating, build_worst):
         path = tmp_path / f"{build.__name__}.seq"
         build(40).write(str(path))
-        data = read_seqfile(path)
+        data = read_strict(path)
         assert len(data.blocks) == 40 * TR_BLOCKS
         assert data.version >= (1, 5, 0)
         assert data.signature is not None
@@ -1166,7 +1178,7 @@ def test_tables_agree_with_pypulseq_read_without_merging(tmp_path):
     for name, (_, rule, _) in ORACLE_FILES.items():
         if rule is not None:
             continue
-        data = read_seqfile(ORACLE / name)
+        data = read_strict(ORACLE / name)
         seq = pp.Sequence()
         try:
             with warnings.catch_warnings():

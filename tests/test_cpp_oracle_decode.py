@@ -3,7 +3,7 @@ the reader `ExternalSequence` of pulseq/pulseq (the reader of the Pulseq interpr
 scanner), in the modes `--dump` and `--sample` of `pulseq-cpp-oracle` (`tests/oracles/cpp.py`;
 `tests/cpp_oracle/README.md` has the fields and their units).
 
-Each test compares each file of `tests/seqfiles/` that `read_seqfile` and the oracle accept,
+Each test compares each file of `tests/seqfiles/` that `read_strict` and the oracle accept,
 except the files of `ORACLE_KNOWN_WRONG` and those with an arbitrary gradient on a gradient raster
 other than 10 us (`decodeBlock` fails on them). The event values of the reader are `float` (32
 bits), so two values agree when they differ by at most `REL` times the largest magnitude of the
@@ -32,7 +32,7 @@ from test_cpp_oracle import (
 )
 
 from pulseq_analysis.seqfile.model import SequenceData
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
 from pulseq_analysis.synth import _events, events, sampling, seq_index
 
 pytestmark = pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
@@ -108,8 +108,8 @@ def corpus():
         if name in ORACLE_KNOWN_WRONG:
             continue
         try:
-            data = read_seqfile(path)
-        except SeqFileError:
+            data = read_strict(path)
+        except (SeqFileError, NotSupported):
             continue
         if arbitrary_gradient_off_the_10_us_raster(data):
             skipped.append(f"{name}: {SKIPPED_ARBITRARY_GRADIENT_RASTER}")
@@ -117,7 +117,7 @@ def corpus():
         try:
             dump = cpp.dump(path)
         except cpp.OracleError as error:
-            # `test_the_oracle_and_read_seqfile_accept_and_reject_the_same_files` reports it.
+            # `test_the_oracle_and_read_strict_accept_and_reject_the_same_files` reports it.
             skipped.append(f"{name}: the oracle does not accept it: {error}")
             continue
         files.append(_File(name, path, data, dump))

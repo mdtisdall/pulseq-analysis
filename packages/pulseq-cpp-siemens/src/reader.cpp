@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -544,7 +545,25 @@ nb::object to_python(const BlockValues& v) {
 
 class Reader {
   public:
-    Reader() : sequence_(new ExternalSequence()) {}
+    // `oversampling` is the reader's sampling mode of an oversampled arbitrary gradient (time
+    // shape -1; cpp:2123-2146): "center" (the default of the reader: the samples at the centres
+    // of the rasters), "edge" (SetArbGradCenterSampling(false): those on the edges) or "preserve"
+    // (SetArbGradPreserveOversampling: all of them). It is set here, before any block is decoded,
+    // and stays: the decoded blocks are kept.
+    explicit Reader(const std::string& oversampling = "center")
+        : sequence_(new ExternalSequence()), oversampling_(oversampling) {
+        if (oversampling == "center") {
+            sequence_->SetArbGradCenterSampling(true);
+        } else if (oversampling == "edge") {
+            sequence_->SetArbGradCenterSampling(false);
+        } else if (oversampling == "preserve") {
+            sequence_->SetArbGradPreserveOversampling();
+        } else {
+            throw std::invalid_argument("oversampling is 'center', 'edge' or 'preserve'");
+        }
+    }
+
+    const std::string& oversampling() const { return oversampling_; }
 
     // The version gate: (found, major, minor, revision) as load would read them
     // (read_version_as_load), on a reader of its own. Load nothing else.
@@ -824,8 +843,12 @@ class Reader {
                 decoded = blocks_.count(static_cast<int>(block_index(i))) > 0 &&
                           block_index(i) == static_cast<int>(block_index(i));
             }
-            std::vector<double> g;
             for (size_t i = 0; i < n && decoded; i++) {
+                // A vector of its own for each time, as the driver has for each line:
+                // gradientsAt returns early where an oversampled gradient of 1 or 2 samples has
+                // none in the "edge" mode (cpp:3673-3677) and leaves the channels after it as
+                // they were.
+                std::vector<double> g;
                 blocks_[static_cast<int>(block_index(i))]->gradientsAt(time_us(i), g);
                 out[3 * i] = g[0];
                 out[3 * i + 1] = g[1];
@@ -834,6 +857,41 @@ class Reader {
         }
         if (!decoded) throw std::out_of_range("a block index is not a decoded block");
         return nb::ndarray<nb::numpy, double, nb::shape<-1, 3>>(out, {n, 3}, owner);
+    }
+
+    // GetBlock and decodeBlock of every block in play order, as the driver's first mode does:
+    // it goes on after a block that decodeBlock rejects (or that throws), and it keeps no
+    // block, so that a file of 900 000 blocks needs no more memory than one block. The index of
+    // the first block that is rejected, or -1. `messages` then has the messages of that block
+    // (also the messages of its decodeBlock), not those of the blocks before or after it.
+    int first_rejected_block() {
+        require_checked();
+        const int count = block_count();
+        int first = -1;
+        std::string first_messages;
+        {
+            nb::gil_scoped_release release;
+            ReaderCall call(messages_, block_raster_us_);
+            for (int index = 0; index < count; index++) {
+                messages_.clear();
+                bool ok = false;
+                try {
+                    std::unique_ptr<SeqBlock> block(sequence_->GetBlock(index));
+                    ok = sequence_->decodeBlock(block.get());
+                } catch (const std::exception& error) {
+                    messages_ += std::string("exception: ") + error.what() + "\n";
+                    ok = false;
+                }
+                if (ok) continue;
+                messages_ += "decodeBlock returned false for block " + std::to_string(index) + "\n";
+                if (first < 0) {
+                    first = index;
+                    first_messages = messages_;
+                }
+            }
+            messages_ = first_messages;
+        }
+        return first;
     }
 
     const std::string& messages() const { return messages_; }
@@ -868,6 +926,7 @@ class Reader {
     }
 
     std::unique_ptr<ExternalSequence> sequence_;
+    std::string oversampling_;
     std::map<int, std::unique_ptr<SeqBlock> > blocks_;
     std::string messages_;
     std::string text_;  // the bytes that load read
@@ -886,7 +945,7 @@ NB_MODULE(_reader, m) {
     m.attr("SIZEOF_LONG") = static_cast<int>(sizeof(long));
     m.attr("SIZEOF_INT") = static_cast<int>(sizeof(int));
     nb::class_<Reader>(m, "Reader")
-        .def(nb::init<>())
+        .def(nb::init<const std::string&>(), "oversampling"_a = "center")
         .def("read_version", &Reader::read_version, "data"_a)
         .def("load", &Reader::load, "data"_a)
         .def("libraries", &Reader::libraries)
@@ -896,5 +955,7 @@ NB_MODULE(_reader, m) {
         .def("decode_block", &Reader::decode_block, "index"_a)
         .def("ensure_decoded", &Reader::ensure_decoded, "indices"_a)
         .def("gradients_at", &Reader::gradients_at, "block_index"_a, "time_us"_a)
+        .def("first_rejected_block", &Reader::first_rejected_block)
+        .def_prop_ro("oversampling", &Reader::oversampling)
         .def_prop_ro("messages", &Reader::messages);
 }

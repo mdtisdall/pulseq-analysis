@@ -2,7 +2,7 @@
 command `pulseq-matlab-oracle` (`tests/oracles/matlab.py`, `tests/matlab_oracle/`).
 
 For each file of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/*.seq` that
-`read_seqfile` accepts, the tests compare the package with what MATLAB Pulseq gives for the
+`read_strict` accepts, the tests compare the package with what MATLAB Pulseq gives for the
 file: the events of each block (`getBlock`) and the block durations, the gradient waveform of
 each axis (`waveforms_and_times`), and the times of the ADC samples. Block `b` of the model, in
 play order, is block `b + 1` of MATLAB. Both read the same text in float64, so a value is
@@ -27,7 +27,7 @@ import pytest
 from oracles import matlab
 
 from pulseq_analysis.seqfile.model import _rf_time_step
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
 from pulseq_analysis.synth._events import _points_from_events
 from pulseq_analysis.synth.events import (
     ArbitraryGradient,
@@ -70,7 +70,7 @@ SHOWN = 20
 
 
 class Case:
-    """A file that `read_seqfile` accepts, its model, its decoded events and MATLAB's JSON."""
+    """A file that `read_strict` accepts, its model, its decoded events and MATLAB's JSON."""
 
     def __init__(self, name, data, dump):
         self.name = name
@@ -104,15 +104,15 @@ def _rotated_blocks(data):
 
 @pytest.fixture(scope="session")
 def cases(request):
-    """The model of each file of `FILES` that `read_seqfile` accepts, and the `SeqFileError` of
+    """The model of each file of `FILES` that `read_strict` accepts, and the `SeqFileError` of
     each other file, by path, and MATLAB's JSON of each accepted file. MATLAB reads only the
-    files that `read_seqfile` accepts: a file that it rejects can make MATLAB loop with no end (a
+    files that `read_strict` accepts: a file that it rejects can make MATLAB loop with no end (a
     cycle in an extension list, `tests/matlab_oracle/README.md`)."""
     models, rejected = {}, {}
     for path in FILES:
         try:
-            models[path] = read_seqfile(path)
-        except SeqFileError as error:
+            models[path] = read_strict(path)
+        except (SeqFileError, NotSupported) as error:
             rejected[path] = error
     cache = getattr(request.config, "cache", None)
     cache_dir = (
@@ -125,18 +125,20 @@ def cases(request):
 
 
 def case_of(cases, path):
-    """The `Case` of `path`, made on its first use. Skips when `read_seqfile` rejects the file,
+    """The `Case` of `path`, made on its first use. Skips when `read_strict` rejects the file,
     and fails when MATLAB cannot read it."""
     models, dumps, rejected, made = cases
     if path in rejected:
+        if isinstance(rejected[path], NotSupported):
+            pytest.skip("the version is outside 1.4.0-1.5.x: the package does not read it")
         rules = sorted({v.rule for v in rejected[path].violations})
         if rules == ["layer1.gradient-ends"]:
             pytest.skip(
-                "read_seqfile rejects the file (layer1.gradient-ends): a 1.4 file does not define "
+                "read_strict rejects the file (layer1.gradient-ends): a 1.4 file does not define "
                 "the values at the ends of an arbitrary gradient of time ID 0, or of one whose "
                 "time shape does not start at 0, and MATLAB guesses them from the block before"
             )
-        pytest.skip(f"read_seqfile rejects the file ({', '.join(rules)})")
+        pytest.skip(f"read_strict rejects the file ({', '.join(rules)})")
     name = path.relative_to(SEQFILES)
     assert "error" not in dumps[path], f"{name}: MATLAB cannot read it: {dumps[path]['error']}"
     if path not in made:

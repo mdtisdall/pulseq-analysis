@@ -7,6 +7,7 @@
  "read_1387.seq": "read",
  "read_1459.seq": "read",
  "read_2689.seq": "read",
+ "read_oversampled_small.seq": "read",
  "regression_extended_trapezoid_one_point.seq": "undefined-behaviour:ub.gradient-one-point",
  "regression_extended_trapezoid_reused_buffer.seq": "undefined-behaviour:ub.gradient-one-point",
  "regression_gradients_shape_0.seq": "undefined-behaviour:ub.gradient-shape-0",

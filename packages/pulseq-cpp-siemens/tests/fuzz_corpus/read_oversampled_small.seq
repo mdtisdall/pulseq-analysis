@@ -1,0 +1,55 @@
+# Pulseq sequence file
+# Hand-written file of the fuzzing of pulseq-cpp-siemens: oversampled gradients of 1 to 4 samples.
+# In the "edge" mode the gradients of 1 and 2 samples have none, and gradientsAt returns early for
+# them at their delay, after the channels before them and before the channels after them. Those
+# keep no value from the time before (the fuzzing samples the middle of a block before each delay).
+
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 30 0 1 4 5 0 0
+2 30 0 4 2 5 0 0
+3 30 0 3 6 1 0 0
+
+[GRADIENTS]
+1 500000 0 0 1 -1 0
+2 500000 0 0 2 -1 20
+3 500000 0 0 3 -1 10
+6 500000 0 0 4 -1 0
+
+[TRAP]
+4 1000000 10 200 10 0
+5 800000 10 200 10 0
+
+[SHAPES]
+shape_id 1
+num_samples 1
+0.5
+
+shape_id 2
+num_samples 2
+0.5
+1
+
+shape_id 3
+num_samples 3
+0.25
+0.5
+1
+
+shape_id 4
+num_samples 4
+0.25
+0.5
+1
+0.5
+

@@ -47,6 +47,20 @@ release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`. uv
 applies this pin for a project that depends on `pulseq-analysis` by git URL.
 pip does not.
 
+On `main`, the interpreter `cpp-siemens` of `read_seqfile` (by name; the
+default is `strict`) runs the C++ reader of the scanner through the package
+pulseq-cpp-siemens (`packages/pulseq-cpp-siemens/`), which is the extra
+`cpp-siemens`:
+
+```
+uv add "pulseq-analysis[cpp-siemens] @ git+https://github.com/mdtisdall/pulseq-analysis@main"
+```
+
+Until a release, `[tool.uv.sources]` takes pulseq-cpp-siemens from this
+repository, and uv builds it from source: this needs a C++ compiler and the
+network (CMake fetches the reader's files from pulseq/pulseq). How a release
+gets it is decided at release time.
+
 ## Example
 
 The SAFE PNS peak of a `.seq` file:

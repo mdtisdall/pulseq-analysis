@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from pulseq_analysis.seqfile import model
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
 from pulseq_analysis.synth.events import (
     AdcEvent,
     ArbitraryGradient,
@@ -119,7 +119,7 @@ num_samples 5
 def time_shaped(tmp_path):
     path = tmp_path / "time_shaped.seq"
     path.write_text(TIME_SHAPED)
-    return read_seqfile(path)
+    return read_strict(path)
 
 
 def _samples(n, dt):
@@ -131,7 +131,7 @@ def _samples(n, dt):
 
 
 def test_trapezoid_has_the_values_of_the_file():
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))
     assert grads[1] == Trapezoid(
         id=1, amplitude=1e6, rise_time=1e-4, flat_time=2e-4, fall_time=1e-4, delay=1e-4
     )
@@ -141,7 +141,7 @@ def test_trapezoid_has_the_values_of_the_file():
 
 def test_arbitrary_gradient_on_the_default_raster():
     """Time ID 0: a sample at the centre of each gradient raster cell."""
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))
     samples = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
     assert grads[3] == ArbitraryGradient(
         id=3,
@@ -159,7 +159,7 @@ def test_arbitrary_gradient_on_the_default_raster():
 
 def test_arbitrary_gradient_oversampled():
     """Time ID -1: samples half a gradient raster apart, the first at half a raster."""
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))
     assert grads[6] == ArbitraryGradient(
         id=6,
         amplitude=3e5,
@@ -175,7 +175,7 @@ def test_arbitrary_gradient_oversampled():
 
 
 def test_arbitrary_gradient_with_a_time_shape():
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))
     assert grads[5] == ArbitraryGradient(
         id=5,
         amplitude=4e5,
@@ -193,7 +193,7 @@ def test_arbitrary_gradient_with_a_time_shape():
 def test_arbitrary_gradient_with_a_time_shape_in_a_1_4_file():
     """A 1.4 file has no `first` and `last`: the model's values are the amplitude times the
     first and the last sample."""
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_4_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_4_1.seq"))
     waveform = 4e5 * np.array([0.2, 0.6, 1, 0.6, 0.2])
     assert grads[2] == ArbitraryGradient(
         id=2,
@@ -210,7 +210,7 @@ def test_arbitrary_gradient_with_a_time_shape_in_a_1_4_file():
 
 
 def test_gradients_and_trapezoids_are_in_one_mapping_by_id():
-    grads = decode_gradients(read_seqfile(SEQFILES / "valid_1_5_1.seq"))
+    grads = decode_gradients(read_strict(SEQFILES / "valid_1_5_1.seq"))
     assert isinstance(grads, MappingProxyType)
     assert sorted(grads) == [1, 2, 3, 4, 5, 6]
     assert isinstance(grads[1], Trapezoid)
@@ -224,7 +224,7 @@ def test_gradients_and_trapezoids_are_in_one_mapping_by_id():
 def test_rf_event_without_a_time_shape():
     """A sample at the centre of each RF raster cell. The 1.5 file gives the center and the
     use."""
-    (rf,) = decode_rf(read_seqfile(SEQFILES / "valid_1_5_1.seq")).values()
+    (rf,) = decode_rf(read_strict(SEQFILES / "valid_1_5_1.seq")).values()
     assert rf == RfEvent(
         id=1,
         amplitude=1000.0,
@@ -246,7 +246,7 @@ def test_rf_event_without_a_time_shape():
 
 
 def test_rf_event_of_a_1_4_file_has_no_center():
-    (rf,) = decode_rf(read_seqfile(SEQFILES / "valid_1_4_0.seq")).values()
+    (rf,) = decode_rf(read_strict(SEQFILES / "valid_1_4_0.seq")).values()
     assert rf.center is None
     assert (rf.use, rf.freq_ppm, rf.phase_ppm, rf.delay) == ("u", 0.0, 0.0, 1e-4)
     np.testing.assert_array_equal(rf.t, _samples(100, 1e-6))
@@ -307,7 +307,7 @@ def test_rf_event_with_a_regular_time_shape(time_shaped):
 def test_rf_event_with_a_time_shape_in_a_1_4_file():
     """The block pulse of the file has the magnitude 1, 1 at the times 0, 100. The reader
     resamples it to 100 RF raster cells, each of which plays the stored sample 1."""
-    (rf,) = decode_rf(read_seqfile(ORACLE / "koma_v1.4_rf-time-shaped.seq")).values()
+    (rf,) = decode_rf(read_strict(ORACLE / "koma_v1.4_rf-time-shaped.seq")).values()
     np.testing.assert_array_equal(rf.magnitude, np.full(100, 2500.0))
     np.testing.assert_array_equal(rf.phase, np.zeros(100))
     np.testing.assert_array_equal(rf.t, _samples(100, 1e-6))
@@ -444,9 +444,11 @@ def test_every_file_that_loads_decodes(path):
     """Each event has the values of its row of the model, its arrays have one sample for each
     sample of its shape, and an RF or gradient event ends inside each block that plays it."""
     try:
-        data = read_seqfile(path)
+        data = read_strict(path)
     except SeqFileError as error:
-        pytest.skip(f"read_seqfile rejects the file: {sorted({v.rule for v in error.violations})}")
+        pytest.skip(f"read_strict rejects the file: {sorted({v.rule for v in error.violations})}")
+    except NotSupported:
+        pytest.skip("the version is outside 1.4.0-1.5.x")
     rfs, grads, adcs = decode_rf(data), decode_gradients(data), decode_adc(data)
     assert list(rfs) == data.rf["id"].tolist()
     assert list(adcs) == data.adc["id"].tolist()

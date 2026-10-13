@@ -26,7 +26,7 @@ from synthetic import (
 
 from pulseq_analysis._equality import _freeze, values_equal
 from pulseq_analysis.seqfile.model import TABLE_DTYPES
-from pulseq_analysis.seqfile.reader import SeqFileError, read_seqfile
+from pulseq_analysis.seqfile.reader import NotSupported, SeqFileError, read_strict
 from pulseq_analysis.synth import seq_index
 from pulseq_analysis.synth.seq_index import (
     adc_events,
@@ -580,7 +580,7 @@ def _assert_gradients_are_merged(data, got, expected) -> None:
 
 
 def test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file():
-    """For each file of `tests/seqfiles` that both `read_seqfile` and `load` accept,
+    """For each file of `tests/seqfiles` that both `read_strict` and `load` accept,
     `_index_from_data` of the model equals `sequence_index` of the snapshot, field by field,
     except the gradient numbering where pypulseq makes one event of two that are equal by
     value (`_GRAD_FIELDS`): there the numbering of pypulseq is a merging of the numbering of
@@ -588,8 +588,8 @@ def test_the_index_of_a_model_equals_the_index_of_pypulseq_for_each_file():
     compared = merged = 0
     for path in _seqfiles():
         try:
-            data = read_seqfile(path)
-        except SeqFileError:
+            data = read_strict(path)
+        except (SeqFileError, NotSupported):
             continue
         try:
             snap = load(path)
@@ -645,7 +645,7 @@ def test_dense_ids_are_the_file_ids_of_the_first_use_by_hand():
     """`_dense_ids` of a model of `valid_1_5_1.seq` with the block table of `_hand_blocks`:
     RF 3 then 1 (blocks 1 and 4), gradients 5 (gz of block 1), 2 (gx of block 2; its gy 5 is
     used already) and 7 (gx of block 4), ADC 4 then 2 (blocks 2 and 5)."""
-    data = dataclasses.replace(read_seqfile(SEQFILES / "valid_1_5_1.seq"), blocks=_hand_blocks())
+    data = dataclasses.replace(read_strict(SEQFILES / "valid_1_5_1.seq"), blocks=_hand_blocks())
     index = seq_index._index_from_data(data)
     ids = seq_index._dense_ids(data, index)
     assert ids.rf.tolist() == [3, 1]
@@ -661,7 +661,7 @@ def test_dense_ids_are_the_file_ids_of_the_first_use_by_hand():
 def test_a_block_id_that_does_not_fit_in_uint32_raises_value_error_that_names_it():
     """A model with the block ID 2**32 raises ValueError that names the ID. The ID 2**32 - 1
     builds the index, as uint32."""
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    data = read_strict(SEQFILES / "valid_1_5_1.seq")
     blocks = np.array(data.blocks)
     blocks["id"][-1] = 2**32 - 1
     index = seq_index._index_from_data(dataclasses.replace(data, blocks=_freeze(blocks)[0]))

@@ -7,6 +7,12 @@
 //   driver --sample FILE   reads lines "block_index time_us" on stdin and writes the three
 //                          gradient values of SeqBlock::gradientsAt for each line
 //
+// A call with a leading --oversampling=center|edge|preserve (and at least two more arguments)
+// sets the reader's sampling mode of an oversampled arbitrary gradient (time shape -1) in every
+// mode: the samples at the centres of the rasters (the reader's default, also with no option),
+// those on the edges (SetArbGradCenterSampling(false)), or all of them
+// (SetArbGradPreserveOversampling).
+//
 // Exit status: 0 when the file loads and each block decodes (and the mode did its work); 1 when
 // it does not load, when a block does not decode, or when the reader throws; 2 for a wrong call
 // (also a bad line on stdin in --sample); 70 when the process receives SIGSEGV, SIGABRT, SIGFPE,
@@ -25,6 +31,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <iostream>
 #include <map>
@@ -38,6 +45,21 @@
 // down it prints a message for each call, and a caller that asks for many times would drown in
 // them. The messages of load and decodeBlock stay.
 static bool g_silent = false;
+
+// The reader's sampling mode of an oversampled arbitrary gradient: --oversampling=MODE.
+enum Oversampling { OVERSAMPLING_CENTER, OVERSAMPLING_EDGE, OVERSAMPLING_PRESERVE };
+static Oversampling g_oversampling = OVERSAMPLING_CENTER;
+
+// Sets the mode on a new reader, before it decodes any block.
+static void set_oversampling(ExternalSequence& sequence) {
+    if (g_oversampling == OVERSAMPLING_EDGE) {
+        sequence.SetArbGradCenterSampling(false);
+    } else if (g_oversampling == OVERSAMPLING_PRESERVE) {
+        sequence.SetArbGradPreserveOversampling();
+    } else {
+        sequence.SetArbGradCenterSampling(true);
+    }
+}
 
 static void print_to_stderr(const std::string& message) {
     if (!g_silent) {
@@ -258,7 +280,8 @@ static std::string dump_gradient(SeqBlock* block, int channel) {
         object.add("shape", json_floats(block->GetExtTrapGradShape(channel)));
     } else {
         // GetArbGradShapePtr is the samples after checkGradient. An oversampled gradient has
-        // only its samples at the centres of the rasters, which is the default of the reader.
+        // the samples that the sampling mode keeps (--oversampling; by default only those at the
+        // centres of the rasters, which is the default of the reader).
         const int length = block->GetArbGradNumSamples(channel);
         std::vector<float> samples;
         if (length > 0) {
@@ -370,6 +393,7 @@ static std::string dump_block(ExternalSequence& sequence, SeqBlock* block) {
 // The JSON is written only at the end, so a failure leaves nothing on stdout.
 static int run_dump(const char* path) {
     ExternalSequence sequence;
+    set_oversampling(sequence);
     if (!sequence.load(path)) {
         fprintf(stderr, "pulseq-cpp-oracle: ExternalSequence::load returned false\n");
         return 1;
@@ -439,6 +463,7 @@ static bool parse_sample_line(const std::string& line, long& block_index, double
 
 static int run_sample(const char* path) {
     ExternalSequence sequence;
+    set_oversampling(sequence);
     if (!sequence.load(path)) {
         fprintf(stderr, "pulseq-cpp-oracle: ExternalSequence::load returned false\n");
         return 1;
@@ -483,6 +508,7 @@ static int run_sample(const char* path) {
 
 static int run_check(const char* path) {
     ExternalSequence sequence;
+    set_oversampling(sequence);
     if (!sequence.load(path)) {
         fprintf(stderr, "pulseq-cpp-oracle: ExternalSequence::load returned false\n");
         return 1;
@@ -500,9 +526,30 @@ static int run_check(const char* path) {
 }
 
 int main(int argc, char** argv) {
+    // A leading --oversampling=MODE needs at least two more arguments: a call with one argument
+    // is always the first mode, so a file can have any name.
+    if (argc >= 3 && strncmp(argv[1], "--oversampling=", 15) == 0) {
+        const std::string value = argv[1] + 15;
+        if (value == "center") {
+            g_oversampling = OVERSAMPLING_CENTER;
+        } else if (value == "edge") {
+            g_oversampling = OVERSAMPLING_EDGE;
+        } else if (value == "preserve") {
+            g_oversampling = OVERSAMPLING_PRESERVE;
+        } else {
+            fprintf(stderr, "pulseq-cpp-oracle: --oversampling is center, edge or preserve\n");
+            return 2;
+        }
+        // Drop the option; argv[0] stays the program name.
+        argv[1] = argv[0];
+        argv++;
+        argc--;
+    }
     const std::string mode = argc == 3 ? argv[1] : "";
     if (argc != 2 && mode != "--dump" && mode != "--sample") {
-        fprintf(stderr, "usage: %s file.seq | %s --dump file.seq | %s --sample file.seq\n",
+        fprintf(stderr,
+                "usage: %s [--oversampling=center|edge|preserve] file.seq | %s [...] --dump "
+                "file.seq | %s [...] --sample file.seq\n",
                 argv[0], argv[0], argv[0]);
         return 2;
     }

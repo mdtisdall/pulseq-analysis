@@ -1,7 +1,12 @@
-"""A strict reader of Pulseq text files, versions 1.4.0 to 1.5.x, into the model of layer 1.
+"""The interim `strict` interpreter: a strict reader of Pulseq text files, versions 1.4.0 to
+1.5.x, into the model of layer 1. It is the package's reader from before the interpreters, kept
+until the `spec` interpreter (task R11 of `docs/plans/parser-redesign.md`) replaces it. It is the
+default interpreter of `seqfile.read_seqfile` until then; `cpp-siemens` (`cpp_siemens`) is read
+by name.
 
-`read_seqfile(path)` reads a file and returns a `model.SequenceData`, or raises `SeqFileError`
-(a `ValueError`) when the file breaks a rule. The error has all the violations, each a
+`read_strict(path)`, which `seqfile.read_seqfile(path, interpreter="strict")` calls, reads a file
+and returns a `model.SequenceData`, or raises `SeqFileError` (a `ValueError`) when the file
+breaks a rule, and `NotSupported` for a version outside 1.4.0 to 1.5.x (Q1 of the plan). The error has all the violations, each a
 `Violation(rule, section, line, message)`, so a caller can show each kind. The parser lists at
 most `MAX_LOCATIONS` violations for each rule and counts the rest (`SeqFileError.omitted`). It
 does not import pypulseq, it uses no default for a value that the file must define, and it does
@@ -52,8 +57,8 @@ does not state, and that the model needs to be defined.
 
 - `version.missing`: no `[VERSION]` section (spec 2.3 recommends to reject the file; layer 1
   needs the version). `version.invalid`: a line of `[VERSION]` is not `major`, `minor` or
-  `revision` with one integer, or a key is missing or repeated (spec 2.3). `version.unsupported`:
-  the version is not 1.4.0 up to, not including, 1.6.0.
+  `revision` with one integer, or a key is missing or repeated (spec 2.3). A version that is not
+  1.4.0 up to, not including, 1.6.0 raises `NotSupported` (Q1), not a violation.
 - `definitions.raster-missing`, `definitions.raster-invalid`: each of `GradientRasterTime`,
   `RadiofrequencyRasterTime`, `AdcRasterTime` and `BlockDurationRaster` is defined, with one
   finite number above 0 (spec 2.5, required from 1.4.0). `definitions.duplicate` (added): a key
@@ -139,6 +144,9 @@ does not state, and that the model needs to be defined.
   that does not match is not a violation: `SequenceData.signature.matches` reports it.
 
 `RULES` maps each ID to a short text.
+
+What becomes of each rule (task R6b): section 5.4 of `docs/plans/parser-redesign.md` gives,
+for each rule, what `cpp-siemens` does instead, and whether the `spec` interpreter (R11) keeps it.
 """
 
 import dataclasses
@@ -154,6 +162,8 @@ import numpy as np
 
 from . import as_written
 from .as_written import AsWritten, read_as_written
+from .errors import NotSupported, SeqFileError, Violation
+from .interpreters import Strict
 from .model import (
     TABLE_DTYPES,
     Extensions,
@@ -192,7 +202,6 @@ RULES: Mapping[str, str] = MappingProxyType(
     {
         "version.missing": "no [VERSION] section",
         "version.invalid": "a line of [VERSION] is wrong, or a key is missing or repeated",
-        "version.unsupported": "the version is not 1.4.0 to 1.5.x",
         "definitions.raster-missing": "a required raster is not defined",
         "definitions.raster-invalid": "a raster is not one finite number above 0",
         "definitions.duplicate": "a definition appears twice",
@@ -355,53 +364,6 @@ _NON_NEGATIVE = {
 }
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class Violation:
-    """One place where a file breaks a rule.
-
-    `rule` is the ID of `RULES`, `section` is the section (`BLOCKS`, `extension ROTATIONS`) or
-    `None` for the file, `line` is the line number in the file (from 1) or `None`, and `message`
-    says what is wrong.
-    """
-
-    rule: str
-    section: str | None
-    line: int | None
-    message: str
-
-
-class SeqFileError(ValueError):
-    """A file breaks a rule of the format. `violations` has all of them, at most
-    `MAX_LOCATIONS` for each rule, in the order of the file. `omitted` maps a rule to the number
-    of its further violations that are not in `violations`. `path` is the file."""
-
-    def __init__(
-        self,
-        path: str,
-        violations: Sequence[Violation],
-        omitted: Mapping[str, int] | None = None,
-    ):
-        self.path = path
-        self.violations = tuple(violations)
-        self.omitted = MappingProxyType(dict(omitted or {}))
-        total = len(self.violations) + sum(self.omitted.values())
-        shown = [
-            f"  {v.rule} ({v.section or 'file'}"
-            + (f", line {v.line}" if v.line is not None else "")
-            + f"): {v.message}"
-            for v in self.violations[:10]
-        ]
-        if total > len(shown):
-            shown.append(f"  and {total - len(shown)} more (see the `violations` attribute)")
-        super().__init__(
-            f"{path} has {total} violation(s) of the rules of the Pulseq format:\n"
-            + "\n".join(shown)
-        )
-
-    def __reduce__(self) -> tuple[Any, ...]:
-        return (SeqFileError, (self.path, self.violations, dict(self.omitted)))
-
-
 class _Report:
     """The violations of one file, at most `MAX_LOCATIONS` for each rule."""
 
@@ -430,7 +392,7 @@ class _Report:
     def error(self, path: str) -> SeqFileError:
         kept = sorted(self.kept, key=lambda v: (v.line or 0, v.rule))
         omitted = {rule: n - MAX_LOCATIONS for rule, n in self.counts.items() if n > MAX_LOCATIONS}
-        return SeqFileError(path, kept, omitted)
+        return SeqFileError(path, kept, omitted, Strict.name)
 
 
 class _Section:
@@ -519,11 +481,14 @@ class _Ids:
         return self.order[pos], self.sorted[pos] == refs
 
 
-def read_seqfile(path: str | Path) -> SequenceData:
-    """Read the Pulseq text file `path` (versions 1.4.0 to 1.5.x) into a `SequenceData`.
+def read_strict(path: str | Path) -> SequenceData:
+    """Read the Pulseq text file `path` (versions 1.4.0 to 1.5.x) into a `SequenceData`, by the
+    rules of the interim `strict` interpreter. `seqfile.read_seqfile(path, interpreter="strict")`
+    calls it.
 
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
-    (see the module docstring), and `OSError` when the file cannot be read.
+    (see the module docstring), `NotSupported` for a version outside 1.4.0 to 1.5.x, and
+    `OSError` when the file cannot be read.
     """
     written = read_as_written(path)
     report = _Report()
@@ -640,13 +605,9 @@ def _read_version(section: _Section | None, report: _Report) -> tuple[int, int, 
     version = (values["major"], values["minor"], values["revision"])
     if not _MIN_VERSION <= version < _MAX_VERSION:
         name = ".".join(map(str, version))
-        report.add(
-            "version.unsupported",
-            "VERSION",
-            section.line,
-            f"version {name} is not supported: this reader reads 1.4.0 to 1.5.x",
+        raise NotSupported(
+            f"version {name} is outside 1.4.0 to 1.5.x; the package does not read it"
         )
-        return None
     return version
 
 
@@ -1868,4 +1829,6 @@ def _assemble(
         skipped_extensions=tuple(f.ext.skipped),
         signature=signature,
         origin="file",
+        interpreter=Strict(),
+        reading=None,
     )

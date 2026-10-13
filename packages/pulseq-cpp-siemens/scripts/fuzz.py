@@ -7,7 +7,8 @@ with the package installed in packages/pulseq-cpp-siemens/.venv:
         packages/pulseq-cpp-siemens/scripts/fuzz.py --seed 1 --count 200000
 
 It writes each failing file and its result to --keep, prints a summary, and exits with 1 when a
-file fails. A failure is reproduced with --seed S --start INDEX --count 1.
+file fails. A failure is reproduced with --seed S --start INDEX --count 1 (the file's sampling
+mode of oversampled gradients is a function of the same two numbers).
 """
 
 import argparse
@@ -48,9 +49,12 @@ def main() -> None:
     total = seqfuzz.Report(results)
     print(total.summary())
     print("codes confirmed by the oracle:", dict(sorted(total.confirmed_codes().items())))
+    for mode, codes in total.confirmed_codes_by_mode().items():
+        print(f"  oversampling {mode}:", dict(sorted(codes.items())))
     for failure in total.failures:
         print(
-            f"FAIL seed {args.seed} index {failure.index} {failure.mutations} "
+            f"FAIL seed {args.seed} index {failure.index} {failure.oversampling} "
+            f"{failure.mutations} "
             f"[{failure.known or 'not known'}]: {failure.failure}"
         )
     sys.exit(1 if total.failures else 0)
