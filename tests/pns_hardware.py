@@ -1,17 +1,23 @@
-"""PNS hardware for the tests: the example hardware of pypulseq with a scaled
-stimulation limit, so that a sequence has a chosen PNS peak, the values of `hardware`
-that are not a pair, and the structs that the check of the hardware refuses. It uses the package
-(`pns_levels`), so it is not in `synthetic.py`, which the oracles import."""
+"""PNS hardware for the tests: the example hardware of pypulseq (`EXAMPLE_HARDWARE`, and
+`safe_example_hw` of `synthetic.py`, a new namespace), the example hardware with a scaled
+stimulation limit, so that a sequence has a chosen PNS peak, the values of `hardware` that are
+not a pair, and the structs that the check of the hardware refuses. It uses the package
+(`pns_levels`), so it is not in `synthetic.py`, which the oracles import. It does not import
+pypulseq: a test of `test_safe.py` with the `pypulseq` marker checks the example against
+pypulseq's `safe_example_hw()`."""
 
 from types import SimpleNamespace
 
 import pytest
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
-from synthetic import EXAMPLE_HW, GAMMA_1H
+from synthetic import EXAMPLE_HW, GAMMA_1H, safe_example_hw
 
 from pulseq_analysis.analyses.pns_levels import pns_levels
 from pulseq_analysis.analyses.safe import SafeHardware
 from pulseq_analysis.synth.snapshot import Snapshot
+
+# The `SafeHardware` of `safe_example_hw()`.
+EXAMPLE_HARDWARE = SafeHardware.from_namespace(safe_example_hw())
+
 
 # Values of `hardware` that are not a pair `(struct, label)`: a struct alone (a namespace or a
 # `SafeHardware`), a list, a tuple of three items, a pair whose label is not a `str`, a path

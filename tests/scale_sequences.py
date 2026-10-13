@@ -8,7 +8,7 @@ import math
 import sys
 
 import numpy as np
-import pypulseq as pp
+from optional_pypulseq import pp
 from synthetic import SYSTEM, WIDTH, block_pulse, readout
 
 # ---- The TR ----

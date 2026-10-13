@@ -729,13 +729,18 @@ version = "0.1.0rc6"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
-    { name = "pypulseq" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+pypulseq = [
+    { name = "pypulseq" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "import-linter" },
+    { name = "pypulseq" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -743,13 +748,15 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
-    { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725" },
+    { name = "pypulseq", marker = "extra == 'pypulseq'", git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725" },
     { name = "scipy" },
 ]
+provides-extras = ["pypulseq"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter" },
+    { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725" },
     { name = "pytest" },
     { name = "ruff" },
 ]

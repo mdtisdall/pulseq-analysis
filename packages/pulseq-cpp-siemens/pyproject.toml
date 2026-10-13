@@ -24,13 +24,14 @@ dependencies = ["numpy"]
 [project.entry-points."pulseq_analysis.interpreters"]
 cpp-siemens = "pulseq_cpp_siemens.interpreter:CppSiemens"
 
-# `analysis`: pulseq-analysis, for the module pulseq_cpp_siemens.interpreter and its tests. A
+# `analysis`: pulseq-analysis, for the module pulseq_cpp_siemens.interpreter and its tests, with
+# its extra `pypulseq`, which the tests import (pulseq-analysis does not depend on it). A
 # dependency group, so not in the published metadata: how a release of this package depends on
 # pulseq-analysis is decided at release time (the user, 2026-10-13). The tests that need it skip
 # without it, as in the wheel tests of cibuildwheel (test-groups below).
 [dependency-groups]
 test = ["pytest"]
-analysis = ["pulseq-analysis"]
+analysis = ["pulseq-analysis[pypulseq]"]
 
 [tool.uv.sources]
 # pulseq-analysis from this repository, editable, so that the tests of the plugin run against the
@@ -59,7 +60,13 @@ cache-keys = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["fuzz: the fuzzing of the checks against the sanitized C++ oracle (tests/test_fuzz.py)"]
+# `pypulseq` and `cpp_oracle` are the markers of the tests of pulseq-analysis, whose modules
+# these tests import (its pyproject.toml declares them).
+markers = [
+    "fuzz: the fuzzing of the checks against the sanitized C++ oracle (tests/test_fuzz.py)",
+    "pypulseq: a test of pulseq-analysis that needs pypulseq",
+    "cpp_oracle: a test of pulseq-analysis that needs pulseq-cpp-oracle",
+]
 
 [tool.cibuildwheel]
 build = "cp312-*"

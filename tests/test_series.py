@@ -508,6 +508,7 @@ def check_the_series_of_pns_safe_levels_are_valid(snap, thresholds, bin_s):
         assert _round_trip(s) == s
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(("thresholds", "bin_s"), _PNS_CASES)
 @pytest.mark.parametrize("builder", _SEQUENCES)
 def test_the_series_of_pns_safe_levels_are_valid(builder, thresholds, bin_s):
@@ -528,6 +529,7 @@ def check_the_series_of_gradient_spectrum_is_valid(snap, has_gradient):
     assert len(series) == (1 if has_gradient else 0)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("builder", _SEQUENCES)
 def test_the_series_of_gradient_spectrum_is_valid(builder):
     """The series of `gradient.spectrum` for each synthetic sequence that `spec` reads and for

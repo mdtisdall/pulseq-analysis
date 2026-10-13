@@ -25,7 +25,10 @@ from pulseq_analysis.seqfile.spec import RULES
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 ORACLE = shutil.which("pulseq-cpp-oracle")
 
-pytestmark = pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
+pytestmark = [
+    pytest.mark.cpp_oracle,
+    pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH"),
+]
 
 # The reader gets this long for a file. A process that does not end in this time counts as a
 # crash. A cycle in an extension list makes the reader loop with no end

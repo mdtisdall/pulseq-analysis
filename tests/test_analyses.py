@@ -306,6 +306,7 @@ def test_the_spec_of_each_analysis_has_the_documented_values(
         assert spec.series is None
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
 def test_the_spec_of_each_analysis_agrees_with_the_signature_of_compute(analysis):
     """For each analysis of `registry()`: after `snap`, the parameters of `compute` are all
@@ -521,6 +522,7 @@ def test_the_spec_of_each_analysis_of_the_package_passes_the_checks(analysis):
     assert set(spec.rasters) <= set(RASTERS)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("fractions", [(0.0, 0.5), (0.25, 0.5), (0.5, 1.0)])
 def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(fractions):
     """`GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`, and it
@@ -535,6 +537,7 @@ def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(
     assert result != gradient_peaks(snap)
 
 
+@pytest.mark.pypulseq
 def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
     """`GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object (`is`) that
     `gradient_peaks(snap)` keeps, and a result with a window is not that object and not kept."""
@@ -553,6 +556,7 @@ def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
     assert GRADIENT_PEAKS.compute(snap) is whole
 
 
+@pytest.mark.pypulseq
 def test_compute_of_gradient_spectrum_passes_its_arguments_on():
     """`GRADIENT_SPECTRUM.compute(snap, max_frequency_hz=1000.0)` is the object (`is`) that
     `gradient_spectrum(snap, max_frequency_hz=1000.0)` keeps. It is not the object of the
@@ -576,6 +580,7 @@ def test_compute_of_gradient_spectrum_passes_its_arguments_on():
     assert (both.window_s, both.frequency_oversampling) == (0.1, 2.0)
 
 
+@pytest.mark.pypulseq
 def test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result():
     """`SEQ_INDEX.compute(snap)` and `GRADIENT_BLOCKS.compute(snap)` are the objects (`is`)
     that `sequence_index(snap)` and `block_gradient_values(snap)` keep for the sequence
@@ -607,6 +612,7 @@ def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_
             PNS_SAFE_LEVELS.compute(Unreadable(), hardware=bad)
 
 
+@pytest.mark.pypulseq
 def test_compute_of_pns_safe_levels_passes_bin_s_on():
     """`PNS_SAFE_LEVELS.compute(snap, hardware=..., bin_s=...)` is the object (`is`) that
     `pns_levels` gives with that `bin_s` (and not the object of the default), its
@@ -635,6 +641,7 @@ def test_compute_of_pns_safe_levels_passes_bin_s_on():
         PNS_SAFE_LEVELS.compute(Unreadable(), hardware=EXAMPLE_HW, bin_s=0)
 
 
+@pytest.mark.pypulseq
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):
     """For a sequence with runs above the limit, `to_series` gives `pns_total` (an ENVELOPE of
     `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times and the `meta`
@@ -696,6 +703,7 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert from_file.meta["hardware"] == "MP_GPA_SERIES"
 
 
+@pytest.mark.pypulseq
 def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     """With `thresholds_hz_per_t=(_LIMIT, 0.5 * _LIMIT)`, `to_series` gives `pns_total`,
     `pns_above_0` and `pns_above_1`, in this order, and the runs of each are `above` of its
@@ -727,6 +735,7 @@ def test_the_pns_series_of_two_thresholds_are_in_the_order_of_the_thresholds():
     assert swapped_series[2].arrays["start"].tolist() == series[1].arrays["start"].tolist()
 
 
+@pytest.mark.pypulseq
 def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     """`to_series` of `gradient.spectrum` gives one SAMPLES series, `gradient_spectrum`, of
     unit "Hz/m/sqrt(Hz)" and `coord_unit` "Hz", with the arrays `value`, `x`, `y` and `z` (float64) equal to
@@ -765,6 +774,7 @@ def test_the_spectrum_series_equals_the_spectrum_of_the_same_call():
     assert wide.meta["window_s"] == 0.1
 
 
+@pytest.mark.pypulseq
 def test_the_other_three_analyses_give_no_series():
     """`to_series` of `seq.index`, `gradient.peaks` and `gradient.blocks` gives `()`, for
     a sequence with gradients and for one without."""
@@ -775,7 +785,13 @@ def test_the_other_three_analyses_give_no_series():
 
 
 @pytest.mark.parametrize("analysis", [spec[0] for spec in _SPECS], ids=_IDS)
-@pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(gre_sequence, id="sequence", marks=pytest.mark.pypulseq),
+        pytest.param(lambda: "sequence.seq", id="path"),
+    ],
+)
 def test_compute_raises_type_error_that_names_load_for_a_non_snapshot(analysis, build):
     """`compute` of each analysis, with the other arguments that it needs, raises `TypeError`
     that names `load` for a `pp.Sequence` and for a path: the first argument is a

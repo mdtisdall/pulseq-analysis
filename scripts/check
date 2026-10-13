@@ -30,6 +30,13 @@ echo "# pytest"
 uv run pytest -q tests --collected-tests-file "$collected_tests"
 
 echo
+echo "# pytest without pypulseq"
+# pypulseq is optional: the package's own dependencies, pytest and no dev group. The tests with
+# the `pypulseq` marker are left out; a test module that imports pypulseq without the marker
+# fails its collection here.
+uv run --no-dev --isolated --with pytest pytest -q -m "not pypulseq" tests
+
+echo
 echo "# pulseq-cpp-siemens"
 # The package of the C++ reader (packages/pulseq-cpp-siemens) is its own uv project, with its
 # own lock and virtual environment. It is built from the source of the C++ reader that the

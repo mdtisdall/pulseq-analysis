@@ -4,6 +4,11 @@ memory, written with pypulseq's writer and read through an interpreter, gives wh
 the same checks (`check_*`) for their interpreter.
 """
 
+import pytest
+
+pytestmark = pytest.mark.pypulseq
+pytest.importorskip("pypulseq")
+
 import copy
 import dataclasses
 import pickle
@@ -12,7 +17,6 @@ import warnings
 
 import numpy as np
 import pypulseq as pp
-import pytest
 from synthetic import (
     SYSTEM,
     arbitrary_gradient_sequence,

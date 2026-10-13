@@ -395,6 +395,18 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   by `==`).
 - `events.decode_rf`, `events.decode_gradients` and `events.decode_adc` raise
   `TypeError` for the model of `cpp-siemens`: its decoding is the reader's.
+- pypulseq is optional (task 5b of `docs/plans/own-parser-tasks.md`). The
+  dependencies of the package are numpy and scipy; pypulseq is the extra
+  `pypulseq` (`pip install "pulseq-analysis[pypulseq]"`, `pypulseq>=1.5.0`).
+  No module of the package imports it: `load(path)` and every analysis work
+  without it, and `load(seq)` and `read_pypulseq` take a `pypulseq.Sequence`,
+  which only a caller with pypulseq has. A caller that imports pypulseq
+  itself must depend on it, or on the extra. Under uv, the extra and the
+  `dev` group still resolve to the fork commit `3c3bd85`
+  (`[tool.uv.sources]`): the tests run on the fork, whose `calculate_pns` in
+  chunks makes them much faster than with the release 1.5.0.post1. ruff bans
+  an import of pypulseq in `src/` (TID251, TID253), and `scripts/check` runs
+  the tests a second time without pypulseq. No result of the package changes.
 
 ### Removed
 

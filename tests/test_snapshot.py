@@ -26,8 +26,8 @@ import pickle
 import warnings
 from typing import Any, ClassVar
 
-import pypulseq as pp
 import pytest
+from optional_pypulseq import pp
 from synthetic import (
     EXAMPLE_HW,
     arbitrary_gradient_sequence,
@@ -234,6 +234,7 @@ def check_load_of_a_sequence(seq: pp.Sequence, interpreter) -> None:
     assert load(seq, interpreter).data == snap.data
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("interpreter", INTERPRETERS)
 @pytest.mark.parametrize("build", _BUILDERS)
 def test_load_of_a_sequence_is_read_pypulseq_of_it(build, interpreter):
@@ -242,6 +243,7 @@ def test_load_of_a_sequence_is_read_pypulseq_of_it(build, interpreter):
     check_load_of_a_sequence(build(), interpreter)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("build", _BUILDERS)
 def test_load_of_a_sequence_and_of_its_file_give_equal_results(build, tmp_path):
     """The results of `load(seq)` equal those of `load(path)` of the file that `seq.write(path)`
@@ -378,6 +380,7 @@ def _scale_first_trapezoid(seq: pp.Sequence) -> None:
     raise AssertionError("no trapezoid")
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("warm", [False, True], ids=["results_after_the_change", "kept_results"])
 def test_a_change_of_the_sequence_changes_no_result_of_its_snapshot(warm):
     """After `load(seq)`, a change of `seq` in place changes no result of the snapshot (made
@@ -442,15 +445,24 @@ def test_load_raises_for_an_interpreter_that_does_not_exist():
         load(GRE_FILE, "strict")
 
 
-@pytest.mark.parametrize("bad", [spin_echo_sequence(), None, "sequence.seq"], ids=type)
-def test_check_snapshot_raises_a_type_error_that_names_load(bad):
+@pytest.mark.parametrize(
+    "make_bad",
+    [
+        pytest.param(spin_echo_sequence, id="Sequence", marks=pytest.mark.pypulseq),
+        pytest.param(lambda: None, id="NoneType"),
+        pytest.param(lambda: "sequence.seq", id="str"),
+    ],
+)
+def test_check_snapshot_raises_a_type_error_that_names_load(make_bad):
     """`_check_snapshot` raises `TypeError` that names `load` for a `pp.Sequence`, `None` and a
     path, and nothing for a `Snapshot`."""
     _check_snapshot(load(GRE_FILE))
+    bad = make_bad()
     with pytest.raises(TypeError, match="load"):
         _check_snapshot(bad)
 
 
+@pytest.mark.pypulseq
 def test_a_snapshot_takes_only_a_sequence_data():
     """`Snapshot(data)` raises `TypeError` for an argument that is not a `SequenceData`."""
     with pytest.raises(TypeError, match="SequenceData"):
@@ -479,6 +491,7 @@ def test_a_snapshot_has_read_only_properties_no_new_attribute_and_the_hash_of_it
     assert {snap: 1, other: 2}[snap] == 1
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("make_path", [str, pathlib.Path], ids=["str", "path"])
 def test_load_accepts_a_path_like_and_source_is_its_str(make_path, tmp_path):
     """`load` takes a `str` and an `os.PathLike`, and `snapshot.source` is the `str` of the path."""

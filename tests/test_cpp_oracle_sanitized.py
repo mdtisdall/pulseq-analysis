@@ -17,9 +17,10 @@ from test_cpp_oracle import MINIMAL_SEQ, ORACLE, SEQFILES, TIMEOUT
 
 SANITIZED = shutil.which("pulseq-cpp-oracle-sanitized")
 
-pytestmark = pytest.mark.skipif(
-    SANITIZED is None, reason="pulseq-cpp-oracle-sanitized is not on the PATH"
-)
+pytestmark = [
+    pytest.mark.cpp_oracle,
+    pytest.mark.skipif(SANITIZED is None, reason="pulseq-cpp-oracle-sanitized is not on the PATH"),
+]
 
 # The exit status of the sanitized driver when a sanitizer or an assertion of the standard
 # library fires.

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
-import pypulseq as pp
 import pytest
+from optional_pypulseq import pp
 from synthetic import (
     GAMMA_1H,
     SYSTEM,
@@ -20,11 +20,13 @@ from pulseq_analysis.synth.events import decode_gradients
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 
 
+@pytest.mark.pypulseq
 def test_time_tolerance():
     assert seq_utils.TIME_TOLERANCE == 1e-9
     assert seq_utils.TIME_TOLERANCE == pp.eps
 
 
+@pytest.mark.pypulseq
 def test_the_gamma_of_the_tests_is_the_gamma_of_the_test_system():
     """The tests convert the values of the package with GAMMA_1H. The test sequences
     convert their mT/m limits with the gamma of SYSTEM (the default of pypulseq's
@@ -66,6 +68,7 @@ def test_gradient_points_matches_gradient_offsets_exactly(gradient_id):
     npt.assert_array_equal(t, (t0 + delay) + offsets)
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize(
     "builder",
     [spin_echo_sequence, gre_sequence, empty_sequence, arbitrary_gradient_sequence],

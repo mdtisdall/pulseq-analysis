@@ -2,7 +2,7 @@ import dataclasses
 import re
 
 import pytest
-from pypulseq.utils.safe_pns_prediction import safe_example_hw
+from synthetic import safe_example_hw
 
 from pulseq_analysis.analyses.asc import (
     hardware_from_asc,
@@ -173,6 +173,7 @@ def test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_incl
     assert read_gradient_asc(main) == {"x": 1, "y": 2}
 
 
+@pytest.mark.pypulseq
 def test_read_gradient_asc_gives_the_fields_that_pypulseqs_readasc_gives(tmp_path):
     """For the file of every form, the plain file of the fixture and the main file of the
     scanner layout (without the included file), the fields equal the first result of
@@ -183,6 +184,7 @@ def test_read_gradient_asc_gives_the_fields_that_pypulseqs_readasc_gives(tmp_pat
     assert read_gradient_asc(forms) == readasc(str(forms))[0]
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 def test_read_gradient_asc_gives_the_fields_of_a_fixture_file_that_readasc_gives(
     write_gradient_asc, split
@@ -241,6 +243,7 @@ def test_hardware_from_asc_gives_the_safe_hardware_and_the_name_of_the_file(
         assert dataclasses.asdict(getattr(struct, axis)) == fields
 
 
+@pytest.mark.pypulseq
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 def test_hardware_from_asc_has_the_fields_of_pypulseqs_asc_to_hw(write_gradient_asc, split):
     """The attributes of the `SafeHardware` of a file are those of the namespace that

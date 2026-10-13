@@ -1,5 +1,7 @@
 """Tests of `safe.py`: `SafeAxis`, `SafeHardware`, and the chunked SAFE filter. The tests that
-compare with pypulseq's functions use `pytest.importorskip`."""
+compare with the functions of the pypulseq fork compare with golden values
+(`golden/safe_fork.npz`), within an ulp-level tolerance; the two tests that need pypulseq have
+the `pypulseq` marker."""
 
 import ast
 import dataclasses
@@ -10,17 +12,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from synthetic import (
-    EXAMPLE_HW,
-    arbitrary_gradient_sequence,
-    border_sequence,
-    gre_sequence,
-    spin_echo_sequence,
-)
+import synthetic
+from pns_hardware import EXAMPLE_HARDWARE
+from synthetic import EXAMPLE_AXES, safe_example_hw
 
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses import pns_levels as pns_levels_module
-from pulseq_analysis.analyses.pns_levels import BIN_S, _compute_levels
+from pulseq_analysis.analyses.pns_levels import BIN_S, PnsLevels, _compute_levels
 from pulseq_analysis.analyses.safe import (
     SAFE_FIELDS,
     SafeAxis,
@@ -28,12 +26,6 @@ from pulseq_analysis.analyses.safe import (
     _safe_gwf_to_pns_chunk,
 )
 
-# The numbers of pypulseq's `safe_example_hw()`: three axes, with the fields of `SAFE_FIELDS`.
-_EXAMPLE_AXES = {
-    "x": (0.20, 0.03, 3.00, 0.40, 0.10, 0.50, 30.0, 24.0, 0.35),
-    "y": (1.50, 2.50, 0.15, 0.55, 0.15, 0.30, 15.0, 12.0, 0.31),
-    "z": (2.00, 0.12, 1.00, 0.42, 0.40, 0.18, 25.0, 20.0, 0.25),
-}
 _SRC = Path(__file__).resolve().parent.parent / "src" / "pulseq_analysis"
 
 
@@ -42,7 +34,7 @@ def _namespace(name: str | None = "EXAMPLE") -> SimpleNamespace:
     ns = SimpleNamespace(
         **{
             axis: SimpleNamespace(**dict(zip(SAFE_FIELDS, values, strict=True)))
-            for axis, values in _EXAMPLE_AXES.items()
+            for axis, values in EXAMPLE_AXES.items()
         }
     )
     if name is not None:
@@ -66,7 +58,7 @@ def _namespace_without(axis: str, field: str | None = None) -> SimpleNamespace:
 
 
 def _example_axis(**changes: float) -> SafeAxis:
-    return SafeAxis(**{**dict(zip(SAFE_FIELDS, _EXAMPLE_AXES["x"], strict=True)), **changes})
+    return SafeAxis(**{**dict(zip(SAFE_FIELDS, EXAMPLE_AXES["x"], strict=True)), **changes})
 
 
 def _example_hardware() -> SafeHardware:
@@ -148,7 +140,7 @@ def test_from_namespace_reads_the_fields_of_each_axis():
     ns.y.extra = 5.0
     hardware = SafeHardware.from_namespace(ns)
     assert hardware.name == "MP_GPA_EXAMPLE"
-    for axis, values in _EXAMPLE_AXES.items():
+    for axis, values in EXAMPLE_AXES.items():
         assert dataclasses.astuple(getattr(hardware, axis)) == values
 
 
@@ -273,105 +265,171 @@ def _scaled_namespace() -> SimpleNamespace:
     return ns
 
 
-def test_the_example_numbers_of_these_tests_are_those_of_pypulseqs_example_hardware():
+# The outputs of the pinned fork's functions (`_safe_gwf_to_pns_chunk` and `safe_hw_check`,
+# which no pypulseq release has as they are in the fork) for the inputs of the tests below,
+# written by `golden/make_golden.py` (`golden/README.md` gives the fork commit). The constants
+# that follow are the inputs; `make_golden.py` reads them.
+_GOLDEN = Path(__file__).resolve().parent / "golden" / "safe_fork.npz"
+
+CHUNK_NAMESPACES = {"example": _namespace, "other-numbers": _scaled_namespace}
+CHUNK_DTS = {"10us": 1e-5, "2.5us": 2.5e-6}
+CHUNKS = ((0, 1), (1, 2), (2, 700), (700, 701), (701, 2000))
+
+
+def chunk_waveform() -> np.ndarray:
+    return np.cumsum(np.random.default_rng(2).normal(size=(2000, 3)), axis=0) * 1e3
+
+
+HW_CHECK_CASES = {
+    "x-just-within": lambda: _namespace_with("x", "a1", 0.4 + 0.0009),
+    "y-just-within": lambda: _namespace_with("y", "a1", 0.55 - 0.0009),
+    "x-just-beyond": lambda: _namespace_with("x", "a1", 0.4 + 0.0011),
+    "z-just-below": lambda: _namespace_with("z", "a1", 0.42 - 0.0011),
+    "a-sum": lambda: _namespace_with("x", "a1", 5.0),
+    "no-x": lambda: _namespace_without("x"),
+    "no-thresh": lambda: _namespace_without("y", "stim_thresh"),
+    "no-g-scale": lambda: _namespace_without("z", "g_scale"),
+}
+
+# The names of the builders of `synthetic.py`, which need pypulseq.
+SEQUENCES = {
+    "spin_echo": "spin_echo_sequence",
+    "gre": "gre_sequence",
+    "arbitrary_gradient": "arbitrary_gradient_sequence",
+    "border": "border_sequence",
+}
+BINS = {"default-bin": BIN_S, "one-sample-bins": 1e-5}
+THRESHOLDS = (1e5, 1e6)
+
+
+def levels_arrays(levels: PnsLevels) -> dict[str, np.ndarray]:
+    """The fields of `levels` that the SAFE filter gives, as arrays: the level, the summary
+    and the intervals above each threshold (a `peak_time_s` of None is NaN)."""
+    arrays = {
+        "num_samples": np.array(levels.num_samples),
+        "bin_samples": np.array(levels.bin_samples),
+        "level_min_hz_per_t": levels.level_min_hz_per_t,
+        "level_max_hz_per_t": levels.level_max_hz_per_t,
+        "peak_hz_per_t": np.array(levels.peak_hz_per_t),
+        "peak_time_s": np.array(np.nan if levels.peak_time_s is None else levels.peak_time_s),
+        "axis_peaks_hz_per_t": np.array([levels.axis_peaks_hz_per_t[a] for a in "xyz"]),
+        "on_raster": np.array(levels.on_raster),
+    }
+    for threshold, intervals in levels.above.items():
+        arrays[f"above/{threshold!r}"] = np.array(
+            [
+                (i.start_s, i.end_s, i.peak_hz_per_t, i.peak_time_s, i.num_samples)
+                for i in intervals
+            ],
+            dtype=float,
+        ).reshape(-1, 5)
+    return arrays
+
+
+# The tolerance of a comparison with the golden values, relative, by dtype. The golden values
+# were written on one platform; another platform's numpy and scipy can round the same float
+# operations differently in the last bit (1 to 2 ulp of a float64 on Linux against macOS). A float32
+# level is the outward cast of a float64 total, so a float64 difference of one ulp can move it by
+# one float32 ulp. The tolerance is of the largest magnitude of the array as well as of each value:
+# a value that comes out of a cancellation (a state `zi` of -4.9e4 in an array whose largest value
+# is 3.5e8) carries the rounding of the large terms (on Linux, 1e-8 absolute there: 2e-13 of the
+# value, 3e-17 of the array). A change of the filter itself is far above these.
+_GOLDEN_RTOL = {
+    np.dtype(np.float64): 1e-14,
+    np.dtype(np.float32): 2 * float(np.finfo(np.float32).eps),
+}
+
+
+@pytest.fixture(scope="module")
+def golden():
+    with np.load(_GOLDEN) as data:
+        return dict(data)
+
+
+def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
+    """`value` has the dtype and the shape of `expected`, and its values: for floats, within
+    `_GOLDEN_RTOL` of each value or of the largest magnitude of `expected`, and exactly for the
+    others."""
+    value = np.asarray(value)
+    assert value.dtype == expected.dtype, name
+    assert value.shape == expected.shape, name
+    rtol = _GOLDEN_RTOL.get(value.dtype)
+    if rtol is None:
+        np.testing.assert_array_equal(value, expected, err_msg=name)
+    else:
+        scale = float(np.max(np.abs(expected), initial=0.0, where=np.isfinite(expected)))
+        np.testing.assert_allclose(value, expected, rtol=rtol, atol=rtol * scale, err_msg=name)
+
+
+@pytest.mark.pypulseq
+def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
+    """`synthetic.safe_example_hw()` has the attributes and values of pypulseq's
+    `safe_example_hw()`, and `EXAMPLE_HARDWARE` is its `SafeHardware`."""
     module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
     hardware = module.safe_example_hw()
-    for axis, values in _EXAMPLE_AXES.items():
-        assert tuple(getattr(getattr(hardware, axis), f) for f in SAFE_FIELDS) == values
+    own = safe_example_hw()
+    assert vars(own).keys() == vars(hardware).keys()
+    for key, value in vars(hardware).items():
+        if key in ("x", "y", "z"):
+            assert vars(getattr(own, key)) == vars(value)
+        else:
+            assert getattr(own, key) == value
+    assert SafeHardware.from_namespace(hardware) == EXAMPLE_HARDWARE
 
 
-@pytest.mark.parametrize("dt", [1e-5, 2.5e-6], ids=["10us", "2.5us"])
-@pytest.mark.parametrize("scaled", [False, True], ids=["example", "other-numbers"])
-def test_the_chunk_function_equals_pypulseqs_for_every_chunk_and_state(scaled, dt):
-    """The `pns` array and the state of each chunk equal the pinned fork's
-    `_safe_gwf_to_pns_chunk` exactly (`array_equal`), over the same chunks and with each
-    function given the state that it returned."""
-    module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
-    ns = _scaled_namespace() if scaled else _namespace()
-    hardware = SafeHardware.from_namespace(ns)
-    rng = np.random.default_rng(2)
-    gwf = np.cumsum(rng.normal(size=(2000, 3)), axis=0) * 1e3
-
-    own_state = other_state = None
-    for start, stop in ((0, 1), (1, 2), (2, 700), (700, 701), (701, 2000)):
-        own, own_state = _safe_gwf_to_pns_chunk(gwf[start:stop], dt, hardware, own_state)
-        other, other_state = module._safe_gwf_to_pns_chunk(gwf[start:stop], dt, ns, other_state)
-        np.testing.assert_array_equal(own, other)
-        np.testing.assert_array_equal(own_state.g_last, other_state.g_last)
-        np.testing.assert_array_equal(own_state.zi, other_state.zi)
+@pytest.mark.parametrize("dt_id", CHUNK_DTS)
+@pytest.mark.parametrize("scaled_id", CHUNK_NAMESPACES)
+def test_the_chunk_function_equals_the_forks_for_every_chunk_and_state(golden, scaled_id, dt_id):
+    """The `pns` array and the state of each chunk equal those of the pinned fork's
+    `_safe_gwf_to_pns_chunk` (the golden values, within `_GOLDEN_RTOL`), over the same chunks
+    and with the state that the function returned for the chunk before."""
+    hardware = SafeHardware.from_namespace(CHUNK_NAMESPACES[scaled_id]())
+    gwf = chunk_waveform()
+    state = None
+    for i, (start, stop) in enumerate(CHUNKS):
+        pns, state = _safe_gwf_to_pns_chunk(gwf[start:stop], CHUNK_DTS[dt_id], hardware, state)
+        key = f"chunk/{scaled_id}/{dt_id}/{i}"
+        _assert_golden(pns, golden[f"{key}/pns"], f"{key}/pns")
+        _assert_golden(state.g_last, golden[f"{key}/g_last"], f"{key}/g_last")
+        _assert_golden(state.zi, golden[f"{key}/zi"], f"{key}/zi")
 
 
-@pytest.mark.parametrize(
-    "ns",
-    [
-        _namespace_with("x", "a1", 0.4 + 0.0009),
-        _namespace_with("y", "a1", 0.55 - 0.0009),
-        _namespace_with("x", "a1", 0.4 + 0.0011),
-        _namespace_with("z", "a1", 0.42 - 0.0011),
-        _namespace_with("x", "a1", 5.0),
-        _namespace_without("x"),
-        _namespace_without("y", "stim_thresh"),
-        _namespace_without("z", "g_scale"),
-    ],
-    ids=[
-        "x-just-within",
-        "y-just-within",
-        "x-just-beyond",
-        "z-just-below",
-        "a-sum",
-        "no-x",
-        "no-thresh",
-        "no-g-scale",
-    ],
-)
-def test_the_hardware_check_accepts_and_refuses_what_pypulseqs_safe_hw_check_does(ns):
-    """A namespace is valid for `SafeHardware.from_namespace` if and only if pypulseq's
-    `safe_hw_check` accepts it (it raises `ValueError`; for a struct with no `x` it raises
-    `AttributeError` instead, which the package does not copy)."""
-    module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
+@pytest.mark.parametrize("case_id", HW_CHECK_CASES)
+def test_the_hardware_check_accepts_and_refuses_what_the_forks_safe_hw_check_does(golden, case_id):
+    """A namespace is valid for `SafeHardware.from_namespace` if and only if the pinned fork's
+    `safe_hw_check` accepts it (the golden values; it raises `ValueError`, and for a struct
+    with no `x` it raises `AttributeError` instead, which the package does not copy)."""
     try:
-        module.safe_hw_check(ns)
-    except (ValueError, AttributeError):
-        pypulseq_accepts = False
-    else:
-        pypulseq_accepts = True
-    try:
-        SafeHardware.from_namespace(ns)
+        SafeHardware.from_namespace(HW_CHECK_CASES[case_id]())
     except ValueError:
         own_accepts = False
     else:
         own_accepts = True
-    assert own_accepts is pypulseq_accepts
+    assert own_accepts is bool(golden[f"hw_check/{case_id}"])
 
 
-_SEQUENCES = {
-    "spin_echo": spin_echo_sequence,
-    "gre": gre_sequence,
-    "arbitrary_gradient": arbitrary_gradient_sequence,
-    "border": border_sequence,
-}
-
-
-@pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
-@pytest.mark.parametrize("bin_s", [BIN_S, 1e-5], ids=["default-bin", "one-sample-bins"])
-def test_pns_levels_equals_the_levels_with_pypulseqs_chunk_function_exactly(
-    monkeypatch, build, bin_s
+@pytest.mark.pypulseq
+@pytest.mark.parametrize("seq_id", SEQUENCES)
+@pytest.mark.parametrize("bin_id", BINS)
+def test_pns_levels_equals_the_levels_with_the_forks_chunk_function(
+    golden, monkeypatch, seq_id, bin_id
 ):
-    """`_compute_levels` with the package's SAFE filter gives the same `PnsLevels` (`==`: every
-    field, the arrays by dtype, shape and values) as with the pinned fork's
-    `_safe_gwf_to_pns_chunk` in its place, for the example hardware, with thresholds (so
-    that the intervals are compared) and a chunk size of 1000 samples (so that the state
-    passes from chunk to chunk)."""
-    module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
-    snap = load(build())
-    thresholds = (1e5, 1e6)
+    """`_compute_levels` with the package's SAFE filter gives the same fields of `PnsLevels`
+    (`levels_arrays`: the arrays by dtype, shape and values, within `_GOLDEN_RTOL`) as with the
+    pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden values), for the example
+    hardware, with
+    thresholds (so that the intervals are compared) and a chunk size of 1000 samples (so that
+    the state passes from chunk to chunk)."""
+    snap = load(getattr(synthetic, SEQUENCES[seq_id])())
     monkeypatch.setattr(pns_levels_module, "_CHUNK_SAMPLES", 1000)
-    own = _compute_levels(snap, EXAMPLE_HW, thresholds, bin_s)
-    monkeypatch.setattr(pns_levels_module, "_safe_gwf_to_pns_chunk", module._safe_gwf_to_pns_chunk)
-    other = _compute_levels(snap, EXAMPLE_HW, thresholds, bin_s)
+    own = _compute_levels(snap, synthetic.EXAMPLE_HW, THRESHOLDS, BINS[bin_id])
     assert own.peak_hz_per_t > 0
     assert any(own.above.values())
-    assert own == other
+    arrays = levels_arrays(own)
+    prefix = f"levels/{seq_id}/{bin_id}/"
+    assert sorted(arrays) == sorted(k.removeprefix(prefix) for k in golden if k.startswith(prefix))
+    for name, value in arrays.items():
+        _assert_golden(value, golden[prefix + name], name)
 
 
 def test_safe_and_asc_import_neither_pypulseq_nor_matplotlib():

@@ -18,7 +18,15 @@
   "Move from the pypulseq fork to a pypulseq release" in the `TODO.md` of
   pulseq-reports gives each commit and how to change the pin.
   pulseq-analysis, pulseq-checks and pulseq-reports must pin the same commit.
-  When a pypulseq release has all six changes: pin that release in
-  `[project] dependencies`, remove `[tool.uv.sources]`, and change
-  `pns_levels.py` of this package to the released name of the chunk
-  function. Do this in the three repositories at the same time.
+  pulseq-analysis no longer depends on pypulseq (task 5b of
+  `docs/plans/own-parser-tasks.md`): it is the extra `pypulseq`
+  (`pypulseq>=1.5.0`), the package does not import it, and its SAFE filter is
+  its own port (`analyses/safe.py`). The pin stays in `[tool.uv.sources]` for
+  the `dev` group and the extra: the tests and the scripts use the fork, whose
+  `calculate_pns` in chunks makes the tests much faster than with the release
+  (a run with 1.5.0.post1 had not ended after 10 minutes and was stopped;
+  with the fork it takes about one). The tests that compared with the fork's
+  `_safe_gwf_to_pns_chunk` and `safe_hw_check` compare with golden values
+  (`tests/golden/`). When a pypulseq release has the six changes: pin that
+  release in the `dev` group, remove `[tool.uv.sources]`, and run the tests
+  with it. Do this in the three repositories at the same time.
