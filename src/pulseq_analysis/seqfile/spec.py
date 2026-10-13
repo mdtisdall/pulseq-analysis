@@ -1,6 +1,6 @@
 """The `spec` interpreter: a reader of Pulseq text files, versions 1.4.0 to 1.5.x, as true as
 possible to the Pulseq specification, into the model of layer 1. It is the default interpreter
-of `seqfile.read_seqfile`; `cpp-siemens` (`cpp_siemens`) is read by name.
+of `seqfile.read_seqfile`; a plugin interpreter is read by name (`interpreters`).
 
 `read_spec(path)`, which `seqfile.read_seqfile(path)` calls, reads a file and returns a
 `model.SequenceData`, or raises `SeqFileError` (a `ValueError`) with every violation of its rules,

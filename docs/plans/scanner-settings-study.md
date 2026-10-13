@@ -106,7 +106,7 @@ each give `[1000, 0, 0]` on the flat top.
 Both report the quaternion and nothing else. The driver has `dump_rotation` (driver.cpp:354-361,
 "rotation" in `--dump`, driver.cpp:388). The binding has `has_rotation` and `rotation`
 (reader.cpp:390-394), and `SequenceData.extensions.rotations` holds the quaternions after the
-reader's division (`cpp_siemens.py:454`, `_rotations` at `cpp_siemens.py:513`). Neither calls
+reader's division (`pulseq_cpp_siemens/interpreter.py:527`, `_rotations` at `pulseq_cpp_siemens/interpreter.py:588`). Neither calls
 anything that rotates. `strict` reads the quaternions as written (D49). `synth.snapshot.load`
 refuses a sequence with rotations (`synth/extensions.py:12-41`), and pypulseq cannot read such a
 file anyway (section 3.4).

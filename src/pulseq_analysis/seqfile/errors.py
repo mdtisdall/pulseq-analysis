@@ -3,9 +3,9 @@ scope.
 
 - `SeqFileError` (a `ValueError`): an interpreter gives no waveform for the file. It has every
   reason that the interpreter gives, each a `Violation` with a stable code (`Violation.rule`):
-  for `spec`, every violation of its rules (`spec.RULES`, each with its basis); for
-  `cpp-siemens`, the reason why the C++ reader rejects the file (`cpp_siemens.CODES`). pulseq-checks and the tests name a
-  rejection by its code.
+  for `spec`, every violation of its rules (`spec.RULES`, each with its basis); for a plugin
+  interpreter, the codes that it documents. pulseq-checks and the tests name a rejection by its
+  code.
 - `NotSupported` (a `NotImplementedError`): the package does not read the file, whatever the
   interpreter (Q1 of `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary
   Pulseq file, or a folder. It says nothing about whether the file is valid.

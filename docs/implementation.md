@@ -832,22 +832,22 @@ file.
 ### 7.1 The interpreters of Pulseq files
 
 `reading.read_seqfile(path, interpreter="spec")` reads a file through
-an interpreter (`docs/usage.md`, "The interpreters"). Two modules do the work:
+an interpreter (`docs/usage.md`, "The interpreters"). Two parts do the work:
 
-- `cpp_siemens.read_cpp_siemens` runs the C++ reader through pulseq-cpp-siemens
-  (its own distribution, `packages/pulseq-cpp-siemens/`, with its README). The
-  version gate reads `AsWritten.version`; the package then reads the version
-  again with the reader's own code. The codes of the rejections come from the
-  reader's messages (`cpp_siemens._classify`), which name no code: each
-  message of `load` that returns false is a pattern of
-  `cpp_siemens._LOAD_MESSAGES`, the order in which they are tried matters (the
-  reader prints warnings with "ERROR" in them before its error), and the "as
-  written" reading refines a code where the message is not enough (a `#` row,
-  a raster that is there but skipped, the line of a row that the message
-  quotes). A rejection by `decodeBlock` of a gradient raster other than 10 µs
-  has no message (it is printed at a debug level), so it is found from the
-  libraries. The model is built from the libraries (`cpp_siemens._model`); the
-  extension gives each event as a dict of the reader's struct.
+- `interpreters` finds the interpreter. `Spec` is part of the package. Any other
+  interpreter is a plugin: a class that a distribution gives through the
+  entry-point group `interpreters.GROUP`, of the protocol `interpreters.Plugin`
+  (P21). `interpreters.interpreter_names` reads the entry points
+  (`importlib.metadata.entry_points`) and imports no plugin;
+  `interpreters.interpreter` loads the entry point of a name when that name is
+  asked for. The package has no import of a plugin and no reference to one in
+  its metadata, so it works with none installed. A name with no entry point is
+  a `ValueError` that names the installed interpreters and the group. An entry
+  point that does not load is an `ImportError` chained to the cause. Two entry
+  points with one name is a `ValueError`, and a class whose `name` is not the
+  name of its entry point is a `TypeError`. `synth.decode` calls
+  `Plugin.decode` for an interpreter that is not `Spec`, and a plugin that
+  decodes gives an object of the protocol `decoding.Decoding`.
 - `spec.read_spec` is the `spec` interpreter: it gives a `model.SequenceData`
   of a Pulseq text file (versions 1.4.0 to 1.5.x), or raises
   `errors.SeqFileError` with the `errors.Violation` of every rule that the file
@@ -859,6 +859,12 @@ an interpreter (`docs/usage.md`, "The interpreters"). Two modules do the work:
   docstring of `model` gives the tables. `model.TABLE_DTYPES`, `model.Rasters`,
   `model.Shape`, `model.Signature`, `model.Extensions` and
   `model.decompress_shape` are part of the model.
+
+The interpreter `cpp-siemens` is the plugin of the sub-project
+`packages/pulseq-cpp-siemens/`. It runs the C++ reader through the extension of
+that distribution. How it works (the steps of its reading, the classification
+of the reader's messages, the model from the reader's libraries and its
+decoding) is in `packages/pulseq-cpp-siemens/README.md`.
 
 `load` does not use the interpreters yet (task R14).
 

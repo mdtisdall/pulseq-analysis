@@ -3,7 +3,7 @@
 Each interpreter (`interpreters`) makes a `SequenceData` from a text file
 (`reading.read_seqfile`). It holds the version, the definitions, the rasters, the block table, one
 table for each kind of event, the shapes, the extensions and the signature. IDs are those of the
-file (no renumbering; the C++ reader keeps no block ID, see `cpp_siemens`). A value is in the unit
+file (no renumbering; a plugin interpreter documents where it differs). A value is in the unit
 of the file converted to seconds, or Hz, Hz/m, rad and ppm as in the file. No value of a target
 (dead times, gamma, B0, limits) is in the model: they belong to layer 2.
 
@@ -30,7 +30,7 @@ The tables are structured arrays (`TABLE_DTYPES` has the dtype of each), in file
   `freq_offset` (Hz), `phase_offset` (rad), `phase_shape_id` (0 is no modulation).
 
 The paragraphs below describe the model of the `spec` interpreter (`spec`); the model of
-`cpp-siemens` holds the C++ reader's values, and `cpp_siemens` says where they differ. A 1.4.x
+a plugin interpreter holds its own values, and the plugin says where they differ. A 1.4.x
 file has fewer columns, and the model has the 1.5 layout with these values: RF
 `freq_ppm` and `phase_ppm` are 0, `use` is `u` (undefined), and `center` is NaN (the format
 had no center, and a caller that needs it computes it from the pulse). ADC `freq_ppm`,
@@ -54,7 +54,7 @@ from typing import Any
 import numpy as np
 
 from .._equality import _freeze, values_equal
-from .interpreters import CppSiemens, Spec
+from .interpreters import Interpreter
 
 # The dtype of each table of the model, by field name of `SequenceData` or `Extensions`.
 # `Extensions.labelset`, `Extensions.labelinc` and `Extensions.soft_delays` have a text field
@@ -336,8 +336,8 @@ class Signature:
     `matches` is whether `hash` is the hash of the file, or `None` when it cannot be known (an
     algorithm that `hashlib` does not have). For `spec` the hash covers the bytes of the
     specification (section 2.4): every byte before the first `[SIGNATURE]` header, without the
-    `\\n` right before it (`AsWritten.signed_bytes`). For `cpp-siemens` it is the C++ reader's own
-    check, which differs for a file with CRLF line ends (D53). A mismatch is not a rejection.
+    `\\n` right before it (`AsWritten.signed_bytes`). A plugin interpreter gives its own check.
+    A mismatch is not a rejection.
     """
 
     type: str
@@ -402,21 +402,18 @@ class SequenceData:
     - `extensions`, and `skipped_extensions`: the STRING_IDs of the extensions that the
       interpreter does not know (their rows are not read).
     - `records`: a `Record` for each thing that the interpreter ignored, in file order (`spec`;
-      empty for `cpp-siemens` until task R16).
+      a plugin interpreter may give none).
     - `signature`: `None` when the file has no `[SIGNATURE]` section.
     - `origin`: `"file"`, or `"pypulseq"` for a sequence in memory that `from_pypulseq` wrote
       and read.
     - `interpreter`: the interpreter that read the file, with its settings
-      (`interpreters.CppSiemens` or `interpreters.Spec`).
-    - `reading`: for `cpp-siemens`, the C++ reader's own reading of the file, a
-      `pulseq_cpp_siemens.Sequence`: its libraries as it read them (`reading.libraries`), its
-      decoding of each block (`reading.decode_block`), the rotation that it attaches to each
-      block (`reading.block_rotations()`) and `reading.gradients_at`. `None` for
-      `spec`. It is not compared by `==`; `pickle` carries the bytes of the file and reads them
-      again.
+      (`interpreters.Spec` or a plugin interpreter, `interpreters.Plugin`).
+    - `reading`: for a plugin interpreter, its own object for the file (for example a reader's
+      libraries, which its decoding uses), opaque to the package. `None` for `spec`. It is not
+      compared by `==`; `pickle` must carry it.
 
-    The `cpp-siemens` reading (`cpp_siemens`) fills the tables from the reader's libraries, so it
-    differs from `spec` where the reader does (`cpp_siemens` lists how).
+    A plugin interpreter fills the tables in its own way, so its model differs from `spec`'s
+    where the plugin says so.
     """
 
     version: tuple[int, int, int]
@@ -434,7 +431,7 @@ class SequenceData:
     records: tuple[Record, ...]
     signature: Signature | None
     origin: str
-    interpreter: CppSiemens | Spec
+    interpreter: Interpreter
     reading: Any = dataclasses.field(compare=False)
 
     @property

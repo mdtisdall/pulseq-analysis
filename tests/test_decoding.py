@@ -576,16 +576,6 @@ def test_events_are_read_only_equal_by_value_and_pickle(time_shaped):
         rf.amplitude = 1.0
 
 
-def test_the_events_refuse_a_model_of_cpp_siemens():
-    """`decode_rf`, `decode_gradients` and `decode_adc` decode the model of `spec` only: they
-    raise `TypeError` for the model of `cpp-siemens`, and name `synth.decode`."""
-    pytest.importorskip("pulseq_cpp_siemens")
-    data = seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq", interpreter="cpp-siemens")
-    for decode in (decode_rf, decode_gradients, decode_adc):
-        with pytest.raises(TypeError, match="synth.decode"):
-            decode(data)
-
-
 def test_synth_decode_gives_the_events_of_spec():
     """`synth.decode` of the model of `spec` is a `SpecDecoding` with the interpreter and the
     events of the three decode functions."""
@@ -679,7 +669,7 @@ def test_spec_gradients_at_are_the_lines_between_the_points_of_each_event():
     """`SpecDecoding.gradients_at` (Hz/m) at block-relative times in us: the trapezoid of block
     2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall 100 us, block
     500 us) on gx; 0 before the delay, after the event and outside the block. The arguments are
-    checked as for `cpp-siemens`."""
+    checked as for a plugin interpreter's decoding."""
     decoding = synth.decode(seqfile.read_seqfile(SEQFILES / "valid_1_4_1.seq"))
     assert decoding.block_count == 4
     times = [-1.0, 50.0, 150.0, 250.0, 450.0, 500.0, 501.0]

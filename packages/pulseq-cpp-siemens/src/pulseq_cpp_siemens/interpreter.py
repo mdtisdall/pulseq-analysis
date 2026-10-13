@@ -1,17 +1,24 @@
-"""The `cpp-siemens` interpreter: a Pulseq file as the C++ reader of the scanner's interpreter on
-Siemens systems reads it (`ExternalSequence` of pulseq/pulseq at `c7469123`), through the package
-pulseq-cpp-siemens (the extra `pulseq-analysis[cpp-siemens]`). Section 5 of
-`docs/plans/parser-redesign.md` gives what it reads and rejects, entry by entry.
+"""The `cpp-siemens` interpreter of pulseq-analysis: a Pulseq file as the C++ reader of the
+scanner's interpreter on Siemens systems reads it (`ExternalSequence` of pulseq/pulseq at
+`c7469123`), through this package. It is a plugin of pulseq-analysis (P21 of
+`docs/plans/parser-redesign.md` in pulseq-analysis): this package gives the class `CppSiemens`
+through the entry-point group `pulseq_analysis.interpreters`, so that
+`pulseq_analysis.seqfile.read_seqfile(path, "cpp-siemens")` finds it, and pulseq-analysis does
+not import this package. This module needs pulseq-analysis; the rest of the package does not.
+Section 5 of the plan gives what it reads and rejects, entry by entry.
 
-`read_cpp_siemens(path, interpreter)`, which `seqfile.read_seqfile(path, "cpp-siemens")` calls,
-reads a file in four steps:
+- `CppSiemens`: the interpreter, with its settings (`oversampling`, `rotation`); its `read`
+  gives the model (`SequenceData`), and its `decode` the decoding (`CppSiemensDecoding`).
+- `CODES`: the code of each rejection, with its entry of `docs/discrepancies.md`.
+
+`CppSiemens.read(path)` (`read_cpp_siemens`) reads a file in four steps:
 
 1. **The version gate** (Q1 of the plan). The "as written" reading (`as_written`) gives the
    version of the first `[VERSION]` section. A version outside 1.4.0 to 1.5.x raises
-   `NotSupported` before the C++ reader runs. pulseq-cpp-siemens then reads the version again
+   `NotSupported` before the C++ reader runs. `load` then reads the version again
    as the reader does (the reader takes the last row of each key), and refuses it in the same
    way; a binary Pulseq file and a folder are `NotSupported` too.
-2. **`ExternalSequence::load`**, then the checks of pulseq-cpp-siemens for the undefined
+2. **`ExternalSequence::load`**, then the checks of this package for the undefined
    behaviour of the reader (section 5.3 of the plan): a case is a rejection with its `ub.*`
    code.
 3. **`decodeBlock` of every block**, as the C++ oracle's first mode does. A block that it
@@ -47,26 +54,103 @@ file in the last digits of float32 (D18). Where the reader differs from `spec`:
 - `signature`: `matches` is the reader's check of its MD5 hash (D53).
 """
 
+import dataclasses
 import re
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
-from .as_written import AsWritten, read_as_written
-from .errors import NotSupported, SeqFileError, Violation
-from .interpreters import CppSiemens
-from .model import TABLE_DTYPES, Extensions, Rasters, SequenceData, Shape, Signature
+import pulseq_cpp_siemens as cs
+from pulseq_analysis.seqfile.as_written import AsWritten, read_as_written
+from pulseq_analysis.seqfile.errors import NotSupported, SeqFileError, Violation
+from pulseq_analysis.seqfile.model import (
+    TABLE_DTYPES,
+    Extensions,
+    Rasters,
+    SequenceData,
+    Shape,
+    Signature,
+)
+from pulseq_analysis.synth.scanner import RotationRecord
 
-__all__ = ["CODES", "read_cpp_siemens"]
+__all__ = [
+    "CODES",
+    "OVERSAMPLING",
+    "ROTATION",
+    "CppSiemens",
+    "CppSiemensDecoding",
+    "read_cpp_siemens",
+]
+
+OVERSAMPLING = cs.OVERSAMPLING
+
+# What the `cpp-siemens` decoding does with the rotation of a block (the ROTATIONS extension,
+# D49): the reader's own output, whose gradients are not rotated (the reader leaves the rotation
+# to the scanner's interpreter), or the simulation of the scanner, which rotates them.
+ROTATION = ("reader", "apply")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class CppSiemens:
+    """The `cpp-siemens` interpreter: the C++ reader, with its settings (a plugin interpreter of
+    pulseq-analysis, `pulseq_analysis.seqfile.interpreters.Plugin`). It reads what that reader
+    reads and rejects what it rejects. It decodes every block of a file with the C++ reader,
+    about six times as long as `spec`, so pulseq-analysis reads it by name.
+
+    `oversampling` is the reader's mode for an oversampled arbitrary gradient (D43): `"center"`
+    (the default, `SetArbGradCenterSampling(true)`) keeps the samples at the centres of the
+    raster, `"edge"` (`SetArbGradCenterSampling(false)`) those at its edges, and `"preserve"`
+    (`SetArbGradPreserveOversampling()`) all of them.
+
+    `rotation` is what the decoding does with each block's rotation (D49): `"reader"` (the
+    default) gives the reader's output, the logical gradients with the block's quaternion beside
+    them (the reader never rotates them); `"apply"` rotates the gradients of each block to which
+    the reader attached a rotation by its quaternion, with the reader's own
+    `rotate_vec3_by_quat`, in any version of the file. `"apply"` is the simulation of the
+    scanner: the scanner's behaviour for a file older than 1.5.1, the revision that defines the
+    extension, is not known (the user, 2026-10-12). It is valid on a file with no rotation, and
+    then rotates no block."""
+
+    name: ClassVar[str] = "cpp-siemens"
+    oversampling: str = "center"
+    rotation: str = "reader"
+
+    def __post_init__(self) -> None:
+        if self.oversampling not in OVERSAMPLING:
+            raise ValueError(
+                f"oversampling is {self.oversampling!r}, not one of {', '.join(OVERSAMPLING)}"
+            )
+        if self.rotation not in ROTATION:
+            raise ValueError(f"rotation is {self.rotation!r}, not one of {', '.join(ROTATION)}")
+
+    def __str__(self) -> str:
+        """The name, with each setting that is not its default."""
+        default = CppSiemens()
+        settings = [
+            f"{field}={getattr(self, field)!r}"
+            for field in ("oversampling", "rotation")
+            if getattr(self, field) != getattr(default, field)
+        ]
+        return f"{self.name}({', '.join(settings)})" if settings else self.name
+
+    def read(self, path: str | Path) -> SequenceData:
+        """`read_cpp_siemens(path, self)`."""
+        return read_cpp_siemens(path, self)
+
+    def decode(self, data: SequenceData) -> "CppSiemensDecoding":
+        """The decoding of `data`, a model that this interpreter read: `CppSiemensDecoding`."""
+        return CppSiemensDecoding(data)
+
 
 # The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
 _MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
 
 # The codes of the rejections of `cpp-siemens`: each code, its entry of docs/discrepancies.md
-# ("—" for none), and what the reader rejects. The `ub.*` codes are those of pulseq-cpp-siemens
-# (`pulseq_cpp_siemens.CODES`, section 5.3 of the plan).
+# ("—" for none), and what the reader rejects. The `ub.*` codes are those of the checks of this
+# package (`pulseq_cpp_siemens.CODES`, section 5.3 of the plan).
 CODES: MappingProxyType[str, tuple[str, str]] = MappingProxyType(
     {
         "version.missing": ("D02", "the file has no [VERSION] section"),
@@ -178,25 +262,13 @@ _US, _NS = 1e6, 1e9  # microseconds and nanoseconds in a second
 _KNOWN_EXT_TYPES = {"TRIGGERS", "ROTATIONS", "LABELSET", "LABELINC", "DELAYS", "RF_SHIMS"}
 
 
-def _engine() -> Any:
-    try:
-        import pulseq_cpp_siemens
-    except ImportError as error:
-        raise ImportError(
-            "the interpreter cpp-siemens needs the package pulseq-cpp-siemens: install "
-            "pulseq-analysis[cpp-siemens], or read with interpreter='spec'"
-        ) from error
-    return pulseq_cpp_siemens
-
-
 def read_cpp_siemens(path: str | Path, interpreter: CppSiemens | None = None) -> SequenceData:
     """Read the Pulseq text file `path` as the C++ reader reads it (the module docstring).
 
     Raises `NotSupported` for a file outside the package's scope (the reader is not run),
     `SeqFileError` (a `ValueError`) with the code of `CODES` when the reader rejects the file,
-    `ImportError` without pulseq-cpp-siemens, and `OSError` when the file cannot be read."""
+    and `OSError` when the file cannot be read."""
     interpreter = interpreter or CppSiemens()
-    cs = _engine()
     path = Path(path)
     if path.is_dir():
         raise NotSupported(f"{path} is a folder; the package reads one .seq file")
@@ -519,3 +591,130 @@ def _rotations(rotations: dict[int, tuple[float, float, float, float]]) -> np.nd
     for j, column in enumerate(("q0", "qx", "qy", "qz")):
         out[column] = [q[j] for q in rotations.values()]
     return out
+
+
+# The points of one gradient event (`pulseq_analysis.synth.decoding.Points`): its delay (s), and
+# the offsets (s, from the delay) and the values (Hz/m) of its points.
+Points = tuple[float, np.ndarray, np.ndarray]
+
+
+class CppSiemensDecoding:
+    """The C++ reader's decoding of a file that `cpp-siemens` read (`CppSiemens.decode`), of the
+    protocol `pulseq_analysis.synth.Decoding`: a view of `SequenceData.reading` (a `Sequence`).
+    Blocks are indexed in play order from 0; the reader decodes each on request, and keeps it
+    for `gradients_at`.
+
+    These are the values that the reader gives, bit for bit: its float32 values, the
+    resampling of RF pulses, the clamps of `checkRF` and `checkGradient`, the sampling mode of
+    an oversampled gradient (the setting `oversampling`), and its misreadings. The reader gives
+    each block's rotation (`rotations`) and applies it to nothing; with the setting
+    `rotation="apply"`, `gradients_at` rotates the gradients of each block that has one, with
+    the reader's own `rotate_vec3_by_quat` (the simulation of the scanner). `rotation_record`
+    records what was applied."""
+
+    def __init__(self, data: SequenceData) -> None:
+        self.interpreter: CppSiemens = data.interpreter
+        self._reading = data.reading
+        self._gradient_raster = data.rasters.gradient
+        self._rotation_record: RotationRecord | None = None
+
+    @property
+    def block_count(self) -> int:
+        return int(self._reading.block_count)
+
+    def block(self, index: int) -> dict[str, Any]:
+        """`GetBlock` and `decodeBlock` of the block `index`: the fields of the C++ oracle's
+        `--dump` (`tests/cpp_oracle/README.md` of pulseq-analysis), in the reader's units (us,
+        Hz, Hz/m, rad), with the RF and gradient samples after the resampling and the clamps."""
+        return self._reading.decode_block(index)
+
+    def blocks(self) -> Iterator[dict[str, Any]]:
+        """`block` of each block, in play order."""
+        for index in range(self.block_count):
+            yield self.block(index)
+
+    def rotations(self) -> tuple[np.ndarray, np.ndarray]:
+        """The rotation of each block, as the reader gives it: the play indices (from 0) of the
+        blocks to which `GetBlock` attaches a rotation (the first of the block's extension list,
+        D48), and their quaternions, an array (n, 4) of q0, qx, qy and qz, as the reader divided
+        them by their norm (D49). The same in each setting."""
+        return self._reading.block_rotations()
+
+    @property
+    def rotation_record(self) -> RotationRecord:
+        """What the decoding does with the rotations of the file (rule 4 of P20): the setting,
+        the blocks with a rotation, those that are not the identity, and those rotated."""
+        if self._rotation_record is None:
+            indices, quaternions = self.rotations()
+            setting = self.interpreter.rotation
+            self._rotation_record = RotationRecord(
+                setting=setting,
+                blocks=int(indices.size),
+                not_identity=int(np.count_nonzero(np.any(quaternions[:, 1:] != 0, axis=1))),
+                rotated=int(indices.size) if setting == "apply" else 0,
+                hint="use CppSiemens(rotation='apply') for the gradients that the scanner plays",
+            )
+        return self._rotation_record
+
+    def gradients_at(
+        self, block_index: Any, time_us: Any, rotated: bool | None = None
+    ) -> np.ndarray:
+        """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index and a time in us from the
+        start of that block: an array (n, 3) of gx, gy and gz (0 before and after the block).
+
+        `rotated` None follows the interpreter's setting `rotation`. False gives the values as
+        the reader gives them, the logical gradients. True turns the values of each block with a
+        rotation (`rotations`) by its quaternion, with the reader's `rotate_vec3_by_quat`: the
+        gradients that the scanner plays when it applies the rotation."""
+        if rotated is None:
+            rotated = self.interpreter.rotation == "apply"
+        return self._reading.gradients_at(block_index, time_us, rotated=rotated)
+
+    def gradient_points(self, key: int, block: int, axis: int) -> Points:
+        """The points of the gradient event that the block `block` plays on the axis `axis`
+        (`key` is its file ID; the reader decodes an event in each block, so the block is what
+        counts), as the reader decoded it (not rotated): those between which
+        `SeqBlock::gradientsAt` draws its straight lines (cpp:3558-3690), in the layout of
+        `pulseq_analysis.synth.seq_utils.gradient_offsets`. The values are those that
+        `gradientsAt` gives at the points: the amplitude (a float32) times each sample of a
+        shape in float32, and 0 everywhere when the amplitude is 0."""
+        return _points(self.block(block)["grad"][axis], self._gradient_raster)
+
+
+def _points(grad: Mapping[str, Any], raster_s: float) -> Points:
+    """`CppSiemensDecoding.gradient_points` of a `grad` entry of `CppSiemensDecoding.block`, with
+    `raster_s` the gradient raster of the file (s)."""
+    # A time in us divided by 1e6, as the model gives it (D51).
+    delay = grad["delay_us"] / 1e6
+    amplitude = np.float32(grad["amplitude"])
+    kind = grad["kind"]
+    if kind == "trap":
+        offsets = np.cumsum(
+            [0.0, grad["ramp_up_us"] / 1e6, grad["flat_us"] / 1e6, grad["ramp_down_us"] / 1e6]
+        )
+        amp = np.array([0.0, amplitude, amplitude, 0.0], dtype=np.float64)
+    elif kind == "ext_trap":
+        times_us = np.asarray(grad["times_us"], dtype=np.float64)
+        shape = np.asarray(grad["shape"], dtype=np.float32)
+        times = times_us / 1e6
+        values = (shape * amplitude).astype(np.float64)
+        first = values[0]
+        if times_us[0] > 0 and times_us.size > 1:
+            # Between the delay and the first time, `gradientsAt` carries the first segment
+            # backwards (its binary search, cpp:3634-3645; D40): the value at the delay.
+            t1, t2, v1, v2 = times_us[0], times_us[1], float(shape[0]), float(shape[1])
+            first = (v1 * (t2 - 0.0) + v2 * (0.0 - t1)) / (t2 - t1) * float(amplitude)
+        # The layout of `gradient_offsets`: the value at the delay, the vertices, and the value
+        # at the end.
+        offsets = np.concatenate([[0.0], times, times[-1:]])
+        amp = np.concatenate([[first], values, values[-1:]])
+    else:  # arbitrary: the samples at the centres of the raster, `first` and `last` at its edges
+        samples = np.asarray(grad["samples"], dtype=np.float32)
+        n = samples.size
+        offsets = np.concatenate([[0.0], (np.arange(n) + 0.5) * raster_s, [n * raster_s]])
+        amp = np.concatenate(
+            [[grad["first"]], (samples * amplitude).astype(np.float64), [grad["last"]]]
+        )
+    if amplitude == 0:
+        amp = np.zeros_like(amp)
+    return delay, offsets, amp

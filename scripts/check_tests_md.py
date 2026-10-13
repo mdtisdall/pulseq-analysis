@@ -47,7 +47,8 @@ def collect_node_ids() -> list[str]:
     """Node IDs of each test, from running `pytest --collect-only` here, and in the environment
     of packages/pulseq-cpp-siemens when it exists (scripts/check makes it)."""
     options = ["--collect-only", "-q", "-p", "no:cacheprovider"]
-    node_ids = _collect([sys.executable, "-m", "pytest", *options])
+    # The root tests only: the tests of the package need its environment (below).
+    node_ids = _collect([sys.executable, "-m", "pytest", *options, str(ROOT / "tests")])
     package = ROOT / "packages" / "pulseq-cpp-siemens"
     python = package / ".venv" / ("Scripts" if sys.platform == "win32" else "bin") / "python"
     if python.exists():

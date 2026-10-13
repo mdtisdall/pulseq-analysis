@@ -415,8 +415,8 @@ def test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq(cases, path
         pytest.skip(
             f"block {min(case.rotated) + 1} plays a rotation: MATLAB rotates its gradients "
             "(Sequence.m:1989-2000), and strict does not (U18, U22); "
-            "test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq compares "
-            "the rotated gradients of cpp-siemens"
+            "test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq compares "
+            "the rotated gradients"
         )
     diff = Differences(case.name)
     for axis in ("gx", "gy", "gz"):
@@ -472,40 +472,38 @@ def test_the_adc_sample_times_are_those_of_matlab_pulseq(cases, path):
 # The files with a ROTATIONS section, for the rotated gradients of the interpreters.
 ROTATION_FILES = [path for path in FILES if b"extension ROTATIONS" in path.read_bytes()]
 
-# `cpp-siemens` holds the gradient amplitudes in float32 (P6), and MATLAB in float64.
+# A plugin interpreter can hold the gradient amplitudes in float32 (`cpp-siemens`, P6), and
+# MATLAB holds them in float64.
 FLOAT32_REL = 1e-6
 
 
-@pytest.mark.parametrize("interpreter", ["cpp-siemens", "spec"])
 @pytest.mark.parametrize("path", ROTATION_FILES, ids=lambda p: str(p.relative_to(SEQFILES)))
-def test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq(
-    cases, path, interpreter
-):
-    """`CppSiemens(rotation="apply")` rotates each block's gradients by the reader's quaternion
-    with the reader's `rotate_vec3_by_quat`, `spec` (from 1.5.1) by the model's quaternion with
-    the package's `decoding.rotate`, and MATLAB's `waveforms_and_times` rotates them with
-    `mr.rotate3D` (Sequence.m:1988-1999). They agree at the midpoint of each segment of MATLAB's
-    polyline, on each axis, where MATLAB does not guess the edges of an arbitrary gradient (U21),
-    and on a segment with no end at a block boundary: there MATLAB can join the last point of one
-    block to the first sample of the next, and each interpreter gives each block alone (D42). The
-    unrotated gradients do not agree where a block plays a rotation. MATLAB rotates in any
-    version and `spec` from 1.5.1 only (P20, rule 2), so a file older than 1.5.1 is left out for
-    `spec`."""
-    from pulseq_analysis import synth
-    from pulseq_analysis.seqfile import CppSiemens, read_seqfile
+def test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq(cases, path):
+    """`spec` (from 1.5.1) rotates each block's gradients by the model's quaternion with the
+    package's `decoding.rotate`, and MATLAB's `waveforms_and_times` rotates them with
+    `mr.rotate3D` (Sequence.m:1988-1999): `compare_rotated_gradients`. MATLAB rotates in any
+    version and `spec` from 1.5.1 only (P20, rule 2), so a file older than 1.5.1 is left out."""
+    from pulseq_analysis.seqfile import read_seqfile
 
     case = case_of(cases, path)
-    if interpreter == "cpp-siemens":
-        pytest.importorskip("pulseq_cpp_siemens")
-        chosen = CppSiemens(rotation="apply")
-    else:
-        chosen = "spec"
     try:
-        data = read_seqfile(path, chosen)
+        data = read_seqfile(path, "spec")
     except SeqFileError as error:
-        pytest.skip(f"{interpreter} rejects the file ({', '.join(sorted(error.codes))})")
-    if interpreter == "spec" and data.version < (1, 5, 1):
+        pytest.skip(f"spec rejects the file ({', '.join(sorted(error.codes))})")
+    if data.version < (1, 5, 1):
         pytest.skip("spec reads ROTATIONS from 1.5.1 only")
+    compare_rotated_gradients(case, data)
+
+
+def compare_rotated_gradients(case, data):
+    """The rotated gradients of the decoding of `data` (`synth.decode`) agree with MATLAB's at
+    the midpoint of each segment of MATLAB's polyline, on each axis, where MATLAB does not guess
+    the edges of an arbitrary gradient (U21), and on a segment with no end at a block boundary:
+    there MATLAB can join the last point of one block to the first sample of the next, and each
+    interpreter gives each block alone (D42). The unrotated gradients do not agree where a block
+    plays a rotation. The tests of a plugin interpreter call it too."""
+    from pulseq_analysis import synth
+
     decoding = synth.decode(data)
     # valid_1_5_1_rotation_not_played.seq has a rotation that no block plays: 0 blocks rotated.
     assert decoding.rotation_record.rotated == decoding.rotation_record.blocks
