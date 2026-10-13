@@ -127,6 +127,10 @@
             "-fsanitize=address,undefined"
             "-fno-sanitize-recover=all"
             "-D_GLIBCXX_ASSERTIONS"
+            # libstdc++ marks the capacity of a vector past its size for AddressSanitizer only
+            # with this macro (libc++ always does): a write there, as decodeArbGradInBlock makes
+            # into the buffer that it reuses, is then a report of container-overflow on Linux too.
+            "-D_GLIBCXX_SANITIZE_VECTOR"
             "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG"
             "-DPULSEQ_CPP_ORACLE_SANITIZED"
           ];

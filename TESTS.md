@@ -7849,7 +7849,8 @@ The test does not check the phase or frequency of the samples.
 `test_cpp_oracle_sanitized.py` tests `pulseq-cpp-oracle-sanitized`: the driver of
 `tests/cpp_oracle/` and the reader `ExternalSequence`, built by `flake.nix` with clang (LLVM 22),
 AddressSanitizer, UndefinedBehaviorSanitizer and the assertions of the C++ standard library
-(`_GLIBCXX_ASSERTIONS` for libstdc++ on Linux, the debug hardening mode of libc++ on macOS). It
+(`_GLIBCXX_ASSERTIONS` for libstdc++ on Linux, the debug hardening mode of libc++ on macOS), and
+the annotation of the capacity of a vector (`_GLIBCXX_SANITIZE_VECTOR` on Linux). It
 exits with 3 when one of them fires, so "undefined behaviour" is a verdict of its own, the same on
 each platform, while an ordinary build of the reader crashes, accepts or rejects such a file by
 platform (section 5.3 of `docs/plans/parser-redesign.md`). The devShell and the `ci` devShell have
@@ -8582,7 +8583,9 @@ and the package's verdict is the one of `expected.json`.
 
 **Assumptions:** The corpus is the smallest file of each code in the full seeded set, the files
 that once failed the fuzzing (an extended trapezoid of one point, the buffer that the reader
-reuses for extended trapezoids, three `[GRADIENTS]` rows of shape 0), and four valid files. A new
+reuses for extended trapezoids, three `[GRADIENTS]` rows of shape 0, a write past the size of a
+vector inside its capacity that the Linux oracle missed before `_GLIBCXX_SANITIZE_VECTOR`), and four
+valid files. A new
 failure is added to it by hand.
 
 #### `test_the_checks_agree_with_the_sanitized_oracle_on_the_seeded_files`

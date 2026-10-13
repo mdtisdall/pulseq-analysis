@@ -12,6 +12,7 @@
  "regression_gradients_shape_0.seq": "undefined-behaviour:ub.gradient-shape-0",
  "regression_gradients_shape_0_scanned_number.seq": "undefined-behaviour:ub.gradient-shape-0",
  "regression_gradients_shape_0_version_1_5_minus_1.seq": "undefined-behaviour:ub.gradient-shape-0",
+ "regression_vector_capacity.seq": "undefined-behaviour:ub.shape-decompression",
  "rf-shape-lengths.seq": "undefined-behaviour:ub.rf-shape-lengths",
  "rf-time-id-minus-1.seq": "undefined-behaviour:ub.rf-time-id-minus-1",
  "rf-time-overrun.seq": "undefined-behaviour:ub.rf-time-overrun",
