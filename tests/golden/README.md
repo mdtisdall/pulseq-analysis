@@ -4,7 +4,9 @@
 tests need them: `_safe_gwf_to_pns_chunk` (the SAFE PNS filter in chunks) and
 `safe_hw_check`, of `pypulseq.utils.safe_pns_prediction`. The tests of `test_safe.py`
 that compare the package's SAFE filter and hardware check with the fork compare with these
-values, so that they run with a pypulseq release or with no pypulseq.
+values, so that they run with a pypulseq release or with no pypulseq. The values were written
+on macOS; another platform rounds some of them differently in the last bit, so the tests compare
+the floats within an ulp-level tolerance (`_GOLDEN_RTOL` of `test_safe.py`).
 
 - Fork: `mdtisdall/pypulseq`, tag `pulseq-reports-pin-2`, commit
   `3c3bd8515e591ef859399aa20db64b1bd2c3a725` (pypulseq 1.5.0.post1 with six commits).

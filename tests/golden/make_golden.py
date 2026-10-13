@@ -58,7 +58,7 @@ def hw_check_values() -> dict[str, np.ndarray]:
 def levels_values() -> dict[str, np.ndarray]:
     """The fields of `_compute_levels` with the fork's `_safe_gwf_to_pns_chunk` in place of
     the package's, for each case of
-    `test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly`."""
+    `test_pns_levels_equals_the_levels_with_the_forks_chunk_function`."""
     values = {}
     pns_levels_module._CHUNK_SAMPLES = 1000
     pns_levels_module._safe_gwf_to_pns_chunk = module._safe_gwf_to_pns_chunk

@@ -1,6 +1,7 @@
 """Tests of `safe.py`: `SafeAxis`, `SafeHardware`, and the chunked SAFE filter. The tests that
 compare with the functions of the pypulseq fork compare with golden values
-(`golden/safe_fork.npz`); the two tests that need pypulseq have the `pypulseq` marker."""
+(`golden/safe_fork.npz`), within an ulp-level tolerance; the two tests that need pypulseq have
+the `pypulseq` marker."""
 
 import ast
 import dataclasses
@@ -325,10 +326,34 @@ def levels_arrays(levels: PnsLevels) -> dict[str, np.ndarray]:
     return arrays
 
 
+# The tolerance of a comparison with the golden values, relative, by dtype. The golden values
+# were written on one platform; another platform's numpy and scipy can round the same float
+# operations differently in the last bit (1 to 2 ulp of a float64 on Linux against macOS). A float32
+# level is the outward cast of a float64 total, so a float64 difference of one ulp can move it by
+# one float32 ulp. A change of the filter itself is far above these.
+_GOLDEN_RTOL = {
+    np.dtype(np.float64): 1e-14,
+    np.dtype(np.float32): 2 * float(np.finfo(np.float32).eps),
+}
+
+
 @pytest.fixture(scope="module")
 def golden():
     with np.load(_GOLDEN) as data:
         return dict(data)
+
+
+def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
+    """`value` has the dtype and the shape of `expected`, and its values: within
+    `_GOLDEN_RTOL` for floats, exactly for the others."""
+    value = np.asarray(value)
+    assert value.dtype == expected.dtype, name
+    assert value.shape == expected.shape, name
+    rtol = _GOLDEN_RTOL.get(value.dtype)
+    if rtol is None:
+        np.testing.assert_array_equal(value, expected, err_msg=name)
+    else:
+        np.testing.assert_allclose(value, expected, rtol=rtol, atol=0, err_msg=name)
 
 
 @pytest.mark.pypulseq
@@ -351,17 +376,17 @@ def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
 @pytest.mark.parametrize("scaled_id", CHUNK_NAMESPACES)
 def test_the_chunk_function_equals_the_forks_for_every_chunk_and_state(golden, scaled_id, dt_id):
     """The `pns` array and the state of each chunk equal those of the pinned fork's
-    `_safe_gwf_to_pns_chunk` (the golden values) exactly (`array_equal`), over the same
-    chunks and with the state that the function returned for the chunk before."""
+    `_safe_gwf_to_pns_chunk` (the golden values, within `_GOLDEN_RTOL`), over the same chunks
+    and with the state that the function returned for the chunk before."""
     hardware = SafeHardware.from_namespace(CHUNK_NAMESPACES[scaled_id]())
     gwf = chunk_waveform()
     state = None
     for i, (start, stop) in enumerate(CHUNKS):
         pns, state = _safe_gwf_to_pns_chunk(gwf[start:stop], CHUNK_DTS[dt_id], hardware, state)
         key = f"chunk/{scaled_id}/{dt_id}/{i}"
-        np.testing.assert_array_equal(pns, golden[f"{key}/pns"])
-        np.testing.assert_array_equal(state.g_last, golden[f"{key}/g_last"])
-        np.testing.assert_array_equal(state.zi, golden[f"{key}/zi"])
+        _assert_golden(pns, golden[f"{key}/pns"], f"{key}/pns")
+        _assert_golden(state.g_last, golden[f"{key}/g_last"], f"{key}/g_last")
+        _assert_golden(state.zi, golden[f"{key}/zi"], f"{key}/zi")
 
 
 @pytest.mark.parametrize("case_id", HW_CHECK_CASES)
@@ -381,12 +406,13 @@ def test_the_hardware_check_accepts_and_refuses_what_the_forks_safe_hw_check_doe
 @pytest.mark.pypulseq
 @pytest.mark.parametrize("seq_id", SEQUENCES)
 @pytest.mark.parametrize("bin_id", BINS)
-def test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly(
+def test_pns_levels_equals_the_levels_with_the_forks_chunk_function(
     golden, monkeypatch, seq_id, bin_id
 ):
     """`_compute_levels` with the package's SAFE filter gives the same fields of `PnsLevels`
-    (`levels_arrays`: the arrays by dtype, shape and values) as with the pinned fork's
-    `_safe_gwf_to_pns_chunk` in its place (the golden values), for the example hardware, with
+    (`levels_arrays`: the arrays by dtype, shape and values, within `_GOLDEN_RTOL`) as with the
+    pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden values), for the example
+    hardware, with
     thresholds (so that the intervals are compared) and a chunk size of 1000 samples (so that
     the state passes from chunk to chunk)."""
     snap = load(getattr(synthetic, SEQUENCES[seq_id])())
@@ -398,9 +424,7 @@ def test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly(
     prefix = f"levels/{seq_id}/{bin_id}/"
     assert sorted(arrays) == sorted(k.removeprefix(prefix) for k in golden if k.startswith(prefix))
     for name, value in arrays.items():
-        expected = golden[prefix + name]
-        assert value.dtype == expected.dtype, name
-        np.testing.assert_array_equal(value, expected, err_msg=name)
+        _assert_golden(value, golden[prefix + name], name)
 
 
 def test_safe_and_asc_import_neither_pypulseq_nor_matplotlib():

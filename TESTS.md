@@ -7242,8 +7242,13 @@ runs. The module is ported from pypulseq's `safe_hw_check` and `_safe_gwf_to_pns
 only the pinned fork has as the tests use them. The tests that compare with them compare with
 golden values, the outputs of the fork's functions for the same inputs, in
 `tests/golden/safe_fork.npz`: `tests/golden/make_golden.py` wrote them with the fork pinned,
-and `tests/golden/README.md` gives the fork commit. The comparisons are exact
-(`numpy.testing.assert_array_equal` or `==`), because the port does the same float operations.
+and `tests/golden/README.md` gives the fork commit. The comparisons (`_assert_golden`) require
+the dtype and the shape, the integer and bool values exactly, and the float values within
+`_GOLDEN_RTOL`: a relative 1e-14 for float64 and two float32 ulp for float32. The port does the
+same float operations as the fork, but the golden values come from one platform (macOS), and
+numpy and scipy on another (Linux in CI) round some of them differently in the last bit (1 to 2
+ulp of a float64, measured on 2026-10-13); a float32 level, the outward cast of a float64 total,
+can then move by one float32 ulp.
 The numbers of pypulseq's example hardware are those of `synthetic.EXAMPLE_AXES`, and one
 test compares them with `safe_example_hw()`. Only that test and the comparison of the levels
 (which builds synthetic sequences) need pypulseq; they have the marker `pypulseq`.
@@ -7381,7 +7386,7 @@ the `vars` of the namespaces and their axes with `==`.
 #### `test_the_chunk_function_equals_the_forks_for_every_chunk_and_state`
 
 **Checks:** The rows and the state of each chunk equal those of `_safe_gwf_to_pns_chunk` of the
-pinned fork (the golden values), exactly, for the example hardware and for hardware with other
+pinned fork (the golden values, within `_GOLDEN_RTOL`), for the example hardware and for hardware with other
 numbers in every field (the filters differ, the `a` sum is 1), at the rasters 10 µs and 2.5 µs.
 
 **How:** Parametrized over the hardware and the raster. A random walk of 2000 samples
@@ -7391,7 +7396,8 @@ with the keys `chunk/<hardware>/<raster>/<i>/...` of the golden file.
 
 **Assumptions:** The random walk is a waveform, not a gradient of a real sequence. The golden
 values are those of the fork commit of `tests/golden/README.md`; a change of the inputs needs
-`make_golden.py` to run again with the fork.
+`make_golden.py` to run again with the fork. A difference below the tolerance (a change of the
+order of the float operations of the port) is not found.
 
 #### `test_the_hardware_check_accepts_and_refuses_what_the_forks_safe_hw_check_does`
 
@@ -7407,7 +7413,7 @@ namespace with no `x`); a refusal of `from_namespace` is a `ValueError`.
 **Assumptions:** `safe_hw_check` does not check that a field is finite, a number or above 0.
 `from_namespace` does, and the test does not compare that.
 
-#### `test_pns_levels_equals_the_levels_with_the_forks_chunk_function_exactly`
+#### `test_pns_levels_equals_the_levels_with_the_forks_chunk_function`
 
 **Checks:** `_compute_levels` with the package's chunk function gives the same fields of
 `PnsLevels` as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden
@@ -7420,7 +7426,8 @@ intervals (the test checks that some interval exists and that the peak is above 
 `levels_arrays` gives the fields as arrays (`num_samples`, `bin_samples`, the two levels, the
 peak, its time, the axis peaks, `on_raster`, and the rows `start_s, end_s, peak_hz_per_t,
 peak_time_s, num_samples` of the intervals of each threshold); each must have the dtype, shape
-and values of its golden array, and the set of names must be that of the golden file.
+and values of its golden array (`_assert_golden`), and the set of names must be that of the
+golden file.
 
 **Assumptions:** The sequences are the synthetic sequences, with the example hardware, as
 pypulseq builds them in the dev environment (the fork). The fields that the chunk function does
