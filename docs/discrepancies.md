@@ -37,7 +37,7 @@ interpreters"):
   the C++ reader of the scanner's interpreter on Siemens systems reads it. Its
   engine is the C++ reader itself, run in the process by the package
   pulseq-cpp-siemens. It makes the waveforms that the reader makes, and rejects
-  what the reader rejects, with a code (`cpp_siemens.CODES`). Where the reader's
+  what the reader rejects, with a code (`pulseq_cpp_siemens.interpreter.CODES`). Where the reader's
   behaviour is undefined (it reads or writes memory that it does not own, or it
   does not end), it rejects the file with a `ub.*` code (section 5.3 of the
   plan).

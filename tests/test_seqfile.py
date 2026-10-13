@@ -2125,13 +2125,6 @@ def test_the_records_of_labels_and_of_an_extension_of_a_later_revision(tmp_path)
     assert read_seqfile(path).records == (expected,)
 
 
-def test_cpp_siemens_has_no_records():
-    """The records are `spec`'s: `cpp-siemens` gives an empty tuple (until task R16)."""
-    pytest.importorskip("pulseq_cpp_siemens")
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
-    assert data.records == ()
-
-
 def test_a_label_that_is_not_known_is_kept_as_text(tmp_path):
     """D50, spec:519-520 (the counters and flags "supported at the moment"): `spec` keeps the name
     of any label as text, with no check (`valid_label_unknown.seq` has `FOO`). The labels PMC,

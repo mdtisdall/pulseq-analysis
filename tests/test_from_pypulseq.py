@@ -1,13 +1,11 @@
 """Tests of `seqfile.read_pypulseq` (`seqfile.from_pypulseq`, task R15): a pypulseq sequence in
 memory, written with pypulseq's writer and read through an interpreter, gives what the file of
-`seq.write(path)` gives, and the sequence is not changed.
-
-The cases of `cpp-siemens` skip without pulseq-cpp-siemens (the extra `cpp-siemens`).
+`seq.write(path)` gives, and the sequence is not changed. The tests of a plugin interpreter run
+the same checks (`check_*`) for their interpreter.
 """
 
 import copy
 import dataclasses
-import importlib.util
 import pickle
 import tempfile
 import warnings
@@ -16,7 +14,6 @@ import numpy as np
 import pypulseq as pp
 import pytest
 from synthetic import (
-    RASTER_4US,
     SYSTEM,
     arbitrary_gradient_sequence,
     border_sequence,
@@ -25,26 +22,13 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis.seqfile import (
-    CppSiemens,
-    SeqFileError,
-    Spec,
-    read_pypulseq,
-    read_seqfile,
-)
+from pulseq_analysis.seqfile import SeqFileError, Spec, read_pypulseq, read_seqfile
 from pulseq_analysis.seqfile.from_pypulseq import SOURCE
 
-needs_cpp_siemens = pytest.mark.skipif(
-    importlib.util.find_spec("pulseq_cpp_siemens") is None,
-    reason="pulseq-cpp-siemens is not installed (the extra cpp-siemens)",
-)
-
-# Each interpreter, by name and as an object with a setting.
+# The interpreter `spec`, by name and as an object.
 INTERPRETERS = [
     pytest.param("spec", id="spec"),
     pytest.param(Spec(), id="Spec()"),
-    pytest.param("cpp-siemens", id="cpp-siemens", marks=needs_cpp_siemens),
-    pytest.param(CppSiemens(oversampling="edge"), id="CppSiemens-edge", marks=needs_cpp_siemens),
 ]
 
 
@@ -104,7 +88,12 @@ def read_written_file(seq, path, interpreter):
 @pytest.mark.parametrize("interpreter", INTERPRETERS)
 @pytest.mark.parametrize("name", SEQUENCES)
 def test_a_sequence_in_memory_reads_as_its_written_file(name, interpreter, tmp_path):
-    seq = SEQUENCES[name]()
+    check_reads_as_its_written_file(SEQUENCES[name](), interpreter, tmp_path)
+
+
+def check_reads_as_its_written_file(seq, interpreter, tmp_path):
+    """`read_pypulseq` of `seq` is `read_seqfile` of its written file, with `origin`
+    `"pypulseq"`."""
     data = read_pypulseq(seq, interpreter)
     assert data.origin == "pypulseq"
     expected = read_written_file(seq, tmp_path / "sequence.seq", interpreter)
@@ -116,6 +105,11 @@ def test_a_sequence_in_memory_reads_as_its_written_file(name, interpreter, tmp_p
 
 @pytest.mark.parametrize("interpreter", INTERPRETERS)
 def test_the_mixed_sequence_has_each_kind_of_event(interpreter):
+    check_the_mixed_sequence(interpreter)
+
+
+def check_the_mixed_sequence(interpreter):
+    """The model of `mixed_sequence` through `interpreter` has each kind of event."""
     data = read_pypulseq(mixed_sequence(), interpreter)
     assert len(data.blocks) == 10
     assert len(data.rf) == 1  # the writer merged the repeated RF event
@@ -129,7 +123,11 @@ def test_the_mixed_sequence_has_each_kind_of_event(interpreter):
 @pytest.mark.parametrize("interpreter", INTERPRETERS)
 @pytest.mark.parametrize("name", SEQUENCES)
 def test_the_sequence_is_not_changed(name, interpreter):
-    seq = SEQUENCES[name]()
+    check_the_sequence_is_not_changed(SEQUENCES[name](), interpreter)
+
+
+def check_the_sequence_is_not_changed(seq, interpreter):
+    """`read_pypulseq` leaves `seq` as it was."""
     before = state(seq)
     definitions = dict(seq.definitions)
     read_pypulseq(seq, interpreter)
@@ -159,34 +157,13 @@ def short_block_sequence() -> pp.Sequence:
     return seq
 
 
-def arbitrary_gradient_4us_sequence() -> pp.Sequence:
-    """An arbitrary gradient on a gradient raster of 4 us (`cpp-siemens` rejects it:
-    `gradient.raster`)."""
-    system = copy.copy(SYSTEM)
-    system.grad_raster_time = RASTER_4US
-    seq = pp.Sequence(system)
-    waveform = 0.1 * SYSTEM.max_grad * np.sin(np.pi * (np.arange(40) + 0.5) / 40)
-    seq.add_block(pp.make_arbitrary_grad(channel="x", waveform=waveform, system=system))
-    return seq
+def test_a_rejection_is_the_file_s_and_names_the_sequence_not_the_temporary_file(tmp_path):
+    check_a_rejection(short_block_sequence(), "spec", "block.event-too-long", tmp_path)
 
 
-@pytest.mark.parametrize(
-    ("builder", "interpreter", "code"),
-    [
-        pytest.param(short_block_sequence, "spec", "block.event-too-long", id="spec"),
-        pytest.param(
-            arbitrary_gradient_4us_sequence,
-            "cpp-siemens",
-            "gradient.raster",
-            id="cpp-siemens",
-            marks=needs_cpp_siemens,
-        ),
-    ],
-)
-def test_a_rejection_is_the_file_s_and_names_the_sequence_not_the_temporary_file(
-    builder, interpreter, code, tmp_path
-):
-    seq = builder()
+def check_a_rejection(seq, interpreter, code, tmp_path):
+    """`interpreter` rejects `seq` with `code`, as it rejects its written file, and the error
+    names the sequence (`SOURCE`), not the temporary file."""
     with pytest.raises(SeqFileError) as caught:
         read_pypulseq(seq, interpreter)
     with pytest.raises(SeqFileError) as from_file:

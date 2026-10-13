@@ -733,15 +733,9 @@ dependencies = [
     { name = "scipy" },
 ]
 
-[package.optional-dependencies]
-cpp-siemens = [
-    { name = "pulseq-cpp-siemens" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "import-linter" },
-    { name = "pulseq-cpp-siemens" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -749,33 +743,16 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "numpy" },
-    { name = "pulseq-cpp-siemens", marker = "extra == 'cpp-siemens'", directory = "packages/pulseq-cpp-siemens" },
     { name = "pypulseq", git = "https://github.com/mdtisdall/pypulseq?rev=3c3bd8515e591ef859399aa20db64b1bd2c3a725" },
     { name = "scipy" },
 ]
-provides-extras = ["cpp-siemens"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "import-linter" },
-    { name = "pulseq-cpp-siemens", directory = "packages/pulseq-cpp-siemens" },
     { name = "pytest" },
     { name = "ruff" },
 ]
-
-[[package]]
-name = "pulseq-cpp-siemens"
-version = "0.1.0"
-source = { directory = "packages/pulseq-cpp-siemens" }
-dependencies = [
-    { name = "numpy" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "numpy" }]
-
-[package.metadata.requires-dev]
-test = [{ name = "pytest" }]
 
 [[package]]
 name = "pygments"

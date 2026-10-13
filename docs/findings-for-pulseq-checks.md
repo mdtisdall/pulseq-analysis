@@ -6,7 +6,7 @@ discrepancies that `docs/discrepancies.md` records. It describes the code of
 pulseq-analysis at commit
 [`6fa807d`](https://github.com/mdtisdall/pulseq-analysis/tree/6fa807d) of
 `main`, with the tasks that section 7 lists as done since then (the `spec`
-part of R9). Each link names that commit, so a shared copy stays exact. What
+part of R9, and `cpp-siemens` as a plugin, P21). Each link names that commit, so a shared copy stays exact. What
 pulseq-checks does with it is pulseq-checks' own plan: this project writes
 nothing in pulseq-checks' repository, and it does not read its code.
 
@@ -33,8 +33,9 @@ Contents:
 
 pulseq-analysis turns a Pulseq file into waveforms, and it measures them. Since
 P17 (the user, 2026-10-12) it does not judge whether a file is valid. It reads a
-file through one of two **interpreters**, and each gives a reading or a
-rejection with codes:
+file through one of its **interpreters**, and each gives a reading or a
+rejection with codes. Two are in this repository, `spec` and `cpp-siemens`
+(a plugin, P21):
 
 - **`spec`** (the default): as true as possible to the Pulseq specification
   (1.5.3 draft) and to the slide set that its section 2.6 cites for timing
@@ -43,10 +44,15 @@ rejection with codes:
   rejects a file only where no current writer (MATLAB Pulseq, pypulseq) writes
   such a file.
 - **`cpp-siemens`** (by name): the C++ reader itself, run in the process by the
-  package pulseq-cpp-siemens (the extra `pulseq-analysis[cpp-siemens]`). It
-  reads what the reader reads, misreadings included, and rejects what the reader
-  rejects. It rejects each case of the reader's undefined behaviour with a
-  `ub.*` code (section 5.3 of the plan).
+  package pulseq-cpp-siemens. That distribution (the sub-project
+  `packages/pulseq-cpp-siemens/`) gives the interpreter to pulseq-analysis
+  through the entry-point group `pulseq_analysis.interpreters`: its class is
+  `pulseq_cpp_siemens.interpreter.CppSiemens`. pulseq-analysis does not import
+  it and does not list it as a dependency or an extra, so pulseq-checks installs
+  both distributions to read with `cpp-siemens`. It reads what the reader reads,
+  misreadings included, and rejects what the reader rejects. It rejects each
+  case of the reader's undefined behaviour with a `ub.*` code (section 5.3 of
+  the plan).
 
 Where the sources of the format read a file differently, that is a
 **finding**, and findings are pulseq-checks'. pulseq-checks reads the file
@@ -98,7 +104,8 @@ pulseq-checks.
 | `seqfile.read_as_written(path)` | `seqfile.as_written` | `AsWritten` (2.1) |
 | `seqfile.read_seqfile(path, interpreter="spec")` | `seqfile.reading` | `SequenceData` (2.2), or raises `SeqFileError` or `NotSupported` (2.5) |
 | `seqfile.read_pypulseq(seq, interpreter="spec")` | `seqfile.from_pypulseq` | the `SequenceData` of the file that `seq.write(path)` gives, with `origin` `"pypulseq"` |
-| `synth.decode(data)` | `synth.decoding` | `SpecDecoding` or `CppSiemensDecoding` (2.3, 2.4) |
+| `synth.decode(data)` | `synth.decoding` | `SpecDecoding` (2.3), or the decoding of a plugin (`pulseq_cpp_siemens.interpreter.CppSiemensDecoding` for `cpp-siemens`, 2.4); both are a `synth.Decoding` |
+| `seqfile.interpreter_names()` | `seqfile.interpreters` | the names of the installed interpreters: `spec`, then each plugin's (none is imported) |
 
 On an Apple M1 Max, a file of 20 MB with 900 000 blocks takes 0.3 s to read as
 written, 0.5 s with `spec` and 2.9 s with `cpp-siemens` (`docs/usage.md`).
@@ -131,19 +138,26 @@ the file (µs, and ns for the ADC dwell time). The columns of `[RF]`,
 
 `seqfile.read_seqfile(path, interpreter="spec") -> SequenceData` (module
 `seqfile.model`). `interpreter` is a name (`"spec"`, `"cpp-siemens"`) or an
-object of `seqfile.interpreters`:
+interpreter object:
 
-- `Spec()`: no setting. `Spec(rotation="apply")` is a `TypeError`.
-- `CppSiemens(oversampling="center", rotation="reader")`: `oversampling` is one
-  of `OVERSAMPLING` (`"center"`, `"edge"`, `"preserve"`), the reader's
-  sampling mode of an oversampled gradient (D43); `rotation` is one of
-  `ROTATION` (`"reader"`, `"apply"`), what the decoding does with each block's
-  rotation (D49). `str` gives the name with the settings that are not the
-  default, for example `cpp-siemens(rotation='apply')`.
+- `seqfile.interpreters.Spec()`: no setting. `Spec(rotation="apply")` is a
+  `TypeError`.
+- `pulseq_cpp_siemens.interpreter.CppSiemens(oversampling="center",
+  rotation="reader")`: `oversampling` is one of
+  `pulseq_cpp_siemens.interpreter.OVERSAMPLING` (`"center"`, `"edge"`,
+  `"preserve"`), the reader's sampling mode of an oversampled gradient (D43);
+  `rotation` is one of `pulseq_cpp_siemens.interpreter.ROTATION` (`"reader"`,
+  `"apply"`), what the decoding does with each block's rotation (D49). `str`
+  gives the name with the settings that are not the default, for example
+  `cpp-siemens(rotation='apply')`.
 
-`interpreters.interpreter(value)` gives the object of a name,
-`interpreters.INTERPRETERS` maps each name to its class, and
-`interpreters.Interpreter` is `CppSiemens | Spec`.
+A plugin is a class of the protocol `seqfile.interpreters.Plugin` (`name`,
+`read(path)`, `decode(data)` and `str()`), found by the entry-point group
+`seqfile.interpreters.GROUP` (`"pulseq_analysis.interpreters"`).
+`interpreters.interpreter(value)` gives the object of a name, and
+`interpreters.Interpreter` is `Spec | Plugin`. The module has no `INTERPRETERS`
+and no `CppSiemens`: `interpreter_names()` lists the names of the interpreters
+that are installed.
 
 `SequenceData` is an immutable frozen dataclass:
 
@@ -165,7 +179,7 @@ object of `seqfile.interpreters`:
 
 The model of `cpp-siemens` is built from the reader's own libraries (P14), so
 it differs from that of `spec` where the reader does (the docstring of
-`seqfile.cpp_siemens` lists how): a block's `id` is its position in play order
+`pulseq_cpp_siemens.interpreter` lists how): a block's `id` is its position in play order
 from 1 (the reader keeps no block ID); values are the reader's float32 values,
 converted to float64 (P6, D18); a 1.4 RF event has `center` NaN (D38); `use` is
 any character (D17); `[GRADIENTS]` and `[TRAP]` are one library (D19); `first`
@@ -192,7 +206,7 @@ play order from 0). The events are in module `synth.events`:
 
 The decoder follows the specification and the slides (`docs/usage.md`, "The
 decoder of `spec`"). `model.rf_time_step(times)` tells a pulse of cells from a
-pulse of points. As `CppSiemensDecoding` (2.4), `SpecDecoding` has:
+pulse of points. As each decoding (the protocol `synth.Decoding`, 2.4), `SpecDecoding` has:
 
 - `block_count`.
 - `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m,
@@ -208,10 +222,16 @@ pulse of points. As `CppSiemensDecoding` (2.4), `SpecDecoding` has:
   extension (P20, rule 2).
 - `rotation_record`: a `synth.RotationRecord` (2.6) with the setting
   `"apply"`; it never has a warning, since `spec` applies the file's content.
+- `gradient_points(key, block, axis)`: the points of the gradient event with
+  the file ID `key` that the block plays on the axis (0, 1, 2 for x, y, z), not
+  rotated: a tuple `synth.decoding.Points` of the delay in s, the offsets in s
+  from the delay and the values in Hz/m, the points between which the event is
+  straight lines (`seq_utils.gradient_offsets`).
 
 On each fixture with rotations from 1.5.1, its blocks and quaternions are
 those of `cpp-siemens`, and its rotated gradients are those of
-`CppSiemens(rotation="apply")` to float32 precision and those of MATLAB's
+`pulseq_cpp_siemens.interpreter.CppSiemens(rotation="apply")` to float32
+precision and those of MATLAB's
 `waveforms_and_times`.
 
 ### 2.4 The reading and decoding of `cpp-siemens`
@@ -228,8 +248,13 @@ the reader holds it, misreadings included, with the file's event IDs:
 file.
 
 `synth.decode(data)` of a `cpp-siemens` model gives
-`synth.CppSiemensDecoding`, a view of that reading. Blocks are in play order
-from 0:
+`pulseq_cpp_siemens.interpreter.CppSiemensDecoding` (the method
+`CppSiemens.decode`), a view of that reading. A decoding of a plugin is of the
+protocol `synth.Decoding` (module `synth.decoding`), which `SpecDecoding` also
+follows: `interpreter`, `block_count`, `rotations()`, `rotation_record`,
+`gradients_at(block_index, time_us, rotated=None)` and
+`gradient_points(key, block, axis)`. `CppSiemensDecoding` has these, and the
+blocks of the reader. Blocks are in play order from 0:
 
 - `block_count`; `block(index)` and `blocks()`: `GetBlock` and `decodeBlock`,
   the fields of the C++ oracle's `--dump` (section 6), in the reader's units
@@ -242,6 +267,10 @@ from 0:
 - `rotations()`: the play indices of the blocks to which `GetBlock` attaches a
   rotation (the first of the list, D48), and their quaternions (n, 4), q0, qx,
   qy, qz, as the reader normalized them (D49). The same in each setting.
+- `gradient_points(key, block, axis)`: the points between which `gradientsAt`
+  draws its straight lines for the gradient that the block plays on the axis,
+  as the reader decoded it (not rotated), as `synth.decoding.Points` (2.3). It
+  takes the block because the reader decodes an event in each block.
 - `rotation_record`: a `synth.RotationRecord` (2.6).
 
 These are the reader's values bit for bit, on each platform (section 6).
@@ -258,8 +287,12 @@ These are the reader's values bit for bit, on each platform (section 6).
   the file in either interpreter: a version outside 1.4.0 to 1.5.x (Q1), and for
   `cpp-siemens` a binary Pulseq file or a folder. It says nothing about the
   file.
-- `ImportError` for `cpp-siemens` without the extra; `OSError` when the file
-  cannot be read.
+- `ValueError` for a name that no installed interpreter has, for example
+  `cpp-siemens` when pulseq-cpp-siemens is not installed: "no interpreter is
+  named 'cpp-siemens'; the installed interpreters are spec. A distribution adds
+  one through the entry-point group pulseq_analysis.interpreters." There is no
+  extra to install. `ImportError` (chained) for a plugin that does not load;
+  `OSError` when the file cannot be read.
 
 **The codes of `spec`** are the keys of `seqfile.spec.RULES` (41 codes). Each
 is a `spec.Rule`: `text`, `source` (the lines of the specification as
@@ -290,7 +323,7 @@ The limits of the rules are `spec.TOLERANCE_NS`, `spec.RANGE_TOLERANCE`,
 `spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and
 `model.TIME_TOLERANCE`.
 
-**The codes of `cpp-siemens`** are the keys of `seqfile.cpp_siemens.CODES`
+**The codes of `cpp-siemens`** are the keys of `pulseq_cpp_siemens.interpreter.CODES`
 (29 codes). Each maps to its entry of the record and what the reader rejects.
 The reader stops at its first error, so a rejection has one reason, with the
 reader's own message; `line` is set where the message quotes a row. The `ub.*`
@@ -342,14 +375,18 @@ of the scanner-side settings. Rule 7: these records are part of the contract.
   definition `RequiredExtensions` is read from 1.5.1 too. For `cpp-siemens` it is the extensions that the reader
   ignores, in any version.
 - **`synth.RotationRecord`** (module `synth.scanner`), from
-  `CppSiemensDecoding.rotation_record` and `SpecDecoding.rotation_record`:
+  `rotation_record` of each decoding (`CppSiemensDecoding`, `SpecDecoding`):
   `setting` (`"reader"` or `"apply"`; always `"apply"` for `spec`),
   `blocks` (with a rotation), `not_identity` (whose quaternion has a vector part
   that is not 0), `rotated` (`blocks` with `"apply"`, else 0); `unapplied`; `str`
   (for example "rotation: apply, 5 block(s) rotated"); and `warning()`, a
   `synth.ScannerSettingWarning` (a `UserWarning`) when the default leaves a
   rotation unapplied, else None. The decoding never emits it, so pulseq-checks
-  is not warned about the reader's own output.
+  is not warned about the reader's own output. `hint` (a `str`, empty by
+  default, not compared by `==`) is the advice of the interpreter that the text
+  of the warning ends with: the record names no interpreter itself. For
+  `cpp-siemens` with `rotation="reader"` it says to use
+  `CppSiemens(rotation='apply')` for the gradients that the scanner plays.
 
 ## 3. The five mechanisms
 
@@ -359,7 +396,7 @@ a file, so each maps to one or more of them. Section 4 gives the mapping.
 
 | | Mechanism | What it finds | Readings it uses |
 |---|---|---|---|
-| M1 | A diff of the "as written" reading against the `cpp-siemens` reading and decoding | The reader changes, drops or misreads a value | `AsWritten`; `SequenceData` of `cpp-siemens` and `reading.libraries`; `CppSiemensDecoding` |
+| M1 | A diff of the "as written" reading against the `cpp-siemens` reading and decoding | The reader changes, drops or misreads a value | `AsWritten`; `SequenceData` of `cpp-siemens` and `reading.libraries`; `pulseq_cpp_siemens.interpreter.CppSiemensDecoding` |
 | M2 | A condition on the "as written" reading | The reader plays something that a diff of values cannot show | `AsWritten` (and the version) |
 | M3 | `spec`'s violations on the same file | A "must" broken, which the reader plays as written | `SeqFileError.violations` of `spec`, `spec.RULES` |
 | M4 | A comparison of the two interpreters | One rejects and the other reads, or their waveforms differ | Both results: model, decoding, or rejection codes |
@@ -518,6 +555,7 @@ and marks its row done.
 | Task | What it adds |
 |---|---|
 | R9, the `spec` part | Done: `SpecDecoding.gradients_at`, `rotations()` and `rotation_record` (2.3). |
+| P21 | Done: `cpp-siemens` is a plugin of the sub-project `packages/pulseq-cpp-siemens/` (`pulseq_cpp_siemens.interpreter`), found through the entry-point group `pulseq_analysis.interpreters`; the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`; `gradient_points`; `RotationRecord.hint` (2.2 to 2.6). |
 | R14 | `analyses.load` on an interpreter's output (`interpreter=`): for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. `load` stops refusing the rotation extension (today `synth.extensions.refuse_rotations`), keeps the decoding's `rotation_record` in its result and emits `RotationRecord.warning()`. The waveform across blocks (D42). Today `load` reads with pypulseq. |
 | R16 | The `Session` of section 7.8 of the plan (soft delays, the field of view), given to `load` and the timeline; `SettingError` (a `ValueError`) for a setting that addresses something the file does not have; the decoding's stored and actual block durations; the records of the mechanisms left at the default, in `SequenceData.records` for both interpreters (`cpp-siemens` gives no record today). |
 | R16 | The record's new entries: D57, the flag `NOSLC` (the specification) against `NOSCL` (the C++ reader, MATLAB, pypulseq); D58, an extension used in a file older than the revision that introduced it. The code already records both under `spec` (`Record` reasons `"unknown"` and `"version"`), but the record has no entry for them yet. |

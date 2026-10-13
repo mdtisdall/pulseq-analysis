@@ -47,19 +47,20 @@ release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`. uv
 applies this pin for a project that depends on `pulseq-analysis` by git URL.
 pip does not.
 
-On `main`, the interpreter `cpp-siemens` of `read_seqfile` (by name; the
-default is `spec`, as true as possible to the Pulseq specification) runs the
-C++ reader of the scanner through the package pulseq-cpp-siemens
-(`packages/pulseq-cpp-siemens/`), which is the extra `cpp-siemens`:
+On `main`, `read_seqfile` takes the interpreter `spec` (the default, as true as
+possible to the Pulseq specification) and the interpreters that other
+distributions add as plugins. The distribution pulseq-cpp-siemens
+(`packages/pulseq-cpp-siemens/`) adds `cpp-siemens`, which runs the C++ reader
+of the scanner. pulseq-analysis has no dependency on it, in its code or in its
+metadata. To use `cpp-siemens`, install both distributions:
 
 ```
-uv add "pulseq-analysis[cpp-siemens] @ git+https://github.com/mdtisdall/pulseq-analysis@main"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@main" "pulseq-cpp-siemens @ git+https://github.com/mdtisdall/pulseq-analysis@main#subdirectory=packages/pulseq-cpp-siemens"
 ```
 
-Until a release, `[tool.uv.sources]` takes pulseq-cpp-siemens from this
-repository, and uv builds it from source: this needs a C++ compiler and the
+uv builds pulseq-cpp-siemens from source: this needs a C++ compiler and the
 network (CMake fetches the reader's files from pulseq/pulseq). How a release
-gets it is decided at release time.
+of pulseq-cpp-siemens depends on pulseq-analysis is decided at release time.
 
 ## Example
 

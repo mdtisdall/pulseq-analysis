@@ -37,11 +37,12 @@ Contents:
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
-   written" reading; a pypulseq sequence in memory
+   written" reading; the plugin interpreters; a pypulseq sequence in memory
 3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
    the checks of undefined behaviour; the digests of the driver's output; the
    driver of the C++ oracle; the reader's shared state; the cases of undefined
-   behaviour; the fuzzing of the checks
+   behaviour; the fuzzing of the checks; the interpreter `cpp-siemens`, alone and
+   in the functions of pulseq-analysis
 
 ---
 
@@ -141,7 +142,11 @@ cannot read the file of test IDs.
   IDs of the tests of `packages/pulseq-cpp-siemens` (section 3) are added to
   the same file by a `pytest --collect-only` in the package's environment;
   without `--collected`, the check collects them the same way when that
-  environment exists.
+  environment exists. The environment of the root project does not install
+  pulseq-cpp-siemens, so the tests of the package are collected in its own
+  environment only. That environment has pulseq-analysis (its group
+  `analysis`), so it collects the two modules of the interpreter `cpp-siemens`
+  (sections 3.8 and 3.9); they are not collected without it.
 - Test files are identified by file name only, without the directory. The
   check fails if two test files have the same name.
 - The check looks only at the headings. It does not check that an entry has
@@ -6430,7 +6435,7 @@ and has a reason.
 
 ### 2.19 The reader of Pulseq files (`test_seqfile.py`)
 
-`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. The `cpp-siemens` interpreter has its own tests (section 2.27). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq, except `test_files_of_pypulseq_are_read` and `test_tables_agree_with_pypulseq_read_without_merging`, which skip when pypulseq is not installed; `test_cpp_siemens_has_no_records` skips without `pulseq-cpp-siemens`.
+`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq, except `test_files_of_pypulseq_are_read` and `test_tables_agree_with_pypulseq_read_without_merging`, which skip when pypulseq is not installed.
 
 #### `test_each_fixture_gives_its_verdict`
 
@@ -7243,14 +7248,6 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
-#### `test_cpp_siemens_has_no_records`
-
-**Checks:** `cpp-siemens` gives `records == ()` (until task R16).
-
-**How:** The test reads `valid_1_5_1.seq` with `cpp-siemens`. It skips without `pulseq-cpp-siemens`.
-
-**Assumptions:** None.
-
 #### `test_a_label_that_is_not_known_is_kept_as_text`
 
 **Checks:** D50, spec:519-520, spec:526: the label `FOO` (`valid_label_unknown.seq`) and the name `PMC` in a 1.4.0 and a 1.4.1 file are kept as text in the LABELSET table.
@@ -7763,7 +7760,7 @@ the test:
 
 A file of a version outside 1.4.0 to 1.5.x is not compared: `spec` raises `NotSupported` for it (Q1).
 The `cpp-siemens` interpreter gives the oracle's verdict on every fixture, with no exception
-(section 2.27). The test skips when `tests/seqfiles/` has no `.seq` file.
+(section 3.8). The test skips when `tests/seqfiles/` has no `.seq` file.
 
 **How:** The test calls `read_seqfile` on each file, then runs the oracle (a crash counts as a
 rejection), except for a file of `ORACLE_KNOWN_WRONG` and the raster skip. It collects each file where
@@ -8343,17 +8340,6 @@ late by 0.4 tolerances give the step 1.
 **Assumptions:** The values of the shape are 0, so this test checks the length; the unit is checked by
 `test_adc_events_with_and_without_a_phase_shape`.
 
-#### `test_the_events_refuse_a_model_of_cpp_siemens`
-
-**Checks:** `decode_rf`, `decode_gradients` and `decode_adc` raise `TypeError` for the model of
-`cpp-siemens`, with a message that names `synth.decode`.
-
-**How:** The test skips when `pulseq_cpp_siemens` is not installed. It reads `valid_1_5_1.seq` with
-`read_seqfile(..., interpreter="cpp-siemens")` and checks the `TypeError` and its message for the three
-functions.
-
-**Assumptions:** The extension is built in the environment (it was, in the run of this report).
-
 #### `test_synth_decode_gives_the_events_of_spec`
 
 **Checks:** `synth.decode` of the model of `spec` is a `SpecDecoding` whose interpreter is `Spec()` and whose
@@ -8361,7 +8347,8 @@ functions.
 
 **How:** The test reads `valid_1_5_1.seq` and compares the four fields.
 
-**Assumptions:** The decoding of `cpp-siemens` is tested in `test_cpp_siemens.py`.
+**Assumptions:** The decoding of a plugin interpreter is tested with the plugin (`cpp-siemens`: `test_interpreter.py`,
+section 3.8; a fake plugin: `test_interpreters.py`, section 2.27).
 
 #### `test_spec_gradients_at_are_the_lines_between_the_points_of_each_event`
 
@@ -8370,13 +8357,13 @@ array (n, 3): on block 2 of `valid_1_4_1.seq` (a trapezoid on gx of 1e6 Hz/m, de
 100 µs, flat 200 µs, fall 100 µs, block 500 µs), 0 at -1 and 50 µs, 0.5e6 at 150 µs, 1e6 at 250 µs,
 0.5e6 at 450 µs, 0 at 500 and 501 µs, and 0 on gy and gz. `block_count` is 4. Empty arguments give
 an array (0, 3); arguments of different lengths and a NaN time raise `ValueError`; a block index of
--1 or 4 raises `IndexError`, as for `cpp-siemens`.
+-1 or 4 raises `IndexError`, as for the decoding of a plugin.
 
 **How:** The test reads the file with `spec` and calls `gradients_at`.
 
 **Assumptions:** The arbitrary gradients and extended trapezoids are compared with `cpp-siemens` by
-`test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply` (`test_cpp_siemens.py`) and with
-MATLAB by `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq`.
+`test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply` (`test_interpreter.py`) and with
+MATLAB by `test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq`.
 
 #### `test_rotate_is_the_active_rotation_of_a_unit_quaternion`
 
@@ -8680,38 +8667,36 @@ and `decode_adc`, joins them in play order and compares them with `t_adc`.
 **Assumptions:** The block start is the sum in play order of the block durations (`_index_from_data`).
 The test does not check the phase or frequency of the samples.
 
-#### `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq`
+#### `test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq`
 
-**Checks:** For each file with a `ROTATIONS` section and each interpreter, the rotated gradients
-equal MATLAB's rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-6 of
-the axis's largest value: those of `CppSiemens(rotation="apply")` (each block turned by its
-quaternion with the reader's `rotate_vec3_by_quat`), and those of `spec` (each block turned by the
-model's normalized quaternion with `decoding.rotate`), from 1.5.1. The record has as many blocks
-rotated as blocks with a rotation (0 for `valid_1_5_1_rotation_not_played.seq`). Where a block plays
-a rotation that is not the identity, the unrotated gradients (`rotated=False`) differ from MATLAB's.
+**Checks:** For each file with a `ROTATIONS` section, the rotated gradients of `spec` (each block
+turned by the model's normalized quaternion with `decoding.rotate`), from 1.5.1, equal MATLAB's
+rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-6 of the axis's
+largest value. The record has as many blocks rotated as blocks with a rotation (0 for
+`valid_1_5_1_rotation_not_played.seq`). Where a block plays a rotation that is not the identity,
+the unrotated gradients (`rotated=False`) differ from MATLAB's. The comparison is the helper
+`compare_rotated_gradients`, which `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
+(section 3.9) also calls for `cpp-siemens`.
 
 **How:**
 
-- The test (one case for each file and interpreter) reads the file with `cpp-siemens` and
-  `rotation="apply"`, or with `spec`, and samples the decoding's `gradients_at` at the midpoint of
-  each segment of MATLAB's polyline, with the block and the time in it from the cumulative block
-  durations.
+- The test (one case for each file) reads the file with `spec`, and the helper samples the
+  decoding's `gradients_at` at the midpoint of each segment of MATLAB's polyline, with the block and
+  the time in it from the cumulative block durations.
 - It leaves out the segments where MATLAB guesses the edges of an arbitrary gradient (U21, as the
   test of the waveform), and each segment with an end within 1e-12 s of a block boundary: there
   MATLAB can join the last point of one block to the first sample of the next (in
   `valid_1_5_1.seq`, from a gradient that ends at 282 842 Hz/m to an oversampled gradient whose
   first sample is 5 µs later), and each interpreter decodes each block alone (D42).
-- For `spec` it skips a file older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`): MATLAB rotates
-  in any version, and `spec` reads ROTATIONS from 1.5.1 only (P20, rule 2).
+- It skips a file older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`): MATLAB rotates in any
+  version, and `spec` reads ROTATIONS from 1.5.1 only (P20, rule 2).
   `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated` checks that file.
 
-**Assumptions:** The tolerance of 1e-6 covers the reader's float32 amplitudes (P6) against MATLAB's
-float64; `spec` is in float64. `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are
-the radial cases of `docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds
-an extended trapezoid in a rotated block. A file that an interpreter rejects (for `cpp-siemens`
-`valid_last_section_no_blank.seq`, `definitions.skipped`, and `valid_rf_time_shapes.seq`,
-`ub.rf-time-overrun`; for both a file that MATLAB cannot read) is skipped. The `cpp-siemens` cases
-skip without pulseq-cpp-siemens.
+**Assumptions:** The tolerance of 1e-6 (`FLOAT32_REL`) covers the float32 amplitudes of a plugin
+interpreter such as `cpp-siemens` (P6) against MATLAB's float64; `spec` is in float64.
+`koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are the radial cases of
+`docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds an extended
+trapezoid in a rotated block. A file that `spec` rejects or that MATLAB cannot read is skipped.
 
 ### 2.25 The sanitized C++ oracle (`test_cpp_oracle_sanitized.py`)
 
@@ -9001,294 +8986,92 @@ or more is read one field at a time.
 
 ---
 
-### 2.27 The `cpp-siemens` interpreter (`test_cpp_siemens.py`)
+### 2.27 The plugin interpreters (`test_interpreters.py`)
 
-`test_cpp_siemens.py` tests `read_seqfile` with the interpreter `cpp-siemens`
-(`seqfile.cpp_siemens`), which each test names (the default is `spec`): the C++ reader of the
-scanner through pulseq-cpp-siemens. The module
-skips without pulseq-cpp-siemens. The tests that compare with the C++ oracle
-(`pulseq-cpp-oracle`, section 2.20) and its sanitized build (`pulseq-cpp-oracle-sanitized`,
-section 2.25) skip when they are not on the PATH. The package's own tests (section 3) compare the
-reader's values with the driver bit for bit; these tests check what pulseq-analysis builds on it:
-the verdict, the codes, the version gate, the model and the API.
+`test_interpreters.py` tests how pulseq-analysis finds and uses an interpreter of another
+distribution (`seqfile.interpreters`, P21 of `docs/plans/parser-redesign.md`): the entry-point
+group `pulseq_analysis.interpreters`, the protocol `Plugin`, and `synth.decode` of a plugin's
+model. It needs no plugin: a fake plugin (the class `Fake` of the module, a frozen dataclass
+that reads with `spec` and decodes to a tuple) stands for one, and the tests give its entry point
+by replacing `importlib.metadata.entry_points` in the module `interpreters` (`monkeypatch`). The
+interpreter `cpp-siemens` is tested with its distribution (sections 3.8 and 3.9).
 
-#### `test_cpp_siemens_gives_the_verdict_of_the_oracle_on_each_fixture`
+#### `test_no_plugin_is_installed_with_the_package`
 
-**Checks:** For each fixture of `tests/seqfiles` (the subfolders included), `cpp-siemens` reads
-the file when the oracle accepts it, rejects it with a `ub.*` code when the sanitized oracle finds
-undefined behaviour (exit status 3) or does not end, and rejects it with another code when the
-oracle rejects it otherwise. The two fixtures of a version outside 1.4.0 to 1.5.x raise
-`NotSupported`, whatever the oracle does (Q1 of `docs/plans/parser-redesign.md`). No fixture is
-left out.
+**Checks:** In the environment of the tests, `interpreters.interpreter_names()` is `("spec",)`:
+pulseq-analysis installs no plugin.
 
-**How:** For each fixture (parametrized), the test runs the sanitized oracle, then the oracle, and
-reads the file with `read_seqfile`.
+**How:** The test calls the function.
 
-**Assumptions:** The oracles are the reader at the pinned commit with the flags of the package
-(`-fsigned-char -ffp-contract=off`). A crash of the plain oracle without undefined behaviour in the
-sanitized one fails the test.
+**Assumptions:** The environment has no distribution that gives an entry point of the group. The
+test fails in an environment that has one (for example pulseq-cpp-siemens).
 
-#### `test_each_fixture_has_its_rejection_code`
+#### `test_a_name_that_no_interpreter_has_names_the_installed_ones_and_the_group`
 
-**Checks:** Each fixture gives its expected verdict: the code of `REJECTED` (for example
-`gradient.raster` for `valid_arbitrary_gradient_4us_raster.seq` and
-`valid_arbitrary_gradient_5us_raster.seq`, `section.extensions-last` for
-`oracle/koma_v1.5_unknown_ext.seq`, `syntax.comment-row` for `bad_syntax_line_after_comment.seq` and
-`valid_comment_in_shape.seq`, `definitions.skipped` for `valid_last_section_no_blank.seq`,
-`ub.rf-time-overrun` for `valid_rf_time_shapes.seq` and `syntax.shape` for
-`bad_syntax_shape_end.seq`), `NotSupported` for the two versions outside the range, and a model for every
-other fixture. The codes are stable, so pulseq-checks and the tests can name a rejection.
+**Checks:** `read_seqfile` with the name `cpp-siemens`, with no plugin installed, raises
+`ValueError` with the message "no interpreter is named 'cpp-siemens'; the installed interpreters
+are spec. A distribution adds one through the entry-point group pulseq_analysis.interpreters."
+`seqfile.interpreter(3)` raises `TypeError`.
 
-**How:** For each fixture (parametrized), the test compares the codes of the `SeqFileError` with
-the table. It needs no oracle.
+**How:** The test calls both and compares the message of the first.
 
-**Assumptions:** The table was made from a run and checked against the oracle by the test above.
+**Assumptions:** No plugin is installed (the test above).
 
-#### `test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code`
+#### `test_a_plugin_reads_and_decodes_a_file_by_name_and_as_an_object`
 
-**Checks:** The three fixtures of `packages/pulseq-cpp-siemens/tests/fixtures` are rejected with the
-code of their case of undefined behaviour: `ub.gradient-one-point`, `ub.gradient-shape-0` and
-`ub.shape-decompression` (a repeated value with no count at the end of a shape).
+**Checks:** With the entry point `fake`, `interpreter_names()` is `("spec", "fake")` and
+`interpreter("fake")` is `Fake()`. `Fake()` is a `Plugin` and `Spec()` is not. `read_seqfile` of
+`valid_1_5_1.seq` with the name `fake` gives a model whose `interpreter` is `Fake()`; with an
+object `Fake("other")` and the path as a text it records that object. `synth.decode` of the model
+gives what `Fake.decode` gives. `events.decode_rf` of the model raises `TypeError` that names
+`synth.decode`.
 
-**How:** For each fixture (parametrized), the test reads it and compares the code.
+**How:** The test installs the entry point and calls each function.
 
-**Assumptions:** The package's tests confirm each case with the sanitized oracle.
+**Assumptions:** The fake plugin reads with `spec`, so the test does not check what a plugin
+reads.
 
-#### `test_each_code_of_a_rejection_has_a_file_that_gives_it`
+#### `test_a_plugin_that_does_not_load_or_has_another_name_or_two_entry_points_is_an_error`
 
-**Checks:** For each code of a rejection by `load` or `decodeBlock` (`CODES`, except the fallback
-`cpp.rejected` and the `ub.*` codes), a small file gives that code and only it, with the reader's
-message, and the oracle rejects the file too: `version.invalid`, `version.missing`,
-`definitions.raster-missing`, `definitions.raster-invalid` (`nan`), `definitions.skipped` (D56: a
-last section with no blank line after it, so the reader skips `[DEFINITIONS]`),
-`extension.required-unknown`, `section.extensions-last`, `blocks.missing`, `ref.unresolved`,
-`syntax.row` (`100.5` in `[BLOCKS]`), `syntax.comment-row`, `syntax.shape`, `rotation.norm`,
-`gradient.raster`, `shape.decompression` (a repeat count of 1.5), `shape.ext-trap-lengths` and
-`cpp.exception` (an RF time shape that ends before 0).
+**Checks:** An entry point whose module does not exist raises `ImportError` that names the
+interpreter and says that it did not load, chained to the `ModuleNotFoundError`. An entry point
+whose class has another `name` raises `TypeError` ("whose name is not 'fake'"). Two entry points
+with one name raise `ValueError` ("more than one interpreter is named 'fake'").
 
-**How:** For each code (parametrized), the test writes an edit of a small valid file, reads it,
-and runs the oracle when it is on the PATH.
-
-**Assumptions:** The classification of a rejection reads the reader's messages, which are fixed at
-the pinned commit.
-
-#### `test_every_code_is_given_by_a_file_or_is_the_fallback_or_a_case_of_undefined_behaviour`
-
-**Checks:** Each code of `CODES` that is not a `ub.*` code is given by a file of the test above or
-by a fixture, except `cpp.rejected`; and the `ub.*` codes are those of `pulseq_cpp_siemens.CODES`.
-
-**How:** The test compares the sets.
+**How:** For each case, the test installs the entry points and asks `interpreter("fake")` (or
+`"broken"`).
 
 **Assumptions:** None.
 
-#### `test_a_rejection_quotes_the_line_of_the_row_that_does_not_decode`
+#### `test_a_plugin_cannot_be_spec`
 
-**Checks:** For a `#` line in `[RF]`, the reason of the rejection has the section `RF`, the line
-of the `#` line in the file, and the reader's message "failed to decode RF event".
+**Checks:** An entry point named `spec` is not an interpreter: `interpreter_names()` is still
+`("spec",)` and `interpreter("spec")` is `Spec()`.
 
-**How:** The test reads the file of `syntax.comment-row` and looks up the line.
-
-**Assumptions:** None.
-
-#### `test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode`
-
-**Checks:** D15: an ADC dwell time of `2500.0` is `syntax.row` in `[ADC]` (the reader reads the
-dwell as an integer), and the same file with `2500` reads, with a dwell of 2.5 us.
-
-**How:** The test reads both files.
-
-**Assumptions:** The file ends with a blank line: with none, the reader skips the sections after
-`[ADC]` (D56).
-
-#### `test_a_version_outside_1_4_to_1_5_is_not_supported_before_the_reader_runs`
-
-**Checks:** A file of version 1.3.1, 1.6.0 or 2.0.0 raises `NotSupported` (a
-`NotImplementedError`), and so does a file whose `[VERSION]` has `minor 5` and then `minor 6`
-(the "as written" reading takes the first row, 1.5.0; the reader the last, 1.6.0, so the gate of
-pulseq-cpp-siemens refuses it). Each file also has a cycle in an extension list, on which the
-reader of a version before 1.4.0 does not end inside `load`: the test ends, so the gate runs
-before the reader.
-
-**How:** For each version (parametrized), the test writes the file and reads it.
+**How:** The test installs an entry point named `spec` and calls both.
 
 **Assumptions:** None.
 
-#### `test_a_binary_file_and_a_folder_are_not_supported`
+#### `test_the_package_has_no_reference_to_a_plugin`
 
-**Checks:** A file that starts with the magic bytes of a binary Pulseq file, and a folder, raise
-`NotSupported`.
+**Checks:** No line of a Python file of `src` and no line of `pyproject.toml` names pulseq-cpp-siemens,
+`CppSiemens` or `cpp-siemens` (in any case, with `-` or `_`). So the package has no import of the
+plugin and no dependency on it (P21).
 
-**How:** The test writes the bytes and reads the file and its folder.
+**How:** The test matches a regular expression against each line of those files and lists the
+matches by file and line.
 
-**Assumptions:** None.
-
-#### `test_the_model_is_the_readers_libraries_in_the_units_of_the_model`
-
-**Checks:** The model of `valid_1_5_1.seq` holds the reader's libraries: the version, the gradient
-raster in s, the block IDs as positions from 1 (the reader keeps no ID), the durations and event
-IDs of the blocks, the RF delay, centre and use, the trapezoids and the arbitrary gradients split
-by shape ID 0, the dwell times, the stored shape values (float32), the signature, the required
-extensions, the extension that the reader ignores in `skipped_extensions` (not in `type_ids`), and
-the float32 value of an RF shim phase.
-
-**How:** The test compares the model with `data.reading.libraries`.
-
-**Assumptions:** None.
-
-#### `test_a_1_4_rf_event_has_no_center_and_the_use_u`
-
-**Checks:** The RF event of `valid_1_4_0.seq` has `center` NaN (the reader holds -1, D38) and
-`use` `u`.
-
-**How:** The test reads the fixture.
-
-**Assumptions:** None.
-
-#### `test_the_rotations_are_the_readers_normalized_quaternions`
-
-**Checks:** A quaternion of norm 1.0005 (within the reader's 1e-3) in a 1.5.1 file is divided by its
-norm in the model of `cpp-siemens` (D49), and in the model of `spec` too (from 1.5.1): both give q0 1.0.
-
-**How:** The test writes a file with a rotation and reads it with both interpreters.
-
-**Assumptions:** The file is 1.5.1: `spec` skips ROTATIONS in a file of an older version (D45).
-
-#### `test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it`
-
-**Checks:** `read_seqfile` takes no interpreter (`spec`, the default), a name, or an object with its
-settings, and `SequenceData.interpreter` records it (`str` names a setting that is not the default);
-`spec` has no reading. Another name, such as `matlab`, raises `ValueError`, another value `TypeError`, and
-an unknown oversampling mode `ValueError`.
-
-**How:** The test reads `valid_1_5_1.seq` in each way.
-
-**Assumptions:** None.
-
-#### `test_the_oversampling_setting_changes_the_decoding_of_an_oversampled_gradient`
-
-**Checks:** The oversampled gradient of `valid_1_5_1.seq` decodes to all its samples with
-`oversampling="preserve"`, to the even samples ((n + 1) / 2) with `"center"`, and to the odd
-samples ((n - 1) / 2) with `"edge"` (D43).
-
-**How:** The test decodes the file in each mode with `synth.decode` and compares the samples of
-the oversampled gradient.
-
-**Assumptions:** pulseq-cpp-siemens's tests compare each mode with the driver.
-
-#### `test_a_cpp_siemens_model_compares_and_survives_pickle_and_deepcopy`
-
-**Checks:** Two reads of a file are equal (the reading is not compared), a read with another
-setting is not, and a copy by `pickle` or `copy.deepcopy` is equal and gives the same
-`gradients_at`. The reading cannot be set.
-
-**How:** The test reads the fixture, copies the model, and samples a block.
-
-**Assumptions:** `pickle` reads the file's bytes again (pulseq-cpp-siemens).
-
-#### `test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_lacks_is_typeerror`
-
-**Checks:** `CppSiemens().rotation` is `"reader"`, `seqfile.ROTATION` is `("reader", "apply")`,
-`str` names each setting that is not its default (one or both), and a read records the setting.
-Another value raises `ValueError`; a setting that the interpreter does not have
-(`Spec(rotation=...)`, `CppSiemens(rotate=...)`) raises `TypeError` (rule 8 of P20).
-
-**How:** The test makes the objects and reads `koma_v1.5_rotation_radial_tiny.seq` with both
-settings.
-
-**Assumptions:** None.
-
-#### `test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches`
-
-**Checks:** `CppSiemensDecoding.rotations()` gives the blocks whose decoded block (`GetBlock`) has a
-rotation, in play order, with the same quaternions, in both settings; each is one of the model's
-normalized quaternions.
-
-**How:** The test reads `koma_v1.5_rotation_radial_tiny.seq` and `valid_1_5_1.seq` (some blocks
-with a rotation) in each setting, and compares `rotations()` with the `rotation` of each block of
-`blocks()`.
-
-**Assumptions:** pulseq-cpp-siemens's tests check the first of two rotations in a block (D48).
-
-#### `test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation`
-
-**Checks:** With `rotation="apply"`, `gradients_at` gives the reader's gradients of
-`koma_v1.5_rotation_radial_tiny.seq` (all on x) turned by 0, 45, 90, 45 and 0 degrees about z in
-blocks 1 to 5; `rotated=False` gives the reader's values, and the default setting with
-`rotated=True` gives the same values as `"apply"`.
-
-**How:** The test samples each block at four times in both settings and compares with
-`(cos, sin, 0)` times the x values, to 1e-3 Hz/m (the quaternions have six digits).
-
-**Assumptions:** None.
-
-#### `test_the_rotation_record_and_the_warning_for_rotations_left_unapplied`
-
-**Checks:** The record of `koma_v1.5_rotation_radial_tiny.seq` is 5 blocks with a rotation, 3 not
-the identity, 0 rotated with `"reader"` and 5 with `"apply"`, with its text; `"reader"` gives a
-`ScannerSettingWarning` for 3 blocks that names `rotation='apply'`, and `"apply"` none. A file with
-no rotation, and one with a rotation that no block plays, record 0 blocks in both settings with no
-warning (rule 8: `"apply"` is valid there). A file whose rotations are all the identity records 5
-blocks, 0 not the identity, and no warning.
-
-**How:** The test reads the fixtures, and a copy of the radial file with its two other quaternions
-replaced by `1 0 0 0`.
-
-**Assumptions:** None.
-
-#### `test_the_decoding_emits_no_warning_for_rotations`
-
-**Checks:** Decoding and sampling a file whose rotations the default leaves unapplied emits no
-`ScannerSettingWarning`: the measurements emit it (task R14), not the decoding.
-
-**How:** The test decodes the radial file with `recwarn`.
-
-**Assumptions:** None.
-
-#### `test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply`
-
-**Checks:** On each fixture with a `ROTATIONS` section (`valid_*.seq` and `oracle/*.seq`) that both
-interpreters read: from 1.5.1, `spec` gives the blocks with a rotation that the reader attaches, with
-the same quaternions (to 1e-12), the same `rotation_record`, and the rotated gradients of
-`CppSiemens(rotation="apply")` at 7 times inside each block, to 1e-6 of the largest value. In a file
-older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`), `spec` has no rotation, `cpp-siemens`
-rotates a block that is not the identity, and `spec`'s gradients are the reader's unrotated ones.
-
-**How:** The test (one case for each file) samples both decodings at 5 % to 95 % of each block
-duration, in 7 steps.
-
-**Assumptions:** The tolerance covers the reader's float32 amplitudes (P6). A file that an
-interpreter rejects is skipped (`valid_comment_in_shape.seq`, `valid_last_section_no_blank.seq`,
-`valid_rf_time_shapes.seq`). The times avoid the block boundaries and are where the two decoders draw
-the same lines in these files.
-
-#### `test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install`
-
-**Checks:** Without pulseq-cpp-siemens, `read_seqfile` with `cpp-siemens` raises `ImportError`
-that names `pulseq-analysis[cpp-siemens]` and says to read with `interpreter='spec'`, and the default,
-`spec`, still reads.
-
-**How:** The test sets `sys.modules["pulseq_cpp_siemens"]` to None.
-
-**Assumptions:** None.
-
-#### `test_synth_decode_gives_the_readers_decoding_or_the_spec_events`
-
-**Checks:** `synth.decode` gives a `CppSiemensDecoding` for `cpp-siemens`, with the interpreter,
-the number of blocks, each block in play order, and the reader's `gradients_at`; and a
-`SpecDecoding` with the events for `spec`. `events.decode_rf` refuses the model of
-`cpp-siemens` with `TypeError` that names `synth.decode`.
-
-**How:** The test decodes `valid_1_5_1.seq` with both interpreters.
-
-**Assumptions:** None.
+**Assumptions:** The test reads text only. A reference through a different name, or in a file
+outside `src` and `pyproject.toml` (the documents, the tests), is not found.
 
 ### 2.28 A pypulseq sequence in memory (`test_from_pypulseq.py`)
 
 `test_from_pypulseq.py` tests `seqfile.read_pypulseq` (`seqfile.from_pypulseq`, task R15 of
 `docs/plans/parser-redesign.md`): a `pypulseq.Sequence` in memory, written with pypulseq's writer
-and read through an interpreter. The interpreters are `"spec"`, `Spec()`, `"cpp-siemens"`
-and `CppSiemens(oversampling="edge")`; the cases of `cpp-siemens` skip without
-pulseq-cpp-siemens. The sequences are `mixed_sequence` of the module (a slice-selective sinc RF
+and read through an interpreter. The interpreters are `"spec"` and `Spec()`. The checks are
+functions of the module (`check_reads_as_its_written_file`, `check_the_mixed_sequence`,
+`check_the_sequence_is_not_changed`, `check_a_rejection`), which the tests of `cpp-siemens`
+(`test_interpreter_in_pulseq_analysis.py`, section 3.9) call for their interpreter. The sequences are `mixed_sequence` of the module (a slice-selective sinc RF
 with its gradient, a phase encode, a readout trapezoid with its ADC, an arbitrary gradient,
 labels `LIN` (SET) and `SLC` (INC), a delay block, two repetitions with repeated events) and
 five synthetic sequences: `gre_sequence`, `spin_echo_sequence`,
@@ -9296,7 +9079,7 @@ five synthetic sequences: `gre_sequence`, `spin_echo_sequence`,
 
 #### `test_a_sequence_in_memory_reads_as_its_written_file`
 
-**Checks:** For each sequence and each interpreter, `read_pypulseq(seq, interpreter)` equals
+**Checks:** For each sequence and each interpreter (`check_reads_as_its_written_file`), `read_pypulseq(seq, interpreter)` equals
 `read_seqfile` of the file that `seq.write(path)` writes with the writer's defaults, except
 `origin`, which is `"pypulseq"` in place of `"file"`. The result has the signature of the file.
 
@@ -9314,7 +9097,7 @@ the reader's reading of the same bytes.
 
 **Checks:** The model of `mixed_sequence` has 10 blocks, one RF event (the writer merged the
 repeated one), one ADC event, one arbitrary gradient, at least three trapezoids, two `LABELSET`
-rows and one `LABELINC` row, with each interpreter. So the comparison above covers RF, gradients
+rows and one `LABELINC` row, with each interpreter (`check_the_mixed_sequence`). So the comparison above covers RF, gradients
 of both kinds, the ADC and the labels.
 
 **How:** The test counts the rows of the tables of the model.
@@ -9323,7 +9106,7 @@ of both kinds, the ADC and the labels.
 
 #### `test_the_sequence_is_not_changed`
 
-**Checks:** `read_pypulseq` does not change the caller's sequence: every attribute but
+**Checks:** `read_pypulseq` does not change the caller's sequence (`check_the_sequence_is_not_changed`): every attribute but
 pypulseq's block cache is the same after the reading, the definitions have no `TotalDuration`
 (which `write` sets), and the signature value is still empty (which `write` sets).
 
@@ -9349,11 +9132,10 @@ lists both folders.
 **Checks:** A sequence that an interpreter rejects raises the `SeqFileError` of its written file
 (the same code and violations), whose `path` is `from_pypulseq.SOURCE`
 (`"<pypulseq.Sequence>"`), whose message names the sequence and not the temporary file, and
-which does not chain the error of the temporary file. The cases are `spec` with a trapezoid of
-1 ms in a block of 0.5 ms (`block.event-too-long`), and `cpp-siemens` with an arbitrary gradient
-on a gradient raster of 4 µs (`gradient.raster`).
+which does not chain the error of the temporary file. The case is `spec` with a trapezoid of
+1 ms in a block of 0.5 ms (`block.event-too-long`); `cpp-siemens` has its own case (section 3.9).
 
-**How:** For each case (parametrized), the test reads the sequence with `read_pypulseq` and its
+**How:** The test calls `check_a_rejection`: it reads the sequence with `read_pypulseq` and its
 written file with `read_seqfile`, and compares the two errors.
 
 **Assumptions:** None.
@@ -9372,9 +9154,14 @@ sequence (a path) raises `TypeError` that names `pypulseq.Sequence`.
 `packages/pulseq-cpp-siemens` is the C++ reader `ExternalSequence` of pulseq/pulseq as a nanobind
 extension, its own distribution with compiled wheels (P12 of `docs/plans/parser-redesign.md`;
 its `README.md`). `scripts/check` builds it in its own uv project (`uv sync --frozen --project
-packages/pulseq-cpp-siemens --reinstall-package pulseq-cpp-siemens`, from its `uv.lock`, with the
-reader's files from the devShell's `PULSEQ_SOURCE_DIR`), runs its tests in that environment, and
-adds their IDs to the file of the TESTS.md check. The tests use the fixtures of `tests/seqfiles`
+packages/pulseq-cpp-siemens --no-editable --reinstall-package pulseq-cpp-siemens
+--reinstall-package pulseq-analysis`, from its `uv.lock`, with the reader's files from the devShell's
+`PULSEQ_SOURCE_DIR`), runs its tests in that environment, and adds their IDs to the file of the
+TESTS.md check. The environment also has pulseq-analysis, from this checkout (the dependency group
+`analysis`), for the two modules of the interpreter `cpp-siemens` (sections 3.8 and 3.9); without it
+`tests/conftest.py` does not collect them, as in the wheel tests below. Those modules use the fixtures
+and the helpers of the tests of pulseq-analysis (`tests/conftest.py` puts the `tests` folder of the
+repository on `sys.path`). The tests use the fixtures of `tests/seqfiles`
 and the package's `tests/fixtures`, and the helpers of its `tests/canonical.py`: the canonical
 form of the driver's `--dump` and `--sample` (each float as the bits of the float32 that the
 reader holds), and `read`, the package's verdict on a file in the words of
@@ -9389,7 +9176,8 @@ report (macOS arm64 and x86_64, the latter tested under Rosetta; manylinux x86_6
 Windows x86_64), with the stable ABI `cp312-abi3`, and cibuildwheel runs these tests on each
 wheel in a clean environment with Python 3.12. It runs them again on the native wheel of each
 runner with Python 3.14. There the tests that need the C++ oracles skip, and
-`test_digests.py` stands in for the driver. Its sdist job checks that the sdist carries the
+`test_digests.py` stands in for the driver. pulseq-analysis is not installed there, so the modules
+of the interpreter `cpp-siemens` are not collected. Its sdist job checks that the sdist carries the
 reader's files and builds a wheel from it with no download. It publishes nothing.
 
 ### 3.1 The API (`test_api.py`)
@@ -10033,3 +9821,405 @@ seeded set reaches every case. It skips on a smaller set (the 200 files of `scri
 **How:** The test counts the codes in the report of the seeded files.
 
 **Assumptions:** None.
+
+### 3.8 The interpreter `cpp-siemens` (`test_interpreter.py`)
+
+`test_interpreter.py` tests the interpreter `cpp-siemens` (`pulseq_cpp_siemens.interpreter`), the
+plugin of pulseq-analysis (P21 of `docs/plans/parser-redesign.md`): the C++ reader of the scanner
+through `read_seqfile` and `synth.decode` of pulseq-analysis, which each test names (the default
+interpreter of pulseq-analysis is `spec`). It needs pulseq-analysis (the group `analysis`) and is
+not collected without it. It uses the fixtures and the helpers of the tests of pulseq-analysis
+(`test_cpp_oracle`, `test_cpp_oracle_sanitized`; sections 2.20 and 2.25). The tests that compare with
+the C++ oracle (`pulseq-cpp-oracle`) and its sanitized build (`pulseq-cpp-oracle-sanitized`) skip
+when they are not on the PATH. The other tests of this package (sections 3.1 to 3.7) compare the
+reader's values with the driver bit for bit; these tests check what the interpreter builds on it:
+the verdict, the codes, the version gate, the model and the decoding.
+
+#### `test_cpp_siemens_gives_the_verdict_of_the_oracle_on_each_fixture`
+
+**Checks:** For each fixture of `tests/seqfiles` (the subfolders included), `cpp-siemens` reads
+the file when the oracle accepts it, rejects it with a `ub.*` code when the sanitized oracle finds
+undefined behaviour (exit status 3) or does not end, and rejects it with another code when the
+oracle rejects it otherwise. The two fixtures of a version outside 1.4.0 to 1.5.x raise
+`NotSupported`, whatever the oracle does (Q1 of `docs/plans/parser-redesign.md`). No fixture is
+left out.
+
+**How:** For each fixture (parametrized), the test runs the sanitized oracle, then the oracle, and
+reads the file with `read_seqfile`.
+
+**Assumptions:** The oracles are the reader at the pinned commit with the flags of the package
+(`-fsigned-char -ffp-contract=off`). A crash of the plain oracle without undefined behaviour in the
+sanitized one fails the test.
+
+#### `test_each_fixture_has_its_rejection_code`
+
+**Checks:** Each fixture gives its expected verdict: the code of `REJECTED` (for example
+`gradient.raster` for `valid_arbitrary_gradient_4us_raster.seq` and
+`valid_arbitrary_gradient_5us_raster.seq`, `section.extensions-last` for
+`oracle/koma_v1.5_unknown_ext.seq`, `syntax.comment-row` for `bad_syntax_line_after_comment.seq` and
+`valid_comment_in_shape.seq`, `definitions.skipped` for `valid_last_section_no_blank.seq`,
+`ub.rf-time-overrun` for `valid_rf_time_shapes.seq` and `syntax.shape` for
+`bad_syntax_shape_end.seq`), `NotSupported` for the two versions outside the range, and a model for every
+other fixture. The codes are stable, so pulseq-checks and the tests can name a rejection.
+
+**How:** For each fixture (parametrized), the test compares the codes of the `SeqFileError` with
+the table. It needs no oracle.
+
+**Assumptions:** The table was made from a run and checked against the oracle by the test above.
+
+#### `test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code`
+
+**Checks:** The three fixtures of `packages/pulseq-cpp-siemens/tests/fixtures` are rejected with the
+code of their case of undefined behaviour: `ub.gradient-one-point`, `ub.gradient-shape-0` and
+`ub.shape-decompression` (a repeated value with no count at the end of a shape).
+
+**How:** For each fixture (parametrized), the test reads it and compares the code.
+
+**Assumptions:** The package's tests confirm each case with the sanitized oracle.
+
+#### `test_each_code_of_a_rejection_has_a_file_that_gives_it`
+
+**Checks:** For each code of a rejection by `load` or `decodeBlock` (`CODES`, except the fallback
+`cpp.rejected` and the `ub.*` codes), a small file gives that code and only it, with the reader's
+message, and the oracle rejects the file too: `version.invalid`, `version.missing`,
+`definitions.raster-missing`, `definitions.raster-invalid` (`nan`), `definitions.skipped` (D56: a
+last section with no blank line after it, so the reader skips `[DEFINITIONS]`),
+`extension.required-unknown`, `section.extensions-last`, `blocks.missing`, `ref.unresolved`,
+`syntax.row` (`100.5` in `[BLOCKS]`), `syntax.comment-row`, `syntax.shape`, `rotation.norm`,
+`gradient.raster`, `shape.decompression` (a repeat count of 1.5), `shape.ext-trap-lengths` and
+`cpp.exception` (an RF time shape that ends before 0).
+
+**How:** For each code (parametrized), the test writes an edit of a small valid file, reads it,
+and runs the oracle when it is on the PATH.
+
+**Assumptions:** The classification of a rejection reads the reader's messages, which are fixed at
+the pinned commit.
+
+#### `test_every_code_is_given_by_a_file_or_is_the_fallback_or_a_case_of_undefined_behaviour`
+
+**Checks:** Each code of `CODES` that is not a `ub.*` code is given by a file of the test above or
+by a fixture, except `cpp.rejected`; and the `ub.*` codes are those of `pulseq_cpp_siemens.CODES`.
+
+**How:** The test compares the sets.
+
+**Assumptions:** None.
+
+#### `test_a_rejection_quotes_the_line_of_the_row_that_does_not_decode`
+
+**Checks:** For a `#` line in `[RF]`, the reason of the rejection has the section `RF`, the line
+of the `#` line in the file, and the reader's message "failed to decode RF event".
+
+**How:** The test reads the file of `syntax.comment-row` and looks up the line.
+
+**Assumptions:** None.
+
+#### `test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode`
+
+**Checks:** D15: an ADC dwell time of `2500.0` is `syntax.row` in `[ADC]` (the reader reads the
+dwell as an integer), and the same file with `2500` reads, with a dwell of 2.5 us.
+
+**How:** The test reads both files.
+
+**Assumptions:** The file ends with a blank line: with none, the reader skips the sections after
+`[ADC]` (D56).
+
+#### `test_a_version_outside_1_4_to_1_5_is_not_supported_before_the_reader_runs`
+
+**Checks:** A file of version 1.3.1, 1.6.0 or 2.0.0 raises `NotSupported` (a
+`NotImplementedError`), and so does a file whose `[VERSION]` has `minor 5` and then `minor 6`
+(the "as written" reading takes the first row, 1.5.0; the reader the last, 1.6.0, so the gate of
+`cpp-siemens` refuses it). Each file also has a cycle in an extension list, on which the
+reader of a version before 1.4.0 does not end inside `load`: the test ends, so the gate runs
+before the reader.
+
+**How:** For each version (parametrized), the test writes the file and reads it.
+
+**Assumptions:** None.
+
+#### `test_a_binary_file_and_a_folder_are_not_supported`
+
+**Checks:** A file that starts with the magic bytes of a binary Pulseq file, and a folder, raise
+`NotSupported`.
+
+**How:** The test writes the bytes and reads the file and its folder.
+
+**Assumptions:** None.
+
+#### `test_the_model_is_the_readers_libraries_in_the_units_of_the_model`
+
+**Checks:** The model of `valid_1_5_1.seq` holds the reader's libraries: the version, the gradient
+raster in s, the block IDs as positions from 1 (the reader keeps no ID), the durations and event
+IDs of the blocks, the RF delay, centre and use, the trapezoids and the arbitrary gradients split
+by shape ID 0, the dwell times, the stored shape values (float32), the signature, the required
+extensions, the extension that the reader ignores in `skipped_extensions` (not in `type_ids`), and
+the float32 value of an RF shim phase.
+
+**How:** The test compares the model with `data.reading.libraries`.
+
+**Assumptions:** None.
+
+#### `test_a_1_4_rf_event_has_no_center_and_the_use_u`
+
+**Checks:** The RF event of `valid_1_4_0.seq` has `center` NaN (the reader holds -1, D38) and
+`use` `u`.
+
+**How:** The test reads the fixture.
+
+**Assumptions:** None.
+
+#### `test_the_rotations_are_the_readers_normalized_quaternions`
+
+**Checks:** A quaternion of norm 1.0005 (within the reader's 1e-3) in a 1.5.1 file is divided by its
+norm in the model of `cpp-siemens` (D49), and in the model of `spec` too (from 1.5.1): both give q0 1.0.
+
+**How:** The test writes a file with a rotation and reads it with both interpreters.
+
+**Assumptions:** The file is 1.5.1: `spec` skips ROTATIONS in a file of an older version (D45).
+
+#### `test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it`
+
+**Checks:** `read_seqfile` takes no interpreter (`spec`, the default), a name, or an object with its
+settings, and `SequenceData.interpreter` records it (`str` names a setting that is not the default);
+`spec` has no reading. Another name, such as `matlab`, raises `ValueError` ("no interpreter"), another value `TypeError`, and
+an unknown oversampling mode `ValueError`.
+
+**How:** The test reads `valid_1_5_1.seq` in each way.
+
+**Assumptions:** None.
+
+#### `test_the_oversampling_setting_changes_the_decoding_of_an_oversampled_gradient`
+
+**Checks:** The oversampled gradient of `valid_1_5_1.seq` decodes to all its samples with
+`oversampling="preserve"`, to the even samples ((n + 1) / 2) with `"center"`, and to the odd
+samples ((n - 1) / 2) with `"edge"` (D43).
+
+**How:** The test decodes the file in each mode with `synth.decode` and compares the samples of
+the oversampled gradient.
+
+**Assumptions:** pulseq-cpp-siemens's tests compare each mode with the driver.
+
+#### `test_a_cpp_siemens_model_compares_and_survives_pickle_and_deepcopy`
+
+**Checks:** Two reads of a file are equal (the reading is not compared), a read with another
+setting is not, and a copy by `pickle` or `copy.deepcopy` is equal and gives the same
+`gradients_at`. The reading cannot be set.
+
+**How:** The test reads the fixture, copies the model, and samples a block.
+
+**Assumptions:** `pickle` reads the file's bytes again (pulseq-cpp-siemens).
+
+#### `test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_lacks_is_typeerror`
+
+**Checks:** `CppSiemens().rotation` is `"reader"`, `ROTATION` (of `pulseq_cpp_siemens.interpreter`) is `("reader", "apply")`,
+`str` names each setting that is not its default (one or both), and a read records the setting.
+Another value raises `ValueError`; a setting that the interpreter does not have
+(`Spec(rotation=...)`, `CppSiemens(rotate=...)`) raises `TypeError` (rule 8 of P20).
+
+**How:** The test makes the objects and reads `koma_v1.5_rotation_radial_tiny.seq` with both
+settings.
+
+**Assumptions:** None.
+
+#### `test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches`
+
+**Checks:** `CppSiemensDecoding.rotations()` gives the blocks whose decoded block (`GetBlock`) has a
+rotation, in play order, with the same quaternions, in both settings; each is one of the model's
+normalized quaternions.
+
+**How:** The test reads `koma_v1.5_rotation_radial_tiny.seq` and `valid_1_5_1.seq` (some blocks
+with a rotation) in each setting, and compares `rotations()` with the `rotation` of each block of
+`blocks()`.
+
+**Assumptions:** pulseq-cpp-siemens's tests check the first of two rotations in a block (D48).
+
+#### `test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation`
+
+**Checks:** With `rotation="apply"`, `gradients_at` gives the reader's gradients of
+`koma_v1.5_rotation_radial_tiny.seq` (all on x) turned by 0, 45, 90, 45 and 0 degrees about z in
+blocks 1 to 5; `rotated=False` gives the reader's values, and the default setting with
+`rotated=True` gives the same values as `"apply"`.
+
+**How:** The test samples each block at four times in both settings and compares with
+`(cos, sin, 0)` times the x values, to 1e-3 Hz/m (the quaternions have six digits).
+
+**Assumptions:** None.
+
+#### `test_the_rotation_record_and_the_warning_for_rotations_left_unapplied`
+
+**Checks:** The record of `koma_v1.5_rotation_radial_tiny.seq` is 5 blocks with a rotation, 3 not
+the identity, 0 rotated with `"reader"` and 5 with `"apply"`, with its text; `"reader"` gives a
+`ScannerSettingWarning` for 3 blocks that names `rotation='apply'`, and `"apply"` none. A file with
+no rotation, and one with a rotation that no block plays, record 0 blocks in both settings with no
+warning (rule 8: `"apply"` is valid there). A file whose rotations are all the identity records 5
+blocks, 0 not the identity, and no warning.
+
+**How:** The test reads the fixtures, and a copy of the radial file with its two other quaternions
+replaced by `1 0 0 0`.
+
+**Assumptions:** None.
+
+#### `test_the_decoding_emits_no_warning_for_rotations`
+
+**Checks:** Decoding and sampling a file whose rotations the default leaves unapplied emits no
+`ScannerSettingWarning`: the measurements emit it (task R14), not the decoding.
+
+**How:** The test decodes the radial file with `recwarn`.
+
+**Assumptions:** None.
+
+#### `test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply`
+
+**Checks:** On each fixture with a `ROTATIONS` section (`valid_*.seq` and `oracle/*.seq`) that both
+interpreters read: from 1.5.1, `spec` gives the blocks with a rotation that the reader attaches, with
+the same quaternions (to 1e-12), the same `rotation_record`, and the rotated gradients of
+`CppSiemens(rotation="apply")` at 7 times inside each block, to 1e-6 of the largest value. In a file
+older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`), `spec` has no rotation, `cpp-siemens`
+rotates a block that is not the identity, and `spec`'s gradients are the reader's unrotated ones.
+
+**How:** The test (one case for each file) samples both decodings at 5 % to 95 % of each block
+duration, in 7 steps.
+
+**Assumptions:** The tolerance covers the reader's float32 amplitudes (P6). A file that an
+interpreter rejects is skipped (`valid_comment_in_shape.seq`, `valid_last_section_no_blank.seq`,
+`valid_rf_time_shapes.seq`). The times avoid the block boundaries and are where the two decoders draw
+the same lines in these files.
+
+#### `test_synth_decode_gives_the_readers_decoding_or_the_spec_events`
+
+**Checks:** `synth.decode` gives a `CppSiemensDecoding` for `cpp-siemens`, with the interpreter,
+the number of blocks, each block in play order, and the reader's `gradients_at`; and a
+`SpecDecoding` with the events for `spec`. `events.decode_rf` refuses the model of
+`cpp-siemens` with `TypeError` that names `synth.decode`.
+
+**How:** The test decodes `valid_1_5_1.seq` with both interpreters.
+
+**Assumptions:** None.
+
+#### `test_the_entry_point_gives_cpp_siemens_to_pulseq_analysis`
+
+**Checks:** pulseq-analysis finds `cpp-siemens` through the entry-point group
+`pulseq_analysis.interpreters` (P21): its name is in `seqfile.interpreter_names()`,
+`seqfile.interpreter("cpp-siemens")` is `CppSiemens()`, `CppSiemens()` is a `seqfile.Plugin`, and
+`synth.decode` of a model that it read gives a `synth.Decoding`.
+
+**How:** The test calls the functions and reads `valid_1_5_1.seq` by the name.
+
+**Assumptions:** The entry point is in the metadata of the installed distribution
+pulseq-cpp-siemens, so a change to its `pyproject.toml` takes effect after the next install
+(`scripts/check` reinstalls it).
+
+#### `test_the_reader_imports_without_pulseq_analysis`
+
+**Checks:** `import pulseq_cpp_siemens` imports no module of `pulseq_analysis`: only
+`pulseq_cpp_siemens.interpreter` needs pulseq-analysis.
+
+**How:** The test runs a Python process that imports the package and asserts that `sys.modules`
+has no name that starts with `pulseq_analysis`.
+
+**Assumptions:** The environment of the test has pulseq-analysis installed (the module is not
+collected without it), so the test shows that the import does not use it, not that it is absent.
+The wheel tests, where it is absent, do not collect this module.
+
+#### `test_the_gradient_points_are_the_values_of_gradients_at`
+
+**Checks:** For each gradient event of five files of `tests/seqfiles/oracle` (a trapezoid, a
+time-shaped and a uniformly shaped gradient of 1.4, the radial file with rotations, and a spiral of
+1.5), `CppSiemensDecoding.gradient_points` of the first block that plays it gives points whose
+values, apart from the first and the last point and the points at or after the end of the block,
+are the values of `gradients_at` (not rotated) at the times of the points, to a relative 1e-6 and
+1e-3 Hz/m.
+
+**How:** For each file, axis and gradient ID, the test takes the first block that plays it and
+compares `gradients_at` at `delay + offsets` (in µs) with the values of the points.
+
+**Assumptions:** The first and the last point of an event are not compared. The test asserts that it
+compared at least one event in each file.
+
+### 3.9 The interpreter `cpp-siemens` in pulseq-analysis (`test_interpreter_in_pulseq_analysis.py`)
+
+`test_interpreter_in_pulseq_analysis.py` runs the checks of pulseq-analysis that take any
+interpreter for `cpp-siemens`: the helpers `check_*` of `test_from_pypulseq.py` (section 2.28) and
+`compare_rotated_gradients` of `test_matlab_oracle.py` (section 2.24), and tests what
+pulseq-analysis gives for the model of a plugin. The interpreters are `"cpp-siemens"` and
+`CppSiemens(oversampling="edge")`. Like `test_interpreter.py`, it needs pulseq-analysis and is not
+collected without it; the MATLAB test skips as the tests of pulseq-analysis do, when
+`pulseq-matlab-oracle` is not on the PATH.
+
+#### `test_a_sequence_in_memory_reads_as_its_written_file_through_cpp_siemens`
+
+**Checks:** For each sequence of `test_from_pypulseq.py` and each of the two interpreters,
+`read_pypulseq(seq, interpreter)` equals `read_seqfile` of the file that `seq.write(path)` writes,
+except `origin`, with the signature of the file (`check_reads_as_its_written_file`; the check of
+`test_a_sequence_in_memory_reads_as_its_written_file`, section 2.28).
+
+**How:** The test calls the helper for the sequence and the interpreter.
+
+**Assumptions:** The `reading` is not compared by `==`; it is the reader's reading of the same
+bytes.
+
+#### `test_the_mixed_sequence_has_each_kind_of_event_through_cpp_siemens`
+
+**Checks:** The model of `mixed_sequence` through each of the two interpreters has 10 blocks and
+each kind of event (`check_the_mixed_sequence`; the check of
+`test_the_mixed_sequence_has_each_kind_of_event`, section 2.28).
+
+**How:** The test calls the helper for the interpreter.
+
+**Assumptions:** The counts are those of pypulseq's writer at the version of `uv.lock`.
+
+#### `test_the_sequence_is_not_changed_by_cpp_siemens`
+
+**Checks:** `read_pypulseq` through each of the two interpreters does not change the caller's
+sequence (`check_the_sequence_is_not_changed`; the check of `test_the_sequence_is_not_changed`,
+section 2.28).
+
+**How:** The test calls the helper for each sequence and interpreter.
+
+**Assumptions:** As `test_the_sequence_is_not_changed`.
+
+#### `test_a_rejection_of_cpp_siemens_names_the_sequence_not_the_temporary_file`
+
+**Checks:** A sequence with an arbitrary gradient on a gradient raster of 4 µs raises, through
+`cpp-siemens`, the `SeqFileError` of its written file (`gradient.raster`), whose `path` is
+`from_pypulseq.SOURCE` and whose message names the sequence, not the temporary file
+(`check_a_rejection`; the check of
+`test_a_rejection_is_the_file_s_and_names_the_sequence_not_the_temporary_file`, section 2.28).
+
+**How:** The test builds the sequence and calls the helper.
+
+**Assumptions:** None.
+
+#### `test_cpp_siemens_has_no_records`
+
+**Checks:** `cpp-siemens` gives `records == ()` (until task R16).
+
+**How:** The test reads `valid_1_5_1.seq` with `cpp-siemens`.
+
+**Assumptions:** None.
+
+#### `test_the_events_of_spec_refuse_a_model_of_cpp_siemens`
+
+**Checks:** `decode_rf`, `decode_gradients` and `decode_adc` of `synth.events`, which decode the
+model of `spec`, raise `TypeError` for the model of `cpp-siemens`, with a message that names
+`synth.decode`.
+
+**How:** The test reads `valid_1_5_1.seq` with `cpp-siemens` and checks the `TypeError` and its
+message for the three functions.
+
+**Assumptions:** None.
+
+#### `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
+
+**Checks:** For each file with a `ROTATIONS` section, the rotated gradients of
+`CppSiemens(rotation="apply")` (each block turned by its quaternion with the reader's
+`rotate_vec3_by_quat`), in any version of the file, equal MATLAB's rotated polyline from
+`waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-6 of the axis's largest value, as
+`compare_rotated_gradients` says (section 2.24).
+
+**How:** The test (one case for each file) reads the file with `cpp-siemens` and
+`rotation="apply"`, and calls `compare_rotated_gradients` with the MATLAB case of the file.
+
+**Assumptions:** The tolerance of 1e-6 covers the reader's float32 amplitudes (P6) against MATLAB's
+float64. A file that `cpp-siemens` rejects (`valid_last_section_no_blank.seq`,
+`definitions.skipped`, and `valid_rf_time_shapes.seq`, `ub.rf-time-overrun`) or that MATLAB cannot
+read is skipped.

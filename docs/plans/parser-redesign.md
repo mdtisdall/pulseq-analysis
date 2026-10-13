@@ -58,15 +58,16 @@ P12 to P17 follow the review of R2, R3 and R4 (2026-10-12).
 | P9 | `[EXTENSIONS]` as the last section (D46): `cpp-siemens` rejects it, as the C++ reader does, with its own code (section 8). |
 | P10 | Two interpreters: `cpp-siemens`, a replica of the C++ reader with all its limits, and `spec`, as true as possible to the specification. Other rasters are the `spec` interpreter's; there is no "C++ reader on any raster" interpreter for now. |
 | P11 | The engine of `cpp-siemens` is a wrapper of the C++ reader, run in the process, after the prototype of task R2 (7.6). |
-| P12 | The wrapper is its own precompiled distribution, `pulseq-cpp-siemens`, kept in this repository (`packages/pulseq-cpp-siemens/`, its own `pyproject.toml`): the extension, the checks of 5.3, the lock and the locale handling. It ships wheels for the five platforms of the R2 report. pulseq-analysis stays pure Python and depends on it (7.7). |
+| P12 | The wrapper is its own precompiled distribution, `pulseq-cpp-siemens`, kept in this repository (`packages/pulseq-cpp-siemens/`, its own `pyproject.toml`): the extension, the checks of 5.3, the lock and the locale handling. It ships wheels for the five platforms of the R2 report. pulseq-analysis stays pure Python (7.7). ~~pulseq-analysis depends on it~~: superseded by P21. |
 | P13 | Task R5 is the **"as written" reading**: a lossless, typed reading of the text, with line numbers. It is the base of the `spec` reader, of the version gate before the C++ reader (Q1), and of pulseq-checks' findings, which compare it with what the reader read (7.4). |
 | P14 | The `SequenceData` of `cpp-siemens` is the reader's own reading, built from its libraries (blocks, events, shapes, extensions as it read them), misreadings included. |
 | P15 | Task 5a of `own-parser-tasks.md` is re-planned here as R14: `load` runs on an interpreter's output. The C++-replica code of task 2 (`_rf_resample`, `_rf_time_step`, the RF decoding of `events.py`) is retired once the wrapper covers it. |
 | P16 | Task 4 of `own-parser-tasks.md` is re-planned here as R15: a `pypulseq.Sequence` built in memory is written to `.seq` text with pypulseq's writer, then read through an interpreter. |
 | P17 | The findings move to pulseq-checks (the user, 2026-10-12, after the review). pulseq-analysis keeps the readings, the interpreters, their coded rejections and the measurements; it has no `Finding` type, catalogue, `compare` or warnings. pulseq-checks finds each discrepancy from pulseq-analysis's public readings (7.4), and owns the catalogue, the severity and the reports (7.5). |
-| P18 | R6b (2026-10-12): `pulseq-cpp-siemens` is the extra `cpp-siemens` of pulseq-analysis; how a git-URL install gets it is decided at release time; today's strict reader stays as the interim interpreter `strict` until R11 (5.4); and `CppSiemens(oversampling=...)` exposes the reader's three sampling modes of an oversampled gradient (`"center"`, `"edge"`, `"preserve"`), in pulseq-cpp-siemens and its oracle. |
+| P18 | R6b (2026-10-12): ~~`pulseq-cpp-siemens` is the extra `cpp-siemens` of pulseq-analysis~~ (superseded by P21); how a git-URL install gets it is decided at release time; today's strict reader stays as the interim interpreter `strict` until R11 (5.4); and `CppSiemens(oversampling=...)` exposes the reader's three sampling modes of an oversampled gradient (`"center"`, `"edge"`, `"preserve"`), in pulseq-cpp-siemens and its oracle. |
 | P19 | The default interpreter is the fast one (the user, 2026-10-12, in R6b): `strict` until R11, then `spec`. `cpp-siemens` decodes every block with the C++ reader to give its verdict (P2), about seven times as long (4 s for a file of 21 MB with 900 000 blocks, against 0.6 s), so it is read by name: `interpreter="cpp-siemens"`. This replaces "`cpp-siemens` (the default)" of section 1 and Q6. |
 | P20 | Scanner-side settings (the user, 2026-10-12, after `docs/plans/scanner-settings-study.md`): the eight rules of section 7.8. Each interpreter's default is its own source with a neutral scanner session; `spec` applies content of the file only from the revision that introduced it; `cpp-siemens` gives the reader's output and offers the package's simulation as opt-in settings; scanner-session inputs are one `Session`, the same for both; every result records what was applied; a setting that addresses something the file does not have is an error. Amends Q3 and R9. |
+| P21 | `cpp-siemens` is a plugin of pulseq-analysis (the user, 2026-10-13: "It should be an optional sub-project that can be installed, but we shouldn't have any import-level dependencies on it."). pulseq-analysis has no reference to pulseq-cpp-siemens in its code or metadata (no extra, no dev dependency). It finds a plugin interpreter through the entry-point group `pulseq_analysis.interpreters` (the name of the entry point is the interpreter's name, its value the class); `spec` stays built in, and a plugin cannot be named `spec`. A plugin interpreter has `name`, `read(path)` and `decode(data)` (`seqfile.interpreters.Plugin`); its decoding has the methods that the package uses (`synth.Decoding`, with `gradient_points` for R14). The settings class `CppSiemens`, the adapter and `CppSiemensDecoding` move to `pulseq_cpp_siemens.interpreter`, the only module of the package that imports pulseq-analysis; the tests that read through `cpp-siemens` move to the package's tests. A name that no installed interpreter has is a `ValueError` that names the group, not a plugin. How a release of pulseq-cpp-siemens depends on pulseq-analysis is decided at release time; until then a dependency group (`analysis`) takes pulseq-analysis from this repository (7.7). The cpp-siemens record of `docs/discrepancies.md` moves to the package after this change (the user, 2026-10-13). |
 
 The choice between "C++ reader first" and "specification first" is no longer open, so
 `docs/plans/spec-first-study.md` is not needed. It is not committed; its readings of the
@@ -206,7 +207,8 @@ libraries such an event looks like a `[TRAP]` row. Their fixtures are in
 ### 5.4 Today's rules (R6b)
 
 `cpp-siemens` applies none of the rules of the strict reader (`seqfile.reader`): it rejects what
-the C++ reader rejects, with the codes of `seqfile.cpp_siemens.CODES`. Until R11, the strict
+the C++ reader rejects, with the codes of `seqfile.cpp_siemens.CODES` (since P21,
+`pulseq_cpp_siemens.interpreter.CODES`). Until R11, the strict
 reader stays as the interim interpreter `strict` (the user, 2026-10-12), with its rules, except
 that a version outside 1.4.0–1.5.x raises the "not supported" exception (Q1). For R11, each rule
 is kept for `spec`, changed, or removed (section 6). R11 removed the interim `strict` interpreter
@@ -674,12 +676,24 @@ in its own task, R13.
 - **Wheels:** cibuildwheel for macOS (arm64, x86_64), Linux (manylinux x86_64, aarch64) and
   Windows (x86_64), stable ABI `cp312-abi3`; the sdist carries the reader's files. It is
   released only when the pinned commit or a check changes.
-- **pulseq-analysis** stays pure Python and depends on it through the extra
-  `pulseq-analysis[cpp-siemens]` (the user, 2026-10-12, in R6b): without it, `strict` (and later
-  `spec`) works, and `cpp-siemens` raises `ImportError` that names the extra. Until a release,
-  `[tool.uv.sources]` takes the package from `packages/pulseq-cpp-siemens` (uv builds it from the
-  same commit for a git-URL install; a C++ compiler is needed); how a release gets it (wheels from
-  an index, or this source) is decided at release time (the user, 2026-10-12).
+- **The plugin (P21, the user, 2026-10-13):** the package is also the `cpp-siemens`
+  interpreter of pulseq-analysis. Its module `pulseq_cpp_siemens.interpreter` holds `CppSiemens`
+  (the settings, `read` and `decode`), the adapter from the reader's libraries to the model
+  (`read_cpp_siemens`, `CODES`) and `CppSiemensDecoding`, and its `pyproject.toml` declares the
+  entry point `cpp-siemens` in the group `pulseq_analysis.interpreters`. `import
+  pulseq_cpp_siemens` imports only the reader; only `pulseq_cpp_siemens.interpreter` imports
+  pulseq-analysis, and pulseq-analysis imports it only through the entry point, when the name
+  `cpp-siemens` is asked for.
+- **pulseq-analysis** stays pure Python and has no reference to the package (P21): without it,
+  `spec` works and the name `cpp-siemens` is a `ValueError` (no installed interpreter has it).
+  A user installs both distributions.
+- **The dependency on pulseq-analysis:** decided at release time (the user, 2026-10-13). Until
+  then the package's dependency group `analysis` (not in the published metadata) takes
+  pulseq-analysis from this repository (`[tool.uv.sources]`, `../..`, editable), so that the
+  tests of the plugin run against the same commit; `scripts/check` runs them in the package's
+  environment. Without pulseq-analysis, as in the wheel tests of cibuildwheel, the tests of the
+  plugin are not collected (`tests/conftest.py` of the package). How a release gets the wheels
+  (from an index, or this source) is decided at release time (the user, 2026-10-12).
 
 ### 7.8 Scanner-side settings (P20)
 
@@ -845,6 +859,7 @@ blocks of labels only, with no shape and no signature.
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 | R16 | `feature/scanner-session` | The `Session` of section 7.8 (soft delays, the field of view), its records and `SettingError` (rules 3 to 8), for both interpreters; the decoding's stored and actual durations; record entries D57 and D58. |
+| R17 | `feature/cpp-siemens-as-plugin` | P21: `cpp-siemens` as a plugin of pulseq-analysis. The entry-point group `pulseq_analysis.interpreters`, the protocols `seqfile.interpreters.Plugin` and `synth.Decoding`, the adapter, `CppSiemens` and `CppSiemensDecoding` in `pulseq_cpp_siemens.interpreter`, the tests that read through `cpp-siemens` in the package's tests, and the docs. Then the cpp-siemens record of `docs/discrepancies.md` moves to the package. |
 
 R6 is split in two (2026-10-12): R6a, the package, needs only R2 and R4 and runs in parallel
 with R5; R6b, the interpreter, needs R5 and R6a. Elsewhere in this plan, "R6" means both, and
@@ -852,7 +867,9 @@ a part of it names R6a or R6b. R5 needs R3. R9 needs R6. R11 needs R5 and R6 (th
 argument). R6, R9 and R11 share `docs/discrepancies.md` and `TESTS.md`, so they merge in turn.
 R14 needs R6 and R9; the `spec` interpreter joins `load` when R11 is done. R15 needs R6. R16
 needs R14 (the `Session` acts on the timeline). C1
-needs R5; R6 and R11 update its document.
+needs R5; R6 and R11 update its document. R17 and R14 both change `synth.decoding` and run in
+parallel (the user, 2026-10-13): the one that merges second adapts; R14 takes the points of a
+gradient event from `Decoding.gradient_points`, with no test of the decoding's type.
 
 Tasks 4, 5a, 5b and 6 of `docs/plans/own-parser-tasks.md`:
 

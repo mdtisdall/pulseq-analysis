@@ -1,39 +1,32 @@
-"""Tests of the `cpp-siemens` interpreter (`seqfile.cpp_siemens`), which each test names (the
-default interpreter is `spec`): its verdict on each fixture against the C++ oracle and its
-sanitized build, the code of each rejection, the version gate, the model from the reader's
-libraries, the `interpreter` argument, and its decoding in `synth`.
+"""Tests of the `cpp-siemens` interpreter (`pulseq_cpp_siemens.interpreter`, the plugin of
+pulseq-analysis), which each test names (the default interpreter of pulseq-analysis is `spec`):
+its verdict on each fixture against the C++ oracle and its sanitized build, the code of each
+rejection, the version gate, the model from the reader's libraries, the `interpreter` argument,
+and its decoding through `pulseq_analysis.synth`.
 
 The tests that compare with the oracle skip when it is not on the PATH, as outside the Nix
-devShell. The module skips without pulseq-cpp-siemens (the extra `cpp-siemens`).
+devShell. The module is not collected without pulseq-analysis (`conftest.py`).
 """
 
 import copy
 import dataclasses
 import pickle
-import re
+import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
+import pulseq_cpp_siemens
 import pytest
+from pulseq_cpp_siemens.interpreter import CODES, ROTATION, CppSiemens, CppSiemensDecoding
 from test_cpp_oracle import MINIMAL_SEQ, ORACLE, SEQFILES, run_oracle
 from test_cpp_oracle_sanitized import SANITIZED, run
 
-pytest.importorskip("pulseq_cpp_siemens")
-
 from pulseq_analysis import seqfile, synth
-from pulseq_analysis.seqfile import (
-    CppSiemens,
-    NotSupported,
-    SeqFileError,
-    Spec,
-    read_seqfile,
-)
-from pulseq_analysis.seqfile.cpp_siemens import CODES
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, Spec, read_seqfile
 
-PACKAGE_FIXTURES = (
-    Path(__file__).resolve().parents[1] / "packages" / "pulseq-cpp-siemens" / "tests" / "fixtures"
-)
+# The fixtures of this package.
+PACKAGE_FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 # The code of the rejection of each fixture that `cpp-siemens` rejects. Every other fixture
 # reads, except those of `NOT_SUPPORTED`.
@@ -140,7 +133,7 @@ def test_each_fixture_has_its_rejection_code(name):
 def test_the_fixtures_of_pulseq_cpp_siemens_are_rejected_with_their_code(name, code):
     path = PACKAGE_FIXTURES / name
     assert verdict(path) == code
-    assert seqfile.cpp_siemens.CODES[code][0] in ("D29", "—")
+    assert CODES[code][0] in ("D29", "—")
 
 
 def edit(text, old, new):
@@ -156,7 +149,9 @@ RF_FILE = edit(MINIMAL_SEQ, "1 100 0 0 0 0 0 0", "1 11 1 0 0 0 0 0") + (
     + "0\n" * 6
     + "\n"
 )
-ROTATION = "[EXTENSIONS]\n1 1 1 0\n\nextension ROTATIONS 1\n1 {q}\n\n[BLOCKS]\n1 100 0 0 0 0 0 1\n"
+ROTATION_SECTION = (
+    "[EXTENSIONS]\n1 1 1 0\n\nextension ROTATIONS 1\n1 {q}\n\n[BLOCKS]\n1 100 0 0 0 0 0 1\n"
+)
 
 # For each code of a rejection by `load` or `decodeBlock`, a file that the reader rejects for
 # that reason: an edit of a small valid file.
@@ -181,7 +176,7 @@ CODE_FILES = {
     "syntax.comment-row": edit(RF_FILE, "[RF]\n", "[RF]\n# a note\n"),
     "syntax.shape": edit(RF_FILE, "num_samples 6\n", "num_samples six\n"),
     "rotation.norm": edit(
-        MINIMAL_SEQ, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION.format(q="2 0 0 0")
+        MINIMAL_SEQ, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION_SECTION.format(q="2 0 0 0")
     ),
     "gradient.raster": edit(
         MINIMAL_SEQ, "GradientRasterTime 1e-05", "GradientRasterTime 4e-06"
@@ -216,8 +211,6 @@ def test_every_code_is_given_by_a_file_or_is_the_fallback_or_a_case_of_undefined
     reached = set(CODE_FILES) | set(REJECTED.values())
     untested = {c for c in CODES if c not in reached and not c.startswith("ub.")}
     assert untested == {"cpp.rejected"}
-    import pulseq_cpp_siemens
-
     assert {c for c in CODES if c.startswith("ub.")} == set(pulseq_cpp_siemens.CODES)
 
 
@@ -318,7 +311,9 @@ def test_a_1_4_rf_event_has_no_center_and_the_use_u():
 def test_the_rotations_are_the_readers_normalized_quaternions(tmp_path):
     path = tmp_path / "rotation.seq"
     path.write_text(
-        edit(MINIMAL_15_1, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION.format(q="1.0005 0 0 0"))
+        edit(
+            MINIMAL_15_1, "[BLOCKS]\n1 100 0 0 0 0 0 0\n", ROTATION_SECTION.format(q="1.0005 0 0 0")
+        )
     )
     (row,) = read_seqfile(path, "cpp-siemens").extensions.rotations
     assert row["q0"] == 1.0
@@ -377,7 +372,7 @@ def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
     path = SEQFILES / "valid_1_5_1.seq"
     data = read_seqfile(path, "cpp-siemens")
     decoding = synth.decode(data)
-    assert isinstance(decoding, synth.CppSiemensDecoding)
+    assert isinstance(decoding, CppSiemensDecoding)
     assert decoding.interpreter == data.interpreter
     assert decoding.block_count == len(data.blocks)
     assert [b["index"] for b in decoding.blocks()] == list(range(len(data.blocks)))
@@ -397,7 +392,7 @@ RADIAL = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"
 
 
 def test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_lacks_is_typeerror():
-    assert CppSiemens().rotation == "reader" and seqfile.ROTATION == ("reader", "apply")
+    assert CppSiemens().rotation == "reader" and ROTATION == ("reader", "apply")
     assert str(CppSiemens(rotation="apply")) == "cpp-siemens(rotation='apply')"
     both = CppSiemens(oversampling="edge", rotation="apply")
     assert str(both) == "cpp-siemens(oversampling='edge', rotation='apply')"
@@ -413,7 +408,7 @@ def test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_la
 
 def test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches():
     for path in (RADIAL, SEQFILES / "valid_1_5_1.seq"):
-        for setting in seqfile.ROTATION:
+        for setting in ROTATION:
             data = read_seqfile(path, CppSiemens(rotation=setting))
             decoding = synth.decode(data)
             indices, quaternions = decoding.rotations()
@@ -459,7 +454,7 @@ def test_the_rotation_record_and_the_warning_for_rotations_left_unapplied(tmp_pa
     assert applied.warning() is None and str(applied) == "rotation: apply, 5 block(s) rotated"
     # Rule 8 of P20: "apply" on a file with no rotation is valid, and rotates 0 blocks.
     for name in ("valid_1_5_0.seq", "valid_1_5_1_rotation_not_played.seq"):
-        for setting in seqfile.ROTATION:
+        for setting in ROTATION:
             data = read_seqfile(SEQFILES / name, CppSiemens(rotation=setting))
             record = synth.decode(data).rotation_record
             assert record == synth.RotationRecord(setting, 0, 0, 0)
@@ -527,10 +522,56 @@ def test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply(path):
     )
 
 
-def test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install(monkeypatch):
-    monkeypatch.setitem(sys.modules, "pulseq_cpp_siemens", None)
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq").interpreter == Spec()
-    with pytest.raises(ImportError, match=re.escape("pulseq-analysis[cpp-siemens]")) as caught:
-        read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
-    assert "interpreter='spec'" in str(caught.value)
-    assert read_seqfile(SEQFILES / "valid_1_5_1.seq", "spec").interpreter == Spec()
+def test_the_entry_point_gives_cpp_siemens_to_pulseq_analysis():
+    """pulseq-analysis finds `cpp-siemens` through the entry-point group
+    `pulseq_analysis.interpreters` (P21), and a name gives the default settings."""
+    assert "cpp-siemens" in seqfile.interpreter_names()
+    assert seqfile.interpreter("cpp-siemens") == CppSiemens()
+    assert isinstance(CppSiemens(), seqfile.Plugin)
+    data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
+    assert isinstance(synth.decode(data), synth.Decoding)
+
+
+def test_the_reader_imports_without_pulseq_analysis():
+    """`import pulseq_cpp_siemens` imports the reader only: pulseq-analysis is imported by the
+    module `interpreter`, and only that module needs it."""
+    code = (
+        "import sys, pulseq_cpp_siemens; "
+        "assert not [m for m in sys.modules if m.startswith('pulseq_analysis')]"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+# Files with trapezoids, extended trapezoids (a time shape), arbitrary gradients and rotations.
+GRADIENT_POINT_FILES = [
+    SEQFILES / "oracle" / name
+    for name in (
+        "koma_v1.4_gr-trapezoidal.seq",
+        "koma_v1.4_gr-time-shaped.seq",
+        "koma_v1.4_gr-uniformly-shaped.seq",
+        "koma_v1.5_rotation_radial_tiny.seq",
+        "koma_v1.5_spiral.seq",
+    )
+]
+
+
+def test_the_gradient_points_are_the_values_of_gradients_at():
+    """`gradient_points` of each gradient event, at the first block that plays it, gives the
+    values of `gradients_at` (not rotated) at each of its points inside the block."""
+    for path in GRADIENT_POINT_FILES:
+        data = read_seqfile(path, "cpp-siemens")
+        decoding = synth.decode(data)
+        checked = 0
+        for axis, column in enumerate(("gx", "gy", "gz")):
+            ids = data.blocks[column]
+            for key in np.unique(ids[ids != 0]).tolist():
+                block = int(np.flatnonzero(ids == key)[0])
+                delay, offsets, values = decoding.gradient_points(key, block, axis)
+                times_us = (delay + offsets[1:-1]) * 1e6
+                inside = times_us < data.block_durations_s[block] * 1e6
+                at = decoding.gradients_at(
+                    np.full(int(inside.sum()), block), times_us[inside], rotated=False
+                )[:, axis]
+                np.testing.assert_allclose(at, values[1:-1][inside], rtol=1e-6, atol=1e-3)
+                checked += 1
+        assert checked

@@ -69,19 +69,28 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   read; `docs/usage.md` documents them.
 - The interpreters (`docs/usage.md`, "The interpreters"). `read_seqfile(path,
   interpreter="spec")` (`seqfile.read_seqfile`) reads a file through
-  an interpreter, by name or as an object (`interpreters.Spec`,
-  `interpreters.CppSiemens`), and `SequenceData.interpreter` records it with its
-  settings:
-  - `cpp-siemens`, by name: the C++ reader of the scanner's interpreter on
-    Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), in
-    the process, through the package pulseq-cpp-siemens of
-    `packages/pulseq-cpp-siemens/` (the extra `pulseq-analysis[cpp-siemens]`).
-    It reads what the reader reads, misreadings included, and rejects what it
-    rejects, with a code for each reason (`cpp_siemens.CODES`; `ub.*` for a
-    case of the reader's undefined behaviour). Its model is built from the
-    reader's own libraries, and `SequenceData.reading` keeps the reader's
-    object. `CppSiemens(oversampling="center" | "edge" | "preserve")` sets
-    the reader's sampling mode of an oversampled arbitrary gradient (D43).
+  an interpreter, by name or as an object (`interpreters.Spec`, or a plugin
+  interpreter), and `SequenceData.interpreter` records it with its settings:
+  - Plugin interpreters (P21 of `docs/plans/parser-redesign.md`): another
+    distribution gives an interpreter through the entry-point group
+    `pulseq_analysis.interpreters` (`interpreters.GROUP`); the name of the
+    entry point is the name of the interpreter, and its class has the methods
+    of the protocol `interpreters.Plugin` (`read`, `decode`).
+    `interpreters.interpreter_names()` lists the names without importing a
+    plugin. A name that no installed interpreter has raises `ValueError`, and
+    a plugin that does not load raises `ImportError`. The package has no
+    reference to a plugin.
+  - `cpp-siemens`, by name, a plugin that the distribution pulseq-cpp-siemens
+    of `packages/pulseq-cpp-siemens/` gives (`pulseq_cpp_siemens.interpreter`,
+    installed beside pulseq-analysis): the C++ reader of the scanner's
+    interpreter on Siemens systems (`ExternalSequence` of pulseq/pulseq at
+    `c7469123`), in the process. It reads what the reader reads, misreadings
+    included, and rejects what it rejects, with a code for each reason
+    (`pulseq_cpp_siemens.interpreter.CODES`; `ub.*` for a case of the reader's
+    undefined behaviour). Its model is built from the reader's own libraries,
+    and `SequenceData.reading` keeps the reader's object.
+    `CppSiemens(oversampling="center" | "edge" | "preserve")` sets the
+    reader's sampling mode of an oversampled arbitrary gradient (D43).
   - `spec`, the default (`spec.read_spec`): as true as possible to the Pulseq
     specification (1.5.3 draft) and, for timing, to the slide set that its
     section 2.6 cites (`doc/pulseq_shapes_and_times.pdf`). It rejects a file
@@ -98,13 +107,16 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x,
   a binary Pulseq file, a folder.
 - `synth.decode(data)` (`decoding.decode`): the decoding of a model by its
-  interpreter. For `cpp-siemens`, the reader's own `decodeBlock` of each block
-  and `gradientsAt` (`decoding.CppSiemensDecoding`); for `spec`, the events
-  of `events` (`decoding.SpecDecoding`).
+  interpreter, an object of the protocol `decoding.Decoding`: for `spec`, the
+  events of `events` (`decoding.SpecDecoding`); for a plugin, its own decoding
+  (for `cpp-siemens`, the reader's own `decodeBlock` of each block and
+  `gradientsAt`, `pulseq_cpp_siemens.interpreter.CppSiemensDecoding`).
+  `gradient_points(key, block, axis)` gives the points of one gradient event
+  (`decoding.Points`), as the decoding draws it, not rotated.
 - `docs/discrepancies.md` has a new entry, D56: the last section of a file
   with no blank line after it.
 - Rotations in `cpp-siemens` (D49, task R9). `CppSiemens(rotation="reader" |
-  "apply")` (`interpreters.ROTATION`): `"reader"`, the default, gives the
+  "apply")` (`pulseq_cpp_siemens.interpreter.ROTATION`): `"reader"`, the default, gives the
   reader's gradients, which it never rotates; `"apply"` rotates the gradients
   of each block to which the reader attaches a rotation by its quaternion,
   with the reader's own `rotate_vec3_by_quat`, in any version of the file (a
@@ -114,7 +126,8 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `synth.RotationRecord`) records the setting and the blocks with a rotation,
   not the identity, and rotated. `RotationRecord.warning()` gives a
   `synth.ScannerSettingWarning` where the default leaves a rotation
-  unapplied; the decoding does not emit it, and `load` will when it runs on
+  unapplied, with the interpreter's advice (`RotationRecord.hint`, not
+  compared); the decoding does not emit it, and `load` will when it runs on
   the interpreters (task R14). `load` still refuses a sequence with rotations
   until then. pulseq-cpp-siemens has `Sequence.block_rotations()` and
   `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter

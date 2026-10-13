@@ -1,16 +1,15 @@
 """What a decoding applies of the scanner-side settings, and the warning for content of the file
 that it leaves unapplied (rules 4 and 7 of section 7.8 of `docs/plans/parser-redesign.md`, P20).
 
-The scanner's interpreter acts on information that the C++ reader leaves to it. Each result of
+The scanner's interpreter acts on information that a reader can leave to it. Each result of
 the package records what it applied of it, and `ScannerSettingWarning` is emitted only where
-content of the file itself is left unapplied: today, the rotations of `cpp-siemens`'s default
-(`CppSiemens(rotation="reader")`) in a file where a block plays a rotation. A neutral scanner
-session is recorded, not warned about.
+content of the file itself is left unapplied: today, the rotations that a plugin interpreter's
+decoding does not apply, in a file where a block plays a rotation. A neutral scanner session is
+recorded, not warned about.
 
 - `RotationRecord`: what the decoding did with the rotations of the file (the ROTATIONS
-  extension, D49). `CppSiemensDecoding.rotation_record` and `SpecDecoding.rotation_record` give
-  it. `spec` applies the rotations of a file from 1.5.1 (P20, rule 2), so its record never has
-  a warning.
+  extension, D49). `rotation_record` of each decoding (`decoding.Decoding`) gives it. `spec`
+  applies the rotations of a file from 1.5.1 (P20, rule 2), so its record never has a warning.
 - `ScannerSettingWarning`: the warning; `RotationRecord.warning()` gives it, or None. The
   decoding does not emit it: the measurements (`load`, task R14) emit it, so that a reader of the
   decoding (pulseq-checks) is not warned about the reader's own output.
@@ -26,7 +25,7 @@ __all__ = ["RotationRecord", "ScannerSettingWarning"]
 
 class ScannerSettingWarning(UserWarning):
     """Content of the file that the scanner's interpreter applies and the package's result does
-    not, for example a block's rotation under `CppSiemens(rotation="reader")`. It describes the
+    not, for example a block's rotation that a decoding leaves unapplied. It describes the
     package's measurement, not the file."""
 
 
@@ -34,21 +33,24 @@ class ScannerSettingWarning(UserWarning):
 class RotationRecord:
     """What a decoding did with the rotations of the file.
 
-    - `setting`: the interpreter's setting `rotation` (`"reader"` or `"apply"`); `"apply"` for
-      `spec`, which has no setting and applies the rotations of the file.
-    - `blocks`: the blocks with a rotation: for `cpp-siemens` those to which the reader attached
-      one (`GetBlock`, the first rotation of a block's extension list, D48); for `spec` those
+    - `setting`: what the interpreter does with the rotations, `"apply"` when it rotates the
+      gradients, or the name of its setting that does not (for example `"reader"`); `"apply"`
+      for `spec`, which has no setting and applies the rotations of the file.
+    - `blocks`: the blocks with a rotation, as the interpreter finds them; for `spec` those
       whose extension list has a ROTATIONS object, from 1.5.1.
     - `not_identity`: of these, the blocks whose rotation is not the identity (a quaternion
       with a vector part that is not 0): the blocks that play a rotation.
-    - `rotated`: the blocks whose gradients the decoding rotates: `blocks` with `"apply"`, 0 with
-      `"reader"`.
+    - `rotated`: the blocks whose gradients the decoding rotates: `blocks` with `"apply"`, 0
+      otherwise.
+    - `hint`: what the warning tells the user to do for the gradients that the scanner plays
+      (the interpreter gives it), or empty.
     """
 
     setting: str
     blocks: int
     not_identity: int
     rotated: int
+    hint: str = dataclasses.field(default="", compare=False)
 
     @property
     def unapplied(self) -> int:
@@ -59,16 +61,16 @@ class RotationRecord:
         """The `ScannerSettingWarning` for the rotations left unapplied, or None."""
         if not self.unapplied:
             return None
-        return ScannerSettingWarning(
+        message = (
             f"{self.unapplied} block(s) play a rotation (ROTATIONS) that is not applied: the "
-            "gradients are the logical ones, as the C++ reader gives them; use "
-            "CppSiemens(rotation='apply') for the gradients that the scanner plays"
+            "gradients are the logical ones, as the interpreter gives them"
         )
+        return ScannerSettingWarning(f"{message}; {self.hint}" if self.hint else message)
 
     def __str__(self) -> str:
         if self.setting == "apply":
             return f"rotation: apply, {self.rotated} block(s) rotated"
         return (
-            f"rotation: reader, {self.blocks} block(s) with a rotation "
+            f"rotation: {self.setting}, {self.blocks} block(s) with a rotation "
             f"({self.not_identity} not the identity), not applied"
         )

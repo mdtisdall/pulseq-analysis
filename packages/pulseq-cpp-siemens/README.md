@@ -6,7 +6,10 @@ The C++ reader of Pulseq files on Siemens scanners, in the Python process: `Exte
 gives, bit for bit: its float32 values, its resampling of RF pulses, the clamps of `checkRF`, its
 misreadings, and `gradientsAt`. It is the engine of the `cpp-siemens` interpreter of
 pulseq-analysis (P11 and P12 of `docs/plans/parser-redesign.md` in that repository), and its own
-distribution with compiled wheels, so that pulseq-analysis stays pure Python.
+distribution with compiled wheels, so that pulseq-analysis stays pure Python. The module
+`pulseq_cpp_siemens.interpreter` makes it a plugin of pulseq-analysis (P21), which finds it through
+an entry point ([the interpreter](#the-cpp-siemens-interpreter-of-pulseq-analysis)); the rest of the
+package does not need pulseq-analysis.
 
 ```python
 import pulseq_cpp_siemens as cs
@@ -125,6 +128,162 @@ multiplies and adds unless told not to, and `gradientsAt` then rounds some value
 the last bit. The reader keeps its `assert` calls, as the driver of the C++ oracle does; the
 extension calls no function whose assert could fail.
 
+## The `cpp-siemens` interpreter of pulseq-analysis
+
+The module `pulseq_cpp_siemens.interpreter` is a plugin of pulseq-analysis (P21 of
+`docs/plans/parser-redesign.md` in that repository): the interpreter `cpp-siemens`. pulseq-analysis
+has no import of this package and no reference to it in its metadata. This package declares an
+entry point in the group `pulseq_analysis.interpreters` (`pyproject.toml`), whose name is the name
+of the interpreter and whose value is the class:
+
+```toml
+[project.entry-points."pulseq_analysis.interpreters"]
+cpp-siemens = "pulseq_cpp_siemens.interpreter:CppSiemens"
+```
+
+With both distributions installed, pulseq-analysis finds it by name, and imports the module only
+then:
+
+```python
+from pulseq_analysis.seqfile import read_seqfile
+from pulseq_analysis.synth import decode
+from pulseq_cpp_siemens.interpreter import CppSiemens
+
+data = read_seqfile("sequence.seq", interpreter="cpp-siemens")
+data.interpreter  # CppSiemens(oversampling='center')
+edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
+
+cpp = decode(data)  # the C++ reader's own decoding
+cpp.block(0)  # GetBlock and decodeBlock of the first block
+cpp.gradients_at([0, 0], [10.0, 20.0])  # SeqBlock::gradientsAt (Hz/m), times in us
+cpp.rotations()  # the blocks with a rotation, and their quaternions
+cpp.rotation_record  # rotation: reader, ... not applied
+
+rotated = decode(read_seqfile("sequence.seq", interpreter=CppSiemens(rotation="apply")))
+rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotation
+```
+
+`import pulseq_cpp_siemens` does not import pulseq-analysis; only `pulseq_cpp_siemens.interpreter`
+does. The dependency group `analysis` of `pyproject.toml` installs pulseq-analysis from this
+repository for this module and its tests. It is not a dependency of the published package: how a
+release of this package depends on pulseq-analysis is decided at release time.
+
+`pulseq_cpp_siemens.interpreter` has:
+
+- `CppSiemens`: the interpreter, a frozen dataclass of the protocol
+  `pulseq_analysis.seqfile.interpreters.Plugin` (`name` is `"cpp-siemens"`; `read` and `decode`),
+  with two settings.
+- `OVERSAMPLING` (the modes of `load`, above) and `ROTATION` (`"reader"`, `"apply"`).
+- `CODES`: the code of each rejection.
+- `read_cpp_siemens(path, interpreter)`: `CppSiemens.read`.
+- `CppSiemensDecoding`: the decoding, a `pulseq_analysis.synth.Decoding`.
+
+It is about six times as long as the `spec` interpreter of pulseq-analysis, which is why `spec` is
+the default. On an Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for the
+"as written" reading, 1.4 s for `load` and the checks, and 2.2 s for `decodeBlock` of every block.
+
+**Reading.** `read_cpp_siemens(path, interpreter)` reads a file in four steps: the version gate on
+the "as written" reading of pulseq-analysis (before the C++ reader runs); `load` and the checks of
+this package for the reader's undefined behaviour; `decodeBlock` of every block, as the C++ oracle
+does (a block that it rejects rejects the file, and no decoded block is kept); and the model from
+the reader's own libraries. The version gate reads `AsWritten.version`; the package then reads the
+version again with the reader's own code. It raises what `read_seqfile` of pulseq-analysis raises:
+`SeqFileError` with the code of each reason, `NotSupported` for a version outside 1.4.0 to 1.5.x, a
+binary Pulseq file or a folder, and `OSError`.
+
+**Settings.** `CppSiemens(oversampling=...)` is the reader's sampling mode of an oversampled
+arbitrary gradient (time shape -1, D43): `"center"` (the reader's default, the samples at the
+centres of the gradient raster), `"edge"` (those at its edges) or `"preserve"` (all of them);
+`OVERSAMPLING` lists them. `CppSiemens(rotation=...)` is what the decoding does with each block's
+rotation (the ROTATIONS extension, D49), below; `ROTATION` lists `"reader"` (the default) and
+`"apply"`. A value that is not listed is a `ValueError`. `str` gives the name with each setting
+that is not its default, for example `cpp-siemens(oversampling='edge')`.
+
+**The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to its entry
+of `docs/discrepancies.md` of pulseq-analysis and what the reader rejects. The reader stops at its
+first error, so a rejection has one reason. Its message is the reader's own.
+
+| Code | Entry | The C++ reader rejects |
+| --- | --- | --- |
+| `version.missing`, `version.invalid` | D02 | no `[VERSION]` section; a line of it that does not decode, or an unknown key |
+| `definitions.raster-missing`, `definitions.raster-invalid` | D11 | a required raster that is not defined; one whose value the reader does not read as a number (`nan`, `inf`, text) |
+| `definitions.skipped` | D56 | the rasters, because the reader skipped `[DEFINITIONS]`: a section that it read before ran to the end of the file with no blank line after it |
+| `extension.required-unknown` | D47 | a required extension that the reader does not know |
+| `section.extensions-last` | D46 | `[EXTENSIONS]` as the last section of the file |
+| `blocks.missing` | — | no `[BLOCKS]` section |
+| `syntax.row` | D14, D15 | a row that does not decode with the reader's `sscanf` format: a fraction in an integer column (`30.5`, an ADC dwell `2500.0`), a field that is not a number, a short row |
+| `syntax.comment-row` | D06 | a `#` line inside a table, which the reader reads as a row |
+| `syntax.shape` | D14 | a line of `[SHAPES]` that does not decode |
+| `ref.unresolved` | D21 | a block that names an RF, gradient or ADC event that the reader did not read |
+| `rotation.norm` | D49 | a quaternion whose norm is more than 1e-3 from 1 |
+| `gradient.raster` | D28 | an arbitrary gradient in a file whose gradient raster is not 10 µs (in `decodeBlock`) |
+| `shape.decompression` | D29 | a shape whose compression the reader cannot decode (a repeat count that is not a whole number) |
+| `shape.ext-trap-lengths` | — | an extended trapezoid whose time shape and waveform differ in length |
+| `cpp.exception` | — | a C++ exception in the reader (for example an RF time shape that ends before 0) |
+| `cpp.rejected` | — | any other rejection |
+| `ub.*` | 5.3 of the plan | a case of the reader's undefined behaviour, or of no end: `ub.shape-missing` (D21, D05, D07), `ub.rf-time-id-minus-1` (D22), `ub.extension-cycle` (D23), `ub.shape-decompression` (D29), `ub.shape-empty` (D33), `ub.rf-shape-lengths` (D34), `ub.rf-time-overrun` and `ub.rf-time-range` (D36), `ub.gradient-time-range`, `ub.gradient-one-point` and `ub.gradient-shape-0` |
+
+The reader gives a message, not a code. Each message of `load` that returns false is a pattern of
+`_LOAD_MESSAGES`, and `_classify` finds the code from the message. The order in which the patterns
+are tried matters (the reader prints warnings with "ERROR" in them before its error). The "as
+written" reading refines a code where the message is not enough (a `#` row, a raster that is there
+but skipped, the line of a row that the message quotes). A rejection by `decodeBlock` of a gradient
+raster other than 10 µs has no message (the reader prints it at a debug level), so it is found from
+the libraries.
+
+**The model.** `SequenceData.reading` is the reader's object (a `Sequence`), with the libraries as
+the reader holds them (`SequenceData.reading.libraries`). The model (`_model`) holds what the
+reader read, in the units of the model, from the reader's float32 values (P6); the extension gives
+each event as a dict of the reader's struct. It differs from the model of `spec` where the reader
+does: the reader keeps no block ID, so a block's `id` is its position in play order from 1; a 1.4
+RF event has `center` NaN (the reader holds -1, D38); `use` is any character (D17); `first` and
+`last` of a 1.4 gradient with a time shape are the reader's sentinel `FLOAT_UNDEFINED` (about
+1.18e-38, D39, D40); the definitions are in the order of their keys, each with its last value
+(D12); the rotations are the reader's normalized quaternions (D49); and `skipped_extensions` gives
+the extensions that the reader ignores (D45), which are not in `SequenceData.extensions.type_ids`.
+The reading is not compared by `==`. `pickle` carries the bytes of the file and reads them again;
+`copy.deepcopy` shares the reading.
+
+**The decoding.** `CppSiemens.decode(data)` (and `pulseq_analysis.synth.decode`) gives a
+`CppSiemensDecoding`: `block(index)` and `blocks()` are `GetBlock` and `decodeBlock` of a block (the
+fields of the C++ oracle's `--dump`, `tests/cpp_oracle/README.md` of pulseq-analysis, in the
+reader's units), `gradients_at(block_index, time_us, rotated=None)` is `SeqBlock::gradientsAt` in
+Hz/m, and `gradient_points(key, block, axis)` gives the points between which `gradientsAt` draws
+its straight lines (not rotated; the values are those that `gradientsAt` gives at the points). It
+has the other members of the protocol `pulseq_analysis.synth.Decoding`: `interpreter`,
+`block_count`, `rotations()` and `rotation_record`.
+
+**Rotations.** The C++ reader stores each block's rotation and applies it to nothing: its
+gradients are the file's logical gradients, and it leaves the rotation to the scanner's
+interpreter (D49). The decoding gives what the reader gives, and simulates the scanner by a
+setting (section 7.8 of `docs/plans/parser-redesign.md`):
+
+- `rotations()` gives the play index of each block to which the reader attaches a rotation (the
+  first of its extension list, D48) and its quaternion (q0, qx, qy, qz), divided by its norm, in
+  either setting.
+- With `CppSiemens(rotation="reader")`, the default, `gradients_at` gives the reader's values, not
+  rotated.
+- With `CppSiemens(rotation="apply")`, `gradients_at` turns the values of each block with a
+  rotation by its quaternion, with the reader's own helper `rotate_vec3_by_quat` (the active
+  rotation), so that the arithmetic is the reader's. It follows the reader: it rotates each
+  rotation that the reader attaches, in any version of the file. The specification defines
+  ROTATIONS from 1.5.1, and what the scanner does with a rotation in an older file is not known.
+  On a file with no rotation, `"apply"` is valid and rotates nothing. This is the package's
+  simulation of the scanner, and MATLAB's `waveforms_and_times` gives the same gradients on each
+  fixture with rotations.
+- `gradients_at(..., rotated=False)` or `rotated=True` overrides the setting for one call; the
+  reader's own values stay available.
+- `rotation_record` (a `pulseq_analysis.synth.RotationRecord`) records what was applied:
+  `setting`, `blocks` (with a rotation), `not_identity` (whose rotation is not the identity: the
+  blocks that play a rotation) and `rotated`. With the default it has a `hint` for the warning
+  that pulseq-analysis gives when a rotation is left unapplied: use
+  `CppSiemens(rotation='apply')` for the gradients that the scanner plays.
+
+`spec` of pulseq-analysis rotates the gradients of a file from 1.5.1. It gives, to float32
+precision, the gradients of `CppSiemens(rotation="apply")` on such a file.
+
+**Records.** `cpp-siemens` gives no `SequenceData.records` until task R16 of the plan.
+
 ## The source of the reader
 
 The reader's files are not in this repository; `pulseq-reader.sha256` names the commit, the
@@ -162,7 +321,11 @@ sampling modes (the driver's `--oversampling`), and each case of undefined behav
 sanitized driver; it skips without them. `test_digests.py` compares with
 `tests/expected_digests.json`, which `scripts/make_digests.py` writes from the driver (a digest
 for each fixture and mode), so that a wheel is tested where there is no driver. Run
-`make_digests.py` again when a fixture changes. `TESTS.md` of the repository describes each test.
+`make_digests.py` again when a fixture changes. `test_interpreter.py` and
+`test_interpreter_in_pulseq_analysis.py` test the interpreter `cpp-siemens`; they need
+pulseq-analysis (the dependency group `analysis`, which `scripts/check` installs from this checkout)
+and are not collected without it, as in the wheel tests of cibuildwheel. `TESTS.md` of the
+repository describes each test.
 
 ## Wheels and sdist
 

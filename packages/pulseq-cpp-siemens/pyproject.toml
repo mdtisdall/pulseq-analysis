@@ -1,6 +1,8 @@
 # The C++ reader of pulseq/pulseq as a nanobind extension (P12 of docs/plans/parser-redesign.md
 # in pulseq-analysis). Its own distribution, with compiled wheels, so that pulseq-analysis stays
-# pure Python. README.md says how to build, test and release it.
+# pure Python. It is also the `cpp-siemens` interpreter of pulseq-analysis, as a plugin (P21):
+# the module pulseq_cpp_siemens.interpreter, which needs pulseq-analysis; pulseq-analysis does not
+# import this package. README.md says how to build, test and release it.
 
 [build-system]
 # Exact versions: the build of a release must not change with a new release of either.
@@ -17,8 +19,23 @@ license = "MIT"
 license-files = ["LICENSE", "LICENSE.pulseq"]
 dependencies = ["numpy"]
 
+# The interpreter `cpp-siemens` of pulseq-analysis (P21): pulseq-analysis finds it by this name
+# and imports the module only when the name is asked for.
+[project.entry-points."pulseq_analysis.interpreters"]
+cpp-siemens = "pulseq_cpp_siemens.interpreter:CppSiemens"
+
+# `analysis`: pulseq-analysis, for the module pulseq_cpp_siemens.interpreter and its tests. A
+# dependency group, so not in the published metadata: how a release of this package depends on
+# pulseq-analysis is decided at release time (the user, 2026-10-13). The tests that need it skip
+# without it, as in the wheel tests of cibuildwheel (test-groups below).
 [dependency-groups]
 test = ["pytest"]
+analysis = ["pulseq-analysis"]
+
+[tool.uv.sources]
+# pulseq-analysis from this repository, editable, so that the tests of the plugin run against the
+# same commit. uv applies the sources of pulseq-analysis's own pyproject.toml (its pypulseq fork).
+pulseq-analysis = { path = "../..", editable = true }
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
@@ -30,7 +47,7 @@ sdist.include = ["third_party/pulseq/**"]
 sdist.exclude = ["build", ".venv", "tests", "scripts"]
 
 [tool.uv]
-default-groups = ["test"]
+default-groups = ["test", "analysis"]
 # scripts/check rebuilds the package for each run (--reinstall-package); these files decide
 # whether uv's cache of the build is still valid otherwise.
 cache-keys = [

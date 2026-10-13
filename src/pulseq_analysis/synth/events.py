@@ -1,7 +1,7 @@
 """The events of a Pulseq file, decoded from the model of layer 1 (`model.SequenceData`) that the
 `spec` interpreter read: the decoder of `spec` (stage 2 of section 7.2 of
-`docs/plans/parser-redesign.md`). The decoding of `cpp-siemens` is the C++ reader's own
-(`decoding.CppSiemensDecoding`); these functions refuse its model.
+`docs/plans/parser-redesign.md`). A plugin interpreter gives its own decoding
+(`decoding.decode`); these functions refuse its model.
 
 `decode_rf`, `decode_gradients` and `decode_adc` each give every row of a table of the model,
 whether a block uses it or not, as an event in a `types.MappingProxyType` by file ID. The order
@@ -23,7 +23,7 @@ last at cell centres (spec:420; slides 4 and 8; D43): `tt = (i + 1) / 2 dt`,
 `shape_dur = (n + 1) / 2 dt`. With a time shape, the samples are the vertices of an extended
 trapezoid (slide 6): `tt` is the shape times `dt`, and `shape_dur` is the last time. Between its
 points a gradient is a straight line, from `first` at the start to `last` at the end
-(`seq_utils.gradient_offsets` gives the points; D41: `cpp-siemens` and pypulseq draw the same
+(`seq_utils.gradient_offsets` gives the points; D41: the C++ reader and pypulseq draw the same
 lines, MATLAB Pulseq restores values at the raster edges).
 
 **RF.** Without a time shape, each sample is a cell of the RF raster: `t = (i + 0.5) dwell`,

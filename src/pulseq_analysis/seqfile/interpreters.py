@@ -1,18 +1,15 @@
 """The interpreters of the package: the ways in which it reads a Pulseq file
-(`docs/plans/parser-redesign.md`, section 1 and Q6).
+(`docs/plans/parser-redesign.md`, section 1, Q6 and P21).
 
 - `Spec` (`"spec"`, the default): as true as possible to the Pulseq specification (1.5.3 draft)
   and to the slide set that its section 2.6 cites for timing (`doc/pulseq_shapes_and_times.pdf`).
   It rejects a file where they say "must", and where they are unclear it makes a documented choice
-  (`spec`, section 6 of the plan). It is fast: the default is the fast interpreter (P19).
-- `CppSiemens` (`"cpp-siemens"`): the C++ reader of the scanner's interpreter on
-  Siemens systems (`ExternalSequence` of pulseq/pulseq at `c7469123`), run in the process
-  through the package pulseq-cpp-siemens (the extra `pulseq-analysis[cpp-siemens]`). It reads
-  what that reader reads and rejects what it rejects. Its setting `oversampling` is the reader's
-  sampling mode of an oversampled arbitrary gradient (D43); its setting `rotation` says whether
-  the decoding gives the reader's unrotated gradients or simulates the scanner's rotation of each
-  block (D49, P20). It decodes every block of a file with the C++ reader, about six times as long
-  as `spec` (`docs/usage.md`), so it is read by name.
+  (`spec`, section 6 of the plan). It is fast: the default is the fast interpreter (P19). It is
+  part of the package.
+- A plugin interpreter: a class that another distribution gives through the entry-point group
+  `pulseq_analysis.interpreters` (`GROUP`). The name of the entry point is the name of the
+  interpreter, and its value is the class (`Plugin`). The package lists the names without
+  importing a plugin, and imports a plugin only when its name is asked for.
 
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
@@ -23,68 +20,24 @@ records the interpreter that made it. A setting that the interpreter does not ha
 """
 
 import dataclasses
-from typing import ClassVar
+import importlib.metadata
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from .model import SequenceData
 
 __all__ = [
-    "INTERPRETERS",
-    "OVERSAMPLING",
-    "ROTATION",
-    "CppSiemens",
+    "GROUP",
     "Interpreter",
+    "Plugin",
     "Spec",
     "interpreter",
+    "interpreter_names",
 ]
 
-# The sampling modes of an oversampled arbitrary gradient (time shape -1) of the C++ reader
-# (`ExternalSequence::m_ArbGradSamplingMode`): the samples at the centres of the gradient raster
-# (the reader's default), those at its edges, or all of them.
-OVERSAMPLING = ("center", "edge", "preserve")
-
-# What the `cpp-siemens` decoding does with the rotation of a block (the ROTATIONS extension,
-# D49): the reader's own output, whose gradients are not rotated (the reader leaves the rotation
-# to the scanner's interpreter), or the package's simulation of the scanner, which rotates them.
-ROTATION = ("reader", "apply")
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class CppSiemens:
-    """The `cpp-siemens` interpreter: the C++ reader, with its settings.
-
-    `oversampling` is the reader's mode for an oversampled arbitrary gradient (D43): `"center"`
-    (the default, `SetArbGradCenterSampling(true)`) keeps the samples at the centres of the
-    raster, `"edge"` (`SetArbGradCenterSampling(false)`) those at its edges, and `"preserve"`
-    (`SetArbGradPreserveOversampling()`) all of them.
-
-    `rotation` is what the decoding does with each block's rotation (D49): `"reader"` (the
-    default) gives the reader's output, the logical gradients with the block's quaternion beside
-    them (the reader never rotates them); `"apply"` rotates the gradients of each block to which
-    the reader attached a rotation by its quaternion, with the reader's own
-    `rotate_vec3_by_quat`, in any version of the file. `"apply"` is the package's simulation of
-    the scanner: the scanner's behaviour for a file older than 1.5.1, the revision that defines
-    the extension, is not known (the user, 2026-10-12). It is valid on a file with no rotation,
-    and then rotates no block."""
-
-    name: ClassVar[str] = "cpp-siemens"
-    oversampling: str = "center"
-    rotation: str = "reader"
-
-    def __post_init__(self) -> None:
-        if self.oversampling not in OVERSAMPLING:
-            raise ValueError(
-                f"oversampling is {self.oversampling!r}, not one of {', '.join(OVERSAMPLING)}"
-            )
-        if self.rotation not in ROTATION:
-            raise ValueError(f"rotation is {self.rotation!r}, not one of {', '.join(ROTATION)}")
-
-    def __str__(self) -> str:
-        """The name, with each setting that is not its default."""
-        default = CppSiemens()
-        settings = [
-            f"{field}={getattr(self, field)!r}"
-            for field in ("oversampling", "rotation")
-            if getattr(self, field) != getattr(default, field)
-        ]
-        return f"{self.name}({', '.join(settings)})" if settings else self.name
+# The entry-point group of the plugin interpreters.
+GROUP = "pulseq_analysis.interpreters"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -98,26 +51,82 @@ class Spec:
         return self.name
 
 
-Interpreter = CppSiemens | Spec
+@runtime_checkable
+class Plugin(Protocol):
+    """What a plugin interpreter is: an object of the class of its entry point, made with no
+    argument for its default settings.
 
-# Each interpreter by its name.
-INTERPRETERS: dict[str, type[CppSiemens] | type[Spec]] = {
-    Spec.name: Spec,
-    CppSiemens.name: CppSiemens,
-}
+    - `name`: the name of its entry point (a class attribute).
+    - `read(path)`: the Pulseq text file `path` (a `Path`) into a `SequenceData` whose
+      `interpreter` is this object, as `seqfile.read_seqfile` returns it: `SeqFileError` with the
+      code of each reason when the interpreter rejects the file, `NotSupported` for a file
+      outside the package's scope (Q1), `OSError` when the file cannot be read.
+    - `decode(data)`: the decoding of a `SequenceData` that `read` made, an object of the
+      protocol `synth.Decoding`; `synth.decode` calls it.
+    - `str()`: the name, with each setting that is not its default.
+
+    It is frozen and compares by its settings, as `Spec` does."""
+
+    name: ClassVar[str]
+
+    def read(self, path: Path) -> "SequenceData": ...
+
+    def decode(self, data: "SequenceData") -> Any: ...
+
+
+Interpreter = Spec | Plugin
+
+
+def _entry_points() -> dict[str, list[importlib.metadata.EntryPoint]]:
+    """The entry points of `GROUP` by name; a name can have more than one."""
+    found: dict[str, list[importlib.metadata.EntryPoint]] = {}
+    for ep in importlib.metadata.entry_points(group=GROUP):
+        found.setdefault(ep.name, []).append(ep)
+    return found
+
+
+def interpreter_names() -> tuple[str, ...]:
+    """The names of the interpreters: `spec`, then each plugin's, sorted. No plugin is
+    imported."""
+    return (Spec.name, *sorted(set(_entry_points()) - {Spec.name}))
+
+
+def _plugin(name: str) -> type:
+    """The class of the plugin interpreter `name`. Raises `ValueError` when no entry point or
+    more than one has the name, `ImportError` when the entry point does not load, and
+    `TypeError` when the class it gives has another name."""
+    eps = _entry_points().get(name, [])
+    if not eps:
+        raise ValueError(
+            f"no interpreter is named {name!r}; the installed interpreters are "
+            f"{', '.join(interpreter_names())}. A distribution adds one through the entry-point "
+            f"group {GROUP}."
+        )
+    if len(eps) > 1:
+        values = ", ".join(ep.value for ep in eps)
+        raise ValueError(f"more than one interpreter is named {name!r}: {values}")
+    try:
+        cls = eps[0].load()
+    except Exception as error:
+        raise ImportError(
+            f"the interpreter {name!r} ({eps[0].value}) did not load: {error}"
+        ) from error
+    if getattr(cls, "name", None) != name:
+        raise TypeError(f"the entry point {name!r} gives {cls!r}, whose name is not {name!r}")
+    return cls
 
 
 def interpreter(value: "str | Interpreter") -> Interpreter:
-    """The interpreter `value`: an interpreter object as it is, or a name of `INTERPRETERS` with
-    its default settings. Raises `ValueError` for another name, and `TypeError` for another
+    """The interpreter `value`: an interpreter object as it is, or a name (`interpreter_names`)
+    with its default settings. Raises `ValueError` for another name (a plugin cannot be named
+    `spec`), `ImportError` for a plugin that does not load, and `TypeError` for another
     value."""
-    if isinstance(value, CppSiemens | Spec):
+    if isinstance(value, Spec):
         return value
     if isinstance(value, str):
-        try:
-            return INTERPRETERS[value]()
-        except KeyError:
-            raise ValueError(
-                f"no interpreter is named {value!r}; the names are {', '.join(INTERPRETERS)}"
-            ) from None
+        if value == Spec.name:
+            return Spec()
+        return _plugin(value)()
+    if isinstance(value, Plugin) and value.name != Spec.name:
+        return value
     raise TypeError(f"an interpreter is a name or an interpreter object, not {type(value)}")

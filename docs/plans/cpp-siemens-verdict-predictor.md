@@ -62,7 +62,7 @@ The checks already compute the first four columns' facts:
 - `_checks._check_rf` computes `nSamples` of the resampling, and knows when it is negative.
 - `_checks._extended_trapezoids` follows the buffer that `decodeExtTrapGradInBlock` reuses for the
   shapes of one block, so it has the lengths of each time shape and waveform as decoded.
-- The gradient raster is one value of the libraries; `seqfile.cpp_siemens._classify` already finds
+- The gradient raster is one value of the libraries; `pulseq_cpp_siemens.interpreter._classify` already finds
   `gradient.raster` this way, after the decoding.
 
 ## 3. The design
@@ -107,7 +107,7 @@ waveform has. The predictor takes the mode only to say so in a test.
 
 ### 3.4 In pulseq-analysis
 
-`seqfile.cpp_siemens.read_cpp_siemens` calls `Sequence.predicted_rejection()` in place of
+`pulseq_cpp_siemens.interpreter.read_cpp_siemens` calls `Sequence.predicted_rejection()` in place of
 `first_rejected_block()`. The reason of the `SeqFileError` has the predicted code, the section
 and the message of the predictor. `_classify` keeps only the rejections of `load`, whose messages
 it reads. A setting may keep the reader's own verdict for a caller who wants both, for example
@@ -168,7 +168,7 @@ read could take about 0.8 s. This is a separate step of the work (section 8), me
 ## 8. Tasks
 
 1. The predictor in the walk of the checks (sections 2 and 3), with a unit test for each row of
-   section 2 (one file for each code, as `tests/test_cpp_siemens.py` has; the files of
+   section 2 (one file for each code, as `packages/pulseq-cpp-siemens/tests/test_interpreter.py` has; the files of
    `CODE_FILES` there are a start).
 2. Its verification:
    - every fixture of `tests/seqfiles` and of the package: the prediction equals
@@ -178,7 +178,7 @@ read could take about 0.8 s. This is a separate step of the work (section 8), me
      set and the weekly run. The generator must reach each row of section 2 often enough; count
      them as the seeded set counts the codes of undefined behaviour today.
 3. pulseq-analysis: `read_cpp_siemens` on the prediction (section 3.4), and the setting of decision
-   3 if any. `tests/test_cpp_siemens.py` keeps its comparison of every fixture with the oracle.
+   3 if any. `packages/pulseq-cpp-siemens/tests/test_interpreter.py` keeps its comparison of every fixture with the oracle.
 4. The faster walk of section 6, if decided, with the same verification.
 5. Documents: the timing paragraph of `docs/usage.md` ("The interpreters"), the README of the
    package, `CHANGELOG.md` (section 4), `TESTS.md`; and whether the default (P19) changes, which is
