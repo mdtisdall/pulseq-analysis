@@ -8,7 +8,9 @@ content of the file itself is left unapplied: today, the rotations of `cpp-sieme
 session is recorded, not warned about.
 
 - `RotationRecord`: what the decoding did with the rotations of the file (the ROTATIONS
-  extension, D49). `CppSiemensDecoding.rotation_record` gives it.
+  extension, D49). `CppSiemensDecoding.rotation_record` and `SpecDecoding.rotation_record` give
+  it. `spec` applies the rotations of a file from 1.5.1 (P20, rule 2), so its record never has
+  a warning.
 - `ScannerSettingWarning`: the warning; `RotationRecord.warning()` gives it, or None. The
   decoding does not emit it: the measurements (`load`, task R14) emit it, so that a reader of the
   decoding (pulseq-checks) is not warned about the reader's own output.
@@ -32,9 +34,11 @@ class ScannerSettingWarning(UserWarning):
 class RotationRecord:
     """What a decoding did with the rotations of the file.
 
-    - `setting`: the interpreter's setting `rotation` (`"reader"` or `"apply"`).
-    - `blocks`: the blocks to which the reader attached a rotation (`GetBlock`, the first
-      rotation of a block's extension list, D48).
+    - `setting`: the interpreter's setting `rotation` (`"reader"` or `"apply"`); `"apply"` for
+      `spec`, which has no setting and applies the rotations of the file.
+    - `blocks`: the blocks with a rotation: for `cpp-siemens` those to which the reader attached
+      one (`GetBlock`, the first rotation of a block's extension list, D48); for `spec` those
+      whose extension list has a ROTATIONS object, from 1.5.1.
     - `not_identity`: of these, the blocks whose rotation is not the identity (a quaternion
       with a vector part that is not 0): the blocks that play a rotation.
     - `rotated`: the blocks whose gradients the decoding rotates: `blocks` with `"apply"`, 0 with

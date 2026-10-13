@@ -670,3 +670,117 @@ def test_every_file_that_loads_decodes(path):
             if event_id:
                 event = events[event_id]
                 assert event.delay + event.shape_dur <= durations[i] + 1e-12
+
+
+RADIAL = ORACLE / "koma_v1.5_rotation_radial_tiny.seq"
+
+
+def test_spec_gradients_at_are_the_lines_between_the_points_of_each_event():
+    """`SpecDecoding.gradients_at` (Hz/m) at block-relative times in us: the trapezoid of block
+    2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall 100 us, block
+    500 us) on gx; 0 before the delay, after the event and outside the block. The arguments are
+    checked as for `cpp-siemens`."""
+    decoding = synth.decode(seqfile.read_seqfile(SEQFILES / "valid_1_4_1.seq"))
+    assert decoding.block_count == 4
+    times = [-1.0, 50.0, 150.0, 250.0, 450.0, 500.0, 501.0]
+    values = decoding.gradients_at(np.ones(7, int), times)
+    assert values.shape == (7, 3)
+    np.testing.assert_allclose(values[:, 0], [0, 0, 0.5e6, 1e6, 0.5e6, 0, 0], atol=1e-6)
+    assert not values[:, 1:].any()
+    assert decoding.gradients_at([], []).shape == (0, 3)
+    with pytest.raises(ValueError, match="differ in length"):
+        decoding.gradients_at([1, 1], [0.0])
+    with pytest.raises(ValueError, match="NaN"):
+        decoding.gradients_at([1], [np.nan])
+    for index in (-1, 4):
+        with pytest.raises(IndexError):
+            decoding.gradients_at([index], [0.0])
+
+
+def test_rotate_is_the_active_rotation_of_a_unit_quaternion():
+    """`decoding.rotate` turns a vector by `R(q) v` with q0 the scalar part: a quarter turn
+    about z takes x to y, about x takes y to z, about y takes z to x; the identity keeps the
+    vector; and the result is `q v q*` computed with the Hamilton product."""
+    s = np.sqrt(0.5)
+    quarter = np.array([[s, 0, 0, s], [s, s, 0, 0], [s, 0, s, 0], [1, 0, 0, 0]])
+    vectors = np.array([[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 2.0, 3.0]])
+    expected = np.array([[0, 1.0, 0], [0, 0, 1.0], [1.0, 0, 0], [1.0, 2.0, 3.0]])
+    np.testing.assert_allclose(synth.decoding.rotate(quarter, vectors), expected, atol=1e-15)
+
+    def product(a, b):
+        w1, v1, w2, v2 = a[0], a[1:], b[0], b[1:]
+        return np.concatenate([[w1 * w2 - v1 @ v2], w1 * v2 + w2 * v1 + np.cross(v1, v2)])
+
+    rng = np.random.default_rng(0)
+    q = rng.normal(size=(20, 4))
+    q /= np.linalg.norm(q, axis=1, keepdims=True)
+    v = rng.normal(size=(20, 3))
+    conjugate = q * [1, -1, -1, -1]
+    hamilton = [product(product(q[i], np.r_[0, v[i]]), conjugate[i])[1:] for i in range(20)]
+    np.testing.assert_allclose(synth.decoding.rotate(q, v), hamilton, rtol=0, atol=1e-12)
+
+
+def test_spec_rotates_the_gradients_of_each_block_that_has_a_rotation(recwarn):
+    """From 1.5.1 `spec` rotates each block's gradients by its normalized quaternion (D49, P20
+    rule 2): blocks 1 to 5 of the radial file are turned by 0, 45, 90, 45 and 0 degrees about z.
+    `rotated` None is True; False gives the logical gradients, all on x. The record has the
+    setting "apply", every block with a rotation rotated, and no warning; the decoding emits
+    none (P20 rule 4)."""
+    decoding = synth.decode(seqfile.read_seqfile(RADIAL))
+    indices, quaternions = decoding.rotations()
+    assert indices.tolist() == [0, 1, 2, 3, 4]
+    np.testing.assert_allclose(np.linalg.norm(quaternions, axis=1), 1, rtol=0, atol=1e-15)
+    block_index = np.repeat(np.arange(5), 4)
+    time_us = np.tile([50.0, 150.0, 200.0, 350.0], 5)
+    logical = decoding.gradients_at(block_index, time_us, rotated=False)
+    rotated = decoding.gradients_at(block_index, time_us)
+    assert np.array_equal(rotated, decoding.gradients_at(block_index, time_us, rotated=True))
+    assert np.array_equal(logical[:, 1:], np.zeros((20, 2))) and logical[:, 0].any()
+    angle = np.radians(np.repeat([0, 45, 90, 45, 0], 4))
+    expected = logical[:, :1] * np.stack([np.cos(angle), np.sin(angle), 0 * angle], axis=1)
+    np.testing.assert_allclose(rotated, expected, rtol=0, atol=1e-3)
+    record = decoding.rotation_record
+    assert record == synth.RotationRecord("apply", blocks=5, not_identity=3, rotated=5)
+    assert record.warning() is None and str(record) == "rotation: apply, 5 block(s) rotated"
+    assert not [w for w in recwarn if issubclass(w.category, synth.ScannerSettingWarning)]
+    # A file with no rotation that a block plays rotates 0 blocks.
+    for name in ("valid_1_5_1_rotation_not_played.seq", "valid_1_4_1.seq"):
+        record = synth.decode(seqfile.read_seqfile(SEQFILES / name)).rotation_record
+        assert record == synth.RotationRecord("apply", 0, 0, 0)
+
+
+def _with_rotation_1_4_1(tmp_path: Path) -> Path:
+    """valid_1_4_1.seq with a ROTATIONS object (45 degrees about z) in the extension list of
+    block 2, which plays a trapezoid on gx."""
+    text = (SEQFILES / "valid_1_4_1.seq").read_text()
+    assert "[EXTENSIONS]\n1 1 1 0\n" in text and "\n[SHAPES]" in text
+    text = text.replace("[EXTENSIONS]\n1 1 1 0\n", "[EXTENSIONS]\n1 1 1 3\n3 3 1 0\n")
+    text = text.replace(
+        "\n[SHAPES]", "\nextension ROTATIONS 3\n1 0.92388 0 0 0.382683\n\n[SHAPES]", 1
+    )
+    path = tmp_path / "rotation_1_4_1.seq"
+    path.write_text(text)
+    return path
+
+
+def test_a_file_older_than_1_5_1_with_rotations_is_not_rotated(tmp_path):
+    """Before 1.5.1 ROTATIONS is an unknown extension for `spec` (P20 rule 2, D58): ignored and
+    recorded, no block has a rotation, and the gradients are the logical ones, in a 1.5.0 file
+    (block 5 plays gx with a ROTATIONS object) and in a 1.4.1 file."""
+    for path, block in (
+        (SEQFILES / "valid_1_5_0_extensions_of_1_5_1.seq", 4),
+        (_with_rotation_1_4_1(tmp_path), 1),
+    ):
+        data = seqfile.read_seqfile(path)
+        assert data.version < (1, 5, 1)
+        assert model.Record("extension", "ROTATIONS", "version", 0) in [
+            model.Record(r.kind, r.subject, r.reason, 0) for r in data.records
+        ]
+        decoding = synth.decode(data)
+        indices, quaternions = decoding.rotations()
+        assert indices.size == 0 and quaternions.shape == (0, 4)
+        assert decoding.rotation_record == synth.RotationRecord("apply", 0, 0, 0)
+        times = np.linspace(0.05, 0.95, 10) * decoding.block_durations[block] * 1e6
+        values = decoding.gradients_at(np.full(10, block), times)
+        assert values[:, 0].any()
+        assert np.array_equal(values, decoding.gradients_at(np.full(10, block), times, False))

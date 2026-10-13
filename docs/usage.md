@@ -698,6 +698,8 @@ cpp.rotation_record  # rotation: reader, ... not applied
 
 rotated = decode(read_seqfile("sequence.seq", interpreter=CppSiemens(rotation="apply")))
 rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotation
+
+decode(spec).gradients_at([0], [10.0])  # spec: rotated from 1.5.1, as the file says
 ```
 
 **`reading.read_seqfile(path, interpreter="spec")`** (also
@@ -786,8 +788,13 @@ reader's units), and `gradients_at(block_index, time_us)` is
 `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`, into
 `events.RfEvent`, `events.Trapezoid`, `events.ArbitraryGradient` (together
 `events.GradEvent`) and `events.AdcEvent`. These three refuse the model of
-`cpp-siemens` (`TypeError`). `load` does not use the interpreters yet (task
-R14).
+`cpp-siemens` (`TypeError`). `SpecDecoding` also has the blocks (`blocks`, the
+block table of the model; `block_durations` in s; `block_count`) and
+`gradients_at(block_index, time_us)`, the gradients in Hz/m at times in us
+from the start of each block, as `CppSiemensDecoding` gives them: each event is
+the straight lines between its points, 0 before its delay and after its end,
+and every value is 0 outside the block. `load` does not use the interpreters
+yet (task R14).
 
 **Rotations in `cpp-siemens`.** The C++ reader stores each block's rotation and
 applies it to nothing: its gradients are the file's logical gradients, and it
@@ -821,6 +828,29 @@ what the reader gives, and simulates the scanner by a setting (section 7.8 of
   otherwise. The decoding does not emit it; the measurements will, when `load`
   runs on the interpreters (task R14). Until then `load` refuses a sequence
   with rotations, as before.
+
+**Rotations in `spec`.** `spec` applies the content of the file from the
+revision that introduced it (P20, rule 2): from 1.5.1, `SpecDecoding` rotates
+the gradients of each block whose extension list has a ROTATIONS object by its
+quaternion, divided by its norm (D49). It has no setting for this
+(`Spec(rotation=...)` raises `TypeError`) and nothing to warn about (rule 4).
+
+- `rotations()` gives the play index of each block with a rotation and its
+  quaternion (q0, qx, qy, qz), as `CppSiemensDecoding.rotations()` does; both
+  are empty for a file older than 1.5.1.
+- `gradients_at` turns each block's values by its quaternion with
+  `decoding.rotate`, the active rotation `R(q) v` with q0 the scalar part, in
+  float64: the rotation of the reader's `rotate_vec3_by_quat`, and of MATLAB's
+  `mr.rotate3D`. On each fixture with rotations from 1.5.1 it gives the
+  gradients of `CppSiemens(rotation="apply")` to float32 precision, and those
+  of MATLAB's `waveforms_and_times`. `rotated=False` gives the logical
+  gradients for one call.
+- `rotation_record` is a `RotationRecord` with the setting `"apply"` and every
+  block with a rotation rotated, so its `warning()` is always None.
+- In a file older than 1.5.1, ROTATIONS is an unknown extension: ignored and
+  recorded (`SequenceData.records`, reason `"version"`, D58), and no block is
+  rotated. `cpp-siemens` with `rotation="apply"` rotates such a file, as the
+  reader attaches the rotation in any version.
 
 **`spec`.** `spec.read_spec(path)` reads with the rules of `spec.RULES`, and its
 `SeqFileError` has every violation (at most `spec.MAX_LOCATIONS` for each rule,
@@ -874,8 +904,8 @@ twice is the last; blocks play in file order, whatever their IDs; an extension
 is read from the version that introduced it (`extension DELAYS` from 1.5.0,
 ROTATIONS and RF_SHIMS from 1.5.1, section 7.8 of the plan), and in an older
 file it is unknown and ignored (`SequenceData.skipped_extensions`); from 1.5.1
-a quaternion of ROTATIONS is divided by its norm (applying the rotation is task
-R9's); an RF magnitude below 0 and an RF phase
+a quaternion of ROTATIONS is divided by its norm, and the decoding rotates the
+block's gradients by it; an RF magnitude below 0 and an RF phase
 outside [0, 1) play as written; any gradient raster that the slides allow plays
 on its own raster; the signature is checked by the rule of the specification
 (`AsWritten.signed_bytes()`), and a mismatch is not a rejection.
@@ -912,8 +942,8 @@ decompresses a shape. `spec.RANGE_TOLERANCE`, `spec.TOLERANCE_NS`,
 are the limits of its rules.
 
 **The contract with pulseq-checks.** The "as written" reading, the
-`cpp-siemens` reading (`SequenceData.reading`) and its decoding
-(`gradients_at`, `rotations` and `rotation_record` included), the codes of the
+`cpp-siemens` reading (`SequenceData.reading`), the decoding of each
+interpreter (`gradients_at`, `rotations` and `rotation_record` included), the codes of the
 rejections, and the model of each interpreter are public, and kept stable for pulseq-checks (section 7.3 of the
 plan). A change to any of them is noted in `CHANGELOG.md`.
 

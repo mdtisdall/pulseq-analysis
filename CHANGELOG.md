@@ -120,6 +120,17 @@ This changes the order of `0.1.0rc6` ("A caller moves in this order"):
   `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
   does not have (`Spec(rotation="apply")`) raises `TypeError`. These are part
   of the contract with pulseq-checks.
+- Rotations in `spec` (D49, the `spec` part of task R9), and the gradients of
+  `spec`'s decoding. `SpecDecoding` has the blocks (`blocks`,
+  `block_durations`, `block_count`) and `gradients_at(block_index, time_us,
+  rotated=None)`, the gradients in Hz/m as `CppSiemensDecoding` gives them.
+  From 1.5.1 `spec` rotates the gradients of each block with a ROTATIONS
+  object by its normalized quaternion (`decoding.rotate`, the active rotation
+  `R(q) v`, pure Python); before 1.5.1 ROTATIONS is an unknown extension and
+  nothing is rotated (P20, rule 2). `rotations()` and `rotation_record` are
+  those of `CppSiemensDecoding`; the record's setting is `"apply"` and it
+  never has a warning. `spec` has no rotation setting. These are part of the
+  contract with pulseq-checks.
 - `seqfile.read_pypulseq(seq, interpreter="spec")`
   (`from_pypulseq.read_pypulseq`): a `pypulseq.Sequence` built in memory,
   written to Pulseq text with pypulseq's own writer (in a private temporary

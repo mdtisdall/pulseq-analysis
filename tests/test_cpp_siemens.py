@@ -486,6 +486,47 @@ def test_the_decoding_emits_no_warning_for_rotations(recwarn):
     assert not [w for w in recwarn if issubclass(w.category, synth.ScannerSettingWarning)]
 
 
+# The fixtures with a ROTATIONS section that both interpreters may read.
+ROTATION_FIXTURES = [
+    path
+    for path in sorted(SEQFILES.glob("valid_*.seq")) + sorted((SEQFILES / "oracle").glob("*.seq"))
+    if b"extension ROTATIONS" in path.read_bytes()
+]
+
+
+@pytest.mark.parametrize("path", ROTATION_FIXTURES, ids=lambda p: p.name)
+def test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply(path):
+    """On each fixture with ROTATIONS that both interpreters read, from 1.5.1, `spec` gives each
+    block the rotation that the reader attaches, with the same normalized quaternion, and its
+    rotated gradients (`decoding.rotate`) are those of `CppSiemens(rotation="apply")` (the
+    reader's `rotate_vec3_by_quat`) at 7 times inside each block, to float32 precision (P6). In
+    a file older than 1.5.1 `cpp-siemens` rotates (it follows the reader) and `spec` does not:
+    its gradients are the reader's unrotated ones."""
+    try:
+        spec_data = read_seqfile(path, "spec")
+        cpp = synth.decode(read_seqfile(path, CppSiemens(rotation="apply")))
+    except SeqFileError as error:
+        pytest.skip(f"an interpreter rejects the file ({', '.join(sorted(error.codes))})")
+    spec = synth.decode(spec_data)
+    block_index = np.repeat(np.arange(spec.block_count), 7)
+    fraction = np.tile(np.linspace(0.05, 0.95, 7), spec.block_count)
+    time_us = fraction * spec.block_durations[block_index] * 1e6
+    expected = cpp.gradients_at(block_index, time_us)
+    tolerance = 1e-6 * max(np.abs(expected).max(), 1.0)
+    if spec_data.version < (1, 5, 1):
+        assert spec.rotations()[0].size == 0 and cpp.rotation_record.not_identity
+        expected = cpp.gradients_at(block_index, time_us, rotated=False)
+    else:
+        spec_indices, spec_quaternions = spec.rotations()
+        cpp_indices, cpp_quaternions = cpp.rotations()
+        assert spec_indices.tolist() == cpp_indices.tolist()
+        np.testing.assert_allclose(spec_quaternions, cpp_quaternions, rtol=0, atol=1e-12)
+        assert spec.rotation_record == cpp.rotation_record
+    np.testing.assert_allclose(
+        spec.gradients_at(block_index, time_us), expected, rtol=0, atol=tolerance
+    )
+
+
 def test_cpp_siemens_without_pulseq_cpp_siemens_says_which_extra_to_install(monkeypatch):
     monkeypatch.setitem(sys.modules, "pulseq_cpp_siemens", None)
     assert read_seqfile(SEQFILES / "valid_1_5_1.seq").interpreter == Spec()
