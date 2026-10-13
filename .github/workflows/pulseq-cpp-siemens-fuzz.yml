@@ -1,0 +1,85 @@
+name: pulseq-cpp-siemens-fuzz
+
+# The fuzzing of the checks of packages/pulseq-cpp-siemens against the sanitized C++ oracle, in
+# the ci devShell (packages/pulseq-cpp-siemens/README.md, "Fuzzing", has the four tiers).
+# scripts/check runs the first tier (the corpus and 200 seeded files) on every pull request.
+#
+# - seeded (tier 2): the full seeded set, 3 000 files of seed 20261012, on a pull request or a
+#   push to main that changes the package, the oracle or its build. The set is fixed, so it can
+#   only change its result there.
+# - weekly (tier 3): 30 000 new files of a seed that is the date, each Monday and by hand. It does
+#   not block a pull request; its failing files are an artifact. A failure is a case that the
+#   checks miss or a fault of the fuzzing: report it before a check is written for it.
+#
+# The run before each release (tier 4) is by hand (the README).
+
+on:
+  pull_request:
+    paths:
+      - packages/pulseq-cpp-siemens/**
+      - tests/cpp_oracle/**
+      - flake.nix
+      - flake.lock
+      - .github/workflows/pulseq-cpp-siemens-fuzz.yml
+  push:
+    branches: [main]
+    paths:
+      - packages/pulseq-cpp-siemens/**
+      - tests/cpp_oracle/**
+      - flake.nix
+      - flake.lock
+      - .github/workflows/pulseq-cpp-siemens-fuzz.yml
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Number of files of the weekly run"
+        default: "30000"
+
+permissions:
+  contents: read
+
+jobs:
+  seeded:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build the package
+        run: >-
+          nix develop .#ci --command uv sync --frozen --project packages/pulseq-cpp-siemens
+          --no-editable --reinstall-package pulseq-cpp-siemens
+      - name: The full seeded set (3 000 files)
+        env:
+          PULSEQ_CPP_SIEMENS_FUZZ_COUNT: "3000"
+        run: >-
+          nix develop .#ci --command uv run --project packages/pulseq-cpp-siemens --no-sync
+          pytest -v -m fuzz packages/pulseq-cpp-siemens/tests/test_fuzz.py
+
+  weekly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build the package
+        run: >-
+          nix develop .#ci --command uv sync --frozen --project packages/pulseq-cpp-siemens
+          --no-editable --reinstall-package pulseq-cpp-siemens
+      - name: New files of the seed of today
+        env:
+          COUNT: ${{ inputs.count || '30000' }}
+        run: >-
+          nix develop .#ci --command packages/pulseq-cpp-siemens/.venv/bin/python
+          packages/pulseq-cpp-siemens/scripts/fuzz.py --seed "$(date -u +%Y%m%d)"
+          --count "$COUNT" --keep fuzz-failures
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-failures
+          path: fuzz-failures
+          if-no-files-found: ignore

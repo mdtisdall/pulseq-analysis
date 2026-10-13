@@ -37,6 +37,10 @@ Contents:
    snapshot; the names of the interface; the reader of Pulseq files; the C++ oracle;
    the SAFE hardware and filter; the decoded events; the decoding against the C++
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle
+3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
+   the checks of undefined behaviour; the digests of the driver's output; the
+   driver of the C++ oracle; the reader's shared state; the cases of undefined
+   behaviour; the fuzzing of the checks
 
 ---
 
@@ -132,7 +136,11 @@ cannot read the file of test IDs.
   it before the tests. When a test fails, `scripts/check` stops, and the
   check does not run.
 - In `scripts/check`, pytest runs on the `tests` directory without other
-  test selection (no `-k`), so the file of test IDs lists every test.
+  test selection (no `-k`), so the file of test IDs lists every test. The
+  IDs of the tests of `packages/pulseq-cpp-siemens` (section 3) are added to
+  the same file by a `pytest --collect-only` in the package's environment;
+  without `--collected`, the check collects them the same way when that
+  environment exists.
 - Test files are identified by file name only, without the directory. The
   check fails if two test files have the same name.
 - The check looks only at the headings. It does not check that an entry has
@@ -7911,3 +7919,495 @@ verdict. It skips when `pulseq-cpp-oracle` is not on the PATH.
 **How:** The test writes the file to `tmp_path`, runs the sanitized oracle and checks the verdict.
 
 **Assumptions:** One case of D21; the fixtures cover the others.
+
+---
+
+## 3. The package pulseq-cpp-siemens
+
+`packages/pulseq-cpp-siemens` is the C++ reader `ExternalSequence` of pulseq/pulseq as a nanobind
+extension, its own distribution with compiled wheels (P12 of `docs/plans/parser-redesign.md`;
+its `README.md`). `scripts/check` builds it in its own uv project (`uv sync --frozen --project
+packages/pulseq-cpp-siemens --reinstall-package pulseq-cpp-siemens`, from its `uv.lock`, with the
+reader's files from the devShell's `PULSEQ_SOURCE_DIR`), runs its tests in that environment, and
+adds their IDs to the file of the TESTS.md check. The tests use the fixtures of `tests/seqfiles`
+and the package's `tests/fixtures`, and the helpers of its `tests/canonical.py`: the canonical
+form of the driver's `--dump` and `--sample` (each float as the bits of the float32 that the
+reader holds), and `read`, the package's verdict on a file in the words of
+`tests/expected_digests.json` ("read", "rejected", "not-supported", "undefined-behaviour:CODE").
+
+`.github/workflows/pulseq-cpp-siemens-wheels.yml` runs on each pull request that changes the
+package or the fixtures. It builds the wheels with cibuildwheel on the five platforms of the R2
+report (macOS arm64 and x86_64, the latter tested under Rosetta; manylinux x86_64 and aarch64;
+Windows x86_64), with the stable ABI `cp312-abi3`, and cibuildwheel runs these tests on each
+wheel in a clean environment with Python 3.12. It runs them again on the native wheel of each
+runner with Python 3.14. There the tests that need the C++ oracles skip, and
+`test_digests.py` stands in for the driver. Its sdist job checks that the sdist carries the
+reader's files and builds a wheel from it with no download. It publishes nothing.
+
+### 3.1 The API (`test_api.py`)
+
+#### `test_each_decoded_block_is_built_from_the_libraries`
+
+**Checks:** For each fixture that the package reads, each decoded block has the duration and the
+events of its row of `libraries.blocks`: the RF event's fields are those of `libraries.rf`
+(except the fields that `decodeBlock` computes or adds), each gradient has the amplitude and the
+delay of its event and is a trapezoid exactly when the event's wave shape is 0, and the ADC event
+is that of `libraries.adc`.
+
+**How:** The test (one case for each fixture with the verdict "read" in
+`expected_digests.json`) decodes the blocks and compares them in the canonical form, where NaN
+equals NaN.
+
+**Assumptions:** The libraries are read from the reader's private members, so the test shows
+that the extension reads the right members and converts them as the decoded blocks are
+converted, not that the reader's reading is right.
+
+#### `test_the_libraries_of_a_file`
+
+**Checks:** The libraries of `valid_1_5_1.seq` have its version, its rasters, its definitions as
+text and as numbers, an MD5 signature that matches, shapes of float32 values and an int64 block
+table.
+
+**How:** The test compares each with the values of the file.
+
+**Assumptions:** One file.
+
+#### `test_a_block_decodes_on_its_own_in_any_order`
+
+**Checks:** Each block of `oracle/pulseq_epi_rs.seq` decoded on its own, in reverse order, is the
+block that `decode` gives.
+
+**How:** The test compares the canonical forms.
+
+**Assumptions:** `decodeBlock` keeps no state from one block to the next in this file.
+
+#### `test_gradients_at_decodes_the_blocks_that_it_needs`
+
+**Checks:** `gradients_at` on a sequence with no decoded block gives the values that it gives
+after `decode`.
+
+**How:** The test samples `valid_1_5_1.seq` at the points of `canonical.sample_points` before and
+after `decode`.
+
+**Assumptions:** One file.
+
+#### `test_gradients_at_refuses_a_nan_time_and_a_block_that_does_not_exist`
+
+**Checks:** `gradients_at` raises ValueError for a NaN time (`gradientsAt` would convert it to an
+int, which is undefined behaviour) and for arrays of different lengths, and IndexError for a
+block index outside the sequence; it gives an array (0, 3) for no point.
+
+**How:** The test calls it with each.
+
+**Assumptions:** None.
+
+#### `test_a_block_that_decodeblock_rejects_raises_rejected`
+
+**Checks:** For `valid_arbitrary_gradient_4us_raster.seq`, which `load` reads and whose block 0
+`decodeBlock` rejects (an arbitrary gradient on a raster other than 10 us), `decode_block`,
+`decode` and `gradients_at` raise `Rejected`, not `UndefinedBehaviour`, with the reader's message.
+
+**How:** The test calls each.
+
+**Assumptions:** One file.
+
+#### `test_a_rejection_of_load_carries_the_reader_s_messages`
+
+**Checks:** The `Rejected` of `bad_version_missing.seq` carries what the reader printed.
+
+**How:** The test looks for `[VERSION]` in its `messages`.
+
+**Assumptions:** None.
+
+#### `test_load_reads_the_bytes_of_a_file`
+
+**Checks:** `load` of the bytes of a file gives what `load` of its path gives.
+
+**How:** The test compares the canonical forms of both.
+
+**Assumptions:** None.
+
+#### `test_a_binary_file_and_a_folder_are_not_supported`
+
+**Checks:** `load` raises `NotSupported` for the bytes of a binary Pulseq file and for a folder.
+
+**How:** The test calls it with each.
+
+**Assumptions:** The binary file is only its 8 bytes of magic and zeros.
+
+#### `test_a_version_outside_1_4_to_1_5_is_refused_before_the_reader_loads_the_file`
+
+**Checks:** For versions 1.3.1, 1.2.0, 1.6.0, 1.4.-1, a repeated field whose last value is 1.3,
+and a revision that `sscanf` wraps, `load` raises `NotSupported`, and `ExternalSequence::load`
+does not run. For a file older than 1.4.0, `load` would call `GetBlock` itself (cpp:1656-1663),
+before any check.
+
+**How:** The test (one case for each version) replaces the `[VERSION]` lines of
+`valid_1_5_1.seq` and replaces the extension's `Reader` with one whose `load` fails the test.
+
+**Assumptions:** None.
+
+#### `test_the_version_gate_reads_the_version_as_load_does`
+
+**Checks:** For [VERSION] sections that the reader reads in unusual ways (no revision, a comment,
+a tab, `5x`, major 0 and minor 1004, a major that `sscanf` wraps to 1), the version gate gives
+the major, minor and revision that `load` holds.
+
+**How:** The test (one case for each) compares `Reader.read_version` with the libraries after
+`Reader.load`.
+
+**Assumptions:** The gate and `load` run the same code (the reader's `buildFileIndex`,
+`skipComments` and `sscanf`), so the cases show the copy of the loop of cpp:878-909, not every
+possible text.
+
+#### `test_the_version_gate_reads_each_fixture_as_load_does`
+
+**Checks:** For each fixture, where the gate finds a supported version and `load` reads the
+file, `load` holds the same version; where the gate finds no version, `load` rejects the file.
+
+**How:** The test (one case for each fixture) compares the two. It does not run `load` on a
+version outside 1.4.0-1.5.x.
+
+**Assumptions:** None.
+
+### 3.2 The checks of undefined behaviour (`test_checks.py`)
+
+The paths of `GetBlock` and `decodeBlock` where the reader reads a file that looks like a case of
+section 5.3. Where `pulseq-cpp-oracle-sanitized` is on the PATH, the tests that write a file also
+check its verdict.
+
+#### `test_a_run_with_a_count_below_minus_one_writes_nothing`
+
+**Checks:** A run whose count is -2 or -3 (`rep` 0 or -1) writes no sample, so its decompression
+is not undefined behaviour; a value after it writes before the buffer, which is.
+
+**How:** The test calls `_decompression` on stored values.
+
+**Assumptions:** None.
+
+#### `test_the_tolerance_of_a_count_is_computed_in_float`
+
+**Checks:** The test of `fabs(count + 2 - rep) > 1e-6` (cpp:2219) is computed in float: a count of
+1 + 2^-23 decompresses, a count of 0.5 is a clean rejection.
+
+**How:** The test calls `_decompression`.
+
+**Assumptions:** The reader's float arithmetic is IEEE single precision with no extended
+precision (SSE on x86_64, arm64).
+
+#### `test_a_count_whose_sum_overflows_an_int_is_undefined_behaviour`
+
+**Checks:** A count that makes `countUnpack + rep` overflow an `int`, a NaN count and a count past
+the range of an `int` are undefined behaviour.
+
+**How:** The test calls `_decompression`.
+
+**Assumptions:** None.
+
+#### `test_the_resampling_jumps_over_the_cells_where_it_stays`
+
+**Checks:** The simulation of the resampling of an RF pulse (cpp:2032-2047) with about 2^31 cells
+ends in less than a second, with no case for times that end at the last cell and with
+`ub.rf-time-overrun` for times that end before it.
+
+**How:** The test calls `_resampling` and times it.
+
+**Assumptions:** One second is far above the few steps that the jumps take.
+
+#### `test_the_resampling_reads_past_the_times_at_the_cell_centres`
+
+**Checks:** Times at the cell centres of a pulse of 4 samples (D36 (2), as MATLAB writes short
+pulses) read past the times; times at the cell ends do not.
+
+**How:** The test calls `_resampling`.
+
+**Assumptions:** None.
+
+#### `test_a_nan_time_stops_the_resampling`
+
+**Checks:** A NaN time never moves the index of the resampling on, so the reads stay in the
+samples.
+
+**How:** The test calls `_resampling`.
+
+**Assumptions:** None.
+
+#### `test_a_regular_time_shape_is_not_decompressed`
+
+**Checks:** An RF time shape of 3 stored values with `num_samples` 100, 0 or -1 is regular: the
+package loads and decodes the file, and the sanitized oracle accepts it.
+
+**How:** The test adds the shape to `valid_no_signature.seq` as its RF event's time shape.
+
+**Assumptions:** None.
+
+#### `test_a_negative_number_of_cells_is_a_clean_rejection`
+
+**Checks:** An RF time shape whose last time is -5 (so `int(0.5 + t)` is -4) makes `decodeBlock`
+throw: the package raises `Rejected`, not `UndefinedBehaviour`, and the sanitized oracle rejects
+the file.
+
+**How:** The test adds the shape to `valid_no_signature.seq` and decodes it.
+
+**Assumptions:** The C++ library throws `std::length_error` for a negative size; the package's
+extension turns an exception of the reader into a rejection.
+
+#### `test_an_extended_trapezoid_of_one_point`
+
+**Checks:** `ub.gradient-one-point` is raised exactly where `gradientsAt` reads past the times of
+an extended trapezoid of one point (cpp:3639-3650): for a time of 4 (40 us) with a delay of 0,
+90 or 100 us in a block of 100 us (`gradientsAt` takes a time equal to the block's duration),
+and for a NaN amplitude. It is not raised for a time of 0 or below, a delay past the block's end,
+or an amplitude of 0: then the package decodes the file and `gradients_at` samples the whole block.
+Where the case is raised, the sanitized oracle's `--sample` at its block and time exits with 3.
+
+**How:** The test (one case for each) changes `tests/fixtures/gradient_one_point.seq`.
+
+**Assumptions:** `gradients_at` samples every 0.5 us; the cases with no rejection show that those
+times are safe, with the C++ library of the devShell, whose hardening traps a read past a vector.
+
+#### `test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0`
+
+**Checks:** A `[TRAP]` row with the ID of a `[GRADIENTS]` row of shape 0 replaces it (load reads
+`[TRAP]` after `[GRADIENTS]`): the file reads, and the block plays the `[TRAP]` row's times. When
+the two rows have the same amplitude and delay, the check cannot tell which the event holds, and
+it raises `ub.gradient-shape-0`.
+
+**How:** The test changes `valid_no_signature.seq` and decodes the block.
+
+**Assumptions:** None.
+
+#### `test_an_extended_trapezoid_keeps_the_values_of_the_shape_before_it`
+
+**Checks:** The checks follow the buffer that `decodeExtTrapGradInBlock` reuses for each shape of
+a block: an extended trapezoid of one point whose time shape writes no sample (a run of count
+-2) has time 0 on the first channel of a block (the file reads), and the waveform 0.5 of the
+channel before it, so 5 us, on the second, where `ub.gradient-one-point` is raised and the
+sanitized oracle's `--sample` exits with 3.
+
+**How:** The test changes `valid_no_signature.seq`, decodes the one-channel file and loads the
+two-channel one.
+
+**Assumptions:** The fuzzing found this (seed 3, file 17010): a check that decompressed each shape
+into a new buffer let the second file through.
+
+#### `test_a_gradients_row_of_shape_0_that_no_block_uses_reads`
+
+**Checks:** A `[GRADIENTS]` row of shape 0 that no block uses is not a case: the file reads.
+
+**How:** The test adds such a row to `valid_no_signature.seq`.
+
+**Assumptions:** None.
+
+### 3.3 The digests of the driver's output (`test_digests.py`)
+
+#### `test_each_fixture_has_a_digest`
+
+**Checks:** `tests/expected_digests.json` names each fixture of `tests/seqfiles` and of the
+package's `tests/fixtures`, and no other file.
+
+**How:** The test compares the names.
+
+**Assumptions:** `scripts/make_digests.py` must run again when a fixture is added or changes.
+
+#### `test_the_package_matches_the_digest_of_the_driver`
+
+**Checks:** For each fixture, the package's verdict is the one of `expected_digests.json`, and for
+a file that it reads, the SHA-256 of the canonical form of its decoded blocks and of
+`gradients_at` at `canonical.sample_points` is the digest of the driver's `--dump` and
+`--sample`.
+
+**How:** The test (one case for each fixture) computes the digest; `make_digests.py` computed the
+expected one from the driver of the devShell (built with the package's flags), and stopped where
+the two differ.
+
+**Assumptions:**
+
+- The digest counts one NaN for all: MSVC's NaN for `nan` in a file has other bits.
+- The sample points are about 400 times in each block; values between them are not compared.
+
+### 3.4 The driver of the C++ oracle (`test_driver_parity.py`)
+
+#### `test_the_package_gives_what_the_driver_gives`
+
+**Checks:** For each fixture: where the package reads the file, `pulseq-cpp-oracle --dump` gives
+the same dump and `--sample` the same values, bit for bit; where the package rejects it, the
+driver rejects it too; where the package finds undefined behaviour, `pulseq-cpp-oracle-sanitized`
+exits with 3 or does not end (D23). For `ub.gradient-one-point` the sanitized driver runs in its
+`--sample` mode at the case's block and time; `ub.gradient-shape-0` is skipped (indeterminate
+values, which no sanitizer sees).
+
+**How:** The test (one case for each fixture) runs the drivers and compares the canonical forms.
+It skips a file outside the package's scope (Q1), and the module skips without the driver.
+
+**Assumptions:** The drivers are built from the same commit with `-fsigned-char
+-ffp-contract=off` (flake.nix), as the package.
+
+### 3.5 The reader's shared state (`test_shared_state.py`)
+
+#### `test_the_two_files_give_the_same_gradients`
+
+**Checks:** `valid_1_5_1.seq` and the same file with a block raster of 1 us (each duration times
+10) give the same gradients.
+
+**How:** The test samples both at the points of `canonical.sample_points`.
+
+**Assumptions:** None.
+
+#### `test_a_sequence_samples_with_its_own_raster_after_another_load`
+
+**Checks:** A sequence sampled after another file with another block raster has loaded keeps its
+values: the extension sets `SeqBlock::s_blockDurationRaster` for each call.
+
+**How:** The test samples, loads the other file, and samples again.
+
+**Assumptions:** None.
+
+#### `test_loads_and_samples_in_threads_give_the_values_of_one_thread`
+
+**Checks:** Three files, two of them with different rasters, loaded and sampled in 6 threads, 12
+times each, give the values of one thread.
+
+**How:** The test compares each thread's dumps and samples with those of one thread.
+
+**Assumptions:** The threads interleave as the scheduler decides; the test shows no race on this
+run, not that there is none.
+
+#### `test_the_c_library_of_the_process_reads_numbers_by_its_locale`
+
+**Checks:** With a locale with a decimal comma, `strtod` of the process reads "0.5" as 0: the
+hazard that the extension guards against is real on this machine.
+
+**How:** The test calls `strtod` through ctypes. It skips on Windows and where no such locale is
+installed (the Linux images of the wheels).
+
+**Assumptions:** `strtod` reads as `sscanf`'s `%f` does.
+
+#### `test_the_reader_reads_in_the_c_locale_whatever_the_process_locale`
+
+**Checks:** With a process locale with a decimal comma, the package reads `valid_1_5_1.seq` as in
+the "C" locale.
+
+**How:** The test sets `LC_NUMERIC` and compares the dumps. It skips where no such locale is
+installed.
+
+**Assumptions:** The global C++ locale is not changed (it is outside the extension's guard).
+
+### 3.6 The cases of undefined behaviour (`test_undefined_behaviour.py`)
+
+#### `test_a_case_of_undefined_behaviour_is_rejected_with_its_code`
+
+**Checks:** Each fixture of a case of section 5.3 raises `UndefinedBehaviour` with its code and
+its entry: D05 (`undefined/version_last.seq`) and D21 as `ub.shape-missing`, D22, D23, D29 (a
+shape longer than `num_samples`, and a repeated value with no count), D33, D34 and D36 (2), and
+the two cases that the fuzzing found: `ub.gradient-one-point` (`gradient_one_point.seq`) and
+`ub.gradient-shape-0` (`gradient_shape_0.seq`).
+
+**How:** The test (one case for each fixture) loads the file.
+
+**Assumptions:** `ub.rf-time-range` and `ub.gradient-time-range` have no fixture; the fuzzing
+reaches them (`test_fuzz.py`).
+
+#### `test_the_process_reads_a_valid_file_after_every_case`
+
+**Checks:** After each case is rejected, the process reads `valid_1_5_1.seq` as before.
+
+**How:** The test compares the dumps before and after.
+
+**Assumptions:** None.
+
+#### `test_the_extension_refuses_to_decode_a_file_that_is_not_checked`
+
+**Checks:** The extension's `decode_block` and `ensure_decoded` refuse to run before the file is
+marked checked.
+
+**How:** The test calls them on a `Reader` that has only loaded a file.
+
+**Assumptions:** None.
+
+### 3.7 The fuzzing of the checks (`test_fuzz.py`)
+
+`tests/seqfuzz.py` generates `.seq` files from the grammar of the format, each a function of a
+seed and an index: a random valid file of version 1.4 or 1.5, then up to three of 25 mutations
+(the shapes of section 5.3 and their neighbours, values at the edges of their types, sections,
+IDs, definitions and versions), and for one file in eight a change to its text. Each file is read
+by the package in a process of its own (`tests/fuzz_worker.py`, which decodes every block and
+samples `gradients_at`) and by `pulseq-cpp-oracle-sanitized`, with ASan's largest allocation set
+to 256 MB so that the growth of D23 ends quickly. The package's `README.md` ("Fuzzing") gives the
+four tiers. `scripts/check` runs the first: the regression corpus (`tests/fuzz_corpus/`) and 200
+seeded files. `.github/workflows/pulseq-cpp-siemens-fuzz.yml` runs the second on a pull request
+or a push to `main` that changes the package, `tests/cpp_oracle/`, `flake.nix` or `flake.lock`:
+the module's `fuzz` tests with `PULSEQ_CPP_SIEMENS_FUZZ_COUNT=3000`. Its weekly job (30 000 new
+files of the date's seed) and the run before each release are not tests: they block nothing.
+
+#### `test_a_file_is_the_same_for_the_same_seed_and_index`
+
+**Checks:** The generator gives the same bytes for the same seed and index, and others for
+another index or seed.
+
+**How:** The test generates them twice.
+
+**Assumptions:** `random.Random` seeded with a string gives the same numbers on each platform and
+Python version.
+
+#### `test_a_file_with_no_mutation_reads`
+
+**Checks:** The generator's files with no mutation (among its first 400) load and decode.
+
+**How:** The test reads each with the package.
+
+**Assumptions:** None.
+
+#### `test_the_corpus_has_a_file_of_each_code`
+
+**Checks:** `tests/fuzz_corpus/expected.json` names each file of the corpus and no other, and the
+corpus has a file of each of the 11 codes.
+
+**How:** The test compares the names and the codes of the verdicts.
+
+**Assumptions:** None.
+
+#### `test_the_corpus_agrees_with_the_sanitized_oracle`
+
+**Checks:** On each file of the regression corpus, no file fails (as on the seeded files below),
+and the package's verdict is the one of `expected.json`.
+
+**How:** `seqfuzz.run_files` runs both readers on each file and compares.
+
+**Assumptions:** The corpus is the smallest file of each code in the full seeded set, the files
+that once failed the fuzzing (an extended trapezoid of one point, the buffer that the reader
+reuses for extended trapezoids, three `[GRADIENTS]` rows of shape 0), and four valid files. A new
+failure is added to it by hand.
+
+#### `test_the_checks_agree_with_the_sanitized_oracle_on_the_seeded_files`
+
+**Checks:** On the files 0 to COUNT-1 of seed 20261012 (200 in `scripts/check`, 3 000 in the
+fuzzing workflow), no file fails: the oracle flags no file
+(undefined behaviour, no end or a crash) that the package decodes; the package's process neither
+dies nor hangs; the checks raise no `UndefinedBehaviour` for a file that the oracle accepts; the
+two give the same verdict; and where both read the file, `gradients_at` gives the bits of the
+oracle's `--sample` at the same times, which also runs `gradientsAt` under the sanitizers. A
+rejection `ub.gradient-one-point` of a file that the oracle accepts is confirmed by the oracle's
+`--sample` at the case's block and time, and a rejection `ub.gradient-shape-0` by a reading of
+the file's text (`seqfuzz.known_cases`).
+
+**How:** `seqfuzz.run` runs the package and the oracle on each file, in as many threads as CPUs,
+and compares. The failing files are kept in a temporary folder that the message names.
+
+**Assumptions:**
+
+- The sanitizers see only the paths that a file takes; indeterminate values (MemorySanitizer's
+  domain) are seen only where they change the values of `gradientsAt`.
+- The generator never makes the reader allocate more than 20 000 samples on a path that the
+  checks let through, so the reader's behaviour with larger sizes is not fuzzed.
+- "Memory" (an allocation above 256 MB in the oracle) passes when the package rejects the file.
+
+#### `test_the_seeded_files_reach_each_case_of_undefined_behaviour`
+
+**Checks:** In the full set of 3 000 files, each of the 11 codes of section 5.3 is among the
+files that the oracle flags (or confirms as above) and the checks reject at least 10 times, so the
+seeded set reaches every case. It skips on a smaller set (the 200 files of `scripts/check`).
+
+**How:** The test counts the codes in the report of the seeded files.
+
+**Assumptions:** None.

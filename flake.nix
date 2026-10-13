@@ -18,10 +18,14 @@
         pkgs: packages:
         pkgs.mkShellNoCC (
           {
-            inherit packages;
+            packages = packages ++ pulseq-cpp-siemens-build pkgs;
             # uv builds the venv on the Nix python and never downloads one.
             UV_PYTHON = "${pkgs.python312}/bin/python3";
             UV_PYTHON_DOWNLOADS = "never";
+            # packages/pulseq-cpp-siemens compiles the C++ reader from this checkout of
+            # pulseq/pulseq (its CMakeLists.txt checks the SHA-256 of each file), not from the
+            # network.
+            PULSEQ_SOURCE_DIR = "${pulseq-source pkgs}";
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             # PyPI manylinux wheels (numpy) load libstdc++ and zlib, which the
@@ -32,6 +36,15 @@
             ];
           }
         );
+
+      # The tools that build packages/pulseq-cpp-siemens in every devShell: scripts/check builds
+      # and tests it. scikit-build-core and nanobind come from PyPI, at the exact versions of
+      # its pyproject.toml.
+      pulseq-cpp-siemens-build = pkgs: [
+        pkgs.cmake
+        pkgs.ninja
+        pkgs.stdenv.cc
+      ];
 
       # The source of pulseq/pulseq (MIT) at one commit, for both oracles: the C++ reader in
       # src/ and MATLAB Pulseq in matlab/. Neither is copied into this repository.

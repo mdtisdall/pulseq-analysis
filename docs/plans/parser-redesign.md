@@ -188,9 +188,17 @@ and R4 found each case with the sanitizers.
 | `ub.rf-time-overrun` | D36 (2) | The resampling index reaches the number of samples and reads one past them (cpp:2044). This includes MATLAB's RF pulses of 4 samples or fewer at the default dwell, written as an uncompressed time shape at the cell centres. |
 | `ub.rf-time-range` | — | An RF time shape whose last time does not fit an `int` (cpp:2031). No fixture yet. |
 | `ub.gradient-time-range` | — | An extended trapezoid time that does not fit a `long` (cpp:2182). No fixture yet. |
+| `ub.gradient-one-point` | — (R6a) | An extended trapezoid of one point whose time is above 0: `gradientsAt` at a time between its delay and that time (and within the block) reads `times[1]` and `wave[1]`, past both vectors (cpp:3639-3650). `decodeBlock` reads the file; only `gradientsAt` meets it. |
+| `ub.gradient-shape-0` | — (R6a) | A `[GRADIENTS]` row of shape 0 that a block uses: `load` reads the row into a `GradEvent` that it does not initialize (cpp:1069) and sets no ramp or flat time, and the reader plays it as a trapezoid with whatever those fields held. The sanitizers do not see indeterminate values. |
 
 A sanitizer build of the C++ oracle (section 9) finds each case, so the list is not left to the
-memory layout of one build.
+memory layout of one build. The fuzzing of R6a found the last two (the user decided to reject
+both, 2026-10-12): the sanitized oracle's `--sample` confirms `ub.gradient-one-point`, and
+`ub.gradient-shape-0` showed as values of `gradientsAt` that differ between two builds. The
+check of `ub.gradient-shape-0` reads the rows of `[GRADIENTS]` and `[TRAP]` again with the
+reader's own `getline` and `sscanf`, as the version gate reads `[VERSION]`, since in the
+libraries such an event looks like a `[TRAP]` row. Their fixtures are in
+`packages/pulseq-cpp-siemens/tests/fixtures/`.
 
 ## 6. The `spec` interpreter
 

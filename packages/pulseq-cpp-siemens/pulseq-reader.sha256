@@ -1,0 +1,9 @@
+# The C++ reader that this package compiles: these files of pulseq/pulseq (MIT) at the commit
+# below, with their SHA-256. CMakeLists.txt and scripts/fetch_reader.py read this file, and
+# each refuses a file with another hash. The licence is also in LICENSE.pulseq.
+# commit c7469123c2f381f065986e6cc3a7d09730ed16ef
+b71ff68fa617b743cae77955a5f2f366ff20c8f6164635fd6a2abea7c6177dfb  src/ExternalSequence.h
+d17c18d852013af1dbcda519015787f6a2b228a318fee5ea702980f55f3e291a  src/ExternalSequence.cpp
+3c25a7572b6c27148ea874ba4ec15e0b8747d041c48968948b163180edffc586  src/md5.h
+0451bfee0c32a01e32a3fedb9f72656e6d0e56d034a98c7f86c3650aefeb772f  src/md5.cpp
+ac94d23655767ba695aeea62d56b1968c7e7ccef9fdfb423aa1df6c3413961e0  LICENSE
