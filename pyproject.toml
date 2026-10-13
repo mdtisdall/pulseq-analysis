@@ -12,9 +12,9 @@ dependencies = [
     "scipy",
 ]
 
-# The cpp-siemens interpreter (`interpreter="cpp-siemens"`, the default of `read_seqfile`) runs
-# the C++ reader through the package pulseq-cpp-siemens, which has compiled wheels. Without this
-# extra, the package reads files only through the interim strict interpreter.
+# The cpp-siemens interpreter (`interpreter="cpp-siemens"`, by name) runs the C++ reader through
+# the package pulseq-cpp-siemens, which has compiled wheels. Without this extra, the package reads
+# files only through the `spec` interpreter, the default, and `cpp-siemens` raises ImportError.
 [project.optional-dependencies]
 cpp-siemens = ["pulseq-cpp-siemens"]
 
