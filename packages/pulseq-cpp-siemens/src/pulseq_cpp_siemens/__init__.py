@@ -9,6 +9,8 @@ its x86_64 build.
     sequence.decode_block(0)          # GetBlock and decodeBlock of one block
     sequence.decode()                 # every block, in play order
     sequence.gradients_at([0], [5.0]) # SeqBlock::gradientsAt (Hz/m)
+    sequence.gradients_at([0], [5.0], rotated=True)  # turned by each block's rotation
+    sequence.block_rotations()        # the blocks with a rotation, and their quaternions
     sequence.first_rejected_block()   # the driver's first mode, keeping no block
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
@@ -174,6 +176,7 @@ class Sequence:
         self.oversampling = oversampling
         # The reader's messages for the block that `first_rejected_block` last found rejected.
         self.rejection_messages = ""
+        self._block_rotations: tuple[np.ndarray, np.ndarray] | None = None
 
     def __reduce__(self):
         return _load_again, (self._data, self.oversampling)
@@ -222,11 +225,28 @@ class Sequence:
         self.rejection_messages = self._reader.messages
         return None if index < 0 else index
 
-    def gradients_at(self, block_index, time_us) -> np.ndarray:
+    def block_rotations(self) -> tuple[np.ndarray, np.ndarray]:
+        """The rotation of each block as `GetBlock` attaches it (the first rotation of the block's
+        extension list, cpp:1871-1879): the play indices (int64, from 0) of the blocks for which
+        `SeqBlock::isRotation` is true, in play order, and their quaternions (float64, (n, 4):
+        q0, qx, qy, qz), as `load` divided them by their norm (cpp:1291-1292). The reader applies
+        none of them to its gradients. No block is decoded; the result is kept."""
+        if self._block_rotations is None:
+            indices, quaternions = self._reader.block_rotations()
+            self._block_rotations = (np.asarray(indices), np.asarray(quaternions))
+        indices, quaternions = self._block_rotations
+        return indices.copy(), quaternions.copy()
+
+    def gradients_at(self, block_index, time_us, rotated: bool = False) -> np.ndarray:
         """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index (play order from 0) and a
         time in us from the start of that block, as an array (n, 3): gx, gy, gz. A block that is
         not decoded yet is decoded first (`Rejected` if it does not decode). A NaN time raises
-        ValueError: the reader converts it to an int, which is undefined behaviour."""
+        ValueError: the reader converts it to an int, which is undefined behaviour.
+
+        With `rotated`, the values of a block that has a rotation (`block_rotations`) are turned
+        by its quaternion with the reader's own `rotate_vec3_by_quat` (cpp:2666-2684, the active
+        rotation): the gradients that the scanner plays if it applies the rotation. The reader
+        never does this; it is a simulation, with the reader's arithmetic."""
         block_index = np.ascontiguousarray(block_index, dtype=np.int64).reshape(-1)
         time_us = np.ascontiguousarray(time_us, dtype=np.float64).reshape(-1)
         if block_index.shape != time_us.shape:
@@ -238,7 +258,7 @@ class Sequence:
         failed = self._reader.ensure_decoded(np.unique(block_index))
         if failed >= 0:
             raise Rejected(f"decodeBlock rejects block {failed}", self._reader.messages)
-        return self._reader.gradients_at(block_index, time_us)
+        return self._reader.gradients_at(block_index, time_us, bool(rotated))
 
 
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:

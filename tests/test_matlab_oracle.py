@@ -389,8 +389,9 @@ def test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq(cases, path
     if case.rotated:
         pytest.skip(
             f"block {min(case.rotated) + 1} plays a rotation: MATLAB rotates its gradients "
-            "(Sequence.m:1989-2000), and the measurements do not support rotations; load refuses "
-            "such a file (U18, U22)"
+            "(Sequence.m:1989-2000), and strict does not (U18, U22); "
+            "test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq compares "
+            "the rotated gradients of cpp-siemens"
         )
     diff = Differences(case.name)
     for axis in ("gx", "gy", "gz"):
@@ -441,3 +442,59 @@ def test_the_adc_sample_times_are_those_of_matlab_pulseq(cases, path):
     ours = np.concatenate(times) if times else np.empty(0)
     diff.times("file", "ADC sample times / t_adc", ours, case.dump["t_adc"])
     diff.check()
+
+
+# The files with a ROTATIONS section, for the rotated gradients of `cpp-siemens`.
+ROTATION_FILES = [path for path in FILES if b"extension ROTATIONS" in path.read_bytes()]
+
+# `cpp-siemens` holds the gradient amplitudes in float32 (P6), and MATLAB in float64.
+FLOAT32_REL = 1e-6
+
+
+@pytest.mark.parametrize("path", ROTATION_FILES, ids=lambda p: str(p.relative_to(SEQFILES)))
+def test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq(cases, path):
+    """`CppSiemens(rotation="apply")` rotates each block's gradients by the reader's quaternion
+    with the reader's `rotate_vec3_by_quat`, and MATLAB's `waveforms_and_times` rotates them with
+    `mr.rotate3D` (Sequence.m:1988-1999). They agree at the midpoint of each segment of MATLAB's
+    polyline, on each axis, where MATLAB does not guess the edges of an arbitrary gradient (U21),
+    and on a segment with no end at a block boundary: there MATLAB can join the last point of one
+    block to the first sample of the next, and the reader gives each block alone (D42). The
+    reader's own gradients, not rotated, do not agree where a block plays a rotation."""
+    pytest.importorskip("pulseq_cpp_siemens")
+    from pulseq_analysis import synth
+    from pulseq_analysis.seqfile import CppSiemens, read_seqfile
+
+    case = case_of(cases, path)
+    data = read_seqfile(path, CppSiemens(rotation="apply"))
+    decoding = synth.decode(data)
+    # valid_1_5_1_rotation_not_played.seq has a rotation that no block plays: 0 blocks rotated.
+    assert decoding.rotation_record.rotated == decoding.rotation_record.blocks
+    starts = np.concatenate([[0.0], np.cumsum(data.block_durations_s)])
+    diff = Differences(case.name)
+    unrotated_differs = False
+    for column, axis in enumerate(("gx", "gy", "gz")):
+        wave = case.dump["waveforms"][axis]
+        if wave is None:
+            continue
+        t, v = _array(wave["t"]), _array(wave["v"])
+        _, mid_t, mid_v, pairs = _matlab_values(t, v)
+        restored = _restored(case, axis, t)
+        kept = ~restored[pairs] & ~restored[pairs + 1]
+        for end in (t[pairs], t[pairs + 1]):
+            nearest = np.abs(end[:, None] - starts[None, :]).min(axis=1)
+            kept &= nearest > TIME
+        mid_t, mid_v = mid_t[kept], mid_v[kept]
+        block = np.searchsorted(starts, mid_t, side="right") - 1
+        inside = block < data.blocks.size
+        mid_t, mid_v, block = mid_t[inside], mid_v[inside], block[inside]
+        time_us = (mid_t - starts[block]) * 1e6
+        ours = decoding.gradients_at(block, time_us)[:, column]
+        scale = np.abs(v).max()
+        tolerance = FLOAT32_REL * scale
+        error = np.abs(ours - mid_v)
+        diff._first_outside(axis, "rotated value at the midpoints", ours, mid_v, error, tolerance)
+        logical = decoding.gradients_at(block, time_us, rotated=False)[:, column]
+        unrotated_differs |= bool(np.any(np.abs(logical - mid_v) > tolerance))
+    diff.check()
+    if decoding.rotation_record.not_identity:
+        assert unrotated_differs, "the reader's unrotated gradients agree with MATLAB's"

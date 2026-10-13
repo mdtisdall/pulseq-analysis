@@ -19,6 +19,8 @@ sequence.gradients_at(
     [1, 1], [100.0, 105.25]
 )  # SeqBlock::gradientsAt (Hz/m): the driver's --sample
 sequence.first_rejected_block()  # the driver's first mode, with no block kept: an index or None
+sequence.block_rotations()  # the blocks with a rotation, and their quaternions
+sequence.gradients_at([1], [100.0], rotated=True)  # turned by each block's rotation
 cs.load("tests/seqfiles/valid_1_5_1.seq", oversampling="edge")  # the reader's other modes
 ```
 
@@ -63,6 +65,16 @@ block in play order, also after a block that `decodeBlock` rejects) and keeps no
 of 900 000 blocks needs the memory of one (about 2 to 4 us for each block). It returns the index
 of the first rejected block or None, and `rejection_messages` has what the reader printed for
 that block.
+
+**Rotations.** The reader stores each block's rotation (the ROTATIONS extension) and applies it
+to nothing: `gradientsAt` gives the logical gradients, and the reader leaves the rotation to the
+scanner's interpreter. `block_rotations()` gives the play index of each block to which `GetBlock`
+attaches a rotation (the first one of its extension list, cpp:1871-1879) and its quaternion
+(q0, qx, qy, qz), as `load` divided it by its norm (cpp:1291-1292). `gradients_at(...,
+rotated=True)` turns the values of each such block by its quaternion with the reader's own
+helper `rotate_vec3_by_quat` (cpp:2666-2684, the active rotation, `c = +1`), which the reader
+calls only on its position offsets: a simulation of a scanner that applies the rotation, with the
+reader's arithmetic. A block with no rotation is not changed.
 
 A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode, and
 loading it reads and checks the file again; `copy.copy` and `copy.deepcopy` return the same

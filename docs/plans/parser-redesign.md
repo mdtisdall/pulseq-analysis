@@ -78,7 +78,7 @@ specification feed section 6.
 |---|---|---|
 | Q1 | Versions outside 1.4.0–1.5.x (D03) | Both interpreters refuse them as **not supported by the package**: a separate exception (for example `NotImplementedError`), which says nothing about the file. |
 | Q2 | The undefined behaviour of the C++ reader (section 5.3) | `cpp-siemens` rejects each case, with its own code. |
-| Q3 | Rotations (D49) | Amended by P20 (section 7.8): `cpp-siemens` gives the reader's unrotated gradients and the quaternion by default, with a `ScannerSettingWarning` from `load`, and rotates them with `CppSiemens(rotation="apply")`; `spec` rotates from version 1.5.1. `load` no longer refuses the rotation extension. |
+| Q3 | Rotations (D49) | Amended by P20 (section 7.8): `cpp-siemens` gives the reader's unrotated gradients and the quaternion by default, with a `ScannerSettingWarning` from `load`, and rotates them with `CppSiemens(rotation="apply")`, in any version (the user, 2026-10-12); `spec` rotates from version 1.5.1. `load` no longer refuses the rotation extension once it runs on the interpreters (R14); until then it refuses it (the user, in R9). |
 | Q4 | `spec` where the specification says "must" | No waveform: `spec` rejects the file, with every violation. pulseq-checks reports that `cpp-siemens` reads it. |
 | Q5 | `spec` where the specification is silent | Section 6, row by row. |
 | Q6 | The API (section 7.3) | The functions take an interpreter by name or as an object: `interpreter="cpp-siemens"` (the default was changed by P19: `strict`, then `spec`), or `interpreter=CppSiemens(oversampling="edge")` for its settings. Results carry the interpreter and its settings (not findings, P17). |
@@ -740,9 +740,20 @@ The rules (the user, 2026-10-12):
    interpreter does not have (for example `rotation=` for `spec`) is a `TypeError` when the
    interpreter object is made.
 
-**Open:** for `CppSiemens(rotation="apply")` on a file older than 1.5.1, whether the simulation
-follows the reader (rotates what the reader attached) or is gated by version as `spec` is. The
-sources do not say what the scanner's interpreter does; the user decides before R9.
+**Decided (the user, 2026-10-12):** `CppSiemens(rotation="apply")` follows the reader. It rotates
+each rotation that the reader attaches to a block (`GetBlock` reads ROTATIONS by name, in any
+version), also in a file older than 1.5.1; it is not gated by version as `spec` is. What the
+scanner's interpreter does with a rotation in a file older than 1.5.1 is not known (no source says),
+and `docs/usage.md` and D49 say so.
+
+**Where the rotation record and warning live until R14 (the user, 2026-10-12, in R9):** the
+decoding of `cpp-siemens` records what it applied (`CppSiemensDecoding.rotation_record`: the
+setting, the blocks with a rotation, those that are not the identity, and those rotated), and
+`RotationRecord.warning()` gives the `ScannerSettingWarning`; the decoding does not emit it. Today's
+`load` (on pypulseq) keeps refusing the rotation extension: pypulseq 1.5.0.post1 cannot read a file
+with ROTATIONS anyway, and only an unreleased pypulseq could give it a sequence with rotations,
+whose blocks the package could not count. R14's `load` stops refusing, keeps the record in its
+result and emits the warning.
 
 **Further decisions of the study:**
 
@@ -815,12 +826,12 @@ blocks of labels only, with no shape and no signature.
 | R6b | `feature/cpp-siemens` | The `cpp-siemens` interpreter in pulseq-analysis, on R6a: the version gate on the "as written" reading, `SequenceData` from the reader's libraries (P14), the rejection codes (5.2, 5.3), the `interpreter` argument, the exports and the contract (7.3). Each rule of today becomes a rejection of `cpp-siemens`, moves to `spec` (R11), or is removed. The record's "Package" text for `cpp-siemens`, and the new D56, follow; pulseq-checks adapts. |
 | R7 | — | Moved to pulseq-checks (P17): the findings of D18, D30–D32, D34, D35–D37. |
 | R8 | — | Moved to pulseq-checks (P17): the findings of D28, D29, D39–D43. |
-| R9 | `feature/rotations` | D49 (P20, section 7.8): the quaternion of each block in both readings and decodings; `CppSiemens(rotation="apply")` and `spec` (from 1.5.1) rotate each block's gradients by it; the records of rule 4 for rotations; `load` no longer refuses the rotation extension. Needs the open question of 7.8 decided. The `spec` part needs R11. |
+| R9 | `feature/rotations` | D49 (P20, section 7.8): the quaternion of each block in both readings and decodings; `CppSiemens(rotation="apply")` and `spec` (from 1.5.1) rotate each block's gradients by it; the records of rule 4 for rotations. The `cpp-siemens` part is done: `CppSiemensDecoding.rotations`, `gradients_at` rotated with the reader's `rotate_vec3_by_quat` (checked against MATLAB), `rotation_record` and its `ScannerSettingWarning`, and `rotate_vec3_by_quat` and `block_rotations` in pulseq-cpp-siemens. The `spec` part waits for R11's decoder; its rotation is the package's own (the reader's helper is C++, and `spec` is pure Python), checked against `cpp-siemens`'s. `load`'s part moved to R14 (7.8). |
 | R10 | — | Moved to pulseq-checks (P17): the findings of D04, D06–D10, D12, D14, D16, D19, D20, D24, D54, D56. |
 | R11 | `feature/spec-interpreter` | The `spec` reader (section 6) on the "as written" reading, with every violation in its rejection, and its decoder in Python, adapted from task 2's `events.py`, with its fixtures. The record's "Package" text for `spec` follows. |
 | R12 | — | Moved to pulseq-checks (P17): the comparison of the two interpreters, and the four-source test. |
 | R13 | `chore/oracle-build-flags` | The C++ oracle of flake.nix built with `-fsigned-char -ffp-contract=off`, as the wrapper (7.6). Done (#105). |
-| R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output: for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. The C++-replica code of task 2 retired. A baseline of today's `load` explains each difference. |
+| R14 | `feature/load-on-interpreters` | Task 5a re-planned (P15): `load` on an interpreter's output: for `cpp-siemens` the reader's decoded events and `gradientsAt`, for `spec` its decoder. The C++-replica code of task 2 retired. A baseline of today's `load` explains each difference. `load` stops refusing the rotation extension (`extensions.refuse_rotations`), keeps the decoding's `rotation_record` in its result and emits `RotationRecord.warning()` (R9, 7.8). |
 | C1 | `docs/findings-hand-off` | The document for pulseq-checks of 7.5, `docs/findings-for-pulseq-checks.md`, which the user shares with that project. R6 and R11 update it. |
 | R15 | `feature/pypulseq-via-seq` | Task 4 re-planned (P16): a `pypulseq.Sequence` written to `.seq` text, then read through an interpreter. |
 | R16 | `feature/scanner-session` | The `Session` of section 7.8 (soft delays, the field of view), its records and `SettingError` (rules 3 to 8), for both interpreters; the decoding's stored and actual durations; record entries D57 and D58. |
