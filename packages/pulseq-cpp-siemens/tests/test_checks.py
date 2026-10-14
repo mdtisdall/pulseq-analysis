@@ -47,6 +47,21 @@ def test_a_run_with_a_count_below_minus_one_writes_nothing():
     assert status == "ub" and "sample -1" in reason
 
 
+def test_a_decompression_that_ends_before_num_samples_does_not_write_every_sample():
+    # An uncompressed shape is copied whole (memcpy, cpp:2202-2205).
+    assert _checks._writes_every_sample(4, False, f32(1, 1, 1, 1))
+    # Runs and literals that end at num_samples.
+    assert _checks._writes_every_sample(100, True, f32(0, 0, 98))
+    assert _checks._writes_every_sample(100, True, f32(1, 0, 0, 97))
+    assert _checks._writes_every_sample(3, True, f32(1, 2, 3))
+    # A run of count -2 writes nothing; the literal after it writes sample 0 only.
+    assert not _checks._writes_every_sample(4, True, f32(0, 0, -2))
+    assert not _checks._writes_every_sample(4, True, f32(1, 1, -2, 0.5))
+    # Runs that end before num_samples: 3 of 4, and 4 of 5.
+    assert not _checks._writes_every_sample(4, True, f32(0, 0, 1))
+    assert not _checks._writes_every_sample(5, True, f32(1, 0, 0, 1))
+
+
 def test_the_tolerance_of_a_count_is_computed_in_float():
     # 1 + 2**-23: in double the fraction is 1.2e-7, below 1e-6; in float 3.0000001 rounds to 3.
     assert _checks._decompression(8, True, f32(1, 1, 1.0000001, 5))[0] == "ok"

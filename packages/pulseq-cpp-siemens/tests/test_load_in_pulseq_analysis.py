@@ -13,8 +13,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from canonical import UB_FIXTURES, fixture_id, fixtures
 from pulseq_cpp_siemens.interpreter import CppSiemens, CppSiemensDecoding
-from test_played import FIXTURES, check_the_points_are_the_gradients, load_or_none
+from test_played import FIXTURES, RTOL, check_the_points_are_the_gradients, load_or_none
 from test_seq_index import _seqfiles, check_the_index_of_a_snapshot_is_the_index_of_its_model
 from test_snapshot import (
     COPIERS,
@@ -33,7 +34,9 @@ from pulseq_analysis.analyses.grad_peaks import gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
 from pulseq_analysis.synth import ScannerSettingWarning
 from pulseq_analysis.synth._played import played_gradients
+from pulseq_analysis.synth.sampling import gradient_sampler
 from pulseq_analysis.synth.seq_index import has_gradients, sequence_index
+from pulseq_analysis.synth.seq_utils import TIME_TOLERANCE
 
 SEQFILES = Path(__file__).resolve().parents[3] / "tests" / "seqfiles"
 
@@ -49,6 +52,12 @@ SETTINGS = [
     pytest.param(CppSiemens(rotation="apply"), id="cpp-siemens-apply"),
 ]
 FIXTURE_IDS = {"ids": lambda p: str(p.relative_to(SEQFILES))}
+# Two files in which gradient event 2 is alone on gx in block 0, and on gy after event 1 on gx in
+# block 1. The shape of event 2 that the reader decompresses into the buffer of the block (the
+# time shape of an extended trapezoid, the wave shape of an arbitrary gradient) is "0 0 -2", which
+# writes none of its 4 samples, so in block 1 it keeps the values of the wave shape of event 1.
+BUFFER_EXT_TRAP = UB_FIXTURES / "gradient_buffer_ext_trap.seq"
+BUFFER_ARBITRARY = UB_FIXTURES / "gradient_buffer_arbitrary.seq"
 
 
 # ---- The snapshot (`test_snapshot.py`) ----
@@ -225,29 +234,130 @@ def test_an_event_that_cpp_siemens_plays_after_the_end_of_its_block_ends_at_the_
     assert clipped > 0
 
 
-@pytest.mark.parametrize("path", FIXTURES, **FIXTURE_IDS)
-def test_the_cpp_siemens_decoding_of_a_gradient_event_is_the_same_in_every_block(path):
-    """The C++ reader decodes a gradient event from the event and the shapes alone, so the
-    first block that plays it gives its decoding in every block, as `_played` requires of a
-    plugin: each block of the file decodes each of its gradient events
-    (`CppSiemensDecoding.gradient_points`) as the first block that plays the event does."""
+def _reader_probes(snap, axis: int):
+    """For the axis `axis` (0, 1, 2) of `snap`: the block, the time (s from the block start) and
+    the value of the sampler at each probe, which are the middle of each segment of the played
+    points of each block, and a quarter, a half and three quarters of each block of positive
+    duration. A probe within `TIME_TOLERANCE` of a step of the played points (two points at one
+    time with two values, or an end of an event at a value that is not 0), or of a gap where the
+    sampler draws a line between two events (`sampling`, the module docstring), is left out."""
+    played = played_gradients(snap)
+    column = (played.gx, played.gy, played.gz)[axis]
+    name = ("gx", "gy", "gz")[axis]
+    duration = snap.decoding.block_durations
+    start = sequence_index(snap).start_s
+    sampler = gradient_sampler(snap)
+    blocks, times, steps = [], [], []
+    for block in range(duration.size):
+        key = int(column[block])
+        if key:
+            delay, offsets, amp = played.points[key]
+            t = delay + offsets
+            for i in range(t.size - 1):
+                if t[i + 1] > t[i]:
+                    blocks.append(block)
+                    times.append((t[i] + t[i + 1]) / 2)
+                elif amp[i + 1] != amp[i]:
+                    steps.append(start[block] + t[i])
+            if amp[0] != 0:
+                steps.append(start[block] + t[0])
+            if amp[-1] != 0:
+                steps.append(start[block] + t[-1])
+        if duration[block] > 0:
+            blocks += [block] * 3
+            times += [f * float(duration[block]) for f in (0.25, 0.5, 0.75)]
+    blocks, times = np.array(blocks, dtype=np.int64), np.array(times)
+    at = start[blocks] + times
+    keep = np.ones(at.size, dtype=bool)
+    for step in steps:
+        keep &= np.abs(at - step) > TIME_TOLERANCE
+    gaps = sampler._gaps(name)
+    for gap_start, gap_end in zip(gaps.start_s, gaps.end_s, strict=True):
+        keep &= (at < gap_start - TIME_TOLERANCE) | (at > gap_end + TIME_TOLERANCE)
+    blocks, times, at = blocks[keep], times[keep], at[keep]
+    order = np.argsort(at, kind="stable")
+    values = np.empty(at.size)
+    values[order] = sampler.sample(name, at[order])
+    return blocks, times, values
+
+
+@pytest.mark.parametrize("path", fixtures(), ids=fixture_id)
+def test_the_waveform_of_the_measurements_is_the_gradients_of_the_reader(path):
+    """On each fixture that `cpp-siemens` reads (the files of `tests/seqfiles` and the plugin's
+    own), the sampler of the measurements (`gradient_sampler`) gives the reader's own
+    `gradientsAt` (`Sequence.gradients_at`) at the probes of `_reader_probes`, on each axis, to
+    `RTOL` of the largest value of the axis (a NaN of the file is NaN in both)."""
     snap = load_or_none(path, "cpp-siemens")
     if snap is None:
         pytest.skip("cpp-siemens rejects the file")
-    first: dict[int, object] = {}
-    for block in range(snap.decoding.block_count):
-        for axis, column in enumerate(("gx", "gy", "gz")):
-            key = int(snap.data.blocks[column][block])
-            if not key:
-                continue
-            points = snap.decoding.gradient_points(key, block, axis)
-            if key not in first:
-                first[key] = points
-                continue
-            delay, offsets, amp = first[key]
-            assert points[0] == delay
-            assert np.array_equal(points[1], offsets)
-            assert np.array_equal(points[2], amp)
+    for axis in range(3):
+        blocks, times, values = _reader_probes(snap, axis)
+        if blocks.size == 0:
+            continue
+        reader = snap.data.reading.gradients_at(blocks, times * 1e6)[:, axis]
+        assert np.array_equal(np.isnan(values), np.isnan(reader)), axis
+        finite = ~np.isnan(reader)
+        scale = max(float(np.abs(reader[finite]).max(initial=0.0)), 1.0)
+        bad = np.abs(values[finite] - reader[finite]) > RTOL * scale
+        assert not bad.any(), (axis, blocks[finite][bad], times[finite][bad] * 1e6)
+
+
+def test_the_measurements_of_an_event_that_keeps_the_buffer_of_its_block_are_the_reader_s():
+    """In block 1 of `gradient_buffer_ext_trap.seq` the reader plays event 2 on gy with the
+    times 10, 20, 30 and 40 us, which its time shape keeps from the wave shape of event 1: 250,
+    750, 1000, 750 and 0 Hz/m at 5, 15, 25, 35 and 45 us. The sampler gives these values, and
+    `gradient_peaks` a peak of 1000 Hz/m on y. In `gradient_buffer_arbitrary.seq` the reader plays
+    1000 Hz/m on gy in block 1, and the peak on y is 1000 Hz/m."""
+    snap = load(BUFFER_EXT_TRAP, "cpp-siemens")
+    time_us = np.array([5.0, 15.0, 25.0, 35.0, 45.0])
+    expected = [250.0, 750.0, 1000.0, 750.0, 0.0]
+    reader = snap.data.reading.gradients_at(np.ones(time_us.size, dtype=np.int64), time_us)
+    np.testing.assert_allclose(reader[:, 1], expected, rtol=0, atol=RTOL * 1000)
+    at = sequence_index(snap).start_s[1] + time_us * 1e-6
+    sampled = gradient_sampler(snap).sample("gy", at)
+    np.testing.assert_allclose(sampled, expected, rtol=0, atol=RTOL * 1000)
+    assert gradient_peaks(snap).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
+    arbitrary = load(BUFFER_ARBITRARY, "cpp-siemens")
+    assert gradient_peaks(arbitrary).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
+
+
+@pytest.mark.parametrize("path", fixtures(), ids=fixture_id)
+def test_the_cells_of_one_event_and_one_variant_decode_alike(path):
+    """`CppSiemensDecoding.gradient_variants()` is the rule of `_played` for a plugin: each two
+    cells (a block and an axis) with the same gradient event and the same variant decode alike
+    (`gradient_points`, bit for bit), and with None every cell of an event does. Otherwise it is an
+    int64 array (blocks, 3), read-only, with 0 at each cell with no event. It is None on each file
+    of `tests/seqfiles` that `spec` reads, and gives event 2 two variants in each of the two files
+    of the buffer of a block."""
+    snap = load_or_none(path, "cpp-siemens")
+    if snap is None:
+        pytest.skip("cpp-siemens rejects the file")
+    variants = snap.decoding.gradient_variants()
+    blocks = snap.data.blocks
+    columns = np.stack([np.asarray(blocks[c], dtype=np.int64) for c in ("gx", "gy", "gz")], axis=1)
+    if variants is None:
+        cells = np.zeros(columns.shape, dtype=np.int64)
+    else:
+        assert variants.dtype == np.int64 and variants.shape == columns.shape
+        assert not variants.flags.writeable
+        assert np.all(variants[columns == 0] == 0)
+        cells = variants
+    first: dict[tuple[int, int], object] = {}
+    for block, axis in np.argwhere(columns != 0).tolist():
+        cell = (int(columns[block, axis]), int(cells[block, axis]))
+        points = snap.decoding.gradient_points(cell[0], block, axis)
+        if cell not in first:
+            first[cell] = points
+            continue
+        delay, offsets, amp = first[cell]
+        assert points[0] == delay
+        assert np.array_equal(points[1], offsets)
+        assert np.array_equal(points[2], amp)
+    if path.is_relative_to(SEQFILES) and load_or_none(path, "spec") is not None:
+        assert variants is None
+    if path in (BUFFER_EXT_TRAP, BUFFER_ARBITRARY):
+        assert variants is not None
+        assert np.unique(variants[columns == 2]).size == 2
 
 
 def test_cpp_siemens_decodes_one_block_for_each_unique_gradient_event(monkeypatch):

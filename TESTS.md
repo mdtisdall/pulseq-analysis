@@ -1120,6 +1120,39 @@ both. The rest must agree to 1e-7 times the largest value (at least 1).
 - The points of a step (two points at one time) and the ends of an event are not probed: there
   the value of `gradients_at` depends on the side.
 
+#### `test_each_variant_of_a_gradient_event_has_its_own_key_and_its_own_points`
+
+**Checks:** When the decoding says that a gradient event decodes otherwise in one block
+(`gradient_variants`), the played gradients give that block a new key, above the largest file
+ID, with the points of the event in that block, and the other blocks keep the file ID, with the
+points of the first block that plays it.
+
+**How:** The fake plugin `Doubled` (`spec`'s model and decoding, with the gradients of block 1
+twice as large in `gradient_points` and `gradients_at`, and the variant 1 at the cells of block 1
+with an event) reads `oracle/koma_v1.4_gr-trapezoidal.seq`, whose nine blocks each play the
+trapezoid 1 on gx. The test checks that `gx` of block 1 is above 1, that the other blocks have 1,
+and that the points of the two keys equal `gradient_points` of block 1 and of block 0, bit for
+bit. Then `check_the_points_are_the_gradients` runs on the file through `Doubled`.
+
+**Assumptions:** A variant in one block of a file whose blocks all play one event stands for the
+case of the C++ reader (the buffer of the gradients of a block), which the plugin's tests check
+(section 3.11).
+
+#### `test_a_block_that_the_session_rotates_takes_the_points_of_its_variant`
+
+**Checks:** When the session's field of view rotates every block, so that the played gradients of
+each block come from `gradients_at` (`_from_gradients_at`), the block with the variant gets keys
+of its own, with twice the values of block 0, and the played points are the gradients of the
+decoding.
+
+**How:** `Doubled` reads the same file under `Session(fov_rotation=...)` with 90 degrees about z,
+which takes gx to y. The test checks that the keys of `gy` of blocks 0 and 1 differ, and that the
+values of the points of block 1 are twice those of block 0, to 1e-7 of their largest value. Then
+it compares the straight lines of the points with `gradients_at` of the decoding at the probes of
+`check_the_points_are_the_gradients` (`_probes`), to the same tolerance.
+
+**Assumptions:** None.
+
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of
@@ -8850,6 +8883,18 @@ is not undefined behaviour; a value after it writes before the buffer, which is.
 
 **Assumptions:** None.
 
+#### `test_a_decompression_that_ends_before_num_samples_does_not_write_every_sample`
+
+**Checks:** `_writes_every_sample` says whether `decompressShape` (cpp:2200-2247) writes each of
+the `num_samples` values of a shape: it does for an uncompressed shape (memcpy, cpp:2202-2205)
+and for runs and literals that end at `num_samples`, and it does not for a run of count -2 (0
+repeats), with or without a literal after it, or for runs that end before `num_samples`.
+
+**How:** The test calls `_writes_every_sample` on stored values, each of whose decompressions is
+"ok" (`_decompression`).
+
+**Assumptions:** None.
+
 #### `test_the_tolerance_of_a_count_is_computed_in_float`
 
 **Checks:** The test of `fabs(count + 2 - rep) > 1e-6` (cpp:2219) is computed in float: a count of
@@ -10465,18 +10510,68 @@ last point time is at most the block duration plus 1e-12 s.
 
 **Assumptions:** None.
 
-#### `test_the_cpp_siemens_decoding_of_a_gradient_event_is_the_same_in_every_block`
+#### `test_the_waveform_of_the_measurements_is_the_gradients_of_the_reader`
 
-**Checks:** The C++ reader decodes each gradient event the same way in every block that plays it,
-so `_played` may decode it once, in its first block.
+**Checks:** On each fixture that `cpp-siemens` reads, the waveform of the measurements
+(`gradient_sampler(snap).sample`) is the reader's own `gradientsAt`
+(`snap.data.reading.gradients_at`), on each axis, to 1e-7 of the largest value of the axis.
 
-**How:** Parametrized over every fixture that `cpp-siemens` reads. The test takes the points of
-each gradient event in every block that plays it (`CppSiemensDecoding.gradient_points`), and
-checks that they equal, bit for bit, those of the first block that plays the event.
+**How:** Parametrized over every file of `tests/seqfiles` and of the package's `tests/fixtures`;
+a file that `cpp-siemens` rejects is skipped. For each axis the probes (`_reader_probes`) are
+the middle of each segment of the played points of each block, and a quarter, a half and three
+quarters of each block of positive duration. A probe within `TIME_TOLERANCE` of a step of the
+played points (two points at one time with two values, or an end of an event at a value that is
+not 0) is left out, and so is a probe in a gap where the sampler draws a line between two events
+(the line across a short gap, the ramps of a long gap; `sampling`, the module docstring). The
+sampler is read at the block start plus the probe's time, the reader at the block and the time
+(µs). A NaN must be NaN in both, and the rest must agree to 1e-7 times the largest value of the
+reader on the axis (at least 1).
 
-**Assumptions:** It holds on the fixtures; the reason that it holds in general is the reader's
-code (`decodeArbGradInBlock`, `decodeExtTrapGradInBlock` and `checkGradient` read only the
-event and the shape library), which the test does not check.
+**Assumptions:**
+
+- The tolerance covers the float32 rounding of the reader's values (D7.2): the played points hold
+  the float32 product of the amplitude and a sample, and `gradientsAt` interpolates the samples
+  before the product.
+- The comparisons of the oracles build the oracle from `played_gradients`
+  (`tests/oracles/blocks.py`), so they cannot find a played event that is not the reader's;
+  this test compares with the reader itself. On the two files of the buffer of a block
+  (`gradient_buffer_ext_trap.seq`, `gradient_buffer_arbitrary.seq`) it fails where the played
+  gradients take the decoding of an event in the first block that plays it.
+- Only the default settings of `cpp-siemens` are checked: with them, the reader's values are those
+  of the decoding.
+
+#### `test_the_measurements_of_an_event_that_keeps_the_buffer_of_its_block_are_the_reader_s`
+
+**Checks:** In block 1 of `tests/fixtures/gradient_buffer_ext_trap.seq` the reader and the sampler
+give 250, 750, 1000, 750 and 0 Hz/m on gy at 5, 15, 25, 35 and 45 µs, and `gradient_peaks` gives
+a peak of 1000 Hz/m on y; in `tests/fixtures/gradient_buffer_arbitrary.seq` the peak on y is 1000
+Hz/m.
+
+**How:** In both files gradient event 2 is alone on gx in block 0, and on gy after event 1 on gx
+in block 1; its time shape (the extended trapezoid) or its wave shape (the arbitrary gradient) is
+`0 0 -2`, which writes none of its 4 samples, so in block 1 it keeps the values of the wave shape
+of event 1, which the reader decompressed before it into the same buffer
+(`decodeExtTrapGradInBlock`, `decodeArbGradInBlock`). The values are compared to 1e-4 Hz/m, the
+peaks to a relative 1e-7.
+
+**Assumptions:** The values of the reader are those that it gives on this platform; the test
+checks them too.
+
+#### `test_the_cells_of_one_event_and_one_variant_decode_alike`
+
+**Checks:** `CppSiemensDecoding.gradient_variants()` is what `_played` needs of a plugin: each two
+cells (a block and an axis) with the same gradient event and the same variant decode alike, and
+with None every cell of an event does. It is None on each file of `tests/seqfiles` that `spec`
+reads, and it gives event 2 two variants in each of the two files of the buffer of a block.
+
+**How:** Parametrized over every file of `tests/seqfiles` and of the package's `tests/fixtures`;
+a file that `cpp-siemens` rejects is skipped. A result that is not None must be an int64 array
+(blocks, 3), read-only, with 0 at each cell with no event. For each cell with an event, in play
+order, the test takes `gradient_points` and checks that it equals, bit for bit, that of the first
+cell with the same event and variant (with None, the same event).
+
+**Assumptions:** The fixtures have the cases; that the variants hold for every file is the
+reader's code, which the test does not check.
 
 #### `test_cpp_siemens_decodes_one_block_for_each_unique_gradient_event`
 
