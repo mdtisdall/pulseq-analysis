@@ -78,7 +78,7 @@ _BINARY_MAGIC = b"\x01pulseq\x02"
 
 class Rejected(Exception):
     """The C++ reader rejects the file: `load` or a `decodeBlock` returns false, or the reader
-    throws. `messages` is what the reader printed."""
+    throws. `messages` is what the reader printed, with each byte that is not UTF-8 as `\\xNN`."""
 
     def __init__(self, message: str, messages: str = ""):
         super().__init__(message)
@@ -246,7 +246,7 @@ class Sequence:
         int64 arrays for the times. Raises `Rejected` when `decodeBlock` returns false."""
         block = self._reader.decode_block(int(index))
         if block is None:
-            raise Rejected(f"decodeBlock rejects block {index}", self._reader.messages)
+            raise Rejected(f"decodeBlock rejects block {index}", _messages(self._reader))
         return block
 
     def decode(self) -> list[dict]:
@@ -261,7 +261,7 @@ class Sequence:
         needs the memory of one. `rejection_messages` has what the reader printed for the block
         that it returns (and is empty for None)."""
         index = self._reader.first_rejected_block()
-        self.rejection_messages = self._reader.messages
+        self.rejection_messages = _messages(self._reader)
         return None if index < 0 else index
 
     def block_rotations(self) -> tuple[np.ndarray, np.ndarray]:
@@ -348,7 +348,7 @@ class Sequence:
             self._refuse_hidden_one_point(block_index, time_us, actual)
         failed = self._reader.ensure_decoded(np.unique(block_index))
         if failed >= 0:
-            raise Rejected(f"decodeBlock rejects block {failed}", self._reader.messages)
+            raise Rejected(f"decodeBlock rejects block {failed}", _messages(self._reader))
         return self._reader.gradients_at(block_index, time_us, bool(rotated), actual)
 
     def _refuse_hidden_one_point(
@@ -387,6 +387,13 @@ class Sequence:
                     time,
                 )
             )
+
+
+def _messages(reader: _reader.Reader) -> str:
+    """What the reader printed in its last call. It quotes lines of the file, which can have bytes
+    that are not UTF-8: each such byte is `\\xNN`, so that the text can be printed and written as
+    UTF-8."""
+    return reader.messages.decode("utf-8", "backslashreplace")
 
 
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
@@ -429,8 +436,8 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
             "does not read it"
         )
     if not reader.load(data):
-        raise Rejected(f"ExternalSequence::load rejects {name}", reader.messages)
-    messages = reader.messages
+        raise Rejected(f"ExternalSequence::load rejects {name}", _messages(reader))
+    messages = _messages(reader)
     libraries = Libraries._from_reader(reader.libraries())
     if not found or libraries.version != version:
         raise RuntimeError(

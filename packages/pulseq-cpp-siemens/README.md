@@ -60,6 +60,11 @@ arbitrary gradient (see below). It raises:
 
 `ValueError` for an `oversampling` that is not one of `OVERSAMPLING`.
 
+The reader's messages (`Rejected.messages`, `Sequence.messages`, which has what `load` printed,
+and `Sequence.rejection_messages`) are the text that it printed. It quotes lines of the file
+there (the row that it fails to decode, the line of an extension that it does not know), so each
+byte that is not UTF-8 is written as `\xNN`.
+
 **Oversampling.** An oversampled arbitrary gradient is a `[GRADIENTS]` row with a wave shape and
 time shape -1 (D6.1): its n stored samples are half a raster apart. The reader keeps some of
 them, by a mode that the interpreter sets before it decodes any block (cpp:2123-2146), and
@@ -442,11 +447,11 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
    file has 1.6 mutations on average, so each of the 26 mutations is applied about 185 times.
    Each of the 11 codes must be confirmed at least 10 times in the set
    (`test_the_seeded_files_reach_each_case_of_undefined_behaviour`); the rarest,
-   `ub.rf-time-overrun`, is confirmed 17 times, the others 53 to 253 times. So the set cannot
+   `ub.rf-time-overrun`, is confirmed 17 times, the others 53 to 252 times. So the set cannot
    pass by missing a case, and 3 000 is about the smallest set that still reaches each case at
    least 10 times. Each mode has about 1 000 files (962, 1 028 and 1 010), and the files that the
    package reads have an oversampled gradient of each size (1, 2, 3, 4 or more samples) in each
-   mode at least 30 times (about 45 to 160;
+   mode at least 30 times (41 to 157;
    `test_the_seeded_files_have_oversampled_gradients_of_each_size_in_each_mode`).
 3. **Each week** (the same workflow, job `weekly`, Monday and by hand): 30 000 new files of a seed
    that is the date. It blocks nothing; its failing files are an artifact. 30 000 files took 20

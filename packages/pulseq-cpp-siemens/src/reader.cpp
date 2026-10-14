@@ -1096,7 +1096,8 @@ class Reader {
         return first;
     }
 
-    const std::string& messages() const { return messages_; }
+    // As bytes: the reader quotes lines of the file, which can have bytes that are not UTF-8.
+    nb::bytes messages() const { return as_bytes(messages_); }
 
   private:
     // GetBlock and decodeBlock of one block, kept in blocks_ when it decodes. Call it with a
