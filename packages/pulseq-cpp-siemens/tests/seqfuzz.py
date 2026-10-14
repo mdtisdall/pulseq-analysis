@@ -735,7 +735,8 @@ def render(model: Model) -> str:
 def mutate_text(text: bytes, rng: random.Random) -> tuple[bytes, str]:
     """A change to the text that the grammar does not make: a line dropped, repeated or swapped,
     a byte that the reader reads as the end of the file (0xFF with a signed char) or as a line
-    end, a tab, or the file cut short."""
+    end, a tab, bytes that are not UTF-8 (which the reader can quote in its messages), or the
+    file cut short."""
     lines = text.split(b"\n")
     choice = rng.random()
     if choice < 0.2 and len(lines) > 1:
@@ -751,7 +752,9 @@ def mutate_text(text: bytes, rng: random.Random) -> tuple[bytes, str]:
         return b"\n".join(lines), "text-swap-lines"
     if choice < 0.75:
         i = rng.randrange(len(text) + 1)
-        byte = rng.choice([b"\xff", b"\x00", b"\r", b"\t", b"\r\n", b" ", b"#", b"[", b"]"])
+        byte = rng.choice(
+            [b"\xff", b"\x00", b"\r", b"\t", b"\r\n", b" ", b"#", b"[", b"]", b"\xb5", b"\xc3("]
+        )
         return text[:i] + byte + text[i:], "text-byte"
     if choice < 0.85:
         return text.replace(b"\n", b"\r\n"), "text-crlf"

@@ -135,6 +135,11 @@ A caller moves in this order:
   times of an extended trapezoid of one point (D5.10), before the reader runs.
   `load` accepts such a file, since the stored duration hides the read; the
   other times give the reader's values.
+- The reader's messages (`Sequence.messages`, `Sequence.rejection_messages`,
+  `Rejected.messages`) are `str` with each byte that is not UTF-8 as `\xNN`.
+  The reader quotes lines of the file in them, so a file with such a byte in
+  a quoted line loads or is rejected with its code, and does not raise
+  `UnicodeDecodeError`.
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 

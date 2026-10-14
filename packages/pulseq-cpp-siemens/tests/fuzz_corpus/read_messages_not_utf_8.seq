@@ -1,0 +1,30 @@
+# Pulseq sequence file
+# Hand-written file of the fuzzing of pulseq-cpp-siemens: an extension that the reader does not
+# know, with a byte that is not UTF-8 in its name (0xB5) and in its row (0xC3 before "("). The
+# reader reads the file, and its messages quote both lines.
+
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 30 0 1 0 0 0 1
+
+[TRAP]
+1 1000000 10 200 10 0
+
+[EXTENSIONS]
+1 1 1 0
+
+extension UNKNµWN 1
+1 Ã(
+
+[SHAPES]
+

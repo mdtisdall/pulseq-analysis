@@ -130,6 +130,28 @@ def test_a_rejection_of_load_carries_the_reader_s_messages():
     assert "[VERSION]" in error.value.messages
 
 
+def test_a_file_whose_messages_are_not_utf_8_loads():
+    """`load` quotes the line of an extension that it does not know (cpp:1248); a byte there that
+    is not UTF-8 comes to `messages` as its escape."""
+    text = VALID.read_bytes()
+    data = text.replace(b"extension UNKNOWN 7", b"extension UNKN\xb5WN 7")
+    assert data != text
+    assert "extension UNKN\\xb5WN 7" in cs.load(data).messages
+
+
+def test_a_rejection_whose_messages_are_not_utf_8_keeps_its_class_and_its_code():
+    """`load` quotes the ADC row that it fails to decode (cpp:1150). With a byte there that is not
+    UTF-8, `load` raises `Rejected` with the byte escaped in its messages. The code that
+    `read_seqfile` gives is checked in `test_interpreter_in_pulseq_analysis.py`, which needs
+    pulseq-analysis."""
+    text = VALID.read_bytes()
+    row = b"\n1 8 25000 100 0 0 0 0 0\n"
+    assert text.count(row) == 1
+    with pytest.raises(cs.Rejected) as error:
+        cs.load(text.replace(row, b"\n1 \xb5x 25000 100 0 0 0 0 0\n"))
+    assert "1 \\xb5x 25000" in error.value.messages
+
+
 def test_load_reads_the_bytes_of_a_file():
     from_bytes = canonical_dump(wrapper_dump(cs.load(VALID.read_bytes())))
     assert from_bytes == canonical_dump(wrapper_dump(cs.load(VALID)))
