@@ -109,7 +109,13 @@ The same condition in `spec`: [D4.3](../../../docs/discrepancies.md#d43-time-id-
   with no count.
 - The reader: writes past its buffer (`cpp:2231`), or reads past the stored values (`cpp:2222`).
 - `cpp-siemens`: rejects the file with `ub.shape-decompression`. A shape that decompresses to
-  fewer samples is read with its last value repeated.
+  fewer samples is read as the reader reads it: the samples that it does not write keep the
+  values of its buffer, before the cumulative sum. The reader decompresses the shapes of the
+  gradients of a block into one buffer (`cpp:2099-2110`, `cpp:2161-2190`), so these values come
+  from the shape decompressed before it in the block (in a new buffer they are 0, and the sum
+  repeats the last value). `cpp-siemens` follows the reader, and gives such a gradient event a
+  variant for each set of events on the earlier axes of its block
+  (`CppSiemensDecoding.gradient_variants`).
 - Fixtures: `undefined/shape_decompress_longer.seq`,
   `tests/fixtures/shape_decompress_count_missing.seq`.
 

@@ -235,8 +235,13 @@ The tests:
    - The times are the midpoint of each segment of the played points of each
      block, and three block-local times in each block.
    - A time within `TIME_TOLERANCE` of a point of a step is left out: there,
-     the two conventions of the value at a step differ.
-   - The tolerance is `1e-9` of the largest value of the axis.
+     the two conventions of the value at a step differ. A time in a gap piece
+     of the sampler (the line across a short gap, the ramps of a long gap) is
+     left out too: there the sampler draws a line between two events, and
+     `gradientsAt` is 0.
+   - The tolerance is `RTOL` of `tests/test_played.py`: 1e-7 of the largest
+     value of the axis, the float32 rounding of the reader's values (measured
+     up to 4.5e-8 on the fixtures).
    - Today no test compares the measurements of `cpp-siemens` with the
      reader's own `gradientsAt`. The oracle comparisons build the oracle from
      the package's `played_gradients` (`tests/oracles/blocks.py:63`), so they

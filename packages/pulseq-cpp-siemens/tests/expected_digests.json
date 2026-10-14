@@ -1,4 +1,20 @@
 {
+ "packages/pulseq-cpp-siemens/tests/fixtures/gradient_buffer_arbitrary.seq": {
+  "sha256": {
+   "center": "d11205fb9f50939155a8804c617eb95ffa62465bc3f49e91fbe93eeac972cdce",
+   "edge": "d11205fb9f50939155a8804c617eb95ffa62465bc3f49e91fbe93eeac972cdce",
+   "preserve": "d11205fb9f50939155a8804c617eb95ffa62465bc3f49e91fbe93eeac972cdce"
+  },
+  "verdict": "read"
+ },
+ "packages/pulseq-cpp-siemens/tests/fixtures/gradient_buffer_ext_trap.seq": {
+  "sha256": {
+   "center": "b76d1c5ed3a28d4c3cbbc5e53d4777ceac1a3d07276fa7968321aeba5b400709",
+   "edge": "b76d1c5ed3a28d4c3cbbc5e53d4777ceac1a3d07276fa7968321aeba5b400709",
+   "preserve": "b76d1c5ed3a28d4c3cbbc5e53d4777ceac1a3d07276fa7968321aeba5b400709"
+  },
+  "verdict": "read"
+ },
  "packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point.seq": {
   "verdict": "undefined-behaviour:ub.gradient-one-point"
  },

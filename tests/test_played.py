@@ -8,19 +8,22 @@ each segment, and at each point that is not a step (`check_the_points_are_the_gr
 
 Here for `spec`, and for a fake plugin (`test_snapshot.Unrotated`, rotations left unapplied);
 the tests through `cpp-siemens` and its settings are in the plugin's tests
-(`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`).
+(`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`). The fake plugin `Doubled`
+decodes one event otherwise in one block (`gradient_variants`), and that block gets its own key.
 """
 
+import dataclasses
 import pathlib
 import warnings
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
-from test_snapshot import Unrotated
+from test_snapshot import Unrotated, UnrotatedDecoding
 
 from pulseq_analysis.analyses import load
-from pulseq_analysis.seqfile import NotSupported, SeqFileError
-from pulseq_analysis.synth import ScannerSettingWarning
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, SequenceData, Spec
+from pulseq_analysis.synth import ScannerSettingWarning, Session, decode
 from pulseq_analysis.synth._played import played_gradients
 
 SEQFILES = pathlib.Path(__file__).parent / "seqfiles"
@@ -102,3 +105,84 @@ def test_the_points_of_the_played_events_are_the_gradients_of_the_decoding(path,
     events, for a block that the decoding rotates (`spec` from 1.5.1), and for the unrotated
     blocks of a plugin."""
     check_the_points_are_the_gradients(path, interpreter)
+
+
+# Nine blocks, each of which plays the trapezoid 1 on gx.
+TRAPEZOIDS = SEQFILES / "oracle" / "koma_v1.4_gr-trapezoidal.seq"
+# 90 degrees about z: x goes to y.
+QUARTER_Z = (np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5))
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Doubled(Unrotated):
+    """A plugin interpreter of the tests whose decoding plays the gradients of block 1 at twice
+    the amplitude of the file: in block 1 each gradient event decodes otherwise than in the other
+    blocks, as the C++ reader can decode an event (the buffer of the gradients of a block).
+    `spec`'s model and decoding otherwise, with the session."""
+
+    name: ClassVar[str] = "doubled"
+
+    def decode(self, data: SequenceData, session=None) -> "DoubledDecoding":
+        return DoubledDecoding(self, decode(dataclasses.replace(data, interpreter=Spec()), session))
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class DoubledDecoding(UnrotatedDecoding):
+    """The decoding of `Doubled`: `spec`'s gradients, rotated as `spec` rotates them, twice as
+    large in block 1, and a `gradient_variants` with the variant 1 at each cell of block 1 with
+    an event."""
+
+    @property
+    def rotation_record(self):
+        return self.spec.rotation_record
+
+    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_us, rotated)
+        in_block_1 = np.asarray(block_index).reshape(-1) == 1
+        return np.where(in_block_1[:, None], 2 * values, values)
+
+    def gradient_points(self, key: int, block: int, axis: int):
+        delay, offsets, amp = self.spec.gradient_points(key, block, axis)
+        return (delay, offsets, 2 * amp) if block == 1 else (delay, offsets, amp)
+
+    def gradient_variants(self) -> np.ndarray:
+        variants = np.zeros((self.block_count, 3), dtype=np.int64)
+        variants[1] = [self.spec.blocks[column][1] != 0 for column in ("gx", "gy", "gz")]
+        variants.flags.writeable = False
+        return variants
+
+
+def test_each_variant_of_a_gradient_event_has_its_own_key_and_its_own_points():
+    """When the decoding gives an event a variant in one block (`gradient_variants`), the played
+    gradients give that block a new key, above the largest file ID, with the points of the event
+    in that block; the other blocks keep the file ID, with the points of the first block that
+    plays it. The points are the gradients of the decoding (`check_the_points_are_the_gradients`)."""
+    snap = load(TRAPEZOIDS, Doubled())
+    played = played_gradients(snap)
+    assert played.gx[1] > 1
+    assert played.gx[0] == 1 and np.all(played.gx[2:] == 1)
+    for key, block in ((int(played.gx[1]), 1), (1, 0)):
+        delay, offsets, amp = played.points[key]
+        expected = snap.decoding.gradient_points(1, block, 0)
+        assert delay == expected[0]
+        assert np.array_equal(offsets, expected[1])
+        assert np.array_equal(amp, expected[2])
+    check_the_points_are_the_gradients(TRAPEZOIDS, Doubled())
+
+
+def test_a_block_that_the_session_rotates_takes_the_points_of_its_variant():
+    """When the session's field of view rotates every block, the played gradients of each block
+    come from `gradients_at` (`_from_gradients_at`): block 1, with the variant of its event, has
+    its own keys and twice the values of block 0 on y, where the rotation takes gx. The points
+    are the gradients of the decoding, at the middle of each segment and at each point that is
+    not a step (`_probes`)."""
+    snap = load(TRAPEZOIDS, Doubled(), session=Session(fov_rotation=QUARTER_Z))
+    played = played_gradients(snap)
+    assert played.gy[1] != played.gy[0]
+    _, _, block_0 = played.points[int(played.gy[0])]
+    _, _, block_1 = played.points[int(played.gy[1])]
+    scale = float(np.abs(block_1).max())
+    np.testing.assert_allclose(block_1, 2 * block_0, rtol=0, atol=RTOL * scale)
+    blocks, axes, times, values = _probes(snap)
+    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    assert np.abs(got - values).max() <= RTOL * scale

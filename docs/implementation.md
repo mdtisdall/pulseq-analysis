@@ -94,15 +94,27 @@ nothing themselves.
 
 - **A decoded event**: the points that the decoding gives of the event, by its
   file ID, in the first block and axis that play it
-  (`Decoding.gradient_points`, a method of the protocol `synth.Decoding`). That
-  block gives the event's points in every block, so a plugin's decoding of a
-  gradient event must not depend on the block that plays it.
+  (`Decoding.gradient_points`, a method of the protocol `synth.Decoding`).
+  - A decoding can decode one event otherwise in two blocks. Its
+    `Decoding.gradient_variants()` then gives a variant for each block and
+    axis: two cells with the same event and the same variant decode alike.
+    Each pair of an event and a variant is an event of its own, with the
+    points of its first cell. The pair of the first cell that plays the event
+    keeps the file ID, and each other pair gets a key above the largest file
+    ID (section 2.5). With None, every block that plays an event gets the
+    points of the first.
   - `spec`: the decoded event of `events`, and its points by
-    `seq_utils.gradient_offsets`.
+    `seq_utils.gradient_offsets`. Its variants are None.
   - `cpp-siemens` (the plugin): the C++ reader's decoding of the event
-    (`decodeBlock`). The reader decodes a gradient event from the event and
-    the shapes alone, so that block gives its decoding in every block (the
-    plugin's tests check this on every fixture). The points are those between
+    (`decodeBlock`). The reader decompresses the shapes of the gradients of a
+    block into one buffer (one for the arbitrary gradients, one for the
+    extended trapezoids, in the order gx, gy, gz), and a shape whose
+    decompression writes fewer than its `num_samples` values keeps the values
+    of the buffer. Such an event decodes after the events on the earlier axes
+    of its block, so `cpp-siemens` gives it a variant for each set of those
+    events. The files of MATLAB Pulseq and pypulseq have no such shape, and
+    their variants are None (the plugin's tests check both on every
+    fixture). The points are those between
     which the reader's `SeqBlock::gradientsAt` draws its straight lines: times
     in whole µs divided by 1e6, and the values that `gradientsAt` gives at them
     (a float32 amplitude times a float32 sample, D7.2). A gradient with a time
@@ -451,8 +463,9 @@ plays on x and on y has one number. The event columns use the smallest of
 uint8, uint16 and uint32 that holds the number of unique events.
 
 The gradient events are those of section 1.2: the file IDs of the events of
-the file, and for a block whose gradients come from `gradients_at`, a key for
-each axis above the largest file ID (one set of keys for each distinct such
+the file, a key above the largest file ID for each other variant of an event
+(`Decoding.gradient_variants`), and for a block whose gradients come from
+`gradients_at`, a key for each axis above those (one set of keys for each distinct such
 block: the same events, rotation, flags of the field of view and duration). So
 in a rotated block the three axes have events of their own. The IDs of the file are kept: two equal
 rows with different IDs are two events (pypulseq's reading merged them).
