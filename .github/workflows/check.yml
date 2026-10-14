@@ -12,7 +12,27 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # A pull request checks out its merge commit, whose first parent is the base branch: two
+      # commits are enough to find the files that it changes.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: cachix/install-nix-action@v31
+      # The base for `scripts/check --base`, which runs only the checks that read the
+      # documentation when each changed file is documentation. With no base (a new branch, or a
+      # commit that is not there) the full checks run.
+      - name: The base of the change
+        id: base
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            echo "ref=HEAD^1" >>"$GITHUB_OUTPUT"
+          elif [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]] &&
+            git fetch --depth=1 origin "$BEFORE"; then
+            echo "ref=$BEFORE" >>"$GITHUB_OUTPUT"
+          fi
       - name: scripts/check in the CI devShell
-        run: nix develop .#ci --command scripts/check
+        env:
+          BASE: ${{ steps.base.outputs.ref }}
+        run: nix develop .#ci --command scripts/check ${BASE:+--base "$BASE"}

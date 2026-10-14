@@ -20,7 +20,9 @@ this project:
 
 - Default branch: `main`. Merge method: squash.
 - Checks, before each PR (CI runs the same checks):
-  `nix develop --command scripts/check`
+  `nix develop --command scripts/check`. With `--base origin/main`, a branch
+  that changes only documentation runs only the checks that read it (CI does
+  this; the rule is in `scripts/check`).
 - Worktrees: one for each task, in `.worktrees/<short-name>` of the main
   checkout (git-ignored), made with the `start-task` skill. Do not create a
   worktree outside the project directory, inside another worktree, or with a
