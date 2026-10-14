@@ -290,6 +290,11 @@ sequence against the code before each change:
   `FLOAT_UNDEFINED` ends of a 1.4 gradient (D4.4), and its reading of a
   time-shaped gradient.
 - pypulseq's `UserWarning`s about the version of a file are gone.
+- A NaN of the gradients (a plugin can read the amplitude `nan`, which `spec`
+  rejects) propagates: `gradient_peaks` and `block_gradient_values` give NaN
+  values, credited to the first block with the NaN at the time of its first
+  NaN, and they no longer raise `IndexError`; `pns_levels` gives a NaN peak at
+  the time of the first NaN total, not 0.0 with no time.
 
 ### Documents and tests
 

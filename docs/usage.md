@@ -314,6 +314,13 @@ is the block of the value. A largest value of 0 has the block `None` and the
 time 0.0. A ramp or a line between two events can belong to the block before
 or after it ([implementation, section 1.6](implementation.md#16-the-credit-of-each-item-to-a-block)).
 
+A NaN of the gradients (a plugin can read the amplitude `nan` of a file, which
+`spec` rejects) propagates. A NaN is larger than every number: the peak, the
+slew, the RMS and the vector peak of a range with a NaN are NaN, credited to the
+first block in play order with the NaN, at the time of its first NaN. In
+`block_gradient_values`, each block with a NaN has its NaN values at the time
+of its first NaN ([implementation, section 2.1](implementation.md#21-gradient_peaks-and-block_gradient_values)).
+
 ## 4. Find where a value occurs
 
 Each value of `gradient_peaks` has its block and its time. For more, there are
@@ -439,7 +446,7 @@ percent = (levels.level_max_hz_per_t / abs(gamma)) * 100  # fraction -> %, a new
 | `reason` | `None`, or `NO_GRADIENTS`: then the peaks are 0, `peak_time_s` is `None`, and there are no bins and no runs. |
 | `hardware` | The label of the hardware. |
 | `hw` | The SAFE parameters of each axis that the model used. |
-| `peak_hz_per_t`, `peak_time_s` | The largest total (Hz/T), and the time of its first sample (`None` when the peak is 0). |
+| `peak_hz_per_t`, `peak_time_s` | The largest total (Hz/T), and the time of its first sample (`None` when the peak is 0). A NaN of the gradients makes the totals from it NaN: then the peak is NaN, at the time of the first NaN total. |
 | `axis_peaks_hz_per_t` | A dict from each axis to its largest value (Hz/T). |
 | `above` | A dict from each threshold to a tuple of `PnsInterval`: the runs at or above it, in time order. `{}` with no threshold. |
 | `dt_s`, `num_samples` | The time step (the gradient raster) and the number of samples. |

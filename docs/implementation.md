@@ -273,6 +273,26 @@ An axis with no event in a block has the amplitude 0 there. When several
 blocks have the largest value, the first of them in play order gets the
 credit. A largest value of 0 gives no block (`None`) and the time 0.0.
 
+**A NaN.** A plugin can read a NaN of a file (an amplitude `nan`, which `spec`
+rejects, `syntax.number`), and then the waveform is NaN where that event plays.
+A NaN propagates: it is larger than every number, and two NaN are equal, so the
+rules of the largest value and of the credit hold as they are.
+
+- An event with a NaN point has a NaN peak, at the time of its first NaN
+  point. An event with a NaN segment has a NaN slew, at the start of its first
+  NaN segment. Its RMS integral is NaN.
+- A step, a junction, a line or a ramp with a NaN end (a NaN at the first or
+  the last point of an event) has a NaN slew.
+- The vector peak is NaN at the first time of its candidates (section 1.8)
+  where the vector is NaN.
+- So the peak, the slew, the RMS and the vector peak of a range with a NaN are
+  NaN. The first block in play order with the NaN gets the credit (for the
+  vector peak, the block of the earliest time), at the time of its first NaN.
+  In a window, that time can be an end of the range, where the range cuts a
+  NaN segment.
+
+The values of a range with no NaN do not change.
+
 **The slew block.** `AxisResult.slew_time_s` is the start of the segment of
 the largest slew (the start of the range when the range cuts the segment), or
 the time of that step. `slew_block` is the block of its credit (section 1.6):
@@ -361,13 +381,22 @@ within `pns_levels.PEAK_TOLERANCE` (a fraction) of the peak. It is `None` when
 the peak is 0: with `NO_GRADIENTS`, and for gradients that all have the
 amplitude 0 (then the model does not run a second time to find the time).
 
+**A NaN.** When a sample of the gradients is NaN (section 2.1, "A NaN"), its
+total is NaN, and so is every later total: the filters of the model carry it.
+A NaN propagates: `peak_hz_per_t` is NaN, and `peak_time_s` is the time of the
+first sample whose total is NaN. The peak of an axis is NaN when a value of the
+axis is NaN, and a bin of the level with a NaN total has the minimum and the
+maximum NaN.
+
 **The runs above a threshold.** `above[t]` has each run of consecutive samples
 whose float64 total is at or above `t`, in time order. A run starts at
 `first * dt` and ends at `(last + 1) * dt`, the edges of its samples, so a run
 of one sample has `end_s - start_s == dt`. A tuple is empty when
 `peak_hz_per_t` is below its threshold. Otherwise its largest
 `PnsInterval.peak_hz_per_t` is `peak_hz_per_t`. All thresholds are found in
-one pass.
+one pass. A NaN total is at or above no threshold, so with a NaN peak the
+runs are those of the finite totals before the first NaN, and the largest of
+a run is not the peak.
 
 **The bins of the level.** `bin_samples_for(num_samples, dt, bin_s)` gives the
 whole number of samples of a bin. When `bin_s / dt` is within
