@@ -9247,6 +9247,35 @@ times each, give the values of one thread.
 **Assumptions:** The threads interleave as the scheduler decides; the test shows no race on this
 run, not that there is none.
 
+#### `test_each_rejection_of_decode_block_has_the_messages_of_its_own_block`
+
+**Checks:** Two threads that share one `Sequence` and call `decode_block` on two blocks that
+`decodeBlock` rejects each get `Rejected` with the messages of their own block.
+
+**How:** The file is `valid_1_5_1.seq` with time shape 6 (5 samples) on the gradients 2 and 4,
+whose wave shapes have 10, so `decodeBlock` rejects blocks 1 and 3 (play order from 0). After a
+`threading.Barrier`, one thread calls `decode_block(1)` 2000 times and the other
+`decode_block(3)` 2000 times. Each `Rejected.messages` must have exactly one line
+`decodeBlock returned false for block <n>`, for the block of its own call.
+
+**Assumptions:** The threads interleave as the scheduler decides; a pass shows no mixed messages
+on this run, not that there are none.
+
+#### `test_gradients_at_and_first_rejected_block_have_the_messages_of_their_own_block`
+
+**Checks:** With two threads on one `Sequence`, each `Rejected` of `gradients_at` has the messages
+of its own block, and after each call of `first_rejected_block` `rejection_messages` has the
+messages of the block that the call returns.
+
+**How:** The file of the test above. After a `threading.Barrier`, one thread calls
+`gradients_at([3], [0.0])` 2000 times, and the other calls `first_rejected_block()` 2000 times.
+Each `Rejected.messages` must name block 3 alone. Each call of `first_rejected_block` must return
+1, and `rejection_messages`, read by the same thread just after the call, must name block 1 alone.
+
+**Assumptions:** Only one thread calls `first_rejected_block`, so no other call sets
+`rejection_messages` between the call and the read. The threads interleave as the scheduler
+decides, as in the test above.
+
 #### `test_the_c_library_of_the_process_reads_numbers_by_its_locale`
 
 **Checks:** With a locale with a decimal comma, `strtod` of the process reads "0.5" as 0: the

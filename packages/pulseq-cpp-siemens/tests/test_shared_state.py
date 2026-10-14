@@ -5,11 +5,15 @@
 print function (`ExternalSequence::print_fun`, cpp:23) is global too. `sscanf`, with which the
 reader reads every number, follows the C locale of the process. The extension holds one lock for
 each call, sets the raster of the sequence it works on, and runs with the "C" locale in its
-thread."""
+thread.
+
+Threads that share one `Sequence` share its reader: each rejection must carry the messages of its
+own call, not those of a call of another thread."""
 
 import ctypes
 import ctypes.util
 import locale
+import re
 import sys
 import threading
 
@@ -83,6 +87,98 @@ def test_loads_and_samples_in_threads_give_the_values_of_one_thread(fine_raster)
     for thread in threads:
         thread.join()
     assert errors == []
+
+
+# valid_1_5_1.seq with time shape 6 (5 samples) on the gradients 2 and 4, whose wave shapes have
+# 10: decodeBlock rejects the blocks that play them, and only those ("uncompressed extended
+# trapezoid time and wave shape lengths do not match").
+REJECTED = (1, 3)
+CALLS = 2000
+
+
+def two_rejected_blocks():
+    text = VALID.read_bytes()
+    for row, rejected in (
+        (b"\n2 500000 0 0 3 0 100\n", b"\n2 500000 0 0 3 6 100\n"),
+        (b"\n4 500000 500000 0 4 0 0\n", b"\n4 500000 500000 0 4 6 0\n"),
+    ):
+        assert row in text
+        text = text.replace(row, rejected)
+    return text
+
+
+def blocks_named(messages):
+    """The blocks of each line "decodeBlock returned false for block <n>" of `messages`."""
+    return [int(n) for n in re.findall(r"decodeBlock returned false for block (\d+)", messages)]
+
+
+def run_together(*works):
+    """Each function of `works` in its own thread, started together; what each returned."""
+    barrier = threading.Barrier(len(works))
+    results = [None] * len(works)
+
+    def run(k):
+        barrier.wait()
+        results[k] = works[k]()
+
+    threads = [threading.Thread(target=run, args=(k,)) for k in range(len(works))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return results
+
+
+def test_each_rejection_of_decode_block_has_the_messages_of_its_own_block():
+    sequence = cs.load(two_rejected_blocks())
+
+    def decode(index):
+        def work():
+            wrong = []
+            for _ in range(CALLS):
+                try:
+                    sequence.decode_block(index)
+                except cs.Rejected as error:
+                    if blocks_named(error.messages) != [index]:
+                        wrong.append(error.messages)
+                else:
+                    wrong.append("decoded")
+            return wrong
+
+        return work
+
+    first, second = run_together(decode(REJECTED[0]), decode(REJECTED[1]))
+    assert (len(first), len(second), first[:2], second[:2]) == (0, 0, [], [])
+
+
+def test_gradients_at_and_first_rejected_block_have_the_messages_of_their_own_block():
+    sequence = cs.load(two_rejected_blocks())
+    late, first = REJECTED[1], REJECTED[0]
+
+    def sample():
+        wrong = []
+        for _ in range(CALLS):
+            try:
+                sequence.gradients_at([late], [0.0])
+            except cs.Rejected as error:
+                if blocks_named(error.messages) != [late]:
+                    wrong.append(error.messages)
+            else:
+                wrong.append("sampled")
+        return wrong
+
+    def find_first():
+        # Only this thread calls first_rejected_block, so rejection_messages, read just after
+        # the call, is set by that call.
+        wrong = []
+        for _ in range(CALLS):
+            index = sequence.first_rejected_block()
+            if index != first or blocks_named(sequence.rejection_messages) != [first]:
+                wrong.append((index, sequence.rejection_messages))
+        return wrong
+
+    sampled, found = run_together(sample, find_first)
+    assert (len(sampled), len(found), sampled[:2], found[:2]) == (0, 0, [], [])
 
 
 def _a_locale_with_a_decimal_comma():
