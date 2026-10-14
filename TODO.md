@@ -30,3 +30,24 @@
   (`tests/golden/`). When a pypulseq release has the six changes: pin that
   release in the `dev` group, remove `[tool.uv.sources]`, and run the tests
   with it. Do this in the three repositories at the same time.
+
+- **Whether `spec` reads a `[TRAP]` row whose rise, flat and fall times are
+  all 0 (decision D4 of the plan of the fixes of `cpp-siemens`, open on
+  2026-10-14).** `spec` reads one today, and its event has all its points at
+  one time. The measurements handle such an event (B6, PR #138): a block that
+  they read through `gradients_at` always has two times or more. Before a
+  decision, check what the specification says, and whether pypulseq or
+  MATLAB Pulseq write such a row. A rejection would be a rule of
+  `spec.RULES` and an entry of `docs/discrepancies.md`, on a branch of its
+  own. Also not yet checked: whether pypulseq or MATLAB Pulseq write a
+  gradient amplitude of NaN, which `cpp-siemens` reads (B7, PR #140).
+- **The other findings of the review of 2026-10-13.** The plan of the fixes
+  of `cpp-siemens` (PRs #134 to #140) fixed four of its bugs, and three that
+  the work found (B5 to B7). The review is not in `docs/reviews/`; a later
+  plan could commit it as `docs/reviews/2026-10-13-code-review.md`, as the
+  four earlier reviews are. Its findings that are not fixed:
+  - for the plugin: the "edge" mode with an oversampled gradient of 0
+    samples, undefined behaviour reported as one first-found rejection, and
+    the duplication with the main package;
+  - the findings for `spec`, `synth`, the analyses, the tests and the
+    documents.
