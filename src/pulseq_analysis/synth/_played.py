@@ -23,8 +23,12 @@ The measurements read the gradients only through the decoding (`snapshot.Snapsho
   that ends after the end of the block (a plugin can play it; `spec` rejects it,
   `block.event-too-long`; `gradients_at` is 0 after the block). The package does not rotate. The gradients of such a block are straight lines
   between the times of the points of its events, up to the end of the block, so its event of an
-  axis has a point at each of these times, with the value of `gradients_at` there. The end of a
-  block is its actual duration (`Decoding.block_durations`). Where an event
+  axis has a point at each of these times, with the value of `gradients_at` there. There are
+  always two times or more: the end of the block is a time when an event goes on after it, and
+  when every point of the events is at one time (an event of length 0); with no point before the
+  end, the block start is a time too (the events lie wholly after the end, or at it). So a block
+  of duration 0 has the times 0 and 0. The end of a block is its actual duration
+  (`Decoding.block_durations`). Where an event
   of the block has a step (it starts or ends at a value that is not 0, or has two points at one
   time), and at the end of a block that cuts an event, the event has two points at that time: the
   value just before and the value just after, each the straight line of `gradients_at` at two
@@ -210,10 +214,12 @@ def _plan(
     snap: Snapshot, block: int, columns: list[np.ndarray], points: dict[int, Points]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """For the block `block`: the times of the points of its events up to the end of the block
-    (s from the block start, sorted, distinct), with the end of the block when an event goes on
-    after it, whether `gradients_at` has a step at each, and the times at which it is read: each
-    time, then two times inside each segment (at a quarter and at three quarters of it), in this
-    order."""
+    (s from the block start, sorted), two or more: with the end of the block when an event goes
+    on after it or when every point is at one time, and the block start before it when no point
+    is before the end; whether `gradients_at` has a step at each (the end, when it is added, is
+    one), and the times at which it is read: each time, then two times inside each segment (at a
+    quarter and at three quarters of it), in this order. The times are distinct, except the start
+    and the end of a block of duration 0."""
     duration = float(snap.decoding.block_durations[block])
     all_times: list[np.ndarray] = []
     step_times: list[float] = []
@@ -231,8 +237,14 @@ def _plan(
         same = (np.diff(t) == 0) & (np.diff(amp) != 0)
         step_times.extend(t[1:][same].tolist())
     times = np.unique(np.concatenate(all_times))
-    if times[-1] > duration + TIME_TOLERANCE:  # `gradients_at` is 0 after the end of the block
-        times = np.append(times[times < duration - TIME_TOLERANCE], duration)
+    # Two times or more: the times stop at the end of the block when an event goes on after it
+    # (`gradients_at` is 0 after the end), and go on to it when every point is at one time. With
+    # no point before the end, they start at the block start. The end is a step: its value is the
+    # one just before it, from the two reads inside the last segment, so it is the value that
+    # plays in the block whatever `gradients_at` gives at the end itself.
+    if times[-1] > duration + TIME_TOLERANCE or times.size == 1:
+        before = times[times < duration - TIME_TOLERANCE]
+        times = np.append(before if before.size else 0.0, duration)
         step_times.append(duration)
     steps = np.isin(times, np.asarray(step_times, dtype=np.float64))
     quarter = np.diff(times) / 4
