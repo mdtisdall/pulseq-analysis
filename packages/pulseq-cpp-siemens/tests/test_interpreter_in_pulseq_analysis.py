@@ -91,3 +91,20 @@ def test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq(cases, 
     except SeqFileError as error:
         pytest.skip(f"cpp-siemens rejects the file ({', '.join(sorted(error.codes))})")
     test_matlab_oracle.compare_rotated_gradients(case, data)
+
+
+def test_a_rejection_whose_messages_are_not_utf_8_has_the_code_of_the_ascii_row(tmp_path):
+    """`load` quotes the ADC row that it fails to decode (cpp:1150). With a byte there that is not
+    UTF-8, `read_seqfile` with `cpp-siemens` gives the codes of the same row with an ASCII byte in
+    its place: the messages, decoded with `backslashreplace`, map to the same codes."""
+    text = (SEQFILES / "valid_1_5_1.seq").read_bytes()
+    row = b"\n1 8 25000 100 0 0 0 0 0\n"
+    assert text.count(row) == 1
+    codes = {}
+    for name, byte in (("ascii", b"x"), ("not_utf_8", b"\xb5x")):
+        path = tmp_path / f"{name}.seq"
+        path.write_bytes(text.replace(row, b"\n1 " + byte + b" 25000 100 0 0 0 0 0\n"))
+        with pytest.raises(SeqFileError) as caught:
+            read_seqfile(path, "cpp-siemens")
+        codes[name] = caught.value.codes
+    assert codes["not_utf_8"] == codes["ascii"]

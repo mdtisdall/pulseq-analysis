@@ -8677,14 +8677,13 @@ a byte that is not UTF-8, and its `messages` have that byte as its escape `\xb5`
 #### `test_a_rejection_whose_messages_are_not_utf_8_keeps_its_class_and_its_code`
 
 **Checks:** For a file that `load` rejects with a byte that is not UTF-8 in its messages, `load`
-raises `Rejected` with the byte escaped in its `messages`, and `read_seqfile` with `cpp-siemens`
-raises `SeqFileError` with the codes that it gives for the same file with an ASCII byte in place
-of that byte.
+raises `Rejected` with the byte escaped (`\xNN`) in its `messages`.
 
 **How:** The test changes the ADC row `1 8 25000 ...` of `valid_1_5_1.seq` to `1 \xb5x 25000 ...`
-and to `1 x 25000 ...`, in the bytes of the file. The reader fails to decode either row and quotes
-it (cpp:1150). The comparison of the codes is differential, so it does not depend on the text of
-the message.
+in the bytes of the file. The reader fails to decode the row and quotes it (cpp:1150). The codes
+that `read_seqfile` gives for it are checked by
+`test_a_rejection_whose_messages_are_not_utf_8_has_the_code_of_the_ascii_row` (section 3.9),
+which needs pulseq-analysis.
 
 **Assumptions:** One row of one section.
 
@@ -9750,6 +9749,17 @@ message for the three functions.
 float64. A file that `cpp-siemens` rejects (`valid_last_section_no_blank.seq`,
 `definitions.skipped`, and `valid_rf_time_shapes.seq`, `ub.rf-time-overrun`) or that MATLAB cannot
 read is skipped.
+
+#### `test_a_rejection_whose_messages_are_not_utf_8_has_the_code_of_the_ascii_row`
+
+**Checks:** `read_seqfile` with `cpp-siemens` gives the same codes for a row that the reader fails
+to decode with a byte that is not UTF-8 as for the same row with an ASCII byte in its place.
+
+**How:** The test changes the ADC row `1 8 25000 ...` of `valid_1_5_1.seq` to `1 \xb5x 25000 ...`
+and to `1 x 25000 ...`, writes each file, and compares the codes of the two `SeqFileError`s. The
+comparison is differential, so it does not depend on the text of the message.
+
+**Assumptions:** One row of one section.
 
 ### 3.10 The measurements through `cpp-siemens` (`test_measurements_in_pulseq_analysis.py`)
 
