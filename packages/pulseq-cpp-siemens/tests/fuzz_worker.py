@@ -5,12 +5,17 @@ It reads a sampling mode of oversampled gradients and a path of a .seq file on e
 (separated by a tab) and writes one JSON object on a line of stdout for each:
 
 - "verdict": "not-supported", "rejected" (load, or a decodeBlock), "undefined-behaviour" (with
-  "code", and "where": [block, time] for a case that only gradientsAt meets), or "read" (every
-  block decodes);
-- for "read": "points", the [block, time] pairs that seqfuzz.py gives the sanitized oracle's
-  `--sample`, and "values", the package's `gradients_at` there, as the hex of each float64.
+  "code", and "where": [block, time] for a case that only gradientsAt meets, or [block, time,
+  actual_ru] for one that only gradientsAt with a soft delay meets), or "read" (every block
+  decodes);
+- for "read": "points", the [block, time] and [block, time, actual_ru] lines that seqfuzz.py gives
+  the sanitized oracle's `--sample`, and "values", the package's `gradients_at` there, as the hex
+  of each float64.
 
 Like the oracle's first mode, it decodes every block, also after one that decodeBlock rejects.
+It samples each block twice: at its stored duration, and with a soft delay (`actual_ru`) that
+makes it last past the end of its last gradient event, where the stored duration can hide a case
+(an extended trapezoid of one point whose delay is past the end of the block).
 """
 
 import json
@@ -22,17 +27,30 @@ import pulseq_cpp_siemens as cs
 
 # At most this many blocks are sampled, at a few times each.
 SAMPLED_BLOCKS = 24
+# The raster (us) of an arbitrary gradient in gradientsAt: SeqBlock::s_gradientRaster (cpp:90),
+# which the reader never changes.
+GRADIENTS_AT_RASTER_US = 10.0
+# The largest soft delay that the worker sets, so that it is an int64 and a long of the reader.
+MAX_ACTUAL_RU = 2**62
 
 
-def sample_points(sequence: cs.Sequence) -> tuple[list[int], list[float]]:
+def sample_points(sequence: cs.Sequence, actual_ru=None) -> tuple[list[int], list[float]]:
     """A few times in each of the first blocks: before, at and after its start and its end, its
     middle, and the delays of its gradients and a few rasters after them. The middle comes before
     each delay: the channels after a gradient that gradientsAt returns early for (an oversampled
-    gradient with no sample, in the "edge" mode) must not keep the values of the time before."""
+    gradient with no sample, in the "edge" mode) must not keep the values of the time before.
+
+    With `actual_ru` (one int for each block), only the blocks with a value of 0 or more, each
+    with that soft delay as its end in place of its stored duration."""
     libraries = sequence.libraries
     blocks, times = [], []
     for index, row in enumerate(libraries.blocks[:SAMPLED_BLOCKS].tolist()):
-        duration = row[0] * libraries.block_raster_us
+        duration_ru = row[0]
+        if actual_ru is not None:
+            if actual_ru[index] < 0:
+                continue
+            duration_ru = int(actual_ru[index])
+        duration = duration_ru * libraries.block_raster_us
         candidates = [-1.0, 0.0, 0.5, 5.0, 10.0, 15.25, duration / 2, duration, duration + 1.0]
         for grad_id in row[2:5]:
             if grad_id in libraries.grad:
@@ -43,6 +61,35 @@ def sample_points(sequence: cs.Sequence) -> tuple[list[int], list[float]]:
                 blocks.append(index)
                 times.append(float(t))
     return blocks, times
+
+
+def actual_ru_past_the_gradients(sequence: cs.Sequence, decoded: list[dict]) -> np.ndarray:
+    """A soft delay (in units of BlockDurationRaster) for each of the sampled blocks that has a
+    gradient event: past the end of its last event (the largest delay plus length of an event, the
+    length as gradientsAt reads it), plus one block raster. It is longer than the stored duration
+    wherever an event ends after the block. The other blocks get -1 (none)."""
+    raster = sequence.libraries.block_raster_us
+    actual = np.full(sequence.block_count, -1, dtype=np.int64)
+    if not (math.isfinite(raster) and raster > 0):
+        return actual
+    for index, block in enumerate(decoded[:SAMPLED_BLOCKS]):
+        ends = []
+        for grad in block["grad"]:
+            if grad is None:
+                continue
+            if grad["kind"] == "trap":
+                length = grad["ramp_up_us"] + grad["flat_us"] + grad["ramp_down_us"]
+            elif grad["kind"] == "ext_trap":
+                length = int(grad["times_us"][-1]) if grad["times_us"].size else 0
+            else:
+                length = grad["samples"].size * GRADIENTS_AT_RASTER_US
+            ends.append(grad["delay_us"] + length)
+        if not ends:
+            continue
+        end_ru = max(ends) / raster
+        if math.isfinite(end_ru) and end_ru < MAX_ACTUAL_RU:
+            actual[index] = max(math.ceil(end_ru) + 1, 0)
+    return actual
 
 
 def verdict(path: str, oversampling: str) -> dict:
@@ -56,18 +103,32 @@ def verdict(path: str, oversampling: str) -> dict:
     except cs.Rejected:
         return {"verdict": "rejected", "stage": "load"}
     rejected = False
+    decoded = []
     for index in range(sequence.block_count):
         try:
-            sequence.decode_block(index)
+            decoded.append(sequence.decode_block(index))
         except cs.Rejected:
             rejected = True
     if rejected:
         return {"verdict": "rejected", "stage": "decode"}
     blocks, times = sample_points(sequence)
     values = sequence.gradients_at(blocks, times) if blocks else np.zeros((0, 3))
+    points = [[b, t] for b, t in zip(blocks, times, strict=True)]
+    # The same blocks with a soft delay past their gradients (a call of its own: the actual_ru of
+    # a call is for each block).
+    actual = actual_ru_past_the_gradients(sequence, decoded)
+    blocks, times = sample_points(sequence, actual)
+    if blocks:
+        try:
+            delayed = sequence.gradients_at(blocks, times, actual_ru=actual)
+        except cs.UndefinedBehaviour as error:
+            where = [error.block, error.time_us, int(actual[error.block])]
+            return {"verdict": "undefined-behaviour", "code": error.code, "where": where}
+        values = np.concatenate([values, delayed])
+        points += [[b, t, int(actual[b])] for b, t in zip(blocks, times, strict=True)]
     return {
         "verdict": "read",
-        "points": [[b, t] for b, t in zip(blocks, times, strict=True)],
+        "points": points,
         "values": np.ascontiguousarray(values, dtype=np.float64).tobytes().hex(),
     }
 

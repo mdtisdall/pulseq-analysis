@@ -171,6 +171,24 @@ def test_an_extended_trapezoid_of_one_point(tmp_path, time, delay, amplitude, co
         assert result.returncode == 3, result.stderr
 
 
+def checked(path):
+    """`_checks.undefined_behaviour` of the file, as `load` calls it."""
+    reader = cs._reader.Reader()
+    assert reader.load(path.read_bytes())
+    libraries = cs.Libraries._from_reader(reader.libraries())
+    return _checks.undefined_behaviour(libraries, cs._reader.SIZEOF_LONG, reader.gradient_rows())
+
+
+def test_the_checks_give_the_one_point_reads_that_the_stored_duration_hides():
+    """With the delay at 200 us, past the 100 us of block 4, no time of the stored duration reaches
+    the read: no case, and the interval from the delay to the one point (40 us after it)."""
+    after_block = checked(UB_FIXTURES / "gradient_one_point_after_block.seq")
+    assert after_block.case is None
+    assert after_block.hidden_one_point == {4: [(200.0, 240.0)]}
+    inside = checked(ONE_POINT).case
+    assert (inside.code, inside.block, inside.time_us) == ("ub.gradient-one-point", 4, 0.0)
+
+
 def test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0(tmp_path):
     """load reads [TRAP] after [GRADIENTS]: a [TRAP] row with the ID of a [GRADIENTS] row of shape
     0 replaces it, and its times are set."""

@@ -429,7 +429,7 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
 2. **A pull request or a push to `main` that changes the package, the oracle or its build**
    (`.github/workflows/pulseq-cpp-siemens-fuzz.yml`, job `seeded`): the full set, the files 0 to
    2 999 of seed 20261012, in about 115 s on 10 cores of an Apple M-series machine (CI has 4). A
-   file has 1.6 mutations on average, so each of the 25 mutations is applied about 190 times.
+   file has 1.6 mutations on average, so each of the 26 mutations is applied about 185 times.
    Each of the 11 codes must be confirmed at least 10 times in the set
    (`test_the_seeded_files_reach_each_case_of_undefined_behaviour`); the rarest,
    `ub.rf-time-overrun`, is confirmed 17 times, the others 43 to 238 times. So the set cannot

@@ -18,6 +18,14 @@
  "packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point.seq": {
   "verdict": "undefined-behaviour:ub.gradient-one-point"
  },
+ "packages/pulseq-cpp-siemens/tests/fixtures/gradient_one_point_after_block.seq": {
+  "sha256": {
+   "center": "096a00e1a24df977b7600fe10af0d87fc9d3671115e28de46f767d87ce1c93d7",
+   "edge": "0a40be8a1d82b3a2add70daf6c06d874ec9575b7db229fdb2be93081965e39be",
+   "preserve": "1d69d6423a4de09cd9560c365d0a7792fd63cee769ffd4ff79c089734c7a42da"
+  },
+  "verdict": "read"
+ },
  "packages/pulseq-cpp-siemens/tests/fixtures/gradient_shape_0.seq": {
   "verdict": "undefined-behaviour:ub.gradient-shape-0"
  },

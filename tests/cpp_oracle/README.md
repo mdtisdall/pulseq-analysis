@@ -26,7 +26,7 @@ system:
 | --- | --- |
 | `pulseq-cpp-oracle FILE` | Says only whether the file loads and each block decodes: the exit status. |
 | `pulseq-cpp-oracle --dump FILE` | Writes what the reader holds after `load` and `decodeBlock` of every block, as one JSON object on stdout. |
-| `pulseq-cpp-oracle --sample FILE` | Reads lines `block_index time_us` on stdin and writes the three gradient values of `SeqBlock::gradientsAt` for each line. |
+| `pulseq-cpp-oracle --sample FILE` | Reads lines `block_index time_us [actual_ru]` on stdin and writes the three gradient values of `SeqBlock::gradientsAt` for each line. |
 
 A call with one argument is always the first mode, so a file named `--dump` is read as a file.
 
@@ -41,7 +41,7 @@ value, or an option anywhere else, is a wrong call (status 2). With no option th
 | --- | --- |
 | 0 | The file loads and each block decodes (and the mode did its work). |
 | 1 | The file does not load, a block does not decode, or the reader throws. The messages of the reader are on stderr. |
-| 2 | A wrong call; in `--sample` also a line of stdin that is not `block_index time_us`, or a block index outside the sequence. |
+| 2 | A wrong call; in `--sample` also a line of stdin that is not `block_index time_us [actual_ru]`, or a block index outside the sequence. |
 | 70 | The reader crashed (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS or SIGTRAP). |
 
 `--dump` writes its JSON only at the end, so a call that exits with 1 has written nothing on
@@ -200,6 +200,14 @@ block in play order from 0, and a time in µs from the start of the block (a num
 reads; not NaN or infinity). For each line it writes one line `gx gy gz` on stdout: the three
 values of `SeqBlock::gradientsAt`, each with `%.17g` (Hz/m, as the reader holds them: the
 amplitude is a `float`). A value that is not finite would be written as `printf` writes it.
+
+A line can have a third number, `actual_ru`: an integer (a `long` that `strtol` reads in base 10)
+that the driver sets on the block with the reader's hook `SeqBlock::setActualSoftDelay_ru` for
+the call to `gradientsAt` of that line, and sets back to -1 (the reader's default) after it, as
+`gradients_at` of pulseq-cpp-siemens does with its `actual_ru`. `GetDuration` is then
+`actual_ru` block duration rasters in place of the stored duration, so `gradientsAt` gives 0
+after that time. A value below 0 sets no soft delay, and a line with two numbers is the same as
+one with -1.
 
 The driver decodes each block once, when a line first asks for it. A line that does not read as
 `block_index time_us`, or a block index that is not in `0` to the number of blocks minus 1, makes

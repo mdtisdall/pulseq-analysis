@@ -8978,6 +8978,20 @@ Where the case is raised, the sanitized oracle's `--sample` at its block and tim
 **Assumptions:** `gradients_at` samples every 0.5 us; the cases with no rejection show that those
 times are safe, with the C++ library of the devShell, whose hardening traps a read past a vector.
 
+#### `test_the_checks_give_the_one_point_reads_that_the_stored_duration_hides`
+
+**Checks:** On `tests/fixtures/gradient_one_point_after_block.seq` (the delay of the extended
+trapezoid of one point at 200 us, past the 100 us of block 4), `_checks.undefined_behaviour`
+gives no case and the interval of the read that the stored duration hides, `{4: [(200.0,
+240.0)]}` (from the delay to the one point, 40 us after it). On `gradient_one_point.seq` it still
+gives `ub.gradient-one-point` at block 4 and 0 us.
+
+**How:** The test loads each file with the extension's `Reader` and calls the checks as `load`
+does. The result has the fields `case` and `hidden_one_point`.
+
+**Assumptions:** The intervals are a list of `(start_us, end_us)` for each block that has one;
+`end_us` is not in the interval (`gradientsAt` gives the one point's value there).
+
 #### `test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0`
 
 **Checks:** A `[TRAP]` row with the ID of a `[GRADIENTS]` row of shape 0 replaces it (load reads
@@ -9167,17 +9181,54 @@ marked checked.
 
 **Assumptions:** None.
 
+#### `test_a_soft_delay_that_reaches_a_hidden_one_point_read_raises`
+
+**Checks:** On `tests/fixtures/gradient_one_point_after_block.seq`, which `load` reads, `gradients_at`
+of block 4 at 205 us with an `actual_ru` of 100 for block 4 (1000 us, so the block reaches the
+delay of 200 us) and -1 for the others raises `UndefinedBehaviour` with the code
+`ub.gradient-one-point`, block 4 and time 205.0, and the process ends with 0. Without the check,
+`gradientsAt` reads past the times of the extended trapezoid of one point there; on macOS in the
+devShell the process then ends with SIGTRAP (the hardened C++ library traps the read).
+
+**How:** The test runs `load` and `gradients_at` in a process of its own (`sys.executable -c`),
+which writes the result as JSON, and asserts on its exit status and its output.
+
+**Assumptions:** None.
+
+#### `test_a_time_outside_the_hidden_read_gives_the_value_of_the_reader`
+
+**Checks:** With the same `actual_ru`, the times 100 and 199 us (before the delay), 240 us (the
+one point: 200 000 Hz/m) and 250 and 900 us (after it, inside the 1000 us of the block) give the
+values of the reader, with no exception: the check refuses only the times of the read. Where
+`pulseq-cpp-oracle-sanitized` is on the PATH, its `--sample` with the soft delay as the third
+field of each line exits with 0 and gives the same values.
+
+**How:** As above, in a process of its own; the oracle reads the same times.
+
+**Assumptions:** None.
+
+#### `test_a_soft_delay_that_ends_before_the_hidden_read_gives_0`
+
+**Checks:** An `actual_ru` of 10 for block 4 (100 us, its stored duration) or of 15 (150 us,
+longer than stored but before the delay of 200 us) gives 0 at 205 us, with no exception: a soft
+delay that does not reach the delay is not refused.
+
+**How:** As above (one case for each value).
+
+**Assumptions:** None.
+
 ### 3.7 The fuzzing of the checks (`test_fuzz.py`)
 
 `tests/seqfuzz.py` generates `.seq` files from the grammar of the format, each a function of a
-seed and an index: a random valid file of version 1.4 or 1.5, then up to three of 25 mutations
+seed and an index: a random valid file of version 1.4 or 1.5, then up to three of 26 mutations
 (the shapes of section 5.3 and their neighbours, values at the edges of their types, sections,
 IDs, definitions and versions), and for one file in eight a change to its text. Each file also
 gets one of the three sampling modes of oversampled gradients, from its seed and index, and
 both readers read it in that mode. The generator makes oversampled gradients often and of any
 size, 1 and 2 samples included (none of them is kept in the mode "edge"). Each file is read
 by the package in a process of its own (`tests/fuzz_worker.py`, which decodes every block and
-samples `gradients_at`) and by `pulseq-cpp-oracle-sanitized`, with ASan's largest allocation set
+samples `gradients_at`, at the stored durations and again with an `actual_ru` that makes each
+sampled block last past the end of its last gradient event) and by `pulseq-cpp-oracle-sanitized`, with ASan's largest allocation set
 to 256 MB so that the growth of D5.4 ends quickly. The package's `README.md` ("Fuzzing") gives the
 four tiers. `scripts/check` runs the first: the regression corpus (`tests/fuzz_corpus/`) and 200
 seeded files. `.github/workflows/pulseq-cpp-siemens-fuzz.yml` runs the second on a pull request
@@ -9245,10 +9296,14 @@ fuzzing workflow), no file fails: the oracle flags no file
 (undefined behaviour, no end or a crash) that the package decodes; the package's process neither
 dies nor hangs; the checks raise no `UndefinedBehaviour` for a file that the oracle accepts; the
 two give the same verdict; and where both read the file, `gradients_at` gives the bits of the
-oracle's `--sample` at the same times, which also runs `gradientsAt` under the sanitizers. A
-rejection `ub.gradient-one-point` of a file that the oracle accepts is confirmed by the oracle's
-`--sample` at the case's block and time, and a rejection `ub.gradient-shape-0` by a reading of
-the file's text (`seqfuzz.known_cases`).
+oracle's `--sample` at the same times, with the same soft delays (the third field of a line of
+`--sample`), which also runs `gradientsAt` under the sanitizers. A rejection
+`ub.gradient-one-point` of a file that the oracle accepts is confirmed by the oracle's `--sample`
+at the case's block and time, with the worker's soft delay where the case needs one, and a
+rejection `ub.gradient-shape-0` by a reading of the file's text (`seqfuzz.known_cases`). The
+mutation `gradient-one-point-after-block` puts the delay of an extended trapezoid of one point past
+the end of each block that plays it, so that the seeded files have the case that only a soft
+delay reaches.
 
 **How:** `seqfuzz.run` runs the package and the oracle on each file in its sampling mode, in as
 many threads as CPUs, and compares. The failing files are kept in a temporary folder that the
