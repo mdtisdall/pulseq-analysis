@@ -153,8 +153,12 @@ times of an arbitrary gradient) is None.
 The reader keeps state that all its objects share: `SeqBlock::s_blockDurationRaster`, which each
 `load` sets and `gradientsAt` reads, and its print function. It reads numbers with `sscanf`,
 which follows the C locale. Each call into the reader holds one mutex (with the GIL released),
-sets `s_blockDurationRaster` to the value of its own sequence, collects the reader's messages,
-and runs with the "C" locale in its thread (`uselocale`; `_configthreadlocale` on Windows).
+sets `s_blockDurationRaster` to the value of its own sequence, collects the reader's messages in
+a string of its own, which it returns with its result, and runs with the "C" locale in its thread
+(`uselocale`; `_configthreadlocale` on Windows). So calls are safe from several threads, also on
+one `Sequence`, and each `Rejected` has the messages of its own call. `rejection_messages` is an
+attribute of the `Sequence`, set from the result of one call: with several threads that call
+`first_rejected_block` on one `Sequence`, it has the messages of the last call to return.
 
 The reader is compiled with `-fsigned-char` and `-ffp-contract=off` (MSVC: `/fp:precise`), as its
 x86_64 build on the scanner. `ExternalSequence::getline` compares a `char` with `EOF`: with an

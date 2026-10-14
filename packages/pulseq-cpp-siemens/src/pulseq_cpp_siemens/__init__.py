@@ -23,8 +23,12 @@ and it rejects each case of undefined behaviour of the reader before any block i
 soft delay reaches (`actual_ru` longer than the stored duration of a block) is refused by
 `gradients_at`, at the times where the reader would meet it.
 
-Calls are safe from several threads: the extension holds one lock for each call into the reader,
-sets the reader's shared state for the sequence it works on, and reads numbers in the "C" locale.
+Calls are safe from several threads, also on one `Sequence`: the extension holds one lock for
+each call into the reader, sets the reader's shared state for the sequence it works on, reads
+numbers in the "C" locale, and returns the reader's messages of each call with its result, so that
+each `Rejected` has the messages of its own call. `Sequence.rejection_messages` is an attribute of
+the `Sequence`: with several threads, it has the messages of the last call of
+`first_rejected_block` to return.
 """
 
 from __future__ import annotations
@@ -207,7 +211,8 @@ class Sequence:
         self.libraries = libraries
         self.messages = messages  # what the reader printed while it loaded the file
         self.oversampling = oversampling
-        # The reader's messages for the block that `first_rejected_block` last found rejected.
+        # The reader's messages for the block that `first_rejected_block` last found rejected:
+        # with several threads, those of the last call of it to return.
         self.rejection_messages = ""
         self._block_rotations: tuple[np.ndarray, np.ndarray] | None = None
         self._block_soft_delays: SoftDelays | None = None
@@ -244,9 +249,9 @@ class Sequence:
         of the driver's `--dump` (tests/cpp_oracle/README.md of pulseq-analysis): float32 arrays
         for the RF and gradient samples (after the resampling, `checkRF` and `checkGradient`),
         int64 arrays for the times. Raises `Rejected` when `decodeBlock` returns false."""
-        block = self._reader.decode_block(int(index))
+        block, messages = self._reader.decode_block(int(index))
         if block is None:
-            raise Rejected(f"decodeBlock rejects block {index}", _messages(self._reader))
+            raise Rejected(f"decodeBlock rejects block {index}", _messages(messages))
         return block
 
     def decode(self) -> list[dict]:
@@ -259,9 +264,11 @@ class Sequence:
         the verdict of the driver's first mode. It decodes every block in play order, also after
         one that is rejected, and keeps none (it frees each block), so a file of many blocks
         needs the memory of one. `rejection_messages` has what the reader printed for the block
-        that it returns (and is empty for None)."""
-        index = self._reader.first_rejected_block()
-        self.rejection_messages = _messages(self._reader)
+        that it returns (and is empty for None). It is set from the result of the call, so it
+        always holds the messages of one whole call; with several threads that call
+        `first_rejected_block` on one `Sequence`, it holds those of the last call to return."""
+        index, messages = self._reader.first_rejected_block()
+        self.rejection_messages = _messages(messages)
         return None if index < 0 else index
 
     def block_rotations(self) -> tuple[np.ndarray, np.ndarray]:
@@ -346,9 +353,9 @@ class Sequence:
             if actual.size != self.block_count:
                 raise ValueError("actual_ru has one value for each block")
             self._refuse_hidden_one_point(block_index, time_us, actual)
-        failed = self._reader.ensure_decoded(np.unique(block_index))
+        failed, messages = self._reader.ensure_decoded(np.unique(block_index))
         if failed >= 0:
-            raise Rejected(f"decodeBlock rejects block {failed}", _messages(self._reader))
+            raise Rejected(f"decodeBlock rejects block {failed}", _messages(messages))
         return self._reader.gradients_at(block_index, time_us, bool(rotated), actual)
 
     def _refuse_hidden_one_point(
@@ -389,11 +396,11 @@ class Sequence:
             )
 
 
-def _messages(reader: _reader.Reader) -> str:
-    """What the reader printed in its last call. It quotes lines of the file, which can have bytes
-    that are not UTF-8: each such byte is `\\xNN`, so that the text can be printed and written as
-    UTF-8."""
-    return reader.messages.decode("utf-8", "backslashreplace")
+def _messages(messages: bytes) -> str:
+    """What the reader printed in one call, as the call returns it. It quotes lines of the file,
+    which can have bytes that are not UTF-8: each such byte is `\\xNN`, so that the text can be
+    printed and written as UTF-8."""
+    return messages.decode("utf-8", "backslashreplace")
 
 
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
@@ -435,9 +442,10 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
             f"{name}: version {major}.{minor}.{revision} is outside 1.4.0-1.5.x; the package "
             "does not read it"
         )
-    if not reader.load(data):
-        raise Rejected(f"ExternalSequence::load rejects {name}", _messages(reader))
-    messages = _messages(reader)
+    ok, printed = reader.load(data)
+    if not ok:
+        raise Rejected(f"ExternalSequence::load rejects {name}", _messages(printed))
+    messages = _messages(printed)
     libraries = Libraries._from_reader(reader.libraries())
     if not found or libraries.version != version:
         raise RuntimeError(

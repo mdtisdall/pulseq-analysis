@@ -62,7 +62,8 @@ def test_the_process_reads_a_valid_file_after_every_case():
 
 def test_the_extension_refuses_to_decode_a_file_that_is_not_checked():
     reader = cs._reader.Reader()
-    assert reader.load((SEQFILES / "valid_1_5_1.seq").read_bytes())
+    ok, _ = reader.load((SEQFILES / "valid_1_5_1.seq").read_bytes())
+    assert ok
     with pytest.raises(RuntimeError, match="not checked"):
         reader.decode_block(0)
     with pytest.raises(RuntimeError, match="not checked"):
