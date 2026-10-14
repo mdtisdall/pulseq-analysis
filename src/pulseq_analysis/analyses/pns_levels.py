@@ -122,7 +122,9 @@ class PnsLevels:
     `seq_index.NO_GRADIENTS`), `num_samples` is 0, the level has no bins, `peak_hz_per_t`
     and each axis peak are 0, `peak_time_s` is None and `above` has an empty tuple for each
     threshold. When the gradients all have the amplitude 0, the peak is 0 and `peak_time_s`
-    is None too, and the model does not run a second time for the peak time.
+    is None too, and the model does not run a second time for the peak time. When a total is
+    NaN (a NaN of the gradients, which the filters carry to every later sample), the peak is
+    NaN and `peak_time_s` is the time of the first sample whose total is NaN.
 
     `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, so that the callers of
     `pns_levels` can share one result: convert to a new array
@@ -146,16 +148,17 @@ class PnsLevels:
     level_min_hz_per_t: np.ndarray  # float32, one for each bin: the minimum of the total
     level_max_hz_per_t: np.ndarray  # float32, one for each bin: the maximum of the total
     peak_hz_per_t: float  # the largest total
-    # The first sample time within PEAK_TOLERANCE of the peak; None when the peak is 0
-    # (no gradient event, or gradients that all have the amplitude 0)
+    # The first sample time within PEAK_TOLERANCE of the peak, or of the first NaN total when the
+    # peak is NaN; None when the peak is 0 (no gradient event, or gradients that all have the
+    # amplitude 0)
     peak_time_s: float | None
     axis_peaks_hz_per_t: FrozenDict[str, float]  # "x", "y", "z": the largest value of each axis
     on_raster: bool  # every block is a whole number of samples (`raster_block_lengths`)
     above: FrozenDict[float, tuple[PnsInterval, ...]]  # one key for each threshold of
     # `pns_levels`, as `float(t)` in the order of `thresholds_hz_per_t`: the intervals with
-    # total >= that threshold, in time order; the tuple of a threshold is not empty if and
-    # only if `peak_hz_per_t >=` that threshold, and then the largest
-    # `PnsInterval.peak_hz_per_t` equals `peak_hz_per_t`
+    # total >= that threshold, in time order; for a peak that is not NaN, the tuple of a
+    # threshold is not empty if and only if `peak_hz_per_t >=` that threshold, and then the
+    # largest `PnsInterval.peak_hz_per_t` equals `peak_hz_per_t` (a NaN total is in no interval)
 
 
 def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
@@ -291,7 +294,9 @@ def pns_levels(
        (12 numbers) and the float64 maximum of each chunk, and runs again only the
        first chunk whose maximum reaches `peak * (1 - PEAK_TOLERANCE)`. When the peak is 0
        (gradients that all have the amplitude 0), `peak_time_s` is None and the model does
-       not run again.
+       not run again. A NaN total is larger than every number: the peak is then NaN, and its
+       time is that of the first sample whose total is NaN, from the first chunk whose maximum
+       is NaN.
     6. The intervals (`above`): for each threshold, the runs of consecutive samples whose
        float64 total is at or above it. There is one finder for each threshold, and every
        chunk goes to every finder in the same loop as the peak (no second pass; the total
@@ -300,7 +305,8 @@ def pns_levels(
        above the threshold: it is one interval. An interval keeps its first and last
        sample, its largest total and the first sample with it. They use the totals of
        item 3, not the float32 bins, so the tuple of a threshold is not empty if and only
-       if `peak_hz_per_t` is at or above it.
+       if `peak_hz_per_t` is at or above it. A NaN total is at or above no threshold, so for a
+       NaN peak the intervals are those of the finite totals before the first NaN.
 
     The result does not depend on the chunk size (exact equality). A sequence without
     a gradient event gives `reason=NO_GRADIENTS`, no bins, peak 0, `peak_time_s` None
@@ -436,8 +442,9 @@ def _compute_levels(
         total, axis_frac, state = _chunk_total(gwf, dt, hw_ns, state_before)
 
         axis_peak = np.maximum(axis_peak, axis_frac.max(axis=0))
-        chunk_max = float(total.max())
-        peak = max(peak, chunk_max)
+        chunk_max = float(total.max())  # NaN when a total of the chunk is NaN
+        if chunk_max > peak or (math.isnan(chunk_max) and not math.isnan(peak)):
+            peak = chunk_max
         chunk_records.append((s0, state_before, chunk_max))
         for finder in finders:
             finder.add_chunk(s0, total)
@@ -445,16 +452,17 @@ def _compute_levels(
         bin_cursor = _store_bins(level_min, level_max, bin_cursor, total, bin_samples)
 
     # With a peak of 0 (gradients that all have the amplitude 0) there is no peak time, and
-    # no second run.
+    # no second run. A NaN peak has the time of the first NaN total.
     peak_time_s = None
+    nan_peak = math.isnan(peak)
     threshold = peak * (1 - PEAK_TOLERANCE)
-    for s0, state_before, chunk_max in chunk_records if peak > 0 else ():
-        if chunk_max < threshold:
+    for s0, state_before, chunk_max in chunk_records if peak > 0 or nan_peak else ():
+        if not (math.isnan(chunk_max) if nan_peak else chunk_max >= threshold):
             continue
         s1 = min(s0 + chunk_samples, num_samples)
         gwf = read_range(s0, s1)
         total, _, _ = _chunk_total(gwf, dt, hw_ns, state_before)
-        first = int(np.flatnonzero(total >= threshold)[0])
+        first = int(np.flatnonzero(np.isnan(total) if nan_peak else total >= threshold)[0])
         peak_time_s = (s0 + first + 0.5) * dt
         break
 

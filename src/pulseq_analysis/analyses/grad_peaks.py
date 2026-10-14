@@ -161,6 +161,12 @@ class GradientPeaks:
     slew field. The RMS of the vector magnitude is the square root of the sum of the squares of
     the three axis RMS values, because the mean of |G|² is the sum of the three axis means of G².
 
+    A NaN of the gradients (a plugin can read a NaN of a file) propagates: a NaN is larger than
+    every number. The peak, the slew, the RMS and the vector peak of a range with a NaN are NaN,
+    credited to the first block in play order with the NaN (for the vector peak, the block of
+    the earliest time), at the time of its first NaN point, or the start of its first NaN
+    segment for the slew (`docs/implementation.md` section 2.1).
+
     `axes` is a `series.FrozenDict` (a read-only dict): all callers of a result share it,
     so a change of the dict would change it for all of them.
 
@@ -205,6 +211,11 @@ class BlockGradientValues:
     the block has (the module docstring), and `vector_peak_time_s` the first time where it is
     reached (0 and `start_s` for a block without a value that is not 0).
 
+    A NaN of the gradients propagates, as in `GradientPeaks`: a block whose event has a NaN
+    point has a NaN peak at the time of its first NaN point, a NaN segment gives a NaN slew at
+    the start of the first one, and the vector peak is NaN at the first time where the vector
+    is NaN.
+
     The maximum of each amplitude array over the blocks is the value that `gradient_peaks`
     gives for the whole file. Its slew is the larger of the maximum of `slew_hz_per_m_per_s`
     and the maximum of `junction_hz_per_m_per_s`. The first block with that value is its
@@ -246,6 +257,22 @@ class _EventData:
     integral: np.ndarray  # K: the integral of amplitude^2 dt over the whole event
 
 
+def _is_largest(values: np.ndarray, largest: np.ndarray | float) -> np.ndarray:
+    """Whether each of `values` is `largest`, the largest of its group: a NaN where the largest
+    is NaN (a NaN is larger than every number), else an equal value."""
+    return np.where(np.isnan(largest), np.isnan(values), values == largest)
+
+
+def _above(value: float, best: float) -> bool:
+    """Whether `value` is larger than `best`, with a NaN larger than every number."""
+    return value > best or (math.isnan(value) and not math.isnan(best))
+
+
+def _same(value: float, best: float) -> bool:
+    """Whether `value` equals `best`, with two NaN equal."""
+    return value == best or (math.isnan(value) and math.isnan(best))
+
+
 def _event_values(points: EventPoints) -> _EventData:
     """`_EventData` for every unique gradient event of `points` (`_events.event_points`, which
     reads each event one time). The corner times of event `k` are `points.delay[k] +
@@ -256,8 +283,13 @@ def _event_values(points: EventPoints) -> _EventData:
     slew is the largest |slope| of a segment of `TIME_TOLERANCE` or more (0.0 if none), and the
     first segment wins a tie. The integral is the sum of `dt * (a * a + a * b + b * b) / 3` of
     the segments, in the order of the points. The pooled points have a segment from the last
-    point of an event to the first point of the next event: it has a length of 0 here, so it
-    has no slope and adds nothing to the integral."""
+    point of an event to the first point of the next event: it has a length and an end value of
+    0 here, so it has no slope and adds nothing to the integral.
+
+    A NaN is larger than every number (`_is_largest`): the peak of an event with a NaN point is
+    NaN, at the time of its first NaN point, and the slew of an event with a NaN segment (of
+    `TIME_TOLERANCE` or more) is NaN, at the start of its first NaN segment. The integral of an
+    event with a NaN point is NaN."""
     k = points.delay.size
     if k == 0:
         zeros = np.zeros(0)
@@ -270,20 +302,25 @@ def _event_values(points: EventPoints) -> _EventData:
     amp = points.amp
 
     abs_amp = np.abs(amp)
-    peak = np.maximum.reduceat(abs_amp, at)
-    first_peak = np.minimum.reduceat(np.where(abs_amp == peak[event], position, n), at)
+    peak = np.maximum.reduceat(abs_amp, at)  # NaN for an event with a NaN point
+    # Each event has a point with its peak (`_is_largest`), so the first is in the event.
+    first_peak = np.minimum.reduceat(np.where(_is_largest(abs_amp, peak[event]), position, n), at)
 
     # Segment `i` joins the points `i` and `i + 1` of one event, and the last point of each
-    # event has none.
+    # event has none: its length and its end value are 0, so that a NaN of the next event
+    # does not reach the integral of this one.
+    last = at + points.count - 1
     dt = np.append(np.diff(t), 0.0)
-    dt[at + points.count - 1] = 0.0
+    dt[last] = 0.0
     a, b = amp, np.append(amp[1:], 0.0)
+    b[last] = 0.0
     integral = np.add.reduceat(dt * (a * a + a * b + b * b) / 3.0, at)
     valid = dt >= TIME_TOLERANCE
     seg_slew = np.where(valid, np.abs((b - a) / np.where(valid, dt, 1.0)), -1.0)
-    slew = np.maximum.reduceat(seg_slew, at)
-    first_slew = np.minimum.reduceat(np.where(seg_slew == slew[event], position, n), at)
-    has_slew = slew >= 0.0  # an event with no segment of `TIME_TOLERANCE` or more has no slew
+    slew = np.maximum.reduceat(seg_slew, at)  # NaN for an event with a NaN segment
+    first_slew = np.minimum.reduceat(np.where(_is_largest(seg_slew, slew[event]), position, n), at)
+    # An event with no segment of `TIME_TOLERANCE` or more has no slew (-1 here).
+    has_slew = (slew >= 0.0) | np.isnan(slew)
     return _EventData(
         peak,
         t[first_peak],
@@ -382,8 +419,9 @@ def _axis_columns(index: SequenceIndex, ev: _EventData, ae: AxisEvents, dt: floa
     which = np.argmax(candidates, axis=0)
     rows = np.arange(m)
     slew = candidates[which, rows]
-    # An event with no slope of its own and no ramp has the time of its own first segment.
-    which = np.where(slew > 0.0, which, 1)
+    # An event with no slope of its own and no ramp has the time of its own first segment. A
+    # NaN slew has the time of the first NaN of the three (`np.argmax`).
+    which = np.where((slew > 0.0) | np.isnan(slew), which, 1)
     slew_time = candidate_times[which, rows]
 
     line = np.where(
@@ -565,7 +603,7 @@ def _vector_candidates(
     polys: list[_Polyline], start_s: np.ndarray, end_s: np.ndarray, lo: float, hi: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The candidates of the vector peak in the window `[lo, hi]`, in time order, as `(values,
-    times, plays)`: only the candidates with a value above 0.
+    times, plays)`: only the candidates with a value above 0 or NaN.
 
     A candidate is a time that is `lo`, `hi` or the time of a point of a polyline in the window,
     and a side. At a time that is not `lo`, the side "before" has the values of the polylines
@@ -593,16 +631,16 @@ def _vector_candidates(
     values = np.stack([before, after], axis=1).ravel()
     both_times = np.repeat(times, 2)
     plays = np.stack([play_before, play_after], axis=1).ravel()
-    keep = values > 0.0
+    keep = (values > 0.0) | np.isnan(values)
     return values[keep], both_times[keep], plays[keep]
 
 
 def _best_by_play(
     values: np.ndarray, times: np.ndarray, plays: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """For each play index that has a candidate, the largest value and the time of the first
-    candidate (in the order of the arrays) that has it, as `(plays, values, times)`, sorted by
-    play index."""
+    """For each play index that has a candidate, the largest value (a NaN is larger than every
+    number) and the time of the first candidate (in the order of the arrays) that has it, as
+    `(plays, values, times)`, sorted by play index."""
     if values.size == 0:
         return plays, values, times
     order = np.argsort(plays, kind="stable")
@@ -610,7 +648,7 @@ def _best_by_play(
     starts = np.flatnonzero(np.concatenate(([True], plays[1:] != plays[:-1])))
     group = np.repeat(np.arange(starts.size), np.diff(np.append(starts, plays.size)))
     top = np.maximum.reduceat(values, starts)
-    is_top = np.flatnonzero(values == top[group])
+    is_top = np.flatnonzero(_is_largest(values, top[group]))
     _, first_of_group = np.unique(group[is_top], return_index=True)
     chosen = is_top[first_of_group]
     return plays[chosen], values[chosen], times[chosen]
@@ -749,19 +787,20 @@ def _credit_goes_to(value: float, play: int, best: float, best_play: int | None)
     `best` at `best_play`: it is larger, or equal (and not 0) at a smaller play index. This
     gives the result of a single pass over the blocks in play order that keeps a value only when
     a later one is strictly larger, whatever order the candidates come in. A value of 0 never
-    takes the credit, because `best` starts at 0.0 with `best_play` None."""
-    if value > best:
+    takes the credit, because `best` starts at 0.0 with `best_play` None. A NaN is larger than
+    every number, and two NaN are equal (`_above`, `_same`)."""
+    if _above(value, best):
         return True
-    return value == best and best_play is not None and play < best_play
+    return _same(value, best) and best_play is not None and play < best_play
 
 
 def _first_largest(column: np.ndarray, i0: int, i1: int) -> tuple[float, int | None]:
     """The largest value of `column[i0:i1]` (not empty) and the first play index that has it,
-    the credit rule of `_credit_goes_to` over the slice. A largest value of 0 credits no block:
-    it is `(0.0, None)`."""
+    the credit rule of `_credit_goes_to` over the slice: a NaN is the largest, and `np.argmax`
+    gives the first NaN. A largest value of 0 credits no block: it is `(0.0, None)`."""
     j = int(np.argmax(column[i0:i1]))
     value = float(column[i0 + j])
-    if value > 0.0:
+    if value > 0.0 or math.isnan(value):
         return value, i0 + j
     return 0.0, None
 
@@ -771,7 +810,7 @@ class _Best:
     (`_credit_goes_to`). With `by_time`, the credit of an equal value goes to the earlier time
     (and, at one time, to the smaller play index), not to the smaller play index: the vector
     peak is credited to the block that has its time within `TIME_TOLERANCE`, so a later block
-    can have an earlier time."""
+    can have an earlier time. A NaN is larger than every number, and two NaN are equal."""
 
     __slots__ = ("by_time", "play", "time", "value")
 
@@ -785,8 +824,8 @@ class _Best:
         if play is None:
             return
         if self.by_time:
-            takes = value > self.value or (
-                value == self.value
+            takes = _above(value, self.value) or (
+                _same(value, self.value)
                 and self.play is not None
                 and (time, play) < (self.time, self.play)
             )
@@ -818,7 +857,8 @@ def _evaluate_axis(
     window (not the steps between events) and from the steps with `lo <= time < hi` and
     `time < end_s - TIME_TOLERANCE`, with `end_s` the end of the sequence; the
     integral of the square over the cut segments. Of equal values, the first in the order of the
-    polyline wins. Also whether a segment of an event of those blocks is in the window."""
+    polyline wins, and a NaN is larger than every number. Also whether a segment of an event of
+    those blocks is in the window."""
     state = _AxisState()
     t, g, play = poly.t, poly.g, poly.play
     own = False
@@ -839,8 +879,8 @@ def _evaluate_axis(
         values = np.empty(2 * valid.size)
         values[0::2] = np.where(in_start, np.abs(ga), -1.0)
         values[1::2] = np.where(in_end, np.abs(gb), -1.0)
-        j = int(np.argmax(values)) if values.size else 0
-        if values.size and values[j] > 0.0:
+        j = int(np.argmax(values)) if values.size else 0  # the first NaN, if any
+        if values.size and (values[j] > 0.0 or np.isnan(values[j])):
             moment = (a, b)[j % 2][j // 2]
             credit = (credit_start, credit_end)[j % 2][j // 2]
             state.peak.offer(float(values[j]), float(moment), int(credit))
@@ -871,8 +911,8 @@ def _evaluate_axis(
     all_values = np.concatenate([slopes, step_values])
     if all_values.size:
         order = np.argsort(keys, kind="stable")
-        j = int(np.argmax(all_values[order]))
-        if all_values[order[j]] > 0.0:
+        j = int(np.argmax(all_values[order]))  # the first NaN, if any
+        if all_values[order[j]] > 0.0 or np.isnan(all_values[order[j]]):
             i = int(order[j])
             if i < slopes.size:
                 state.slew.offer(float(slopes[i]), float(a[i]), int(credit_end[i]))
@@ -1007,7 +1047,7 @@ def _range_result(
         value, play = _first_largest(blocks.vector_peak, i0, i1)
         if play is not None:
             # The first block in time order of the blocks that have the largest value.
-            tied = i0 + np.flatnonzero(blocks.vector_peak[i0:i1] == value)
+            tied = i0 + np.flatnonzero(_is_largest(blocks.vector_peak[i0:i1], value))
             play = int(tied[np.argmin(blocks.vector_peak_time[tied])])
             vector.offer(value, float(blocks.vector_peak_time[play]), play)
 

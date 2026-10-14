@@ -12,6 +12,8 @@ helpers are those of the tests of pulseq-analysis (the root of this repository).
 """
 
 import math
+import warnings
+from pathlib import Path
 
 import numpy as np
 import pypulseq as pp
@@ -39,6 +41,7 @@ from gap_sequences import (
 from oracles import grad_spectrum as spectrum_oracle
 from oracles import waveform as oracle
 from oracles.blocks import sequence_of
+from pulseq_cpp_siemens.interpreter import CppSiemens
 from random_gaps import random_gap_sequence
 from scale_sequences import build_repeating, build_worst
 from synthetic import (
@@ -70,6 +73,7 @@ from test_grad_peaks import (
     _random_gradient_sequence,
 )
 from test_grad_spectrum import _assert_matches_oracle as _assert_spectrum_matches_oracle
+from test_played import QUARTER_Z, check_a_nan_of_one_block_is_credited_to_its_first_nan
 from test_pns_levels import _add_a_delay
 from test_sampling import (
     _A,
@@ -101,6 +105,7 @@ from pulseq_analysis.analyses import grad_spectrum, load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.analyses.pns_levels import PEAK_TOLERANCE, pns_levels
 from pulseq_analysis.analyses.safe import _safe_gwf_to_pns_chunk
+from pulseq_analysis.synth import ScannerSettingWarning, Session
 from pulseq_analysis.synth.sampling import gradient_sampler, raster_block_lengths
 from pulseq_analysis.synth.seq_index import sequence_index
 from pulseq_analysis.synth.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
@@ -1405,3 +1410,94 @@ def test_the_series_of_gradient_spectrum_is_valid():
     (`check_the_series_of_gradient_spectrum_is_valid`)."""
     snap = load(raster_4us_sequence(), "cpp-siemens")
     check_the_series_of_gradient_spectrum_is_valid(snap, has_gradient=True)
+
+
+# ---- A NaN of the file (`bad_syntax_number.seq`) ----
+
+# `tests/seqfiles/bad_syntax_number.seq`: the trapezoid 1 has the amplitude `nan`. `spec` rejects
+# it (`syntax.number`); the reader reads it. The trapezoid is gx of block 2 (play index 1), which
+# starts at 300 us, with gy (the arbitrary gradient 2). Block 5 (play index 4) has the rotation
+# object 1 of the file, 45 degrees about z.
+_BAD_NUMBER = Path(__file__).resolve().parents[3] / "tests" / "seqfiles" / "bad_syntax_number.seq"
+_NAN_TRAP_ROW = "1 nan 100 200 100 100\n"
+_BLOCK_2_ROW = "2  50  0  1  2  0  1  0\n"
+# The settings of the NaN cases: the interpreter, the session, and whether block 2 has the
+# rotation object too (`_bad_number_files`).
+_NAN_SETTINGS = {
+    "unrotated": ("cpp-siemens", None, False),
+    "apply": (CppSiemens(rotation="apply"), None, False),
+    "apply-rotated-block": (CppSiemens(rotation="apply"), None, True),
+    "fov": ("cpp-siemens", Session(fov_rotation=QUARTER_Z), False),
+}
+
+
+def _bad_number_files(directory: Path, rotated: bool) -> tuple[Path, Path]:
+    """`bad_syntax_number.seq` and the same file with the amplitude 0 for the trapezoid 1 (no
+    NaN), written in `directory`. With `rotated`, block 2 has the extension list 3 of the file,
+    the rotation object 1 (45 degrees about z), so that `CppSiemens(rotation="apply")` reads it
+    through `gradients_at`."""
+    text = _BAD_NUMBER.read_text()
+    assert text.count(_NAN_TRAP_ROW) == 1 and text.count(_BLOCK_2_ROW) == 1
+    if rotated:
+        text = text.replace(_BLOCK_2_ROW, "2  50  0  1  2  0  1  3\n")
+    nan, clean = directory / "nan.seq", directory / "clean.seq"
+    nan.write_text(text)
+    clean.write_text(text.replace(_NAN_TRAP_ROW, "1 0 100 200 100 100\n"))
+    return nan, clean
+
+
+def _load_nan_case(directory: Path, setting: str) -> tuple[Snapshot, Snapshot]:
+    """The snapshots of the two files of `_bad_number_files` with the setting `setting` of
+    `_NAN_SETTINGS`, without the warning of the rotation of block 5, which `"cpp-siemens"` leaves
+    unapplied."""
+    interpreter, session, rotated = _NAN_SETTINGS[setting]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ScannerSettingWarning)
+        return tuple(
+            load(path, interpreter, session=session)
+            for path in _bad_number_files(directory, rotated)
+        )
+
+
+@pytest.mark.parametrize(
+    ("setting", "axes", "peak_time_s", "vector_time_s"),
+    [
+        pytest.param("unrotated", "x", 500e-6, 405e-6, id="unrotated"),
+        pytest.param("apply", "x", 500e-6, 405e-6, id="apply"),
+        pytest.param("apply-rotated-block", "xyz", 405e-6, 405e-6, id="apply-rotated-block"),
+        pytest.param("fov", "xyz", 405e-6, 405e-6, id="fov"),
+    ],
+)
+def test_a_nan_of_the_file_is_credited_to_its_block_at_its_first_nan(
+    tmp_path, setting, axes, peak_time_s, vector_time_s
+):
+    """In `bad_syntax_number.seq` through `cpp-siemens`, the NaN of the trapezoid in block 2
+    (play index 1) follows the rule of a NaN in the peaks
+    (`check_a_nan_of_one_block_is_credited_to_its_first_nan`), and every other value is the
+    value of the same file with the amplitude 0. With no rotation, and with
+    `CppSiemens(rotation="apply")` (block 2 has no rotation), the event is decoded and the NaN is
+    on x. When block 2 is read through `gradients_at` (it has the rotation object and the
+    rotation is applied, or the session's field of view rotates it), the rotation of the reader
+    gives NaN on every axis of the block, and the measurements take what the decoding gives."""
+    snap, clean = _load_nan_case(tmp_path, setting)
+    # The trapezoid starts at 400 us (the block start and its delay of 100 us), and the segment of
+    # its rise is the first NaN segment. Decoded, its first NaN point is the end of the rise, at
+    # 500 us; read through `gradients_at`, the block has a point at each time of the points of gx
+    # and gy, and gy has one at 405 us. The vector is NaN first at 405 us: in the decoded block the
+    # polyline of gx is NaN there, between 0 at 400 us and the NaN at 500 us.
+    check_a_nan_of_one_block_is_credited_to_its_first_nan(
+        snap, clean, 1, axes, peak_time_s, slew_time_s=400e-6, vector_time_s=vector_time_s
+    )
+
+
+@pytest.mark.parametrize("setting", list(_NAN_SETTINGS))
+def test_the_pns_peak_of_a_nan_of_the_file_is_nan_at_the_first_nan_sample(tmp_path, setting):
+    """In `bad_syntax_number.seq` through `cpp-siemens`, with each setting of the NaN cases, the
+    summary of `pns_levels` (with pypulseq's example hardware) gives the NaN peak of the total
+    (a NaN propagates), at the time of the first sample whose total is NaN. Sample 40 (at 405 us) is the first
+    sample in the NaN trapezoid, and the filters of the SAFE model carry the NaN to every later
+    sample."""
+    snap, _ = _load_nan_case(tmp_path, setting)
+    levels = pns_levels(snap, hardware=EXAMPLE_HW)
+    assert math.isnan(levels.peak_hz_per_t)
+    assert levels.peak_time_s == pytest.approx((40 + 0.5) * levels.dt_s, rel=0, abs=TIME_TOLERANCE)

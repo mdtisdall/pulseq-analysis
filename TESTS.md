@@ -1097,6 +1097,9 @@ are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the sam
 `Doubled` (in this module) decodes the gradients of one block otherwise, and says so with
 `gradient_variants`, for the tests of the variants. The fake plugin `Late` (in this module) plays
 the events of one block wholly after the end of the block, or with all their points at one time.
+The fake plugin `OneNaN` (in this module) gives one point of the event of one block NaN, for the
+rule of a NaN in the peaks; its check, `check_a_nan_of_one_block_is_credited_to_its_first_nan`, is
+imported by the tests of `bad_syntax_number.seq` through `cpp-siemens` (section 3.10).
 
 #### `test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`
 
@@ -1248,6 +1251,35 @@ and the offsets `[0, duration]`, bit for bit, then `gradient_peaks`.
 
 **Assumptions:** `Late`'s `gradients_at` is 0 in the whole of block 1, so the test does not tell
 whether the end of the block is a step; it checks the times of the points.
+
+#### `test_a_nan_point_of_a_block_is_credited_to_the_block_at_its_first_nan`
+
+**Checks:** When the decoding gives one point of the event of a block NaN, `gradient_peaks` and
+`block_gradient_values` follow the rule of a NaN in the peaks (a NaN propagates), for a decoded
+event and for the events of a block read through `gradients_at`. On each axis with the NaN, the peak, the slew and the RMS of the file are NaN, credited to that
+block, the peak at the time of its first NaN point and the slew at the start of its first NaN
+segment; the vector peak of the block and of the file is NaN at the first time at which the
+vector is NaN. Every other value is the value of the same decoding with no NaN.
+
+**How:** The fake plugin `OneNaN` reads `oracle/koma_v1.4_gr-trapezoidal.seq` (the trapezoid 1
+on gx in each block): in block 1 the point 1 of the event, the end of the rise, is NaN, and its
+`gradients_at` is NaN strictly between the points 0 and 2 of the event. `OneNaN(nan=False)` is the
+same decoding with no NaN. Parametrized over no session (the event of block 1 is decoded, the NaN
+on x) and `Session(fov_rotation=...)` with 90 degrees about z (every block is read through
+`gradients_at`, and the fake gives NaN on every axis, as a rotation of a NaN does). The check
+`check_a_nan_of_one_block_is_credited_to_its_first_nan` compares:
+- `gradient_peaks`: on each NaN axis, a NaN peak, slew and RMS, with the block ID of block 1 for
+  the peak and the slew, the peak at 1.06 ms and the slew at 1 ms; the other axes equal those of
+  the clean decoding; a NaN vector peak at 1.06 ms in block 1.
+- `block_gradient_values`: in block 1 on each NaN axis, a NaN peak at 1.06 ms and a NaN slew at
+  1 ms; the vector peak of block 1 NaN at 1.06 ms; every value of the other blocks, and of the
+  other axes and the junctions of block 1, equal to the clean decoding.
+The times agree to `TIME_TOLERANCE`; the other values are compared exactly.
+
+**Assumptions:** Block 1 starts at 1 ms, and its trapezoid has the delay 0 and rises in 60 µs. At
+the start of block 1 the polyline of gx is 0 on both sides (a zero gap from the event of block 0),
+so the vector is NaN first at the NaN point. The test does not cover a NaN at the first or the last
+point of an event (a step), or a NaN in a gap.
 
 ### 2.4 Sequence index (`test_seq_index.py`)
 
@@ -9899,7 +9931,9 @@ its name and its values. A test that had cases for both interpreters is two test
 root test keeps the cases that `spec` reads, and the test here has the others, with the same body
 (a helper `check_*` of the root module, imported here). The module imports the helpers and the
 cases of the root modules, as `test_interpreter_in_pulseq_analysis.py` does. Like
-`test_interpreter.py`, it needs pulseq-analysis and is not collected without it.
+`test_interpreter.py`, it needs pulseq-analysis and is not collected without it. The tests of a
+NaN of the file are here too (`bad_syntax_number.seq`, which `spec` rejects, `syntax.number`),
+with the check of the root module `test_played.py` (section 2.3).
 
 #### `test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system`
 
@@ -10557,6 +10591,47 @@ has the other sequences).
 `check_the_series_of_gradient_spectrum_is_valid` with a sequence that has a gradient.
 
 **Assumptions:** None.
+
+#### `test_a_nan_of_the_file_is_credited_to_its_block_at_its_first_nan`
+
+**Checks:** In `tests/seqfiles/bad_syntax_number.seq` through `cpp-siemens`, whose trapezoid 1
+has the amplitude `nan`, `gradient_peaks` and `block_gradient_values` follow the rule of a NaN
+(a NaN propagates), with no rotation, with `CppSiemens(rotation="apply")`, with the rotation
+applied to the block of the NaN, and with a session that rotates the field of view. Every other
+value is the value of the same file with the amplitude 0.
+
+**How:** The trapezoid is gx of block 2 (play index 1, from 300 µs to 800 µs), with gy. The test
+writes the file in `tmp_path`, and the same file with the amplitude 0 for the clean values
+(`_bad_number_files`). Parametrized over four settings (`_NAN_SETTINGS`):
+- `"cpp-siemens"` (the warning of the unapplied rotation of block 5 is ignored), and
+  `CppSiemens(rotation="apply")`: block 2 has no rotation, its event is decoded, and the NaN is on
+  x only.
+- `CppSiemens(rotation="apply")` with block 2 given the extension list 3 of the file (the rotation
+  object 1, 45 degrees about z), and `"cpp-siemens"` with `Session(fov_rotation=...)`, 90 degrees
+  about z: block 2 is read through `gradients_at`, and the reader's rotation gives NaN on every
+  axis of the block.
+The check `check_a_nan_of_one_block_is_credited_to_its_first_nan` (section 2.3) is called with
+block 1 (play index), the block ID 2, the slew at 400 µs (the start of the rise) and the vector
+peak at 405 µs. The peak is at 500 µs (the end of the rise) for the decoded event, and at 405 µs
+when the block is read through `gradients_at`: its points are at the times of the points of gx and
+gy, and gy has one at 405 µs.
+
+**Assumptions:** The vector is NaN first at 405 µs in each setting: in the decoded block the
+polyline of gx is NaN between 0 at 400 µs and the NaN at 500 µs, and gy has a point at 405 µs.
+
+#### `test_the_pns_peak_of_a_nan_of_the_file_is_nan_at_the_first_nan_sample`
+
+**Checks:** In `bad_syntax_number.seq` through `cpp-siemens`, the summary of `pns_levels` gives a
+NaN peak of the total, at the time of the first sample whose total is NaN, in each setting of
+`_NAN_SETTINGS`.
+
+**How:** Parametrized over the four settings of the test above. `pns_levels` with `EXAMPLE_HW`
+(pypulseq's example hardware and a label); `peak_hz_per_t` must be NaN and `peak_time_s` the time
+of sample 40, `(40 + 0.5) * dt_s` (405 µs), to `TIME_TOLERANCE`.
+
+**Assumptions:** Sample 40 is the first sample inside the NaN trapezoid, which starts at 400 µs;
+the samples before it are finite, and the filters of the SAFE model carry the NaN to every later
+sample. The test does not check the level or the intervals of a threshold.
 
 ### 3.11 `load` through `cpp-siemens` (`test_load_in_pulseq_analysis.py`)
 
