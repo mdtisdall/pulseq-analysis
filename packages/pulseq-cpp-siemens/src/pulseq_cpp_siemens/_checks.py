@@ -156,6 +156,34 @@ def _decompress_into(
     return np.add.accumulate(out, dtype=np.float32)
 
 
+def _writes_every_sample(num: int, compressed: bool, packed: np.ndarray) -> bool:
+    """Whether the decompression of a shape whose decompression is "ok" writes each of its `num`
+    samples, so that its samples do not depend on the buffer that it is decompressed into
+    (`_decompress_into`). An uncompressed shape is copied whole (memcpy, cpp:2202-2205). The
+    run-length decoding writes the samples from 0 up to the largest that it reaches: a literal
+    writes the sample of `countUnpack`, a run of `rep` > 0 the `rep` samples from there, and a
+    run of count -2 or less writes nothing and moves `countUnpack` no further on. The other
+    samples keep the buffer's values."""
+    if not compressed:
+        return True
+    written = 0  # the samples from 0 to written - 1 are written
+    count_pack = count_unpack = 1
+    while count_pack < len(packed):
+        if packed[count_pack - 1] != packed[count_pack]:
+            written = max(written, count_unpack)
+            count_pack += 1
+            count_unpack += 1
+        else:
+            rep = math.trunc(float(packed[count_pack + 1])) + 2
+            if rep > 0:
+                written = max(written, count_unpack + rep - 1)
+            count_pack += 3
+            count_unpack += rep
+    if count_pack == len(packed):
+        written = max(written, count_unpack)
+    return written >= num
+
+
 _EMPTY = np.zeros(0, dtype=np.float32)
 
 

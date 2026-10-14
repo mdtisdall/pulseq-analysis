@@ -149,6 +149,9 @@ class UnrotatedDecoding:
     def gradient_points(self, key: int, block: int, axis: int):
         return self.spec.gradient_points(key, block, axis)
 
+    def gradient_variants(self):
+        return self.spec.gradient_variants()
+
 
 INTERPRETERS = [
     pytest.param("spec", id="spec"),

@@ -1093,7 +1093,9 @@ measurements join the points with straight lines, and the decoding's `gradients_
 waveform of each interpreter. The fixtures are every file of `tests/seqfiles`. The interpreters
 are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the same checks through
 `cpp-siemens` and its settings are in the plugin's tests (section 3.11), which import
-`check_the_points_are_the_gradients` and `load_or_none` from this module.
+`check_the_points_are_the_gradients` and `load_or_none` from this module. The fake plugin
+`Doubled` (in this module) decodes the gradients of one block otherwise, and says so with
+`gradient_variants`, for the tests of the variants.
 
 #### `test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`
 

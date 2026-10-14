@@ -21,8 +21,9 @@ what it applied (`rotation_record`, `soft_delay_record`, `fov_record`). `spec` a
 delays from 1.5.0 and the flags NOROT and NOSLC (the specification's spelling, D2.22) from 1.4.1.
 
 The decodings can differ: a plugin can decode a block at a time, `spec` decodes an event at a
-time. The measurements (`analyses.load`, R14) take their gradients from these decodings, through
-the method `gradient_points` of the protocol (`_played`).
+time, and a plugin can decode one gradient event otherwise in two blocks (`gradient_variants`).
+The measurements (`analyses.load`, R14) take their gradients from these decodings, through the
+methods `gradient_points` and `gradient_variants` of the protocol (`_played`).
 """
 
 import dataclasses
@@ -80,7 +81,13 @@ class Decoding(Protocol):
       gives the logical gradients, True also rotates each block by its rotation.
     - `gradient_points(key, block, axis)`: the `Points` of the gradient event with the file ID
       `key` that the block `block` plays on the axis `axis` (0, 1, 2 for x, y, z), not
-      rotated."""
+      rotated.
+    - `gradient_variants()`: which cells (a block and an axis) decode their gradient event
+      alike. None when each gradient event decodes alike in every block that plays it.
+      Otherwise an int64 array (blocks, 3), read-only, one value for each block and axis: two
+      cells with the same event and the same value decode alike (`gradient_points` gives the
+      same points for both). The values have no meaning beyond that, and a cell with no event
+      has 0."""
 
     interpreter: Any
     session: Session
@@ -112,6 +119,8 @@ class Decoding(Protocol):
     ) -> np.ndarray: ...
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points: ...
+
+    def gradient_variants(self) -> np.ndarray | None: ...
 
 
 def rotate(quaternions: np.ndarray, vectors: np.ndarray) -> np.ndarray:
@@ -236,6 +245,11 @@ class SpecDecoding:
         """The `Points` of the gradient event `key` (`Decoding.gradient_points`): the points of
         `seq_utils.gradient_offsets`, the same in each block that plays it."""
         return gradient_offsets(self.gradients[key])
+
+    def gradient_variants(self) -> np.ndarray | None:
+        """None (`Decoding.gradient_variants`): `spec` decodes each gradient event alike in
+        every block that plays it."""
+        return None
 
 
 def decode(data: SequenceData, session: Session | None = None) -> Decoding:

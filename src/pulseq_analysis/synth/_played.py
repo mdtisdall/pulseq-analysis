@@ -7,9 +7,14 @@ The measurements read the gradients only through the decoding (`snapshot.Snapsho
 - **A decoded event**, by its file ID: the points that the decoding gives of the event in the
   first block and axis that play it (`Decoding.gradient_points`, not rotated). For `spec` these
   are the points of `seq_utils.gradient_offsets` of the event of `events`. A plugin gives the
-  points between which its `gradients_at` draws straight lines, in the same layout; the first
-  block that plays an event gives its points in every block, so a plugin's decoding of a gradient
-  event must not depend on the block that plays it.
+  points between which its `gradients_at` draws straight lines, in the same layout.
+- **A variant of a decoded event**: a plugin can decode one event otherwise in two blocks (a
+  reader can decode the gradients of a block into one buffer). Its `Decoding.gradient_variants`
+  then says which cells (a block and an axis) decode alike: those with the same event and the
+  same variant. Each pair of an event and a variant is an event of its own, with the points of
+  its first cell. The pair of the first cell that plays the event
+  keeps the file ID; each other pair gets a new key above the largest file ID. With no
+  variants (None, as for `spec`), every block that plays an event has the points of the first.
 - **The events of a block that `gradients_at` gives**: a block that the decoding rotates by a
   rotation that is not the identity (the blocks of `rotations` when `rotation_record.rotated` is
   not 0: `spec` from 1.5.1, P20, and a plugin that applies them), a block that the scanner
@@ -27,9 +32,9 @@ The measurements read the gradients only through the decoding (`snapshot.Snapsho
   field of view) has an event on each axis; another block on the axes where it has an event.
 
 `played_gradients(snap)` gives the key of the event of each block and axis: 0 for none, the file
-ID of a decoded event, and a key above the largest file ID for an event that `gradients_at`
-gives (one for each axis of each distinct such block: the same events, rotation, flags of the
-field of view and duration).
+ID of a decoded event, a key above the largest file ID for each other variant of a decoded
+event, and a key above those for an event that `gradients_at` gives (one for each axis of each
+distinct such block: the same events, rotation, flags of the field of view and duration).
 Two blocks with one key play the same event. The result is kept on the snapshot.
 """
 
@@ -50,9 +55,9 @@ class PlayedGradients:
     """The gradient event of each block and axis of one snapshot (the module docstring).
 
     `gx`, `gy` and `gz` (int64, one entry for each block in play order) are the keys: 0 for no
-    event, the file ID of a decoded event, or a key above the largest file ID for an event that
-    `gradients_at` gives. `points` gives the points of the event of each key. The arrays are
-    read-only."""
+    event, the file ID of a decoded event, or a key above the largest file ID for another
+    variant of a decoded event or for an event that `gradients_at` gives. `points` gives the
+    points of the event of each key. The arrays are read-only."""
 
     gx: np.ndarray
     gy: np.ndarray
@@ -75,14 +80,20 @@ def _played(snap: Snapshot) -> PlayedGradients:
     columns = [np.asarray(data.blocks[axis], dtype=np.int64).copy() for axis in _GRAD_COLUMNS]
     duration = decoding.block_durations
 
-    # Each decoded event, at the first block and axis that play it.
-    stacked = np.stack(columns, axis=1).ravel()  # block * 3 + axis
-    keys, first = np.unique(stacked, return_index=True)
-    points: dict[int, Points] = {
-        int(key): decoding.gradient_points(int(key), int(at) // 3, int(at) % 3)
-        for key, at in zip(keys.tolist(), first.tolist(), strict=True)
-        if key != 0
-    }
+    # Each decoded event, at the first block and axis that play it; with variants, each pair of
+    # an event and a variant, at its first cell, under its own key.
+    variants = decoding.gradient_variants()
+    if variants is None:
+        stacked = np.stack(columns, axis=1).ravel()  # block * 3 + axis
+        keys, first = np.unique(stacked, return_index=True)
+        points: dict[int, Points] = {
+            int(key): decoding.gradient_points(int(key), int(at) // 3, int(at) % 3)
+            for key, at in zip(keys.tolist(), first.tolist(), strict=True)
+            if key != 0
+        }
+    else:
+        points = _variants(snap, columns, variants)
+        keys = np.unique(np.concatenate(columns))
 
     # The blocks whose events `gradients_at` gives: those that the decoding rotates (not by the
     # identity) or the session's field of view rotates, those that the field of view scales, and
@@ -111,6 +122,35 @@ def _played(snap: Snapshot) -> PlayedGradients:
         _from_gradients_at(snap, special, rotated[special], flags, columns, points)
     gx, gy, gz = _freeze(*columns)
     return PlayedGradients(gx, gy, gz, MappingProxyType(points))
+
+
+def _variants(snap: Snapshot, columns: list[np.ndarray], variants: np.ndarray) -> dict[int, Points]:
+    """Give each pair of a gradient event and a variant (`Decoding.gradient_variants`, an array
+    (blocks, 3)) its key in `columns` (the module docstring): the pair of the first cell that
+    plays the event keeps the file ID, and each other pair gets a new key above the largest key
+    of the columns, in the order of their first cells. Returns the points of each key, which the
+    decoding gives at the first cell of its pair."""
+    events = np.stack(columns, axis=1).ravel()  # block * 3 + axis
+    played = np.flatnonzero(events)
+    cells = np.stack([events[played], np.asarray(variants, dtype=np.int64).ravel()[played]], axis=1)
+    pairs, first, inverse = np.unique(cells, axis=0, return_index=True, return_inverse=True)
+    first = played[first]  # the first cell of each pair, sorted by event, then by variant
+    # The pairs of one event are adjacent: the one with the first cell of the event keeps its ID.
+    _, starts, counts = np.unique(pairs[:, 0], return_index=True, return_counts=True)
+    earliest = np.repeat(np.minimum.reduceat(first, starts), counts) if pairs.size else first
+    key = pairs[:, 0].copy()
+    others = np.flatnonzero(first != earliest)
+    others = others[np.argsort(first[others], kind="stable")]
+    key[others] = int(events.max(initial=0)) + 1 + np.arange(others.size)
+    renamed = events.copy()
+    renamed[played] = key[inverse.ravel()]
+    for axis, column in enumerate(columns):
+        column[:] = renamed[axis::3]
+    decoding = snap.decoding
+    return {
+        int(k): decoding.gradient_points(int(event), int(at) // 3, int(at) % 3)
+        for k, event, at in zip(key.tolist(), pairs[:, 0].tolist(), first.tolist(), strict=True)
+    }
 
 
 def _from_gradients_at(

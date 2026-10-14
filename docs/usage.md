@@ -874,14 +874,22 @@ is what the package uses of a decoding. Blocks are indexed in play order from 0:
   (0, 1, 2 for x, y, z), not rotated. `Points` is a tuple of the delay in s, the
   offsets in s from the delay and the values in Hz/m of the points between
   which the event is straight lines (`seq_utils.gradient_offsets`).
+- `gradient_variants()`: which blocks and axes decode their gradient event
+  alike. None when each gradient event decodes alike in every block that plays
+  it. Otherwise an int64 array (blocks, 3), read-only: two cells with the same
+  event and the same value decode alike (`gradient_points` gives the same
+  points for both). The values mean nothing more, and a cell with no event has 0.
 
 `SpecDecoding` also has the blocks (`blocks`, the block table of the model) and
 the flags (`norot`, `noscale`). In it, each event is the straight lines between its
 points, 0 before its delay and after its end, and every value is 0 outside the
-block. A plugin that decodes a block at a time can decode one event differently
-in two blocks, so `gradient_points` takes the block. `load` keeps the decoding on the snapshot
+block, and `gradient_variants()` is None. A plugin that decodes a block at a
+time can decode one event differently in two blocks: `gradient_points` takes the
+block, and `gradient_variants()` says which blocks decode an event alike. The
+measurements ask `gradient_points` once for each event and variant, and count
+each variant as an event of its own. `load` keeps the decoding on the snapshot
 (`Snapshot.decoding`), and the measurements take their gradients from it, by
-`gradient_points` and `gradients_at`.
+`gradient_points`, `gradient_variants` and `gradients_at`.
 
 **Rotations.** A decoding gives the rotation of each block (the ROTATIONS
 extension, D2.18 and D4.6) with `rotations()` and what it did with them with

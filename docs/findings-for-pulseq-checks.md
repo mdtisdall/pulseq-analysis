@@ -239,6 +239,8 @@ pulse of points. As each decoding (the protocol `synth.Decoding`, 2.4), `SpecDec
   rotated: a tuple `synth.decoding.Points` of the delay in s, the offsets in s
   from the delay and the values in Hz/m, the points between which the event is
   straight lines (`seq_utils.gradient_offsets`).
+- `gradient_variants()`: None, since `spec` decodes each gradient event alike
+  in every block that plays it.
 
 On each fixture with rotations from 1.5.1, its blocks and quaternions are
 those of `cpp-siemens`, and its rotated gradients are those of
@@ -266,8 +268,8 @@ plugin is of the protocol `synth.Decoding` (module `synth.decoding`), which
 `SpecDecoding` also follows: `interpreter`, `session`, `block_count`,
 `block_durations`, `stored_block_durations`, `rotations()`, `rotation_record`,
 `soft_delay_record`, `fov_record`, `fov_flags()`,
-`gradients_at(block_index, time_us, rotated=None)` and
-`gradient_points(key, block, axis)`. The plugin class states the version of the
+`gradients_at(block_index, time_us, rotated=None)`,
+`gradient_points(key, block, axis)` and `gradient_variants()`. The plugin class states the version of the
 protocol that it implements (`protocol`, 1; `seqfile.PROTOCOL`), and the package
 uses a plugin only of its own version (2.8). `CppSiemensDecoding` has these, and the
 blocks of the reader. Blocks are in play order from 0:
@@ -297,6 +299,14 @@ blocks of the reader. Blocks are in play order from 0:
   samples (run, R14: the file that pypulseq writes for
   `gap_sequences.short_arbitrary_sequence`, a 3-sample gradient that the writer
   gives a time shape; `spec` rejects it, D1.3 and `gradient.nonzero-end-align`).
+- `gradient_variants()`: which blocks and axes decode their gradient event
+  alike, from the libraries, with no block decoded. The reader decompresses
+  the shapes of the gradients of a block into one buffer (cpp:2094-2196), so a
+  shape that writes fewer than its `num_samples` values keeps the values of the
+  shape before it in the block. An arbitrary gradient whose wave shape does so,
+  or an extended trapezoid whose time shape does so, gets a variant for each
+  set of events on the earlier axes of its block; every other cell has 0. None
+  when no event depends on its block, as in each file that `spec` reads.
 - `rotation_record`: a `synth.RotationRecord` (2.6).
 
 These are the reader's values bit for bit, on each platform (section 6).
@@ -450,13 +460,14 @@ contract too:
   (`synth.extensions` is removed).
 - The measurements take the gradients only through the decoding (the protocol
   `synth.Decoding`): `gradient_points` for the decoded event of each block and
-  axis (for `cpp-siemens`, the reader's decoding of the event and the points of
-  its `gradientsAt`), and `gradients_at` for a block that the decoding rotates or
+  axis, once for each event and variant (`gradient_variants`; for `cpp-siemens`,
+  the reader's decoding of the event and the points of its `gradientsAt`), and `gradients_at` for a block that the decoding rotates or
   that has an event after the block's end. Between blocks, every interpreter
   uses the package's waveform (MATLAB's ramps and lines, D2.14, D7.4): the
   reader gives nothing there.
-- The block table (`seq.index`) keeps the file's IDs; in a block measured from
-  `gradients_at`, each axis has an event of its own, numbered after the file's.
+- The block table (`seq.index`) keeps the file's IDs; each other variant of an
+  event, and in a block measured from `gradients_at` each axis, has an event of
+  its own, numbered after the file's.
   Its durations are the decoding's actual ones (R16).
 
 ### 2.8 The scanner session (R16)

@@ -88,7 +88,10 @@ A caller moves in this order:
   interpreter, an object of the protocol `synth.Decoding`: for `spec`,
   `synth.SpecDecoding`; for a plugin, its own. It has the blocks, their stored
   and actual durations, `gradient_points(key, block, axis)` (the points of one
-  gradient event as the decoding draws it, not rotated), `gradients_at` (the
+  gradient event as the decoding draws it, not rotated), `gradient_variants()`
+  (which blocks decode a gradient event alike: None for `spec`; a plugin whose
+  decoding of an event depends on its block says so here, and the measurements
+  count each variant as an event of its own), `gradients_at` (the
   gradients of a block at given times, rotated where the decoding rotates) and
   the records of what it applied.
 - Rotations: from 1.5.1, `spec` rotates the gradients of each block with a

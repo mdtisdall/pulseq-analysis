@@ -92,6 +92,7 @@ from pulseq_analysis.synth.scanner import (
     physical_gradients,
     soft_delay_durations,
 )
+from pulseq_cpp_siemens import _checks
 
 __all__ = [
     "CODES",
@@ -655,6 +656,9 @@ def _rotations(rotations: dict[int, tuple[float, float, float, float]]) -> np.nd
 # the offsets (s, from the delay) and the values (Hz/m) of its points.
 Points = tuple[float, np.ndarray, np.ndarray]
 
+# `CppSiemensDecoding.gradient_variants` before its first call.
+_NOT_KEPT = object()
+
 
 class CppSiemensDecoding:
     """The C++ reader's decoding of a file that `cpp-siemens` read (`CppSiemens.decode`), of the
@@ -684,6 +688,7 @@ class CppSiemensDecoding:
         self._reading = data.reading
         self._gradient_raster = data.rasters.gradient
         self._rotation_record: RotationRecord | None = None
+        self._gradient_variants: Any = _NOT_KEPT
         blocks = data.blocks
         stored = np.asarray(blocks["duration_ticks"], dtype=np.int64)
         found = self._reading.block_soft_delays()
@@ -807,13 +812,67 @@ class CppSiemensDecoding:
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points:
         """The points of the gradient event that the block `block` plays on the axis `axis`
-        (`key` is its file ID; the reader decodes an event in each block, so the block is what
-        counts), as the reader decoded it (not rotated): those between which
-        `SeqBlock::gradientsAt` draws its straight lines (cpp:3558-3690), in the layout of
+        (`key` is its file ID; the reader decodes the gradients of a block together, so the
+        points of an event can depend on the block: `gradient_variants`), as the reader decoded
+        it (not rotated): those between which `SeqBlock::gradientsAt` draws its straight lines
+        (cpp:3558-3690), in the layout of
         `pulseq_analysis.synth.seq_utils.gradient_offsets`. The values are those that
         `gradientsAt` gives at the points: the amplitude (a float32) times each sample of a
         shape in float32, and 0 everywhere when the amplitude is 0."""
         return _points(self.block(block)["grad"][axis], self._gradient_raster)
+
+    def gradient_variants(self) -> np.ndarray | None:
+        """Which cells (a block and an axis) decode their gradient event alike
+        (`pulseq_analysis.synth.Decoding.gradient_variants`), from the libraries that `load` read,
+        with no block decoded. The result is kept.
+
+        `decodeArbGradInBlock` decompresses the wave shapes of the arbitrary gradients of a block
+        into one buffer, in the order gx, gy, gz, and `decodeExtTrapGradInBlock` the time shape
+        and then the wave shape of each extended trapezoid into another (cpp:2094-2196). A shape
+        whose decompression does not write each of its samples (`_checks._writes_every_sample`)
+        keeps the values that the buffer holds (`_checks._decompress_into`). So an arbitrary
+        gradient whose wave shape does so, and an extended trapezoid whose time shape does so,
+        depend on the events on the earlier axes of the block; the wave shape of an extended
+        trapezoid follows its own time shape. The variant of each cell of such an event is 1
+        plus the number of the events on the earlier axes of its block (`np.unique`), and every
+        other cell has 0. The events of every kind count, so two blocks can have two variants
+        where the reader decodes alike. None when no cell depends on its block; otherwise an
+        int64 array (blocks, 3), read-only."""
+        if self._gradient_variants is _NOT_KEPT:
+            self._gradient_variants = _gradient_variants(self._reading.libraries)
+        return self._gradient_variants
+
+
+def _depends_on_its_block(libraries: cs.Libraries, grad_id: int) -> bool:
+    """Whether the reader's decoding of the gradient event `grad_id` depends on the shapes that
+    it decompressed before it in the block (`CppSiemensDecoding.gradient_variants`). A shape whose
+    decompression is not "ok" makes `decodeBlock` reject the block, so it has no decoding."""
+    grad = libraries.grad[grad_id]
+    wave, time = grad["wave_shape"], grad["time_shape"]
+    if wave == 0:
+        return False  # a trapezoid
+    shape = libraries.shapes.get(time if time > 0 else wave)
+    if shape is None or shape.num_samples <= 0:
+        return False
+    if _checks._decompression(*shape)[0] != "ok":
+        return False
+    return not _checks._writes_every_sample(*shape)
+
+
+def _gradient_variants(libraries: cs.Libraries) -> np.ndarray | None:
+    """`CppSiemensDecoding.gradient_variants` of the libraries that `load` read."""
+    cells = np.asarray(libraries.blocks[:, 2:5], dtype=np.int64)  # gx, gy, gz
+    events = np.unique(cells[cells > 0]).tolist()
+    dependent = np.isin(cells, [e for e in events if _depends_on_its_block(libraries, e)])
+    if not dependent.any():
+        return None
+    # The events on the earlier axes of each cell, with -1 for the axis itself and those after.
+    earlier = np.stack([np.where(np.arange(3) < axis, cells, -1) for axis in range(3)], axis=1)
+    _, number = np.unique(earlier[dependent], axis=0, return_inverse=True)
+    variants = np.zeros(cells.shape, dtype=np.int64)
+    variants[dependent] = number.reshape(-1) + 1
+    variants.flags.writeable = False
+    return variants
 
 
 def _frozen(a: np.ndarray) -> np.ndarray:

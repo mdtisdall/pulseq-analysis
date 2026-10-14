@@ -91,6 +91,12 @@ plugin of another protocol version raises `TypeError` when it is chosen.
 pulseq-analysis has no dependency on pulseq-cpp-siemens, in its code or in its
 metadata. [`docs/usage.md`](usage.md#0-install) has the install lines.
 
+**A plugin of your own.** Its decoding implements every member of the protocol
+`synth.Decoding` of version 1, which includes `gradient_variants()`: return
+None when each gradient event decodes alike in every block that plays it, or
+an int64 array (blocks, 3) that says which blocks and axes decode an event
+alike ([`docs/usage.md`](usage.md), section 8).
+
 ## 3. The modules that moved
 
 The modules are in three subpackages, in layers: `analyses` imports from

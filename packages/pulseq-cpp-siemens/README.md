@@ -208,7 +208,7 @@ pulseq-analysis is decided at release time.
 - `read_cpp_siemens(path, interpreter)`: `CppSiemens.read`.
 - `CppSiemensDecoding`: the decoding, a `pulseq_analysis.synth.Decoding`. The measurements of
   pulseq-analysis (`load(path, "cpp-siemens")`) take their gradients from it, through
-  `gradient_points` and `gradients_at`.
+  `gradient_points`, `gradient_variants` and `gradients_at`.
 
 It is about six times as long as the `spec` interpreter of pulseq-analysis, which is why `spec` is
 the default. On an Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for the
@@ -263,8 +263,11 @@ The reading is not compared by `==`. `pickle` carries the bytes of the file and 
 fields of the C++ oracle's `--dump`, `tests/cpp_oracle/README.md` of pulseq-analysis, in the
 reader's units), `gradients_at(block_index, time_us, rotated=None)` is `SeqBlock::gradientsAt` in
 Hz/m, and `gradient_points(key, block, axis)` gives the points between which `gradientsAt` draws
-its straight lines (not rotated; the values are those that `gradientsAt` gives at the points). It
-has the other members of the protocol `pulseq_analysis.synth.Decoding`: `interpreter`,
+its straight lines (not rotated; the values are those that `gradientsAt` gives at the points).
+`gradient_variants()` says which blocks and axes decode a gradient event alike: the reader
+decodes the gradients of a block into one buffer, so a shape that writes fewer samples than it
+declares keeps the values of the shape before it in the block (D5.5). It is None for a file with
+no such shape. The decoding has the other members of the protocol `pulseq_analysis.synth.Decoding`: `interpreter`,
 `session`, `block_count`, `block_durations`, `stored_block_durations`, `rotations()`,
 `rotation_record`, `soft_delay_record`, `fov_record` and `fov_flags()`.
 
