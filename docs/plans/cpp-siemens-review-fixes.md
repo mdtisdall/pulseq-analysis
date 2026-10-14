@@ -1,7 +1,8 @@
-# Implementation plan: four fixes of the plugin cpp-siemens
+# Implementation plan: five fixes of the plugin cpp-siemens
 
-Status: written on 2026-10-14. The user answered the decisions of section 7
-on 2026-10-14 (D1 to D3), and added B4 (section 6) the same day.
+Status: written on 2026-10-14. The user answered the decisions of section 8
+on 2026-10-14 (D1 to D3), and added B4 (section 6) the same day. B5
+(section 7) was found on 2026-10-14, when task 2 was rebased on task 1.
 
 ## 1. Scope
 
@@ -18,8 +19,9 @@ safe to call from several threads, as its README says.
 | B2 | A byte that is not UTF-8 in the reader's messages raises `UnicodeDecodeError`, also for a file that the reader reads. | 4 |
 | B3 | `Sequence.gradients_at` with `actual_ru` can end the Python process on a file that `load` accepted. | 5 |
 | B4 | Threads that share one `Sequence` race on the reader's messages: undefined behaviour, and the messages of another call. | 6 |
+| B5 | The measurements of a block whose gradient event lies wholly after the end of the block raise `AssertionError`. | 7 |
 
-The other findings of the review are not in this plan (section 8).
+The other findings of the review are not in this plan (section 9).
 
 Each fix starts with tests that fail on `main` and that show the bug. The fix
 then makes them pass (section 2). Each fix is one branch and one PR
@@ -32,13 +34,14 @@ then makes them pass (section 2). Each fix is one branch and one PR
 | 2 | `fix/cpp-siemens-one-point-soft-delay` | B3: `Sequence.gradients_at` refuses a time that reaches the reader's read past the times of an extended trapezoid of one point. |
 | 3 | `fix/cpp-siemens-messages-bytes` | B2: the reader's messages come to Python as bytes, and the package decodes them with `backslashreplace`. |
 | 4 | `fix/cpp-siemens-messages-race` | B4: each call of the reader returns its own messages; no shared `messages_` is read after a call. |
+| 5 | `fix/played-event-after-block` | B5: a block whose event lies after its end gets the reader's 0 on that axis, not an event of one point. |
 
 ### 1.1 Order
 
 ```
 This plan merged
   Wave 1:  task 1 (B1)  ||  task 2 (B3)
-  Wave 2:  task 3 (B2)
+  Wave 2:  task 3 (B2)  ||  task 5 (B5)
   Wave 3:  task 4 (B4)
 ```
 
@@ -51,7 +54,10 @@ This plan merged
   `self._reader.messages`. One of them is in `Sequence.gradients_at`, which
   task 2 also changes, so task 3 waits for task 2.
 - Task 4 changes the accessor of the messages that task 3 changes, and each
-  call that fills them, so it waits for task 3 (section 7, D3).
+  call that fills them, so it waits for task 3 (section 8, D3).
+- Task 5 changes `synth/_played.py` and the expected failure of task 1's
+  property test. Tasks 3 and 4 change only the plugin's `__init__.py` and
+  `reader.cpp`, so task 5 can run with either of them.
 - B1 and B3 come first. B1 gives wrong values with no error. B3 ends the
   process. B2 raises an exception of the wrong class. B4 needs two threads on
   one `Sequence`.
@@ -159,7 +165,7 @@ gradient_variants() -> np.ndarray | None
   decode alike: `gradient_points` gives the same points for both. The values
   have no meaning beyond that, and a cell with no event has 0.
 
-`PROTOCOL` stays 1 (section 7, D1): the member is part of version 1.
+`PROTOCOL` stays 1 (section 8, D1): the member is part of version 1.
 
 **`spec`.** `SpecDecoding.gradient_variants()` returns None. No value of
 `spec` changes.
@@ -446,7 +452,7 @@ block has no gradient. `block_durations_ru(actual_ru)` runs only
   runs. The check is vectorised over the pairs of those blocks.
 - The guard is per pair, not per block. The reader reads only at the times
   that it is given, so a call at times outside the intervals stays the
-  reader's call (section 7, D2).
+  reader's call (section 8, D2).
 - The private binding `_reader.Reader.gradients_at` stays as it is. Only the
   public `Sequence` is the contract.
 
@@ -600,7 +606,77 @@ In `packages/pulseq-cpp-siemens/tests/test_shared_state.py`:
   several threads, and what `rejection_messages` holds then.
 - `TESTS.md`: the entries of section 6.3.
 
-## 7. Decisions
+## 7. B5: an event that lies wholly after the end of its block
+
+### 7.1 The bug
+
+Found on 2026-10-14, when task 2 (B3) was rebased on task 1 (B1). Task 1's
+property test, `test_the_waveform_of_the_measurements_is_the_gradients_of_the_reader`,
+ran on task 2's fixture `gradient_one_point_after_block.seq`, and failed:
+
+```
+AssertionError: gradient event 5 has 1 points   (synth/_events.py:93)
+```
+
+- The file: block 4 (play index) lasts 100 us. Its gx is an extended
+  trapezoid of one point whose delay is 200 us. So every point of the event
+  is after the end of the block. `cpp-siemens` reads the file, as the reader
+  does: at the stored duration, `gradientsAt` gives 0 on gx in the whole
+  block.
+- `_played` reads such a block through `gradients_at`, because its event ends
+  after the end of the block (`too_long`). `_plan` (`synth/_played.py`) keeps
+  the times of the points before the end of the block, and adds the end:
+  `times = np.append(times[times < duration - TIME_TOLERANCE], duration)`.
+  When no point is before the end, only the end is left. That one time is a
+  step, so `_points` gives an event of one point.
+- `_events._points_from_events` asserts at least 2 points for each event,
+  because `sampling` has no code for an event with no segment. So every
+  measurement of the file (`gradient_peaks`, `pns_levels`,
+  `gradient_spectrum`, `gradient_sampler`) raises `AssertionError`, which is
+  not an error of the package's contract.
+- This is on `main` with task 1 alone. It does not need the soft delay of
+  B3: any event that a plugin plays wholly after the end of its block has it.
+  `spec` rejects such a file (`block.event-too-long`), so only a plugin
+  reaches it.
+
+### 7.2 The fix
+
+- In `_plan`, when no point of the block's events is before the end of the
+  block, the times start at 0 of the block, so that the planned times are at
+  least `[0, duration]`. Then `_points` gives 2 or more points, with the
+  values of `gradients_at`: 0 where the reader gives 0.
+- Another fix is to give no event (key 0) to an axis whose event is wholly
+  after the end. That is also right for the values, but an axis of a
+  rotated block must have an event (`_from_gradients_at`), so the first fix
+  is simpler. The implementer chooses and gives the reason in the PR.
+- The `assert` in `_events` stays: it guards the rule that every event has a
+  segment.
+
+### 7.3 The tests (first commit)
+
+1. **The property test of task 1.** On task 2's branch, its case of
+   `gradient_one_point_after_block.seq` is an expected failure
+   (`xfail(strict=True, raises=AssertionError)`). The first commit of task 5
+   removes the mark, so that the case fails on that commit.
+2. **The values of the block.** On `gradient_one_point_after_block.seq`,
+   `gradient_peaks` gives 0 on x for block 4, and `gradient_sampler(snap)`
+   gives 0 on gx at a quarter, a half and three quarters of block 4. It fails
+   on `main` with `AssertionError`.
+3. **A root test with a fake plugin** (`tests/test_played.py`). A decoding
+   that plays an event wholly after the end of its block, with no file of
+   the plugin, has played points of 2 or more for that block, and they are
+   the gradients of the decoding (`check_the_points_are_the_gradients`). It
+   also covers a rotated block of that kind. It fails on `main` with
+   `AssertionError`.
+
+### 7.4 The documents
+
+- `docs/implementation.md` section 1.2, where it describes the events that
+  `gradients_at` gives: an event wholly after the end of its block.
+- `TESTS.md`: the entries of section 7.3, and the sentence on the expected
+  failure in the entry of the property test goes.
+
+## 8. Decisions
 
 **D1. Does the protocol stay version 1?** Answer (2026-10-14): yes, option
 a.
@@ -637,7 +713,7 @@ task 3.
   messages, and removes the shared `messages_`.
 - Option b: yes, in task 3.
 
-## 8. Not in this plan
+## 9. Not in this plan
 
 These findings of the review are left out:
 
@@ -649,8 +725,8 @@ These findings of the review are left out:
   documents. They are for a later plan, which could commit the review as
   `docs/reviews/2026-10-13-code-review.md`, as the four earlier reviews are.
 
-## 9. When this plan is done
+## 10. When this plan is done
 
 - Delete this file before the last task merges. Its lasting content is in
-  the documents of sections 3.4, 4, 5.4 and 6.4, and in `CHANGELOG.md`.
+  the documents of sections 3.4, 4, 5.4, 6.4 and 7.4, and in `CHANGELOG.md`.
 - Remove its line from `README.md` in the same PR.

@@ -10572,6 +10572,10 @@ last point time is at most the block duration plus 1e-12 s.
 **Checks:** On each fixture that `cpp-siemens` reads, the waveform of the measurements
 (`gradient_sampler(snap).sample`) is the reader's own `gradientsAt`
 (`snap.data.reading.gradients_at`), on each axis, to 1e-7 of the largest value of the axis.
+The case of `gradient_one_point_after_block.seq` is an expected failure (`xfail`, strict, with
+`AssertionError`) until B5 of `docs/plans/cpp-siemens-review-fixes.md` is fixed: its gradient
+event lies after the end of its block, and the measurements give it one point. The strict mark
+makes the test fail once B5 is fixed.
 
 **How:** Parametrized over every file of `tests/seqfiles` and of the package's `tests/fixtures`;
 a file that `cpp-siemens` rejects is skipped. For each axis the probes (`_reader_probes`) are

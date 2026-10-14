@@ -149,8 +149,8 @@ fraction of the stimulation limit.
   the two interpreters (`spec` and `cpp-siemens`), the plugin protocol, the
   scanner session, and the findings for pulseq-checks in place of checks.
 - [`docs/plans/cpp-siemens-review-fixes.md`](docs/plans/cpp-siemens-review-fixes.md):
-  the plan of the fixes of four bugs of `cpp-siemens` that the review of
-  2026-10-13 found, each with tests that fail before the fix.
+  the plan of the fixes of five bugs of `cpp-siemens`, four of which the
+  review of 2026-10-13 found, each with tests that fail before the fix.
 - [`docs/specification.md`](docs/specification.md): what the interpreter `spec`
   does and why, rule by rule, with the codes of its rejections.
 - [`docs/discrepancies.md`](docs/discrepancies.md): the record of where the
