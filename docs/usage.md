@@ -13,6 +13,7 @@ that they do not give, or that starts with `_`, can change in any release.
 
 Contents:
 
+0. [Install](#0-install)
 1. [Quick start](#1-quick-start)
 2. [Before you start](#2-before-you-start)
 3. [Check the gradient limits](#3-check-the-gradient-limits)
@@ -22,6 +23,46 @@ Contents:
 7. [Run the analyses and write JSON](#7-run-the-analyses-and-write-json)
 8. [The block table and the other modules](#8-the-block-table-and-the-other-modules)
 9. [Units and gamma](#9-units-and-gamma)
+
+## 0. Install
+
+pulseq-analysis needs Python 3.12 or later. With uv, from the git URL:
+
+```
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@main"
+```
+
+**The extra `pypulseq`.** The package does not import pypulseq. The extra
+`pypulseq` (`pulseq-analysis[pypulseq]`) installs it (`pypulseq>=1.5.0`), for the
+calls that take or use a pypulseq object:
+
+```
+uv add "pulseq-analysis[pypulseq] @ git+https://github.com/mdtisdall/pulseq-analysis@main"
+```
+
+- `load(seq)` and `seqfile.read_pypulseq(seq)` read a `pypulseq.Sequence`, which
+  you build with pypulseq.
+- `asc_to_hw` and `safe_example_hw` are functions of pypulseq. They make a
+  hardware struct for `pns_levels`
+  ([section 5](#5-predict-the-pns-on-a-scanner)).
+- The examples that use `pp.Opts`
+  ([section 3](#3-check-the-gradient-limits)).
+
+`load(path)`, all the measurements, `asc.hardware_from_asc` and `safe.SafeHardware`
+need no pypulseq. Each example below that needs the extra says so.
+
+**pulseq-cpp-siemens.** The interpreter `cpp-siemens` is in another
+distribution, `pulseq-cpp-siemens` (`packages/pulseq-cpp-siemens/`). pulseq-analysis
+has no dependency on it, in its code or in its metadata. To use `cpp-siemens`,
+install both distributions:
+
+```
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@main" "pulseq-cpp-siemens @ git+https://github.com/mdtisdall/pulseq-analysis@main#subdirectory=packages/pulseq-cpp-siemens"
+```
+
+uv builds pulseq-cpp-siemens from source: this needs a C++ compiler and the
+network (CMake fetches the reader's files from pulseq/pulseq). Without it,
+`load(path, "cpp-siemens")` raises `ValueError` ([The interpreters](#the-interpreters)).
 
 ## 1. Quick start
 
@@ -35,8 +76,9 @@ from pulseq_analysis.analyses.pns_levels import pns_levels
 gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
 # A .seq file, read through the `spec` interpreter. It needs no [SIGNATURE] hash.
-# `load(seq)` takes a pypulseq Sequence instead; `load(path, "cpp-siemens")` reads
-# the file as the scanner's C++ reader does.
+# `load(seq)` takes a pypulseq Sequence instead (it needs the extra `pypulseq`);
+# `load(path, "cpp-siemens")` reads the file as the scanner's C++ reader does (it
+# needs pulseq-cpp-siemens).
 snap = load("sequence.seq")
 
 peaks = gradient_peaks(snap)
@@ -65,6 +107,8 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 |---|---|---|
 | `pulseq_analysis.analyses` | `load`: a file or a pypulseq sequence, read through an interpreter, as a `Snapshot`. | [2](#2-before-you-start) |
 | `pulseq_analysis.synth.snapshot` | `Snapshot`: the interpreter's reading and its decoding, which the measurements read. | [2](#2-before-you-start) |
+| `pulseq_analysis.synth.scanner` | `Session`: the inputs of the scanner that are not in the file; the records of what a decoding applied; `ScannerSettingWarning` and `SettingError`. | [8](#the-scanner-session) |
+| `pulseq_analysis.synth.events` | `decode_rf`, `decode_gradients` and `decode_adc`: the events of a `spec` model by file ID, as `RfEvent`, `Trapezoid`, `ArbitraryGradient` and `AdcEvent`. | [8](#the-events) |
 | `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
 | `pulseq_analysis.analyses.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
@@ -76,6 +120,9 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 | `pulseq_analysis.synth.sampling` | The gradient waveform of one axis at given times. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.synth.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.seqfile.as_written` | The "as written" reading of a Pulseq text file: its sections, rows and typed fields, with line numbers. | [8](#the-as-written-reading) |
+| `pulseq_analysis.seqfile.model` | `SequenceData`: what an interpreter read of a file, as read-only values, and the classes it is made of. | [8](#the-model) |
+| `pulseq_analysis.seqfile.spec` | `read_spec`: the reading of the interpreter `spec`, its rules (`RULES`) and their codes. | [8](#the-interpreters) |
+| `pulseq_analysis.seqfile.from_pypulseq` | `read_pypulseq`: a `pypulseq.Sequence` in memory, written to text and read through an interpreter. | [8](#a-pypulseq-sequence-in-memory) |
 | `pulseq_analysis.seqfile.reading` | `read_seqfile`: a Pulseq text file through an interpreter, into a `SequenceData`. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.interpreters` | The interpreter `spec`, the protocol of a plugin interpreter, and the names of the installed interpreters. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.errors` | `SeqFileError` and `NotSupported`. | [8](#the-interpreters) |
@@ -90,7 +137,8 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   measurement takes the snapshot. A measurement of a `pp.Sequence` or of a path
   raises `TypeError` that names `load`.
 - **`load(source, interpreter="spec")`.** `source` is the path of a `.seq` file
-  or a `pp.Sequence`. `interpreter` is a name (`"spec"`, the default, or
+  or a `pp.Sequence` (you have one only with pypulseq: the extra `pypulseq`,
+  [Install](#0-install)). `interpreter` is a name (`"spec"`, the default, or
   the name of an installed plugin, such as `"cpp-siemens"`) or an interpreter
   object with its settings, for example `CppSiemens(rotation="apply")`
   ([The interpreters](#the-interpreters)).
@@ -107,7 +155,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   give the snapshot to each measurement.
 - **What a snapshot records.** `snap.interpreter` is the interpreter with its
   settings, `snap.session` the scanner session (`synth.Session`), `snap.records`
-  what the interpreter recorded of the file (for `spec`, an extension or a
+  what the interpreter recorded of the file (an extension, a label or a
   section that it ignored, `SequenceData.records`), and `snap.rotation_record`,
   `snap.soft_delay_record` and `snap.fov_record` what the decoding did with the
   rotations of the file and with the session (`synth.RotationRecord`,
@@ -189,11 +237,11 @@ sequence of 100,000 blocks (120 s, 258 unique gradient events):
 |---|---|---|
 | `load(seq)` | the size of the sequence (pypulseq's writer) | 0.58 s |
 | `load(path)` | the size of the file | 0.07 s |
-| `sequence_index` | blocks | 19 ms |
-| `gradient_peaks(snap)`, the first gradient measurement | blocks, and unique gradient events | 47 ms |
+| `sequence_index` | blocks | 18 ms |
+| `gradient_peaks(snap)`, the first gradient measurement | blocks, and unique gradient events | 46 ms |
 | `block_gradient_values`, after it | blocks | 0.5 ms |
 | `gradient_peaks(snap, window=...)`, after the first call | (almost constant) | under 1 ms |
-| `pns_levels` | duration | 0.89 s |
+| `pns_levels` | duration | 0.87 s |
 | `gradient_spectrum` | duration | 0.89 s |
 
 From `sequence_index` on, each row is the time of its call after the rows above
@@ -202,10 +250,10 @@ block table. The exception is `pns_levels`: it is the time of the model with no
 kept result. The first of `gradient_peaks(snap)` and `block_gradient_values`
 also reads the points of the unique gradient events and makes the values of each
 block, and the other one and the windows use them. A sequence with 20,002 unique
-gradient events (a new phase-encode event in each TR) takes 65 ms for the first
-call of `gradient_peaks`, 1.9 s for `load(seq)`, 0.92 s for `load(path)` and
+gradient events (a new phase-encode event in each TR) takes 63 ms for the first
+call of `gradient_peaks`, 1.9 s for `load(seq)`, 0.84 s for `load(path)` and
 1.0 s for `gradient_spectrum`. These times are with `spec`; with `cpp-siemens`,
-`load(path)` takes 0.44 s and 0.63 s, and the other calls about the same.
+`load(path)` takes 0.42 s and 0.61 s, and the other calls about the same.
 [Implementation, section 3](implementation.md#3-algorithms-and-cost) gives the
 algorithms, their complexity and more measured times.
 
@@ -217,6 +265,8 @@ peak of the three-axis vector. The function does not compare them with
 limits: compare them with the limits of your scanner. pypulseq's `Opts` keeps
 `max_grad` in Hz/m and `max_slew` in Hz/m/s, so the limits and the values have
 the same units.
+
+This example needs the extra `pypulseq` for `pp.Opts` ([Install](#0-install)):
 
 ```python
 import pypulseq as pp
@@ -328,7 +378,8 @@ arguments after `snap` are keyword-only.
 **The hardware.** The model needs the SAFE parameters of the gradient coil of
 the scanner. There is no default. `hardware` is a pair `(struct, label)`: a
 `safe.SafeHardware` (or a struct in the form of pypulseq's `asc_to_hw`, which
-`SafeHardware.from_namespace` converts), and a name for it. A `SafeHardware`
+`SafeHardware.from_namespace` converts; pypulseq's `asc_to_hw` needs the extra
+`pypulseq`), and a name for it. A `SafeHardware`
 has a `name` and the `SafeAxis` of `x`, `y` and `z`, and is checked when it is
 made. `asc.hardware_from_asc(path)` makes the pair from the Siemens gradient
 `.asc` file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the
@@ -337,7 +388,8 @@ files of its `$INCLUDE` lines. A file with no gradient scale factors
 `ValueError`: the model multiplies each PNS value by the factor, so the
 package does not assume one. For a test, pypulseq's example hardware, which is
 not a real scanner, is `hardware=(safe_example_hw(), "a label")`
-(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`). A `hardware`
+(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`, so it needs the
+extra `pypulseq`). A `hardware`
 that is not such a pair raises `TypeError`. A struct with a missing axis or a
 missing field of `pns_levels.SAFE_FIELDS`, a field that is not a finite number,
 a `stim_limit` not above 0, or an axis with `a1 + a2 + a3` more than 0.001 from
@@ -629,10 +681,9 @@ through the registry can rely on it, and a change of the layout raises
 `Analysis.spec.version` of `seq.index`.
 
 `has_gradients(index)` is true when the index has a gradient event on any
-axis. `rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` give a tuple of
-`(number, event)` for each unique event, in the order of the numbers: the
-pypulseq event of the first block that uses it. The tuple is kept on the
-snapshot, and the events must not change.
+axis. The numbers of the table are not the IDs of the file. The events
+themselves, by the IDs of the file, are in the decoding of the snapshot
+([The events](#the-events)).
 
 **The gradient waveform.** `sampling.gradient_sampler(snap)` gives a
 `GradientSampler`. `sampler.sample(axis, t)` gives the waveform of one axis
@@ -687,7 +738,7 @@ pulseq-analysis has one plugin in this repository, and no reference to it in
 its code or its metadata: the sub-project `packages/pulseq-cpp-siemens/` gives
 the interpreter `cpp-siemens`, which reads a file as the C++ reader of the
 scanner's interpreter on Siemens systems reads it. To use it, install both
-distributions (the install lines are in `README.md`). Its settings, the codes
+distributions ([Install](#0-install)). Its settings, the codes
 of its rejections, its model and its decoding are in
 `packages/pulseq-cpp-siemens/README.md`.
 
@@ -705,7 +756,7 @@ from pulseq_analysis.synth import decode
 interpreter_names()  # ('spec',), and the name of each plugin that is installed
 spec = read_seqfile("sequence.seq")  # interpreter="spec", the default
 data = read_seqfile("sequence.seq", interpreter="cpp-siemens")  # a plugin, by name
-data.interpreter  # CppSiemens(oversampling='center')
+data.interpreter  # CppSiemens(oversampling='center', rotation='reader'); str() is 'cpp-siemens'
 
 plugin = decode(data)  # the plugin's own decoding
 plugin.gradients_at([0, 0], [10.0, 20.0])  # Hz/m, times in us from the start of each block
@@ -767,7 +818,7 @@ The class is of the protocol `interpreters.Plugin`:
   the plugin cannot be `spec`).
 - `protocol`: a class attribute, the version of this protocol that the plugin
   implements. The package uses a plugin only of its own version,
-  `interpreters.PROTOCOL` (also `seqfile.PROTOCOL`, 1 since R16, P22), and
+  `interpreters.PROTOCOL` (also `seqfile.PROTOCOL`; it is 1 now), and
   `interpreters.interpreter` raises `TypeError` that names both versions for
   another.
 - `read(path)`: the Pulseq text file `path` (a `Path`) into a
@@ -794,8 +845,8 @@ neutral `Session()` for None). For `spec` it gives a `decoding.SpecDecoding` wit
 events of the model by file ID: `events.decode_rf`, `events.decode_gradients`
 and `events.decode_adc`, into `events.RfEvent`, `events.Trapezoid`,
 `events.ArbitraryGradient` (together `events.GradEvent`) and `events.AdcEvent`.
-These three refuse the model of a plugin (`TypeError`). For a plugin it gives
-what `Plugin.decode` gives. Both are of the protocol `decoding.Decoding`, which
+These three refuse the model of a plugin (`TypeError`); [The events](#the-events)
+gives their fields. For a plugin it gives what `Plugin.decode` gives. Both are of the protocol `decoding.Decoding`, which
 is what the package uses of a decoding. Blocks are indexed in play order from 0:
 
 - `interpreter`: the interpreter of the model, with its settings.
@@ -933,9 +984,16 @@ format does not have (`"unknown"`, D2.4) or removed (`"removed"`: `[DELAYS]`); a
 list (`"unknown"`, D2.19: also `NOSCL`, which the specification spells `NOSLC`)
 or that the version does not have yet (`"version"`: the flags `PMC`, `NOROT`,
 `NOPOS`, `NOSLC` and `ONCE` of 1.4.1). The row of such a label stays in the
-table. The records are part of the contract with pulseq-checks (P20, rule 7, of
-the plan); task R16 adds the records of the mechanisms left at the default, and
-`cpp-siemens` gives no record until then (`packages/pulseq-cpp-siemens/README.md`).
+table. The records are part of the contract with pulseq-checks. `cpp-siemens`
+also records what its reader ignores, in the same form: an `"extension"` that the
+reader does not know (`reason` `"unknown"`), and a `"label"` of LABELSET or
+LABELINC that the reader leaves out (`"unknown"`: a label that its `decodeLabel`
+does not know, such as `NOSLC`, or one that it ignores on purpose, `PMC` and
+`TRID`). It has no record of kind `"section"`, and none with the reason
+`"version"` (`packages/pulseq-cpp-siemens/README.md`). What a decoding does with the
+rotations of the file, and with the soft delays and the field of view of the
+session, is in the three records of the decoding, not in `SequenceData.records`
+([The scanner session](#the-scanner-session)).
 
 **The decoder of `spec`** (`synth.events`) follows the specification and the
 slides. An RF event with no time shape is cells of the RF raster, each sample at
@@ -1037,6 +1095,7 @@ file. It writes the sequence to Pulseq text with pypulseq's own writer, so what
 it reads is what the scanner would receive from `seq.write(path)`, the writer's
 rounding included. The result is the `SequenceData` that `read_seqfile` gives
 for that file, with `origin` `"pypulseq"` in place of `"file"`.
+A `pypulseq.Sequence` needs the extra `pypulseq` ([Install](#0-install)).
 
 ```python
 from pulseq_analysis.seqfile import read_pypulseq
@@ -1164,6 +1223,184 @@ rows of the section, with one column `sample` (float).
 
 Every array of the reading is read-only. On an Apple M1 Max, a file of 21 MB
 with 916 266 blocks takes about 0.3 s to read as written.
+
+### The model
+
+An interpreter reads a file into a `seqfile.model.SequenceData` (`snap.data`):
+what the file defines, as plain read-only values. IDs are those of the file, with
+no renumbering. A time is in s, an RF amplitude in Hz, a gradient amplitude in
+Hz/m and a phase in rad, converted from the units of the file. No value of a
+target (gamma, dead times, limits) is in it. `SequenceData` is a frozen
+dataclass. Its arrays are read-only and cannot be made writable again, its
+mappings are `types.MappingProxyType` and its sequences are tuples. Two models are
+equal (`==`) when each field is equal (a NaN equals a NaN); a model can be pickled
+and copied, and is not hashable. The fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `version` | `tuple[int, int, int]` | The version of the file: major, minor, revision. |
+| `definitions` | read-only mapping from `str` to `tuple[str, ...]` | The tokens of each line of `[DEFINITIONS]`, as text: no value is converted to a number. The rasters are in `rasters`. |
+| `rasters` | `model.Rasters` | `gradient`, `rf`, `adc` and `block_duration`: the four rasters of `[DEFINITIONS]` in s (`GradientRasterTime`, `RadiofrequencyRasterTime`, `AdcRasterTime`, `BlockDurationRaster`). |
+| `required_extensions` | `tuple[str, ...]` | The STRING_IDs of the definition `RequiredExtensions`. |
+| `blocks` | structured array | One row for each block, in file order, which is play order. The fields (all int64) are `id`, `duration_ticks` (in units of `BlockDurationRaster`), `rf`, `gx`, `gy`, `gz`, `adc` (the ID of the event of the block, 0 for none) and `ext` (the ID of the first entry of the block's extension list in `extensions.entries`, 0 for none). |
+| `rf` | structured array | One row for each RF event: `id`, `amplitude` (Hz), `mag_id`, `phase_id`, `time_id` (0 is the default raster), `center` (s), `delay` (s), `freq_ppm` (ppm), `phase_ppm` (rad/MHz), `freq_offset` (Hz), `phase_offset` (rad) and `use` (one of `e r i s p o u`). |
+| `grad` | structured array | One row for each arbitrary gradient of `[GRADIENTS]`: `id`, `amplitude` (Hz/m), `first` and `last` (Hz/m, the values at the start and at the end), `shape_id`, `time_id` (0 is the default raster, -1 is half of it) and `delay` (s). |
+| `trap` | structured array | One row for each trapezoid of `[TRAP]`: `id`, `amplitude` (Hz/m), `rise`, `flat`, `fall` and `delay` (s). `grad` and `trap` share one ID space. |
+| `adc` | structured array | One row for each ADC event: `id`, `num_samples`, `dwell` (s), `delay` (s), `freq_ppm`, `phase_ppm`, `freq_offset` (Hz), `phase_offset` (rad) and `phase_shape_id` (0 is no modulation). |
+| `shapes` | read-only mapping from `int` to `model.Shape` | The shapes by shape ID. A `Shape` has `num_samples` and `packed`, the values as the file stores them (compressed or not). `Shape.samples()` gives the decompressed samples, a new float64 array. |
+| `extensions` | `model.Extensions` | The extensions of the file (`model.Extensions`, below). |
+| `skipped_extensions` | `tuple[str, ...]` | The STRING_IDs of the extensions that the interpreter does not know. It does not read their rows. |
+| `records` | `tuple[model.Record, ...]` | What the interpreter ignored, in file order ([Records](#the-interpreters)). `cpp-siemens` records an extension or a label that its reader does not know. |
+| `signature` | `model.Signature` or `None` | The `[SIGNATURE]` section: `type` (for example `"md5"`), `hash` as in the file, and `matches`, which says whether `hash` is the hash of the file (`None` when it cannot be known, for an algorithm that `hashlib` does not have). `None` when the file has no `[SIGNATURE]` section. |
+| `origin` | `str` | `"file"`, or `"pypulseq"` for a sequence in memory that `read_pypulseq` wrote and read. |
+| `interpreter` | `Spec` or a plugin interpreter | The interpreter that read the file, with its settings. |
+| `reading` | `Any` | For a plugin, its own object for the file, which its decoding uses (opaque to the package; `None` for `spec`). `==` does not compare it. |
+
+`SequenceData.block_durations_s` is the stored duration of each block in s:
+`duration_ticks` times `rasters.block_duration`. The duration under a scanner
+session is `snap.decoding.block_durations` ([The decoding](#the-interpreters)).
+
+In a 1.4.x file, the model has the 1.5 layout with these values: RF `freq_ppm`
+and `phase_ppm` are 0, `use` is `u` (undefined) and `center` is NaN (the format
+has no center), and ADC `freq_ppm`, `phase_ppm` and `phase_shape_id` are 0.
+The `first` and `last` of a gradient with a time shape (`time_id` above 0) are the
+amplitude times the first and the last sample of the shape.
+
+**`model.Extensions`.** `entries` is the table of `[EXTENSIONS]` (`id`, `type`,
+`ref`, `next`; `next` 0 ends a list). `type_ids` maps the STRING_ID of each
+`extension` section of the file, known or not, to its type ID in this file. Each of
+the other fields is the table of one extension, empty when the file has none:
+
+| Field | Extension | Fields of a row |
+|---|---|---|
+| `triggers` | TRIGGERS | `id`, `type`, `channel`, `delay` and `duration` (s) |
+| `labelset` | LABELSET | `id`, `value`, `name` |
+| `labelinc` | LABELINC | `id`, `value`, `name` |
+| `soft_delays` | DELAYS | `id`, `num`, `offset` (s), `factor`, `hint` |
+| `rotations` | ROTATIONS | `id`, `q0`, `qx`, `qy`, `qz`: the quaternion, divided by its norm |
+| `rf_shims` | RF_SHIMS | a read-only mapping from the object ID to an array with one row for each channel: the magnitude and the phase |
+
+The model of a plugin has the same fields. It fills the tables in its own way, so
+it differs from the model of `spec` where the plugin says so: for `cpp-siemens`,
+the paragraph "The model" of `packages/pulseq-cpp-siemens/README.md`. For example,
+the reader keeps no block ID, so `blocks["id"]` of `cpp-siemens` is the position in
+play order, from 1.
+
+### The events
+
+`synth.events` decodes the tables of the model of `spec` into events with
+fields. `decode_rf(data)`, `decode_gradients(data)` and `decode_adc(data)` take
+the `SequenceData` of the interpreter `spec` (`snap.data`) and give a read-only
+mapping (`types.MappingProxyType`) from the **ID of the file** to the event. They
+give every row of the table, whether a block uses it or not, in the order of the
+table; `decode_gradients` gives the rows of `[GRADIENTS]` first, then those of
+`[TRAP]`, as the two share one ID space. The decoding of the snapshot has the
+same events: `snap.decoding.rf`, `snap.decoding.gradients` and
+`snap.decoding.adc` are equal to the three results, and `load` made them once
+(each call of a `decode_*` function decodes again).
+
+```python
+from pulseq_analysis.analyses import load
+from pulseq_analysis.synth.events import decode_adc, decode_gradients, decode_rf
+
+snap = load("sequence.seq")
+rf = decode_rf(snap.data)  # {RF ID: RfEvent}
+grad = decode_gradients(snap.data)  # {gradient ID: Trapezoid or ArbitraryGradient}
+adc = decode_adc(snap.data)  # {ADC ID: AdcEvent}
+
+# The events of a block: the block table has their IDs, 0 for none.
+row = snap.decoding.blocks[0]  # play index 0
+pulse = rf[int(row["rf"])] if row["rf"] else None
+gx = grad[int(row["gx"])] if row["gx"] else None
+readout = adc[int(row["adc"])] if row["adc"] else None
+```
+
+The keys are the IDs of the file, not the numbers of the block table
+(`sequence_index`). The block table of the decoding (`snap.decoding.blocks`, the
+`blocks` table of the model) gives the IDs of the events of each block, in play
+order. A key that the file does not have raises `KeyError`.
+
+Each event is a frozen dataclass. Its arrays are read-only, two events are equal
+(`==`) when each field is equal, and an event can be pickled. A time is in s from
+the start of the event, which is after its `delay`. The events are as the file
+defines them: the decoding of the scanner session, and the rotation of a block,
+are not applied. No value of a target (gamma, dead time, ringdown time) is used.
+`AdcEvent.delay` is the delay as written in the file: no dead time is added.
+
+`events.RfEvent`:
+
+| Field | Meaning |
+|---|---|
+| `id` | The RF ID. |
+| `amplitude` | Hz. |
+| `mag_id`, `phase_id`, `time_id` | The IDs of the magnitude, phase and time shapes (`time_id` 0 is the default raster). |
+| `magnitude` | The amplitude times the magnitude shape, as written (a negative sample stays negative), at the times `t` (Hz). |
+| `phase` | 2 pi times the phase shape, as written, with no wrap, at the times `t` (rad). |
+| `t` | The time of each sample (s). |
+| `dwell` | The dwell of a pulse of cells (s), or `None` for a pulse of points. |
+| `shape_dur` | The duration of the pulse after the delay (s). |
+| `center` | The center of the pulse in s, or `None` for a file of version 1.4, which has no center. |
+| `delay` | s. |
+| `freq_ppm` | ppm. |
+| `phase_ppm` | rad/MHz. |
+| `freq_offset` | Hz. |
+| `phase_offset` | rad. |
+| `use` | One character as in the file (`e r i s p o u`), or `u` for a file of version 1.4. |
+
+`RfEvent.signal(times)` gives the complex signal `magnitude * exp(1j * phase)`
+(Hz) at `times` (s from the start of the event), without the offsets. It is 0
+outside the pulse. How `t`, `dwell` and `shape_dur` follow from the shapes is in
+[The decoder of `spec`](#the-interpreters).
+
+`events.Trapezoid`, for a row of `[TRAP]`:
+
+| Field | Meaning |
+|---|---|
+| `id` | The gradient ID. |
+| `amplitude` | Hz/m. |
+| `rise_time`, `flat_time`, `fall_time` | s. |
+| `delay` | s. |
+
+`Trapezoid.shape_dur` is the sum of the three times (s), and `Trapezoid.first`
+and `Trapezoid.last` are 0.0 (Hz/m).
+
+`events.ArbitraryGradient`, for a row of `[GRADIENTS]`:
+
+| Field | Meaning |
+|---|---|
+| `id` | The gradient ID. |
+| `amplitude` | Hz/m. |
+| `shape_id` | The ID of the shape of the waveform. |
+| `time_id` | 0 is the default raster, -1 is half of it (an oversampled gradient), above 0 is the ID of a time shape. |
+| `waveform` | The amplitude times the samples of the shape (Hz/m). |
+| `tt` | The time of each sample (s). |
+| `shape_dur` | The duration after the delay (s). |
+| `first`, `last` | The amplitude at the start and at the end of the event (Hz/m), from the model. |
+| `delay` | s. |
+
+Between its points, a gradient is straight lines: `seq_utils.gradient_offsets`
+gives the points of an event of either kind. `events.GradEvent` is
+`Trapezoid | ArbitraryGradient`.
+
+`events.AdcEvent`:
+
+| Field | Meaning |
+|---|---|
+| `id` | The ADC ID. |
+| `num_samples` | The number of samples. |
+| `dwell` | s. |
+| `delay` | s, as written. |
+| `freq_ppm` | ppm. |
+| `phase_ppm` | rad/MHz. |
+| `freq_offset` | Hz. |
+| `phase_offset` | rad. |
+| `phase_shape_id` | The ID of the phase modulation shape (0 is no modulation). |
+| `phase_modulation` | The shape in rad, one value for each sample, or `None` when `phase_shape_id` is 0. |
+
+The three functions refuse the model of a plugin: `TypeError` for a
+`SequenceData` whose `interpreter` is not `Spec`, for example the data of
+`cpp-siemens`. The decoding of a plugin is its own (`snap.decoding`,
+[The interpreters](#the-interpreters)).
 
 ## 9. Units and gamma
 

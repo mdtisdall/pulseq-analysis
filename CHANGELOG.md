@@ -5,428 +5,296 @@ follow [PEP 440](https://peps.python.org/pep-0440/).
 
 ## Unreleased
 
-`load` accepts a sequence with no `[SIGNATURE]` hash, and
-`extensions.refuse_unsigned` is removed. No result of the package uses the
-hash, and the refusal blocked a sequence built in memory and never written,
-and a file with no `[SIGNATURE]` section. The values of the measurements do
-not change.
+The package reads Pulseq files itself, through an interpreter, and no longer
+through pypulseq. This release breaks callers of `0.1.0rc6`;
+`docs/migration.md` gives, for each name of `0.1.0rc6`, its replacement. In the
+release candidates, an incompatible change has no alias: an old name raises
+`ImportError`, `AttributeError` or `TypeError`.
 
-This changes the order of `0.1.0rc6` ("A caller moves in this order"):
+A caller moves in this order:
 
-- Step 2: do not call `write` on a sequence before `load(seq)`. `load`
-  accepts an unsigned sequence and raises no `ValueError` for a missing hash.
-- Step 1: the pin stays at `3c3bd85`, because pulseq-analysis, pulseq-checks
-  and pulseq-reports pin one commit. The code of this package no longer reads
-  the hash, so the read of the hash as text no longer matters to it.
+1. Install pulseq-analysis, with the extra `pypulseq` if the caller gives
+   `load` a `pypulseq.Sequence` or uses pypulseq itself
+   (`pulseq-analysis[pypulseq]`). Install pulseq-cpp-siemens of the same
+   version to read files as the scanner's C++ reader does.
+2. Change the imports: the modules are in the subpackages `seqfile`, `synth`
+   and `analyses` (below), and `load` is `pulseq_analysis.analyses.load`.
+3. Read a file with `load(path)`, or `load(seq)` for a `pypulseq.Sequence`;
+   catch `SeqFileError` (a `ValueError`) for a file that the interpreter
+   rejects and `NotSupported` (a `NotImplementedError`) for a file outside the
+   package's scope. `load` accepts a file or a sequence with no `[SIGNATURE]`
+   hash, and a file with rotations; a sequence built in memory no longer needs
+   `write` before `load(seq)`.
+4. Replace `snap.sequence` with `snap.data` (the model) and `snap.decoding`.
+5. Replace `rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` with
+   `decode_rf(snap.data)`, `decode_gradients(snap.data)` and
+   `decode_adc(snap.data)` of `synth.events`: the package's own events, by file
+   ID.
+6. Give the PNS hardware as a `SafeHardware` (`asc.safe_hardware(asc)`), or as
+   pypulseq's namespace, which still works.
 
-### Added
+### Reading files and the interpreters
 
-- `seqfile.read_seqfile(path)`, a reader of Pulseq text files, versions
-  1.4.0 to 1.5.x, into `model.SequenceData`, the immutable model of layer 1
-  (the version, the definitions, the rasters, the block table, one table for
-  each kind of event, the shapes, the extensions and the signature), through
-  an interpreter (below). A file that the interpreter rejects raises
-  `errors.SeqFileError` (a `ValueError`) with all its `errors.Violation`
-  values, each with a stable code. A 1.4.x file with a gradient on the default
-  raster, or with a time shape that does not start at 0, is rejected by `spec`
-  (`layer1.gradient-ends`): the file has no values at the ends of such a
-  gradient. `load` reads through it
-  (Changed, below). The tests have an
-  oracle folder of Pulseq files from MATLAB Pulseq, pypulseq and KomaMRI.jl
-  (`tests/seqfiles/oracle/SOURCES.md`).
-- `safe.SafeHardware` and `safe.SafeAxis`: the SAFE hardware, immutable and
+- `seqfile.read_seqfile(path, interpreter="spec")`: a reader of Pulseq text
+  files, versions 1.4.0 to 1.5.x, into `seqfile.SequenceData`, the immutable
+  model of the file (the version, the definitions, the rasters, the block
+  table, one table for each kind of event, the shapes, the extensions and the
+  signature), through an interpreter given by name or as an object.
+  `SequenceData.interpreter` records the interpreter with its settings.
+- The interpreter `spec`, the default (`seqfile.Spec`): as true as possible to
+  the Pulseq specification (1.5.3 draft) and, for timing, to the slide set
+  that its section 2.6 cites. It rejects a file where they say "must", with
+  every violation and a stable code for each (`seqfile.spec.RULES`; each
+  `Rule` records its basis), and where they are silent it reads the file as
+  `docs/specification.md` gives, rejecting only what no current writer writes.
+  It gates the extensions by version: `DELAYS` from 1.5.0, ROTATIONS, RF_SHIMS
+  and `RequiredExtensions` from 1.5.1. A 1.4.x file with an arbitrary gradient
+  on the default raster, or with a time shape that does not start at 0, is
+  rejected (`layer1.gradient-ends`): the file has no values at the ends of such
+  a gradient (D4.4, D4.5).
+- Plugin interpreters: another distribution gives an interpreter through the
+  entry-point group `pulseq_analysis.interpreters`. Its class has the methods
+  of the protocol `seqfile.Plugin` (`read`, and `decode(data, session=None)`)
+  and the version of the protocol, `protocol = 1` (`seqfile.PROTOCOL`); a plugin
+  of another version is a `TypeError` when it is chosen.
+  `seqfile.interpreter_names()` lists the names without importing a plugin. A
+  name that no installed interpreter has raises `ValueError`, and a plugin
+  that does not load raises `ImportError`. The package names no plugin.
+- `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
+  rejects, with all its `Violation` values, its `interpreter` and its `codes`.
+  `seqfile.NotSupported` (a `NotImplementedError`): a file that the package
+  does not read, whatever the interpreter (a version outside 1.4.0 to 1.5.x, a
+  binary Pulseq file, a folder).
+- `seqfile.read_as_written(path)`, the "as written" reading of a Pulseq text
+  file: its sections, the rows of each and the value of each field by the kind
+  of its column, with line numbers, without loss and without interpretation
+  (`AsWritten`, `Section`, `Table`, `Column`, `Line`, `ShapeWritten`). It
+  rejects no file. `AsWritten.signed_bytes()` gives the bytes that the
+  `[SIGNATURE]` hash covers by the specification.
+- `seqfile.read_pypulseq(seq, interpreter="spec")`: a `pypulseq.Sequence` built
+  in memory, written to Pulseq text with pypulseq's own writer (in a private
+  temporary folder) and read through an interpreter. It gives the
+  `SequenceData` of the file of `seq.write(path)`, the writer's rounding
+  included, with `origin` `"pypulseq"`. It does not change the sequence.
+- `SequenceData.records`, a tuple of `seqfile.model.Record` (`kind`,
+  `subject`, `reason`, `line`): what the interpreter ignored or did not apply,
+  such as an unknown extension, section or label, an extension that the
+  version does not have yet, or a label row that the C++ reader leaves out.
+- `Signature.matches` of `spec` hashes the bytes of the specification (section
+  2.4): every byte before the first `[SIGNATURE]` header, without the `\n`
+  right before it. For `cpp-siemens` it is the reader's own check. A mismatch
+  is not a rejection.
+- `synth.decode(data, session=None)`: the decoding of a model by its
+  interpreter, an object of the protocol `synth.Decoding`: for `spec`,
+  `synth.SpecDecoding`; for a plugin, its own. It has the blocks, their stored
+  and actual durations, `gradient_points(key, block, axis)` (the points of one
+  gradient event as the decoding draws it, not rotated), `gradients_at` (the
+  gradients of a block at given times, rotated where the decoding rotates) and
+  the records of what it applied.
+- Rotations: from 1.5.1, `spec` rotates the gradients of each block with a
+  ROTATIONS object by its normalized quaternion (`synth.decoding.rotate`, the
+  active rotation `R(q) v`); before 1.5.1, ROTATIONS is an unknown extension
+  and nothing is rotated. `rotation_record` (a `synth.RotationRecord`)
+  records the setting and the blocks with a rotation.
+- An RF event with a time shape follows `spec`: a shape whose times are
+  `(i + 0.5) d` is cells of `d`, and any other is points at its times, joined
+  by straight lines of the complex signal (D2.10 to D2.12). A time shape of
+  one sample `t0` above 0 is one cell of `2 t0` (D3.9), so MATLAB Pulseq's
+  pulse of one sample plays for one dwell (`model.rf_time_step`).
+
+### The plugin pulseq-cpp-siemens
+
+- A new distribution, pulseq-cpp-siemens (`packages/pulseq-cpp-siemens/`): the
+  C++ reader of the Pulseq interpreter on Siemens scanners (`ExternalSequence`
+  of pulseq/pulseq at `c7469123`) as a compiled extension, with stable-ABI
+  wheels for Linux, macOS and Windows. The reader's files are not in this
+  repository: the build takes them at that commit and checks the SHA-256 of
+  each, and the sdist carries them. It is released with pulseq-analysis, at
+  the same version, and requires `pulseq-analysis>=0.1.0rc7,<0.2`.
+- It gives the interpreter `cpp-siemens` as a plugin
+  (`pulseq_cpp_siemens.interpreter.CppSiemens`), found by name: it reads what
+  the reader reads, misreadings included, and rejects what it rejects, with a
+  code for each reason (`pulseq_cpp_siemens.interpreter.CODES`; `ub.*` for a
+  case of the reader's undefined behaviour). Its model is built from the
+  reader's own libraries, and its decoding is the reader's `decodeBlock` and
+  `gradientsAt`. It decodes every block to give its verdict, so it takes about
+  six times as long as `spec`.
+- Its settings: `CppSiemens(oversampling="center" | "edge" | "preserve")`, the
+  reader's sampling of an oversampled arbitrary gradient (D6.1), and
+  `CppSiemens(rotation="reader" | "apply")`: `"reader"`, the default, gives the
+  reader's gradients, which it never rotates, and `"apply"` rotates each
+  block's gradients with the reader's own `rotate_vec3_by_quat`, in any
+  version of the file. A setting that an interpreter does not have
+  (`Spec(rotation="apply")`) raises `TypeError`.
+- What `cpp-siemens` does and why is in
+  `packages/pulseq-cpp-siemens/docs/specification.md`.
+
+### `load` and the snapshot
+
+- `pulseq_analysis.analyses.load(source, interpreter="spec", session=None)`, in
+  place of `snapshot.load`: a path is read with `read_seqfile`, and a
+  `pypulseq.Sequence` (found by its methods) with `read_pypulseq`, through the
+  interpreter. pypulseq no longer reads the file. It raises the
+  interpreter's `SeqFileError`, `NotSupported`, `synth.SettingError` (below)
+  or `TypeError`.
+- `load` does not check the `[SIGNATURE]` hash: a sequence or a file with no
+  hash gives a snapshot (`extensions.refuse_unsigned` is removed). A caller
+  that requires a hash checks `snap.data.signature` (`hash`, and `matches`
+  for the bytes of the file).
+- `load` no longer refuses the rotation extension
+  (`extensions.refuse_rotations` and the module `extensions` are removed). It
+  emits a `synth.ScannerSettingWarning` where the decoding leaves content of
+  the file unapplied, such as a rotation under `cpp-siemens`'s default.
+- `synth.Snapshot` holds the interpreter's `SequenceData` (`data`), its
+  decoding (`decoding`), the interpreter (`interpreter`), the session
+  (`session`), the records of the reading (`records`) and the decoding's
+  `rotation_record`, `soft_delay_record` and `fov_record`. It has no
+  `sequence`, no block cache and no `get_block`.
+- The measurements take the gradients only through the decoding: for `spec`
+  its events, and for `cpp-siemens` the reader's own decoding, so a
+  measurement of `cpp-siemens` is of the waveform that the scanner's reader
+  plays (float32 values, D7.2; an event after the end of its block is 0 there,
+  D7.4). A block that the decoding rotates, or with an event after its end,
+  gets an event of its own on each axis (`docs/implementation.md`, 1.2).
+- The block table (`seq.index`) gives the file's block IDs, and numbers the
+  gradient events that play; two equal events with different IDs are two
+  events (pypulseq's reading merged them). The spec of each analysis is not
+  changed: each `spec.version` stays 1.
+
+### The events
+
+- `synth.events.decode_rf`, `decode_gradients` and `decode_adc`: the events of
+  a `SequenceData` read by `spec`, by file ID, as `RfEvent`, `Trapezoid`,
+  `ArbitraryGradient` (together `GradEvent`) and `AdcEvent`, in seconds, Hz,
+  Hz/m and rad. They raise `TypeError` for the model of `cpp-siemens`, whose
+  decoding is the reader's. `RfEvent.dwell` is the dwell of a pulse of cells,
+  or None for a pulse of points, and `RfEvent.signal(times)` gives the complex
+  signal at any times. `AdcEvent.phase_modulation` is in rad, one value for
+  each sample (D2.15).
+- `seq_index.rf_events`, `grad_events` and `adc_events`, which gave
+  pypulseq's events, are removed. `seq_utils.gradient_offsets` takes a
+  `Trapezoid` or an `ArbitraryGradient`, not a pypulseq event.
+
+### The scanner session
+
+- `synth.Session`: the inputs of the scanner session, the same for every
+  interpreter: `soft_delays` (s, by hint), `fov_rotation` (a quaternion) and
+  `gradient_scaling` (x, y, z). The default is the neutral session.
+  `analyses.load` and `synth.decode` take it as `session=`. A soft delay with
+  a value sets the duration of its block to `value / factor + offset`, rounded
+  half away from 0 on the block duration raster (`spec` from 1.5.0; D2.21).
+  The field of view scales the logical axes, then the block's rotation
+  applies, then the rotation of the field of view (D2.20); a block with
+  `NOROT` is not turned, and a block with the scaling flag (`NOSLC` for `spec`
+  from 1.4.1, `NOSCL` for `cpp-siemens`; D2.22, D6.4) is not scaled.
+- The decoding has `stored_block_durations` (the file's) and
+  `block_durations` (the actual ones, under the session); the block table and
+  the measurements use the actual durations, which are the stored ones with
+  the neutral session.
+- `synth.SettingError` (a `ValueError` with `setting`, `interpreter`,
+  `version` and `reason`): a setting that addresses something the file does
+  not have under the interpreter, such as an unknown hint, a soft delay in a
+  file before 1.5.0 under `spec`, or a negative duration.
+- `synth.SoftDelayRecord`, `synth.FovRecord` and `synth.RotationRecord`: what
+  a decoding applied. `ScannerSettingWarning` is given only where content of
+  the file is left unapplied.
+- The shared simulation is in `synth.scanner` (`soft_delay_durations`,
+  `fov_flags`, `physical_gradients`, `fov_record`, `SoftDelay`), which a
+  plugin may import. `cpp-siemens` applies the session with the reader's own
+  hooks (`setActualSoftDelay_ru`).
+
+### SAFE and `.asc`
+
+- The package has its own SAFE code (`analyses.safe`, ported from pypulseq's
+  `safe_hw_check` and `_safe_gwf_to_pns_chunk`, with the notices of their
+  licenses) and its own `.asc` reader. The PNS values do not change.
+- `analyses.safe.SafeHardware` and `SafeAxis`: the SAFE hardware, immutable and
   checked when it is made. `SafeHardware.from_namespace` converts a
   `SimpleNamespace` in the form of pypulseq's `asc_to_hw` or
   `safe_example_hw()`. `pns_levels` takes a `SafeHardware` or such a
   namespace as the struct of `hardware=(struct, label)`.
 - `asc.safe_hardware(asc)`, in place of pypulseq's `asc_to_hw`.
-- `events.decode_rf`, `events.decode_gradients` and `events.decode_adc`:
-  the events of a `SequenceData`, by file ID, as `events.RfEvent`,
-  `events.Trapezoid`, `events.ArbitraryGradient` (together `events.GradEvent`)
-  and `events.AdcEvent`, in seconds, Hz, Hz/m and rad: the decoder of `spec`
-  (below).
-- The tests compare the parser and the decoding with two oracles: the C++
-  reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`) and MATLAB
-  Pulseq run under GNU Octave (`pulseq-matlab-oracle`, in the default
-  devShell only). `docs/discrepancies.md` records where the specification, the
-  C++ reader, MATLAB Pulseq and pypulseq disagree, and which one the package
-  follows.
-- A build of the C++ oracle with AddressSanitizer, UndefinedBehaviorSanitizer
-  and the assertions of the C++ standard library
-  (`pulseq-cpp-oracle-sanitized`, in both devShells) gives the verdict
-  "undefined behaviour" (exit status 3) for a file on which the reader of the
-  scanner has undefined behaviour, the same on macOS and Linux. The tests have
-  this verdict for each fixture (`tests/test_cpp_oracle_sanitized.py`).
-- `seqfile.read_as_written(path)` (`as_written.read_as_written`), the "as
-  written" reading of a Pulseq text file: its sections, the rows of each and
-  the value of each field by the kind of its column, with line numbers,
-  without loss and without interpretation. A blank or `#` line does not end a
-  section, a byte that is not UTF-8 is kept (`AsWritten.not_utf8`), and
-  `AsWritten.signed_bytes()` gives the bytes that the `[SIGNATURE]` hash
-  covers by the specification. It rejects no file. Its types (`AsWritten`,
-  `Section`, `Table`, `Column`, `Line`, `ShapeWritten`) are part of the
-  contract with pulseq-checks, which compares it with what an interpreter
-  read; `docs/usage.md` documents them.
-- The interpreters (`docs/usage.md`, "The interpreters"). `read_seqfile(path,
-  interpreter="spec")` (`seqfile.read_seqfile`) reads a file through
-  an interpreter, by name or as an object (`interpreters.Spec`, or a plugin
-  interpreter), and `SequenceData.interpreter` records it with its settings:
-  - Plugin interpreters (P21 of `docs/plans/parser-redesign.md`): another
-    distribution gives an interpreter through the entry-point group
-    `pulseq_analysis.interpreters` (`interpreters.GROUP`); the name of the
-    entry point is the name of the interpreter, and its class has the methods
-    of the protocol `interpreters.Plugin` (`read`, `decode`).
-    `interpreters.interpreter_names()` lists the names without importing a
-    plugin. A name that no installed interpreter has raises `ValueError`, and
-    a plugin that does not load raises `ImportError`. The package has no
-    reference to a plugin.
-  - `cpp-siemens`, by name, a plugin that the distribution pulseq-cpp-siemens
-    of `packages/pulseq-cpp-siemens/` gives (`pulseq_cpp_siemens.interpreter`,
-    installed beside pulseq-analysis): the C++ reader of the scanner's
-    interpreter on Siemens systems (`ExternalSequence` of pulseq/pulseq at
-    `c7469123`), in the process. It reads what the reader reads, misreadings
-    included, and rejects what it rejects, with a code for each reason
-    (`pulseq_cpp_siemens.interpreter.CODES`; `ub.*` for a case of the reader's
-    undefined behaviour). Its model is built from the reader's own libraries,
-    and `SequenceData.reading` keeps the reader's object.
-    `CppSiemens(oversampling="center" | "edge" | "preserve")` sets the
-    reader's sampling mode of an oversampled arbitrary gradient (D6.1).
-  - `spec`, the default (`spec.read_spec`): as true as possible to the Pulseq
-    specification (1.5.3 draft) and, for timing, to the slide set that its
-    section 2.6 cites (`doc/pulseq_shapes_and_times.pdf`). It rejects a file
-    where they say "must", with every violation and a stable code for each
-    (`spec.RULES`), and where they are silent it reads the file as section 6
-    of `docs/plans/parser-redesign.md` chose, rejecting only what no current
-    writer (MATLAB Pulseq, pypulseq) writes. Each rule records its basis
-    (`spec.Rule`): the lines of the specification, the slides, or the
-    package's choice and why; the message of a violation of a rule of the
-    package's choice says so. The default is the fast interpreter:
-    `cpp-siemens` decodes every block to give its verdict, about six times as
-    long.
-- `errors.NotSupported` (a `NotImplementedError`): a file that the package
-  does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x,
-  a binary Pulseq file, a folder.
-- `synth.decode(data)` (`decoding.decode`): the decoding of a model by its
-  interpreter, an object of the protocol `decoding.Decoding`: for `spec`, the
-  events of `events` (`decoding.SpecDecoding`); for a plugin, its own decoding
-  (for `cpp-siemens`, the reader's own `decodeBlock` of each block and
-  `gradientsAt`, `pulseq_cpp_siemens.interpreter.CppSiemensDecoding`).
-  `gradient_points(key, block, axis)` gives the points of one gradient event
-  (`decoding.Points`), as the decoding draws it, not rotated.
-- `docs/discrepancies.md` has a new entry, D2.2: the last section of a file
-  with no blank line after it.
-- The record is split by interpreter. `docs/discrepancies.md` gives, entry by
-  entry, the sources (the specification and the C++ reader) and what `spec`
-  does and why; its review of the former strict
-  reader (section 4) is removed (commit `49a7e2c` has it last), and it keeps
-  the scripts of the acceptance matrix, not the matrix. What `cpp-siemens`
-  does is in `packages/pulseq-cpp-siemens/docs/specification.md`: its rule (do
-  what the C++ reader does) and each exception. Its entries
-  D5.10 (an extended trapezoid of one point) and D5.11 (an extended trapezoid time
-  out of range) name two cases of undefined behaviour that had none. The IDs
-  of `pulseq_cpp_siemens.interpreter.CODES` and `UndefinedBehaviour.entry`
-  are those of the regrouped record (the next entry).
-- `docs/specification.md` gives what `spec` does and why, by rule, as the
-  record of `cpp-siemens` does: its rule, each place where the rule does not
-  decide, and the codes of its rejections, with the IDs of the records.
-- Rotations in `cpp-siemens` (D6.2, task R9). `CppSiemens(rotation="reader" |
-  "apply")` (`pulseq_cpp_siemens.interpreter.ROTATION`): `"reader"`, the default, gives the
-  reader's gradients, which it never rotates; `"apply"` rotates the gradients
-  of each block to which the reader attaches a rotation by its quaternion,
-  with the reader's own `rotate_vec3_by_quat`, in any version of the file (a
-  simulation of the scanner). `CppSiemensDecoding.rotations()` gives each
-  block's quaternion as the reader attaches it, `gradients_at(...,
-  rotated=...)` overrides the setting for one call, and `rotation_record` (a
-  `synth.RotationRecord`) records the setting and the blocks with a rotation,
-  not the identity, and rotated. `RotationRecord.warning()` gives a
-  `synth.ScannerSettingWarning` where the default leaves a rotation
-  unapplied, with the interpreter's advice (`RotationRecord.hint`, not
-  compared); the decoding does not emit it, and `load` does (Changed,
-  below). pulseq-cpp-siemens has `Sequence.block_rotations()` and
-  `Sequence.gradients_at(..., rotated=True)`. A setting that an interpreter
-  does not have (`Spec(rotation="apply")`) raises `TypeError`. These are part
-  of the contract with pulseq-checks.
-- Rotations in `spec` (D2.18, the `spec` part of task R9), and the gradients of
-  `spec`'s decoding. `SpecDecoding` has the blocks (`blocks`,
-  `block_durations`, `block_count`) and `gradients_at(block_index, time_us,
-  rotated=None)`, the gradients in Hz/m as `CppSiemensDecoding` gives them.
-  From 1.5.1 `spec` rotates the gradients of each block with a ROTATIONS
-  object by its normalized quaternion (`decoding.rotate`, the active rotation
-  `R(q) v`, pure Python); before 1.5.1 ROTATIONS is an unknown extension and
-  nothing is rotated (P20, rule 2). `rotations()` and `rotation_record` are
-  those of `CppSiemensDecoding`; the record's setting is `"apply"` and it
-  never has a warning. `spec` has no rotation setting. These are part of the
-  contract with pulseq-checks.
-- `seqfile.read_pypulseq(seq, interpreter="spec")`
-  (`from_pypulseq.read_pypulseq`): a `pypulseq.Sequence` built in memory,
-  written to Pulseq text with pypulseq's own writer (in a private temporary
-  folder) and read through an interpreter, by name or as an object. It gives
-  the `SequenceData` of the file of `seq.write(path)`, the writer's rounding
-  and `[SIGNATURE]` included, with `origin` `"pypulseq"`. It does not change
-  the sequence, and does not run pypulseq's timing check. `load(seq)` reads
-  a sequence with it.
-- `SequenceData.records`, a tuple of `model.Record` (`kind`, `subject`,
-  `reason`, `line`): what `spec` ignored (an unknown extension, section or
-  label, an extension or a label that the version does not have yet, the
-  section `[DELAYS]`). `cpp-siemens` gives an empty tuple. Part of the contract
-  with pulseq-checks.
-- `events.RfEvent.dwell` (the dwell of a pulse of cells, or None for a pulse
-  of points) and `events.RfEvent.signal(times)` (the complex signal at any
-  times), and `model.rf_time_step` (the step of a regular RF time shape, or
-  None).
-
-- The scanner session (task R16 of `docs/plans/parser-redesign.md`, P20
-  section 7.8, P22). `synth.Session` holds the inputs of the scanner session,
-  the same for every interpreter: `soft_delays` (s, by hint), `fov_rotation`
-  (a quaternion) and `gradient_scaling` (x, y, z). The default is the neutral
-  session. `analyses.load(source, interpreter, session=...)` and
-  `synth.decode(data, session=...)` take it. A soft delay with a value sets the
-  duration of its block to `value / factor + offset`, rounded half away from 0
-  on the block duration raster (`spec` from 1.5.0; D2.21). The field of view
-  scales the logical axes, then the block's rotation applies, then the rotation
-  of the field of view (the order of MATLAB's `mr.TransformFOV`, D2.20); a
-  block with `NOROT` is not turned, and a block with the scaling flag (`NOSLC`
-  for `spec` from 1.4.1, `NOSCL` for `cpp-siemens`; D2.22, D6.4) is not scaled.
-  - `synth.SettingError` (a `ValueError` with `setting`, `interpreter`,
-    `version` and `reason`): a setting that addresses something the file does
-    not have under the interpreter (rule 8): an unknown hint, a file before
-    1.5.0 under `spec`, a hint with two numeric IDs, a soft delay in a block
-    with an event or with two soft delays, a negative duration.
-  - `synth.SoftDelayRecord` and `synth.FovRecord`: what a decoding applied
-    (`soft_delay_record` and `fov_record` of each decoding and snapshot).
-  - The shared simulation in `synth.scanner` (`soft_delay_durations`,
-    `fov_flags`, `physical_gradients`, `fov_record`, `SoftDelay`), which a
-    plugin may import (rule 6).
-  - `tests/session/scanner_session.seq`, a fixture of the session, outside
-    `tests/seqfiles`.
-  - The record's entries D2.20, D2.21 and D2.22 (`docs/discrepancies.md`), and
-    D6.3 and D6.4 of `cpp-siemens`.
-- pulseq-cpp-siemens: `Sequence.block_soft_delays()`,
-  `Sequence.block_label_sets()`, `Sequence.block_durations_ru(actual_ru)` (the
-  reader's hook `setActualSoftDelay_ru`), `gradients_at(..., actual_ru=...)`,
-  and `rotate_vec3_by_quat(quaternions, vectors)`, the reader's rotation.
-  `CppSiemens.decode(data, session)` applies the session with them (D6.3,
-  D6.4).
-
-### Changed
-
-- The contract with pulseq-checks changes (R16, P22;
-  `docs/findings-for-pulseq-checks.md`, 2.8):
-  - The plugin protocol has a version: `seqfile.PROTOCOL` is 1, a plugin class
-    has `protocol = 1`, and its `decode` is `decode(data, session=None)`. A
-    plugin of another version, or of none (the protocol before R16), is a
-    `TypeError` when it is chosen. `CppSiemens.protocol` is 1.
-  - The protocol `synth.Decoding` gains `session`, `block_durations` (the
-    actual durations), `stored_block_durations`, `soft_delay_record`,
-    `fov_record` and `fov_flags()`. `SpecDecoding.block_durations` is now the
-    actual duration (the stored one with the neutral session, so no value
-    changes by default). `gradients_at` is 0 after the actual end of a block.
-  - The block table and the measurements use the actual durations.
-  - `SequenceData.records` of `cpp-siemens` is no longer empty: it records an
-    extension that the reader does not know and a label row that the reader
-    leaves out (for example `NOSLC`, D6.4).
-
-- The record is regrouped by kind of decision (the user, 2026-10-13). The IDs
-  are D1.1 to D7.6: D1 to D4 in `docs/discrepancies.md` (the specification is
-  unclear, D1; silent and `spec` reads the file, D2; silent and `spec` rejects
-  by choice, D3; versions, D4) and D5 to D7 in the record of `cpp-siemens`
-  (the undefined behaviour of the C++ reader, D5; the settings of the scanner,
-  D6; the reader's values in the model, D7). An ID names a decision of an
-  interpreter, so a condition on which each interpreter decides has two IDs.
-  An entry exists only for a decision of `spec` where the specification is
-  unclear or silent, or for a departure of `cpp-siemens` from the C++ reader;
-  where the specification states a rule and each interpreter follows its own,
-  there is none. The rows of MATLAB Pulseq and pypulseq left the source tables
-  (the MATLAB oracle stays for the waveform tests), and mechanism M5 of the
-  hand-off (a catalogue of MATLAB Pulseq and pypulseq) left
-  `docs/findings-for-pulseq-checks.md`. The old IDs, numbered in the order of
-  discovery, are mapped to the new ones in the appendix of the record and by
-  `scripts/record_ids.py`.
-  The values of `pulseq_cpp_siemens.interpreter.CODES` and
-  `UndefinedBehaviour.entry` change to the new IDs ("—" for a code with no
-  entry). The released entries below keep the old IDs.
-
-- `load` runs on the interpreters (task R14 of `docs/plans/parser-redesign.md`,
-  in place of task 5a of `docs/plans/own-parser-tasks.md`). It is
-  `pulseq_analysis.analyses.load(source, interpreter="spec")`: a path is read
-  with `read_seqfile`, and a `pypulseq.Sequence` with `read_pypulseq` (its text
-  as pypulseq's writer writes it), through the interpreter given by name or as
-  an object (`spec`, or a plugin's, such as `cpp-siemens`). pypulseq no longer
-  reads the file. A file that the interpreter rejects raises its
-  `SeqFileError`; a file outside the package's scope `NotSupported`.
-  - `Snapshot` (`pulseq_analysis.synth.snapshot`) holds the interpreter's
-    `SequenceData` (`data`) and its decoding (`decoding`, a `synth.Decoding`),
-    and records the interpreter with its settings (`interpreter`), the records
-    of the reading (`records`) and the decoding's `rotation_record` (P20, rule
-    4). It has no `sequence`, no block cache and no `get_block`. A copy decodes
-    the data again.
-  - The measurements take the gradients only through the decoding, by the
-    methods of the protocol `synth.Decoding`: `gradient_points` for each
-    decoded event (for `spec` its event of `events`; for `cpp-siemens` the C++
-    reader's decoding of the event and the points of its `gradientsAt`, so a
-    measurement of `cpp-siemens` is of the waveform that the scanner's reader
-    plays: float32 values, D7.2; whole µs; a time-shaped gradient from its
-    first to its last sample, D4.5 and section 2.4 of
-    `docs/findings-for-pulseq-checks.md`; an event after the end of its block
-    is 0 there, D7.4, D6.1), and `gradients_at` for a block that the decoding
-    rotates (`spec` from 1.5.1, `CppSiemens(rotation="apply")`) and for a block
-    with an event after its end, which get an event of their own on each axis
-    (`docs/implementation.md`, 1.2). The package does not rotate, and names no
-    plugin.
-  - `load` no longer refuses the rotation extension
-    (`extensions.refuse_rotations` and the module `extensions` are removed). It
-    emits a `synth.ScannerSettingWarning` where the decoding leaves a played
-    rotation unapplied: under `cpp-siemens`'s default.
-  - The block table (`seq.index`) numbers the gradient events that play: in a
-    block measured from `gradients_at`, each axis has an event of its own. In a
-    file with no such block, the numbering is that of the file's IDs, as
-    before, except that two equal events with different IDs are two events
-    (pypulseq's reading merged them).
-  - `seq_index.rf_events`, `grad_events` and `adc_events` are removed: no
-    measurement used the RF and ADC events, and the gradient events are those
-    of the decoding. `seq_utils.gradient_offsets` no longer takes a pypulseq
-    event.
-  - The values change from those of pypulseq's reading (`0.1.0rc6`) only where
-    the record or the plan says that the sources differ, checked on every
-    fixture and test sequence against the code before this change: with
-    `spec`, a 1.4 time-shaped gradient starts at its first sample (D4.5);
-    pypulseq rounded amplitudes to 6 significant digits and merged and
-    renumbered equal events; a sequence in memory is measured as its written
-    file (R15); and files that pypulseq could not read now load, and files
-    that `spec` rejects (`definitions.raster-commensurate`, `raster.gradient-*`,
-    `gradient.nonzero-*`, D4.4) no longer do. With `cpp-siemens`, the reader's
-    float32 values (D7.2), its `FLOAT_UNDEFINED` ends of a 1.4 gradient (D4.4),
-    and its reading of a time-shaped gradient. pypulseq's `UserWarning`s about
-    the version of a file are gone.
-  - The tests of the measurements through `cpp-siemens` moved to the plugin's
-    tests (`packages/pulseq-cpp-siemens/tests`), since pulseq-analysis's own
-    tests run without the plugin.
-
-- The modules are in three subpackages, in layers, and their import paths
-  change. There are no aliases for the old paths:
-  - `pulseq_analysis.seqfile` (the files): `seqfile` becomes
-    `pulseq_analysis.seqfile.spec` (the `spec` interpreter), and `model`
-    becomes `pulseq_analysis.seqfile.model`.
-  - `pulseq_analysis.synth` (the waveforms): `snapshot`, `seq_index`,
-    `seq_utils`, `sampling` and `events`, for example
-    `pulseq_analysis.synth.snapshot.Snapshot`. `load` is
-    `pulseq_analysis.analyses.load` (below), and `extensions` is removed.
-  - `pulseq_analysis.analyses` (the analyses): `analyses` becomes
-    `pulseq_analysis.analyses.registry`, and `grad_peaks`, `grad_spectrum`,
-    `pns_levels`, `series`, `safe` and `asc` move into it, for example
-    `pulseq_analysis.analyses.pns_levels.pns_levels`.
-
-  The entry points of the five analyses name
-  `pulseq_analysis.analyses.registry`; their group stays
-  `pulseq_analysis.analyses`. A layer imports only from the layers below it,
-  and an import-linter contract checks it. No value and no rule changes. The
-  `TypeError` of a measurement that gets no `Snapshot` names the new paths of
-  `Snapshot` and `load`.
-- The package has its own SAFE code (`safe.py`, ported from pypulseq's
-  `safe_hw_check` and `_safe_gwf_to_pns_chunk`, with the notices of their
-  licenses) and its own `.asc` reader (in place of pypulseq's `readasc`). The
-  PNS values do not change. `pns_levels`, `safe` and `asc` no longer import
-  anything from `pypulseq.utils`.
-- A gradient `.asc` file with no gradient scale factors
-  (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) raises
-  `ValueError` from `asc.hardware_from_asc` and `asc.safe_hardware`. Before,
-  pypulseq's `asc_to_hw` printed a warning and assumed 1/pi. The model
-  multiplies each PNS value by this factor, so the package does not assume
-  one.
 - `asc.hardware_from_asc` returns `(SafeHardware, label)`. The `SafeHardware`
   has the same `name`, `x`, `y` and `z` attributes as the namespace before. Its
   `name` is `hardware_name(asc)`, also for a scanner file (`asCOMP[0].tName`),
   where the namespace had "unknown".
+- A gradient `.asc` file with no gradient scale factors
+  (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) raises
+  `ValueError` from `asc.hardware_from_asc` and `asc.safe_hardware`. Before,
+  pypulseq's `asc_to_hw` printed a warning and assumed 1/pi.
 - `asc.read_gradient_asc` raises `ValueError` that names the file and the
   line for a line with `=` that it cannot read (pypulseq's `readasc` raised
-  `RuntimeError`), and for a number that `float` cannot read, a field name
-  that is not names with indices, and a field under a name that has a value.
-- `load` does not check the hash. A sequence or a file with no hash gives a
-  `Snapshot`.
-- `Signature.matches` of `spec` hashes the bytes of the specification
-  (section 2.4): every byte before the first `[SIGNATURE]` header, without the
-  `\n` right before it (`AsWritten.signed_bytes()`). For `cpp-siemens` it is
-  the reader's own check, which drops an empty line `\r\n` before the header:
-  `tests/seqfiles/valid_crlf.seq` matches for `cpp-siemens` and not for
-  `spec`. A mismatch is not a rejection.
-- `read_seqfile` reads the file through `read_as_written`, and through the
-  interpreter `spec` by default, which replaces the reader of the package from
-  before the interpreters (`strict`). Among the fixtures of `tests/seqfiles`,
-  `spec` reads ten files that the former reader rejected:
-  `bad_blocks_order.seq` (block IDs out of order: file order),
-  `bad_definitions_duplicate.seq` (the last definition, D2.6),
-  `bad_section_delays.seq` and `bad_section_unknown.seq` (ignored, D2.4),
-  `bad_shape_rf_magnitude_negative.seq` and `bad_shape_rf_phase_range.seq`
-  (played as written, D2.8, D2.9), `bad_shape_rf_time_grid.seq` and
-  `bad_shape_rf_time_end.seq` (RF time shapes read as points, D2.10, D2.11),
-  `bad_syntax_integer_plus.seq` (`+30` is 30) and
-  `bad_syntax_line_after_comment.seq` (a `#` line inside a table is skipped,
-  D2.5). It rejects one that the former reader read:
-  `valid_arbitrary_gradient_4us_raster.seq`, whose gradient raster (4 µs) is
-  neither a multiple nor a divisor of its block duration raster (10 µs), which
-  slide 11 of the slide set requires (`definitions.raster-commensurate`); a new
-  fixture on 5 µs, `valid_arbitrary_gradient_5us_raster.seq`, which
-  `spec` reads and `cpp-siemens` rejects. On an Apple M1 Max, `spec` reads a file of
-  20 MB with 900 000 blocks in 0.5 s, and `cpp-siemens` in 2.9 s.
-- The rules of `spec` that the former reader did not have:
-  `definitions.raster-commensurate`, `raster.rf-delay`, `raster.adc-delay`
-  (slides 9 to 11), `shape.oversampled-length` (an even number of samples
-  with time ID -1), `raster.gradient-vertex`, `shape.time-order` and
-  `rotation.zero` (a quaternion of norm 0; from 1.5.1 `spec` divides each
-  quaternion by its norm, D2.18). `section.duplicate` rejects any section that
-  appears twice, also `[SIGNATURE]`, and two `extension` sections with one
-  `STRING_ID` (D3.3). `shape.empty` also covers the phase shape of an ADC, and
-  `shape.event-length` an ADC phase shape whose length is not the number of
-  ADC samples (D3.8). A shape with no blank line after it before a header or
-  the end of the section is `syntax.shape` (D3.11). `RequiredExtensions` is read
-  from 1.5.1, `extension DELAYS` from 1.5.0, ROTATIONS and RF_SHIMS from 1.5.1:
-  in an older file such an extension is unknown, ignored and listed in
-  `SequenceData.skipped_extensions`.
-- The decoding of an RF event with a time shape (`events.decode_rf`) follows
-  `spec`, not the C++ reader: a shape whose times are `(i + 0.5) d` is cells of
-  `d`, any other is points at its times, joined by straight lines of the
-  complex signal (D2.10 to D2.12). `events.AdcEvent.phase_modulation` is in rad,
-  one value for each ADC sample (D2.15).
-- `SeqFileError` and `Violation` are in `errors`; a `SeqFileError` has
-  `interpreter` and `codes`, and its message names the interpreter.
-- A version outside 1.4.0 to 1.5.x raises `NotSupported` in both interpreters.
-- The spec of each analysis is not changed: each `spec.version` stays 1.
-- `SequenceData` has two new fields: `interpreter` and `reading` (not compared
-  by `==`).
-- `events.decode_rf`, `events.decode_gradients` and `events.decode_adc` raise
-  `TypeError` for the model of `cpp-siemens`: its decoding is the reader's.
-- pypulseq is optional (task 5b of `docs/plans/own-parser-tasks.md`). The
-  dependencies of the package are numpy and scipy; pypulseq is the extra
-  `pypulseq` (`pip install "pulseq-analysis[pypulseq]"`, `pypulseq>=1.5.0`).
-  No module of the package imports it: `load(path)` and every analysis work
-  without it, and `load(seq)` and `read_pypulseq` take a `pypulseq.Sequence`,
-  which only a caller with pypulseq has. A caller that imports pypulseq
-  itself must depend on it, or on the extra. Under uv, the extra and the
-  `dev` group still resolve to the fork commit `3c3bd85`
-  (`[tool.uv.sources]`): the tests run on the fork, whose `calculate_pns` in
-  chunks makes them much faster than with the release 1.5.0.post1. ruff bans
-  an import of pypulseq in `src/` (TID251, TID253), and `scripts/check` runs
-  the tests a second time without pypulseq. No result of the package changes.
+  `RuntimeError`), for a number that `float` cannot read, for a field name
+  that is not names with indices, and for a field under a name that has a
+  value.
 
-### Removed
+### The modules
 
-- The interim interpreter `strict`, the reader of the package from before the
-  interpreters: `interpreters.Strict`, `reader.read_strict` (the module
-  `pulseq_analysis.seqfile.reader`, now `seqfile.spec`),
-  `decoding.StrictDecoding` (now `decoding.SpecDecoding`), and the replica of
-  the C++ reader's RF resampling, `model._rf_time_step` and
-  `model._rf_resample`. Its rules that `spec` does not have are removed:
-  `definitions.duplicate`, `section.unknown`, `section.delays`,
-  `blocks.order`, `shape.rf-magnitude-negative`, `shape.rf-phase-range`,
-  `shape.rf-time-grid`, `shape.rf-time-end` and `version.unsupported`
-  (`NotSupported`). pulseq-checks takes the "specification" profile from
-  `spec` (section 7.5 of the plan).
+The modules are in three subpackages, in layers, and their import paths
+change, with no aliases. A layer imports only from the layers below it, and an
+import-linter contract checks it.
 
-- `extensions.refuse_unsigned`. A caller who requires a hash checks
-  `isinstance(seq.signature_value, str) and seq.signature_value != ""` on the
-  source before `load`, or on `snap.sequence`. To sign a sequence, call
-  `write` on the source and `load` the file: `write` changes the sequence, so
-  do not call it on `snap.sequence`.
+| `0.1.0rc6` | Now |
+|---|---|
+| `snapshot.load`, `snapshot.Snapshot` | `analyses.load`, `synth.Snapshot` |
+| `seq_index`, `sampling`, `seq_utils` | `synth.seq_index`, `synth.sampling`, `synth.seq_utils` |
+| `analyses` (the registry) | `analyses.registry` |
+| `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `asc` | `analyses.grad_peaks`, `analyses.grad_spectrum`, `analyses.pns_levels`, `analyses.series`, `analyses.asc` |
+| `extensions` | removed |
+
+The entry points of the five analyses name `pulseq_analysis.analyses.registry`;
+their group stays `pulseq_analysis.analyses`.
+
+### Dependencies
+
+- pypulseq is optional. The dependencies of the package are numpy and scipy;
+  pypulseq is the extra `pypulseq` (`pulseq-analysis[pypulseq]`,
+  `pypulseq>=1.5.0`). No module of the package imports it: `load(path)` and
+  every analysis work without it. A caller that imports pypulseq itself must
+  depend on it, or on the extra.
+- Under uv, the extra and the `dev` group still resolve to the fork commit
+  `3c3bd85` (`[tool.uv.sources]`): the tests run on the fork, whose
+  `calculate_pns` in chunks makes them much faster than with the release
+  1.5.0.post1. pulseq-analysis, pulseq-checks and pulseq-reports pin the same
+  commit (`TODO.md`).
+- ruff bans an import of pypulseq in `src/`, and `scripts/check` runs the
+  tests a second time without pypulseq.
+
+### The values
+
+The values change from those of pypulseq's reading (`0.1.0rc6`) only where the
+record says that the sources differ, checked on every fixture and test
+sequence against the code before each change:
+
+- With `spec`: a 1.4 time-shaped gradient starts at the amplitude times its
+  first sample (D4.5); pypulseq rounded amplitudes to 6 significant digits and
+  merged and renumbered equal events; a sequence in memory is measured as its
+  written file. Files that pypulseq could not read now load, and files that
+  `spec` rejects (`definitions.raster-commensurate`, `raster.gradient-*`,
+  `gradient.nonzero-*`, `layer1.gradient-ends`) no longer do.
+- With `cpp-siemens`: the reader's float32 values (D7.2), its
+  `FLOAT_UNDEFINED` ends of a 1.4 gradient (D4.4), and its reading of a
+  time-shaped gradient.
+- pypulseq's `UserWarning`s about the version of a file are gone.
+
+### Documents and tests
+
+- `docs/migration.md`: from `0.1.0rc6` to this release, for pulseq-checks and
+  pulseq-reports.
+- `docs/specification.md`: what `spec` does and why, by rule, with the codes
+  of its rejections. `docs/discrepancies.md`: the record of `spec`, entry by
+  entry (IDs D1.1 to D4.6), with the sources (the specification and the C++
+  reader). The record of `cpp-siemens` has D5.1 to D7.6. An ID names a
+  decision of an interpreter; the entries of `0.1.0rc6` and before keep their
+  old IDs, which the appendix of the record and `scripts/record_ids.py` map.
+- `docs/findings-for-pulseq-checks.md`: the public readings that pulseq-checks
+  compares to find where the interpreters and the file differ, and how.
+- The tests compare the readers and the decoding with two oracles: the C++
+  reader of the scanner (`pulseq-cpp-oracle --dump` and `--sample`, and a
+  build with sanitizers that gives the verdict "undefined behaviour") and
+  MATLAB Pulseq run under GNU Octave (`pulseq-matlab-oracle`). The tests that
+  compared with functions of the pypulseq fork compare with golden values
+  (`tests/golden/`).
 
 ## 0.1.0rc6 (2026-10-07)
 

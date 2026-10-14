@@ -5,11 +5,11 @@ The C++ reader of Pulseq files on Siemens scanners, in the Python process: `Exte
 `LICENSE.pulseq`, in the wheel's metadata), as a nanobind extension. It gives what the reader
 gives, bit for bit: its float32 values, its resampling of RF pulses, the clamps of `checkRF`, its
 misreadings, and `gradientsAt`. It is the engine of the `cpp-siemens` interpreter of
-pulseq-analysis (P11 and P12 of `docs/plans/parser-redesign.md` in that repository), and its own
-distribution with compiled wheels, so that pulseq-analysis stays pure Python. The module
-`pulseq_cpp_siemens.interpreter` makes it a plugin of pulseq-analysis (P21), which finds it through
-an entry point ([the interpreter](#the-cpp-siemens-interpreter-of-pulseq-analysis)); the rest of the
-package does not need pulseq-analysis.
+pulseq-analysis, and its own distribution with compiled wheels, so that pulseq-analysis stays pure
+Python. The module `pulseq_cpp_siemens.interpreter` makes it a plugin of pulseq-analysis (P21),
+which finds it through an entry point
+([the interpreter](#the-cpp-siemens-interpreter-of-pulseq-analysis)); the rest of the package does
+not need pulseq-analysis.
 
 ```python
 import pulseq_cpp_siemens as cs
@@ -29,6 +29,17 @@ sequence.block_label_sets()  # the LABELSET events of each block that decodeLabe
 cs.rotate_vec3_by_quat([[1, 0, 0, 0]], [[1.0, 0, 0]])  # the reader's rotation of vectors
 cs.load("tests/seqfiles/valid_1_5_1.seq", oversampling="edge")  # the reader's other modes
 ```
+
+The top-level names that are not described above:
+
+- `PULSEQ_COMMIT`: the full hash of the commit of pulseq/pulseq that the extension compiles, from
+  `pulseq-reader.sha256`.
+- `Libraries`: the type of `Sequence.libraries`, described below. A frozen dataclass.
+- `SoftDelays`: the named tuple that `block_soft_delays()` returns: `blocks`, `num`, `offset_us`,
+  `factor` and `hint`.
+- `CODES`: the code of each case of undefined behaviour, a key of the dict, with the ID of its
+  entry as the value (`UndefinedBehaviour.code` and `.entry`).
+  `pulseq_cpp_siemens.interpreter.CODES` has these 11 codes and the codes of the other rejections of `cpp-siemens`.
 
 `load` takes a path or the bytes of a file, and the reader's sampling mode of an oversampled
 arbitrary gradient (see below). It raises:
@@ -167,7 +178,7 @@ from pulseq_analysis.synth import decode
 from pulseq_cpp_siemens.interpreter import CppSiemens
 
 data = read_seqfile("sequence.seq", interpreter="cpp-siemens")
-data.interpreter  # CppSiemens(oversampling='center')
+data.interpreter  # CppSiemens(oversampling='center', rotation='reader')
 edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
 
 cpp = decode(data)  # the C++ reader's own decoding
@@ -181,9 +192,10 @@ rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotati
 ```
 
 `import pulseq_cpp_siemens` does not import pulseq-analysis; only `pulseq_cpp_siemens.interpreter`
-does. The dependency group `analysis` of `pyproject.toml` installs pulseq-analysis from this
-repository for this module and its tests. It is not a dependency of the published package: how a
-release of this package depends on pulseq-analysis is decided at release time.
+does. The dependency group `analysis` of `pyproject.toml` installs `pulseq-analysis[pypulseq]` from
+this repository for this module and its tests; the tests import pypulseq, which the extra gives.
+It is not a dependency of the published package: how a release of this package depends on
+pulseq-analysis is decided at release time.
 
 `pulseq_cpp_siemens.interpreter` has:
 
@@ -191,7 +203,8 @@ release of this package depends on pulseq-analysis is decided at release time.
   `pulseq_analysis.seqfile.interpreters.Plugin` (`name` is `"cpp-siemens"`; `read` and `decode`),
   with two settings.
 - `OVERSAMPLING` (the modes of `load`, above) and `ROTATION` (`"reader"`, `"apply"`).
-- `CODES`: the code of each rejection.
+- `CODES`: the code of each rejection. It maps a code to a tuple of the ID of its entry and what
+  the reader rejects. It includes the 11 `ub.*` codes of the top-level `CODES`, with the same IDs.
 - `read_cpp_siemens(path, interpreter)`: `CppSiemens.read`.
 - `CppSiemensDecoding`: the decoding, a `pulseq_analysis.synth.Decoding`. The measurements of
   pulseq-analysis (`load(path, "cpp-siemens")`) take their gradients from it, through
@@ -292,7 +305,12 @@ setting (section 7.8 of `docs/plans/parser-redesign.md`):
 `spec` of pulseq-analysis rotates the gradients of a file from 1.5.1. It gives, to float32
 precision, the gradients of `CppSiemens(rotation="apply")` on such a file.
 
-**Records.** `cpp-siemens` gives no `SequenceData.records` until task R16 of the plan.
+**Records.** `SequenceData.records` has what the reader ignored, in file order, each with a line:
+an extension that the reader does not know (kind `"extension"`, reason `"unknown"`, at the header
+of its first section), and a row of LABELSET or LABELINC that the reader leaves out (kind
+`"label"`, reason `"unknown"`): a label that `decodeLabel` does not know, such as `NOSLC`, the
+specification's spelling of the reader's `NOSCL`, or one that it ignores on purpose, `PMC` and
+`TRID` (D6.4).
 
 ## The source of the reader
 

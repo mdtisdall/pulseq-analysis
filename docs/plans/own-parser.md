@@ -1,7 +1,10 @@
 # Implementation plan: the own parser, the model of layer 1, and pypulseq as an optional extra
 
-Status: approved by the user on 2026-10-08. Written on 2026-10-08. The user
-took the recommendation of each question of section 7 (U1 to U8). Amended on
+Status: done (2026-10-13). Its tasks are merged, the later ones as re-planned by
+`docs/plans/parser-redesign.md` (R14 and R15 in place of tasks 5a and 4); the
+release is section 9 of `docs/plans/own-parser-tasks.md`. Approved by the user
+on 2026-10-08. Written on 2026-10-08. The user took the recommendation of each
+question of section 7 (U1 to U8). Amended on
 2026-10-08, after tasks 1, 1b and 3 were merged (#95, #96, #97): the C++ reader
 of the scanner as an oracle of the model, the events and the waveform in task 2
 (section 2.5, section 6.2), and the questions U9 and U10, answered on
@@ -473,6 +476,12 @@ Two kinds of dependence are guarded.
 | `.asc` | `read_gradient_asc`, `hardware_name`, pypulseq's `asc_to_hw` | the same names, and `asc.safe_hardware(asc)` in place of `asc_to_hw` |
 | A gamma when there is no target | `seq.system.gamma` | none in the model: the caller chooses (the rule "explicit") |
 | The measurements, the registry, `Series` | as rc6 | no change of meaning; the first argument is still the snapshot |
+
+The event rows changed (2026-10-13, V2 of `docs/plans/own-parser-tasks.md`):
+`rf_events(snap)`, `grad_events(snap)` and `adc_events(snap)` were not built.
+The events are `synth.events.decode_rf`, `decode_gradients` and `decode_adc`
+on `snap.data`, for a model of `spec`; they raise `TypeError` for one of
+`cpp-siemens`. `docs/migration.md` maps each attribute.
 
 Consequences to tell the two projects (in the migration guide of task 6):
 

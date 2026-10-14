@@ -87,7 +87,8 @@ The hardware is necessary: the model has no default. It is a pair of the
 SAFE parameters and a name. `hardware_from_asc` reads the Siemens gradient
 `.asc` file of the scanner. For pypulseq's example hardware, which is not a
 real scanner, pass `hardware=(safe_example_hw(), "a label")`
-(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`).
+(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`, so it needs the
+extra `pypulseq`).
 The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
 fraction of the stimulation limit.
 [`docs/usage.md`](docs/usage.md) shows the other tasks and values.
@@ -142,4 +143,24 @@ fraction of the stimulation limit.
 - [`docs/plans/own-parser-tasks.md`](docs/plans/own-parser-tasks.md): the
   implementation plan of tasks 2, 4, 5a, 5b and 6 of that plan: the event
   types, the converter, `load` on the model, pypulseq as an extra, and the
-  MATLAB oracle under Octave.
+  MATLAB oracle under Octave. R15 and R14 of
+  `docs/plans/parser-redesign.md` replaced its tasks 4 and 5a.
+- [`docs/plans/parser-redesign.md`](docs/plans/parser-redesign.md): the plan of
+  the two interpreters (`spec` and `cpp-siemens`), the plugin protocol, the
+  scanner session, and the findings for pulseq-checks in place of checks.
+- [`docs/specification.md`](docs/specification.md): what the interpreter `spec`
+  does and why, rule by rule, with the codes of its rejections.
+- [`docs/discrepancies.md`](docs/discrepancies.md): the record of where the
+  specification is unclear or silent and what `spec` does, entry by entry, with
+  the sources.
+- [`docs/findings-for-pulseq-checks.md`](docs/findings-for-pulseq-checks.md):
+  the public readings that pulseq-checks compares to find where the
+  interpreters and the file differ, and how.
+- [`docs/migration.md`](docs/migration.md): from `0.1.0rc6` to `0.1.0rc7`, for
+  pulseq-checks and pulseq-reports.
+- [`CHANGELOG.md`](CHANGELOG.md): the changes of each version.
+- [`packages/pulseq-cpp-siemens/README.md`](packages/pulseq-cpp-siemens/README.md):
+  the distribution pulseq-cpp-siemens, the C++ reader of the scanner as the
+  interpreter `cpp-siemens`.
+- [`packages/pulseq-cpp-siemens/docs/specification.md`](packages/pulseq-cpp-siemens/docs/specification.md):
+  what `cpp-siemens` does and why: its rule, and each exception.

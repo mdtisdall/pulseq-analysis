@@ -740,8 +740,9 @@ times of both documents were taken with the code of R14, before R16.
      three records. The hash is `snap.data.signature`.
    - The events (V2): a table from each attribute of rc6's events to the
      field of `decode_*`, with the keys (file IDs, not the dense index), the
-     ADC delay as written (pypulseq's read adds `adc_dead_time`, a value of
-     the target), and `RfEvent.center`, which is `None` in a 1.4 file
+     ADC delay as written in both, the dead time (pypulseq's read copies
+     `adc_dead_time`, a value of the target, into `adc.dead_time`; `decode_adc`
+     has none; corrected during the task), and `RfEvent.center`, which is `None` in a 1.4 file
      (pypulseq's `calc_rf_center` gives the peak).
    - `SequenceIndex.block_id` is the file's block ID; gradient numbers differ
      where blocks are rotated or have events past their end, and equal events
