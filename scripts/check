@@ -2,8 +2,52 @@
 # All the checks that CI runs, in one command. Run it in the devShell:
 #
 #   nix develop --command scripts/check
+#   nix develop --command scripts/check --base origin/main
+#
+# With --base <ref>, when each file that changed since <ref> is documentation, only the checks
+# that read the documentation run (docs_only, below). CI gives the base of the pull request or of
+# the push.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+base=""
+if [[ $# -gt 0 ]]; then
+  if [[ $1 != --base || $# -ne 2 ]]; then
+    echo "usage: scripts/check [--base <ref>]" >&2
+    exit 2
+  fi
+  base=$2
+fi
+
+# Documentation: each file in docs/, and each Markdown file outside tests/ and packages/ except
+# TESTS.md. TESTS.md is checked against the collected tests, and the Markdown files of tests/ and
+# packages/ are read by their tests (for example tests/seqfiles/oracle/SOURCES.md).
+docs_only() {
+  local changed file
+  changed=$(git diff --name-only "$1" HEAD) || return 1
+  [[ -n $changed ]] || return 1
+  while IFS= read -r file; do
+    case $file in
+      docs/*) ;;
+      TESTS.md | tests/* | packages/*) return 1 ;;
+      *.md) ;;
+      *) return 1 ;;
+    esac
+  done <<<"$changed"
+}
+
+if [[ -n $base ]] && docs_only "$base"; then
+  echo "# documentation only (the files changed since $base)"
+  git diff --name-only "$base" HEAD | sed 's/^/  /'
+  echo
+  echo "# uv sync"
+  uv sync --frozen
+  echo
+  echo "# pytest (the tests that read the documentation)"
+  # tests/test_interface.py checks the names that docs/usage.md and docs/implementation.md give.
+  uv run pytest -q tests/test_interface.py
+  exit 0
+fi
 
 # pytest writes the IDs of the tests that it collects to this file, and the
 # TESTS.md check reads them, so the tests are collected only one time.
