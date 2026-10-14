@@ -1,7 +1,7 @@
 # Implementation plan: seven fixes of cpp-siemens and of the measurements
 
 Status: written on 2026-10-14. The user answered the decisions of section 9
-on 2026-10-14 (D1 to D3; D4 is open), and added B4 (section 6) the same day.
+on 2026-10-14 (D1 to D3, D5 and D6; D4 is open), and added B4 (section 6) the same day.
 B5 (section 7) was found on 2026-10-14, when task 2 was rebased on task 1.
 B6 and B7 were found the same day, by task 5. The user put B6 in task 5
 (section 7.5) and B7 in a task of its own (section 8).
@@ -23,7 +23,7 @@ safe to call from several threads, as its README says.
 | B4 | Threads that share one `Sequence` race on the reader's messages: undefined behaviour, and the messages of another call. | 6 |
 | B5 | The measurements of a block whose gradient event lies wholly after the end of the block raise `AssertionError`. | 7 |
 | B6 | The measurements of a block that is read through `gradients_at` and whose events have all their points at one time raise `AssertionError`, also with `spec`. | 7.5 |
-| B7 | `gradient_peaks` raises `IndexError` for a block with a NaN gradient that is read through `gradients_at`. | 8 |
+| B7 | `gradient_peaks` and `block_gradient_values` raise `IndexError` for a gradient event with a NaN point, and `pns_levels` reports a NaN total as a peak of 0. | 8 |
 
 The other findings of the review are not in this plan (section 10).
 
@@ -39,7 +39,7 @@ then makes them pass (section 2). Each fix is one branch and one PR
 | 3 | `fix/cpp-siemens-messages-bytes` | B2: the reader's messages come to Python as bytes, and the package decodes them with `backslashreplace`. |
 | 4 | `fix/cpp-siemens-messages-race` | B4: each call of the reader returns its own messages; no shared `messages_` is read after a call. |
 | 5 | `fix/played-event-after-block` | B5 and B6: a block that `_plan` reads through `gradients_at` always has two times or more, so no event has one point. |
-| 7 | `fix/peaks-nan-gradients-at` | B7: `gradient_peaks` gives for a NaN of a block read through `gradients_at` what it gives for a NaN of a decoded event. |
+| 7 | `fix/peaks-nan-gradients-at` | B7: a NaN of the gradients propagates to the peaks and to the summary of `pns_levels` (D5, D6). |
 
 ### 1.1 Order
 
@@ -63,8 +63,9 @@ This plan merged
 - Task 5 changes `synth/_played.py` and the expected failure of task 1's
   property test. Tasks 3 and 4 change only the plugin's `__init__.py` and
   `reader.cpp`, so task 5 can run with either of them.
-- Task 7 changes `analyses/grad_peaks.py`, and it needs task 5: its tests
-  read rotated blocks through `_plan`. It can run with task 4.
+- Task 7 changes `analyses/grad_peaks.py` and `analyses/pns_levels.py`, and
+  task 4 changes only the plugin's `reader.cpp` and `__init__.py`, so the
+  two can run together.
 - B1 and B3 come first. B1 gives wrong values with no error. B3 ends the
   process. B2 raises an exception of the wrong class. B4 needs two threads on
   one `Sequence`.
@@ -737,57 +738,93 @@ function and the same rule as B5.
 **The documents.** `docs/implementation.md` section 1.2, and the docstrings
 of `_plan` and of `_played`.
 
-## 8. B7: `gradient_peaks` and a NaN of a block read through `gradients_at`
+## 8. B7: a NaN of the gradients in the peaks and in the PNS summary
 
 ### 8.1 The bug
 
-Found on 2026-10-14 by task 5, in the same sweep.
+Found on 2026-10-14 by task 5. Task 7 found the cause, and that this
+section first had it wrong: the error has nothing to do with rotations or
+with `gradients_at`.
+
 - `tests/seqfiles/bad_syntax_number.seq` has the `[TRAP]` amplitude `nan`.
   `spec` rejects it (`syntax.number`). `cpp-siemens` reads it: the reader's
-  `sscanf` reads `nan`.
-- Through `cpp-siemens` with `rotation="apply"`, or with a session
-  field-of-view rotation, `gradient_peaks` raises
-  `IndexError: index 60 is out of bounds for axis 0 with size 60` (144 with
-  the session) in `grad_peaks._event_values` (`t[first_peak]`).
-- With no rotation, the same file gives no error: the measurements of a
-  decoded event already carry a NaN of the file (the waveform test of task 1
-  has "a NaN of the file is NaN in both").
-- The cause is not yet known. A guess: the peak search of `_event_values`
-  finds no index where the values are NaN, and goes one past the end.
+  `sscanf` reads `nan`, and its gradients are NaN where that event plays.
+- Through `cpp-siemens`, with no rotation, `gradient_peaks` and
+  `block_gradient_values` raise
+  `IndexError: index 52 is out of bounds for axis 0 with size 52`. The size
+  is 60 with `rotation="apply"`, and 144 with a session field-of-view
+  rotation.
+- The cause is in `analyses/grad_peaks.py`, `_event_values`, which runs for
+  each gradient event that a plugin gives a NaN point:
+  - `peak = np.maximum.reduceat(abs_amp, at)` (line 273) is NaN for the
+    event.
+  - `abs_amp == peak[event]` is then False at every point, so `first_peak`
+    (line 274) is `n`, one past the last point.
+  - `t[first_peak]` (line 289) indexes out of range.
+  - The slew (lines 284-291) has the same fault for a NaN segment.
+- The other measurements run on the file:
+  - the sampler gives NaN where the event plays;
+  - the `rss` of `gradient_spectrum` is NaN at every frequency;
+  - `sequence_index` runs;
+  - `pns_levels` gives NaN levels and a NaN peak of x, but
+    `peak_hz_per_t = 0.0` and `peak_time_s = None`. That reads as no
+    stimulation, not as NaN.
+- No document gives a rule for a NaN of the gradients in the peaks. The
+  rule of the played points and of the sampler is that a NaN of the file is
+  NaN. `values_equal` compares NaN results by value.
 - Not yet checked: whether pypulseq or MATLAB Pulseq write a NaN amplitude.
-  MATLAB's `%g` prints `NaN`, and Python prints `nan`.
 
 ### 8.2 The fix
 
-1. Find the cause, and write it in the PR.
-2. Make `_event_values` (and any other step of `gradient_peaks` that the
-   cause shows) give for a NaN of a block read through `gradients_at` what it
-   gives for a NaN of a decoded event. A NaN peak is NaN, at the time that
-   the rule for a decoded event gives.
-3. Check `pns_levels`, `gradient_spectrum`, `block_gradient_values` and
-   `sequence_index` on the same file and settings. Fix the ones that raise,
-   or record each one that does not raise but gives a value that differs from
-   the unrotated rule, as its own bug.
+The user decided on 2026-10-14 (D5 and D6): a NaN propagates, and task 7
+also fixes the summary of `pns_levels`.
+
+- `_event_values`:
+  - The peak of an event with a NaN point is NaN, at the time of its first
+    NaN point.
+  - The slew of an event with a NaN segment is NaN, at the time of its first
+    NaN segment.
+  - Its integral is NaN.
+- `gradient_peaks` and `block_gradient_values`:
+  - Across events and blocks, a NaN wins the largest value: the peak, the
+    slew and the vector peak of an axis are NaN. The first block in play
+    order with a NaN gets them, at the time of its first NaN.
+  - The tie rules of finite values do not change.
+- `pns_levels`: when the levels are NaN, `peak_hz_per_t` is NaN and
+  `peak_time_s` is the time of the first NaN level, not 0.0 and None.
+- `gradient_spectrum` and the sampler already carry the NaN. They do not
+  change.
+- `Series` (`to_series`) must carry the NaN values. Check that the JSON form
+  allows them.
+- The finite values of every file that has no NaN do not change.
 
 ### 8.3 The tests (first commit)
 
-1. Through `cpp-siemens`: `gradient_peaks` of `bad_syntax_number.seq` with
-   `rotation="apply"`, and with a session field-of-view rotation, raises
-   nothing and gives the NaN results that the rule gives with no rotation
-   (axis by axis, rotated as the rotation takes the axes). It fails now with
-   `IndexError`.
-2. A root test with a fake plugin: a block with a NaN gradient, read through
-   `gradients_at` (a session field-of-view rotation). `gradient_peaks` gives
-   the NaN results of the rule. It fails now with `IndexError`, if the cause
-   is in the package and not in the plugin.
-3. Any other measurement of 8.2 step 3 that raises gets a test of the same
-   form.
+1. Through `cpp-siemens` (a module of `ANALYSIS_TESTS`):
+   - `gradient_peaks` and `block_gradient_values` of `bad_syntax_number.seq`
+     give NaN on x, credited to the block of the NaN trapezoid (play index
+     1), at the time of its first NaN point. They give the finite values on
+     y and z as with that trapezoid's amplitude at 0, if the file has
+     gradients there.
+   - The same with `rotation="apply"`, and with a session field-of-view
+     rotation. With the session, the reader's rotation gives NaN on every
+     axis of that block (NaN times 0 is NaN), and the test expects what the
+     decoding gives.
+   - It fails now with `IndexError`.
+2. Through `cpp-siemens`: `pns_levels` of the same file gives a NaN peak at
+   the time of the first NaN level. It fails now: 0.0 and None.
+3. A root test with a fake plugin: an event with one NaN point, in a decoded
+   block and in a block read through `gradients_at`. `gradient_peaks` and
+   `block_gradient_values` follow 8.2. It fails now with `IndexError`.
+4. The finite values do not change: the existing tests of the peaks and of
+   the PNS levels pass unchanged.
 
 ### 8.4 The documents
 
-- `docs/implementation.md`, where it gives the rule for a NaN of the file in
-  the peaks.
-- The docstring of `_event_values`.
+- `docs/implementation.md` and `docs/usage.md`: the rule for a NaN of the
+  gradients, in the peaks and in the PNS summary.
+- The docstrings of `_event_values`, `GradientPeaks`, `BlockGradientValues`
+  and `PnsLevels`, where they describe the peak and its time.
 - `TESTS.md`.
 
 ## 9. Decisions
@@ -826,6 +863,17 @@ task 3.
   (threads on one `Sequence`). A later branch makes each call return its
   messages, and removes the shared `messages_`.
 - Option b: yes, in task 3.
+
+**D5. What does a NaN of the gradients give in the peaks?** Answer
+(2026-10-14): it propagates: a NaN peak, slew or integral, at the time of the
+first NaN, credited to the first block in play order with a NaN.
+
+- The other choices were to leave the NaN points out (`nanmax`), which hides
+  the NaN and disagrees with the sampler and the spectrum, and to raise an
+  error, which is a check that the package leaves to pulseq-checks.
+
+**D6. Does task 7 also fix the summary of `pns_levels`?** Answer
+(2026-10-14): yes. Its NaN levels with a peak of 0.0 are the same concern.
 
 **D4. Should `spec` accept a `[TRAP]` row whose rise, flat and fall times are
 all 0?** Open.

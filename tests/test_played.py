@@ -11,10 +11,12 @@ the tests through `cpp-siemens` and its settings are in the plugin's tests
 (`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`). The fake plugin `Doubled`
 decodes one event otherwise in one block (`gradient_variants`), and that block gets its own key.
 The fake plugin `Late` plays the events of one block wholly after the end of the block, or with
-all their points at one time.
+all their points at one time. The fake plugin `OneNaN` gives the event of one block a NaN point,
+for the rule of a NaN in the peaks (`check_a_nan_of_one_block_is_credited_to_its_first_nan`).
 """
 
 import dataclasses
+import math
 import pathlib
 import warnings
 from typing import Any, ClassVar
@@ -28,6 +30,8 @@ from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, SequenceData, Spec
 from pulseq_analysis.synth import ScannerSettingWarning, Session, decode
 from pulseq_analysis.synth._played import played_gradients
+from pulseq_analysis.synth.seq_index import sequence_index
+from pulseq_analysis.synth.seq_utils import TIME_TOLERANCE
 
 SEQFILES = pathlib.Path(__file__).parent / "seqfiles"
 FIXTURES = sorted(SEQFILES.rglob("*.seq"))
@@ -386,3 +390,147 @@ def test_an_event_of_length_0_at_the_end_of_a_block_that_the_session_rotates_has
         delay, offsets, _ = played.points[int(column[1])]
         assert delay == 0.0 and np.array_equal(offsets, [0.0, duration])
     gradient_peaks(snap)
+
+
+# ---- A NaN of the gradients in the peaks ----
+
+
+def check_a_nan_of_one_block_is_credited_to_its_first_nan(
+    snap,
+    clean,
+    play: int,
+    axes: str,
+    peak_time_s: float,
+    slew_time_s: float,
+    vector_time_s: float,
+) -> None:
+    """`gradient_peaks` and `block_gradient_values` of `snap`, whose gradients are NaN in the
+    block `play` (play index) on the axes `axes` (some of "xyz") and nowhere else, follow the
+    rule of a NaN in the peaks (a NaN propagates). On each axis of `axes`:
+
+    - `gradient_peaks` gives a NaN peak, slew and RMS, and credits the peak and the slew to that
+      block (its block ID), at `peak_time_s` (its first NaN point) and at `slew_time_s` (the
+      start of its first NaN segment);
+    - `block_gradient_values` gives that block a NaN peak at `peak_time_s` and a NaN slew at
+      `slew_time_s`.
+
+    The vector peak of the block is NaN at `vector_time_s` (the first time of the points of the
+    three axes at which the vector is NaN), and so is the vector peak of `gradient_peaks`,
+    credited to that block. Every other value is the value of `clean`, the same sequence with
+    no NaN: the other axes of `gradient_peaks`, each value of `block_gradient_values` in the
+    other blocks, and the other axes and the junctions of the block `play`. The times agree to
+    `TIME_TOLERANCE`."""
+    at = {"rel": 0, "abs": TIME_TOLERANCE}
+    block_id = int(sequence_index(snap).block_id[play])
+
+    peaks, expected = gradient_peaks(snap), gradient_peaks(clean)
+    assert peaks.reason is None and peaks.range_s == expected.range_s
+    for axis in "xyz":
+        got = peaks.axes[axis]
+        if axis not in axes:
+            assert got == expected.axes[axis], axis
+            continue
+        assert math.isnan(got.peak_hz_per_m), axis
+        assert got.peak_time_s == pytest.approx(peak_time_s, **at), axis
+        assert got.peak_block == block_id, axis
+        assert math.isnan(got.max_slew_hz_per_m_per_s), axis
+        assert got.slew_time_s == pytest.approx(slew_time_s, **at), axis
+        assert got.slew_block == block_id, axis
+        assert math.isnan(got.rms_hz_per_m), axis
+    assert math.isnan(peaks.vector_peak_hz_per_m)
+    assert peaks.vector_peak_time_s == pytest.approx(vector_time_s, **at)
+    assert peaks.vector_peak_block == block_id
+
+    values, expected = block_gradient_values(snap), block_gradient_values(clean)
+    assert np.array_equal(values.block_id, expected.block_id)
+    assert np.array_equal(values.start_s, expected.start_s)
+    other = np.arange(values.block_id.size) != play
+    fields = (
+        "peak_hz_per_m",
+        "peak_time_s",
+        "slew_hz_per_m_per_s",
+        "slew_time_s",
+        "junction_hz_per_m_per_s",
+    )
+    for field in fields:
+        for axis in "xyz":
+            got, want = getattr(values, field)[axis], getattr(expected, field)[axis]
+            assert np.array_equal(got[other], want[other]), (field, axis)
+            if axis not in axes or field == "junction_hz_per_m_per_s":
+                assert got[play] == want[play], (field, axis)
+    for axis in axes:
+        assert np.isnan(values.peak_hz_per_m[axis][play]), axis
+        assert values.peak_time_s[axis][play] == pytest.approx(peak_time_s, **at), axis
+        assert np.isnan(values.slew_hz_per_m_per_s[axis][play]), axis
+        assert values.slew_time_s[axis][play] == pytest.approx(slew_time_s, **at), axis
+    assert np.array_equal(values.vector_peak_hz_per_m[other], expected.vector_peak_hz_per_m[other])
+    assert np.array_equal(values.vector_peak_time_s[other], expected.vector_peak_time_s[other])
+    assert np.isnan(values.vector_peak_hz_per_m[play])
+    assert values.vector_peak_time_s[play] == pytest.approx(vector_time_s, **at)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OneNaN(Unrotated):
+    """A plugin interpreter of the tests whose decoding gives the gradient event of block 1 one
+    NaN point, as a plugin can read a NaN that `spec` rejects (`syntax.number`): the point 1 of
+    the event on gx (in `TRAPEZOIDS`, the end of the rise of the trapezoid). With `nan` False it
+    gives no NaN. `spec`'s model and decoding otherwise, with the session."""
+
+    name: ClassVar[str] = "one-nan"
+    nan: bool = True
+
+    def decode(self, data: SequenceData, session=None) -> "OneNaNDecoding":
+        return OneNaNDecoding(self, decode(dataclasses.replace(data, interpreter=Spec()), session))
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class OneNaNDecoding(DoubledDecoding):
+    """The decoding of `OneNaN`: `spec`'s gradients, rotated as `spec` rotates them, with the
+    point 1 of the gx event of block 1 NaN (when `nan`). `gradients_at` is NaN where the straight
+    lines of those points are: in block 1, strictly between the points 0 and 2 of the event. It is
+    NaN on gx, and on every axis when the session's field of view rotates the block: the
+    rotation of a vector with a NaN is NaN on each axis (NaN times 0 is NaN), as with
+    `cpp-siemens`. The variants and the rotation record are those of `DoubledDecoding`."""
+
+    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_us, rotated)
+        if not self.interpreter.nan:
+            return values
+        delay, offsets, _ = self.spec.gradient_points(1, 1, 0)
+        t = np.asarray(time_us, dtype=np.float64).reshape(-1) * 1e-6 - delay
+        in_block_1 = np.asarray(block_index).reshape(-1) == 1
+        inside = in_block_1 & (t > offsets[0]) & (t < offsets[2])
+        axes = slice(None) if rotated is not False and self.session.rotates else 0
+        values = values.copy()
+        values[inside, axes] = np.nan
+        return values
+
+    def gradient_points(self, key: int, block: int, axis: int):
+        delay, offsets, amp = self.spec.gradient_points(key, block, axis)
+        if block == 1 and self.interpreter.nan:
+            amp = amp.copy()
+            amp[1] = np.nan
+        return delay, offsets, amp
+
+
+@pytest.mark.parametrize(
+    ("session", "axes"),
+    [
+        pytest.param(None, "x", id="decoded"),
+        pytest.param(Session(fov_rotation=QUARTER_Z), "xyz", id="fov"),
+    ],
+)
+def test_a_nan_point_of_a_block_is_credited_to_the_block_at_its_first_nan(session, axes):
+    """When the decoding gives one point of the event of a block NaN (`OneNaN`), the peaks follow
+    the rule of a NaN (`check_a_nan_of_one_block_is_credited_to_its_first_nan`), with the event
+    of the block decoded (no session), and read through `gradients_at` (the session's field of
+    view rotates every block, and the NaN is on every axis). The time of the first NaN point is
+    the end of the rise of block 1, and the first NaN segment is the rise."""
+    snap = load(TRAPEZOIDS, OneNaN(), session=session)
+    clean = load(TRAPEZOIDS, OneNaN(nan=False), session=session)
+    # Block 1 starts at 1 ms. Its trapezoid 1 on gx has the delay 0 and rises in 60 us: its point
+    # 1, the NaN, is at 1.06 ms, and the segment before it starts at 1 ms. The vector is NaN
+    # first at that point too: the polyline of gx at the start of block 1 is 0 on both sides.
+    check_a_nan_of_one_block_is_credited_to_its_first_nan(
+        snap, clean, 1, axes, peak_time_s=1.06e-3, slew_time_s=1e-3, vector_time_s=1.06e-3
+    )
