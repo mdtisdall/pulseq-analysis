@@ -140,6 +140,10 @@ A caller moves in this order:
   The reader quotes lines of the file in them, so a file with such a byte in
   a quoted line loads or is rejected with its code, and does not raise
   `UnicodeDecodeError`.
+- Threads that share one `Sequence` get the reader's messages of their own
+  call: each call returns them with its result, and no call reads messages
+  that another call can write. `rejection_messages` then has the messages of
+  the last call of `first_rejected_block` to return.
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 

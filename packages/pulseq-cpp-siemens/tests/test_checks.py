@@ -174,7 +174,8 @@ def test_an_extended_trapezoid_of_one_point(tmp_path, time, delay, amplitude, co
 def checked(path):
     """`_checks.undefined_behaviour` of the file, as `load` calls it."""
     reader = cs._reader.Reader()
-    assert reader.load(path.read_bytes())
+    ok, _ = reader.load(path.read_bytes())
+    assert ok
     libraries = cs.Libraries._from_reader(reader.libraries())
     return _checks.undefined_behaviour(libraries, cs._reader.SIZEOF_LONG, reader.gradient_rows())
 

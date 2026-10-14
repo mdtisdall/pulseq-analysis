@@ -181,8 +181,10 @@ class CLocaleInThisThread {
 #endif
 };
 
-// Holds the mutex, the locale and the message buffer for one call. Construct it with the GIL
-// released.
+// Holds the mutex, the locale and the message buffer for one call. The buffer is a string local
+// to the call, so that no other call writes it; a call that keeps its messages returns them with
+// its result.
+// Construct it with the GIL released.
 class ReaderCall {
   public:
     explicit ReaderCall(std::string& messages, double block_raster_us)
@@ -627,28 +629,29 @@ class Reader {
         return std::make_tuple(version.found, version.major, version.minor, version.revision);
     }
 
-    // ExternalSequence::load on the bytes of a file. True when the reader loads it. It runs no
-    // GetBlock and no decodeBlock, where the cases of undefined behaviour are, for a file of
-    // version 1.4.0 or later (read_version first).
-    bool load(nb::bytes data) {
+    // ExternalSequence::load on the bytes of a file: (ok, messages), ok true when the reader
+    // loads it, and what it printed. It runs no GetBlock and no decodeBlock, where the cases of
+    // undefined behaviour are, for a file of version 1.4.0 or later (read_version first).
+    nb::tuple load(nb::bytes data) {
         if (load_called_) throw std::logic_error("a Reader loads one file");
         load_called_ = true;
         text_.assign(data.c_str(), data.size());
         bool ok = false;
+        std::string messages;
         {
             nb::gil_scoped_release release;
-            ReaderCall call(messages_, BlockRaster::value());
+            ReaderCall call(messages, BlockRaster::value());
             std::istringstream stream(text_, std::ios::in | std::ios::binary);
             try {
                 ok = sequence_->load(stream);
             } catch (const std::exception& error) {
-                messages_ += std::string("exception: ") + error.what() + "\n";
+                messages += std::string("exception: ") + error.what() + "\n";
                 ok = false;
             }
             block_raster_us_ = (*sequence_).*get(m_dBlockDurationRaster_us_tag());
         }
         loaded_ = ok;
-        return ok;
+        return nb::make_tuple(ok, as_bytes(messages));
     }
 
     // What load() put in its libraries, which GetBlock and decodeBlock read. Reading them runs
@@ -820,28 +823,29 @@ class Reader {
     }
 
     // GetBlock and decodeBlock of one block (play order from 0), as the driver's --dump gives
-    // it. The decoded block is kept for gradients_at. None when decodeBlock returns false or the
-    // reader throws (the messages say which).
-    nb::object decode_block(int index) {
+    // it: (block, messages). The decoded block is kept for gradients_at. The block is None when
+    // decodeBlock returns false or the reader throws (the messages say which).
+    nb::tuple decode_block(int index) {
         require_checked();
         if (index < 0 || index >= block_count()) {
             throw std::out_of_range("the block index is not a block of the sequence");
         }
         BlockValues values;
         bool ok = false;
+        std::string messages;
         {
             nb::gil_scoped_release release;
-            ReaderCall call(messages_, block_raster_us_);
-            ok = decode_locked(index);
+            ReaderCall call(messages, block_raster_us_);
+            ok = decode_locked(index, messages);
             if (ok) values = block_values(*sequence_, blocks_[index].get());
         }
-        if (!ok) return nb::none();
-        return to_python(values);
+        if (!ok) return nb::make_tuple(nb::none(), as_bytes(messages));
+        return nb::make_tuple(to_python(values), as_bytes(messages));
     }
 
-    // Decodes each block of `indices` that is not decoded yet. The index of the first block that
-    // decodeBlock rejects, or -1.
-    int ensure_decoded(
+    // Decodes each block of `indices` that is not decoded yet: (failed, messages), the index of
+    // the first block that decodeBlock rejects, or -1, and what the reader printed.
+    nb::tuple ensure_decoded(
         nb::ndarray<const int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> indices) {
         require_checked();
         const int count = block_count();
@@ -852,15 +856,16 @@ class Reader {
             }
         }
         int failed = -1;
+        std::string messages;
         {
             nb::gil_scoped_release release;
-            ReaderCall call(messages_, block_raster_us_);
+            ReaderCall call(messages, block_raster_us_);
             for (size_t i = 0; i < n && failed < 0; i++) {
                 const int index = static_cast<int>(indices(i));
-                if (blocks_.count(index) == 0 && !decode_locked(index)) failed = index;
+                if (blocks_.count(index) == 0 && !decode_locked(index, messages)) failed = index;
             }
         }
-        return failed;
+        return nb::make_tuple(failed, as_bytes(messages));
     }
 
     // SeqBlock::gradientsAt for each pair of a block index and a time (us from the block start),
@@ -1063,58 +1068,56 @@ class Reader {
 
     // GetBlock and decodeBlock of every block in play order, as the driver's first mode does:
     // it goes on after a block that decodeBlock rejects (or that throws), and it keeps no
-    // block, so that a file of 900 000 blocks needs no more memory than one block. The index of
-    // the first block that is rejected, or -1. `messages` then has the messages of that block
-    // (also the messages of its decodeBlock), not those of the blocks before or after it.
-    int first_rejected_block() {
+    // block, so that a file of 900 000 blocks needs no more memory than one block:
+    // (first, messages), the index of the first block that is rejected, or -1, and the messages
+    // of that block (also the messages of its decodeBlock), not those of the blocks before or
+    // after it.
+    nb::tuple first_rejected_block() {
         require_checked();
         const int count = block_count();
         int first = -1;
         std::string first_messages;
         {
             nb::gil_scoped_release release;
-            ReaderCall call(messages_, block_raster_us_);
+            std::string messages;
+            ReaderCall call(messages, block_raster_us_);
             for (int index = 0; index < count; index++) {
-                messages_.clear();
+                messages.clear();
                 bool ok = false;
                 try {
                     std::unique_ptr<SeqBlock> block(sequence_->GetBlock(index));
                     ok = sequence_->decodeBlock(block.get());
                 } catch (const std::exception& error) {
-                    messages_ += std::string("exception: ") + error.what() + "\n";
+                    messages += std::string("exception: ") + error.what() + "\n";
                     ok = false;
                 }
                 if (ok) continue;
-                messages_ += "decodeBlock returned false for block " + std::to_string(index) + "\n";
+                messages += "decodeBlock returned false for block " + std::to_string(index) + "\n";
                 if (first < 0) {
                     first = index;
-                    first_messages = messages_;
+                    first_messages = messages;
                 }
             }
-            messages_ = first_messages;
         }
-        return first;
+        return nb::make_tuple(first, as_bytes(first_messages));
     }
-
-    // As bytes: the reader quotes lines of the file, which can have bytes that are not UTF-8.
-    nb::bytes messages() const { return as_bytes(messages_); }
 
   private:
     // GetBlock and decodeBlock of one block, kept in blocks_ when it decodes. Call it with a
-    // ReaderCall alive.
-    bool decode_locked(int index) {
+    // ReaderCall alive on `messages`, the messages of the call, to which it adds its own.
+    bool decode_locked(int index, std::string& messages) {
         std::unique_ptr<SeqBlock> block(sequence_->GetBlock(index));
         bool ok = false;
         try {
             ok = sequence_->decodeBlock(block.get());
         } catch (const std::exception& error) {
-            messages_ += std::string("exception: ") + error.what() + "\n";
+            messages += std::string("exception: ") + error.what() + "\n";
             ok = false;
         }
         if (ok) {
             blocks_[index] = std::move(block);
         } else {
-            messages_ += "decodeBlock returned false for block " + std::to_string(index) + "\n";
+            messages += "decodeBlock returned false for block " + std::to_string(index) + "\n";
         }
         return ok;
     }
@@ -1131,7 +1134,6 @@ class Reader {
     std::unique_ptr<ExternalSequence> sequence_;
     std::string oversampling_;
     std::map<int, std::unique_ptr<SeqBlock> > blocks_;
-    std::string messages_;
     std::string text_;  // the bytes that load read
     double block_raster_us_ = 10.0;
     bool load_called_ = false;
@@ -1165,6 +1167,5 @@ NB_MODULE(_reader, m) {
         .def("block_label_sets", &Reader::block_label_sets)
         .def("block_durations_ru", &Reader::block_durations_ru, "actual_ru"_a)
         .def("first_rejected_block", &Reader::first_rejected_block)
-        .def_prop_ro("oversampling", &Reader::oversampling)
-        .def_prop_ro("messages", &Reader::messages);
+        .def_prop_ro("oversampling", &Reader::oversampling);
 }

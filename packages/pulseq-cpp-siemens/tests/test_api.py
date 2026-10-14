@@ -215,7 +215,8 @@ def test_the_version_gate_reads_the_version_as_load_does(version):
     found, major, minor, revision = cs._reader.Reader().read_version(data)
     assert found
     reader = cs._reader.Reader()
-    assert reader.load(data)
+    ok, _ = reader.load(data)
+    assert ok
     assert reader.libraries()["version_parts"] == (major, minor, revision)
 
 
@@ -226,10 +227,12 @@ def test_the_version_gate_reads_each_fixture_as_load_does(path):
     reader = cs._reader.Reader()
     version = parts[0] * 1_000_000 + parts[1] * 1_000 + parts[2]
     if found and 1_004_000 <= version < 1_006_000:
-        if reader.load(data):
+        ok, _ = reader.load(data)
+        if ok:
             assert reader.libraries()["version_parts"] == tuple(parts)
     elif not found:
-        assert not reader.load(data)  # load returns false where the gate finds no version
+        ok, _ = reader.load(data)
+        assert not ok  # load returns false where the gate finds no version
 
 
 def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq"):
