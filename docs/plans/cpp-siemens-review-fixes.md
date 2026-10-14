@@ -1,8 +1,10 @@
-# Implementation plan: five fixes of the plugin cpp-siemens
+# Implementation plan: seven fixes of cpp-siemens and of the measurements
 
-Status: written on 2026-10-14. The user answered the decisions of section 8
-on 2026-10-14 (D1 to D3), and added B4 (section 6) the same day. B5
-(section 7) was found on 2026-10-14, when task 2 was rebased on task 1.
+Status: written on 2026-10-14. The user answered the decisions of section 9
+on 2026-10-14 (D1 to D3; D4 is open), and added B4 (section 6) the same day.
+B5 (section 7) was found on 2026-10-14, when task 2 was rebased on task 1.
+B6 and B7 were found the same day, by task 5. The user put B6 in task 5
+(section 7.5) and B7 in a task of its own (section 8).
 
 ## 1. Scope
 
@@ -20,8 +22,10 @@ safe to call from several threads, as its README says.
 | B3 | `Sequence.gradients_at` with `actual_ru` can end the Python process on a file that `load` accepted. | 5 |
 | B4 | Threads that share one `Sequence` race on the reader's messages: undefined behaviour, and the messages of another call. | 6 |
 | B5 | The measurements of a block whose gradient event lies wholly after the end of the block raise `AssertionError`. | 7 |
+| B6 | The measurements of a block that is read through `gradients_at` and whose events have all their points at one time raise `AssertionError`, also with `spec`. | 7.5 |
+| B7 | `gradient_peaks` raises `IndexError` for a block with a NaN gradient that is read through `gradients_at`. | 8 |
 
-The other findings of the review are not in this plan (section 9).
+The other findings of the review are not in this plan (section 10).
 
 Each fix starts with tests that fail on `main` and that show the bug. The fix
 then makes them pass (section 2). Each fix is one branch and one PR
@@ -34,15 +38,16 @@ then makes them pass (section 2). Each fix is one branch and one PR
 | 2 | `fix/cpp-siemens-one-point-soft-delay` | B3: `Sequence.gradients_at` refuses a time that reaches the reader's read past the times of an extended trapezoid of one point. |
 | 3 | `fix/cpp-siemens-messages-bytes` | B2: the reader's messages come to Python as bytes, and the package decodes them with `backslashreplace`. |
 | 4 | `fix/cpp-siemens-messages-race` | B4: each call of the reader returns its own messages; no shared `messages_` is read after a call. |
-| 5 | `fix/played-event-after-block` | B5: a block whose event lies after its end gets the reader's 0 on that axis, not an event of one point. |
+| 5 | `fix/played-event-after-block` | B5 and B6: a block that `_plan` reads through `gradients_at` always has two times or more, so no event has one point. |
+| 7 | `fix/peaks-nan-gradients-at` | B7: `gradient_peaks` gives for a NaN of a block read through `gradients_at` what it gives for a NaN of a decoded event. |
 
 ### 1.1 Order
 
 ```
 This plan merged
   Wave 1:  task 1 (B1)  ||  task 2 (B3)
-  Wave 2:  task 3 (B2)  ||  task 5 (B5)
-  Wave 3:  task 4 (B4)
+  Wave 2:  task 3 (B2)  ||  task 5 (B5, B6)
+  Wave 3:  task 4 (B4)  ||  task 7 (B7)
 ```
 
 - Tasks 1 and 2 change different files:
@@ -54,10 +59,12 @@ This plan merged
   `self._reader.messages`. One of them is in `Sequence.gradients_at`, which
   task 2 also changes, so task 3 waits for task 2.
 - Task 4 changes the accessor of the messages that task 3 changes, and each
-  call that fills them, so it waits for task 3 (section 8, D3).
+  call that fills them, so it waits for task 3 (section 9, D3).
 - Task 5 changes `synth/_played.py` and the expected failure of task 1's
   property test. Tasks 3 and 4 change only the plugin's `__init__.py` and
   `reader.cpp`, so task 5 can run with either of them.
+- Task 7 changes `analyses/grad_peaks.py`, and it needs task 5: its tests
+  read rotated blocks through `_plan`. It can run with task 4.
 - B1 and B3 come first. B1 gives wrong values with no error. B3 ends the
   process. B2 raises an exception of the wrong class. B4 needs two threads on
   one `Sequence`.
@@ -165,7 +172,7 @@ gradient_variants() -> np.ndarray | None
   decode alike: `gradient_points` gives the same points for both. The values
   have no meaning beyond that, and a cell with no event has 0.
 
-`PROTOCOL` stays 1 (section 8, D1): the member is part of version 1.
+`PROTOCOL` stays 1 (section 9, D1): the member is part of version 1.
 
 **`spec`.** `SpecDecoding.gradient_variants()` returns None. No value of
 `spec` changes.
@@ -452,7 +459,7 @@ block has no gradient. `block_durations_ru(actual_ru)` runs only
   runs. The check is vectorised over the pairs of those blocks.
 - The guard is per pair, not per block. The reader reads only at the times
   that it is given, so a call at times outside the intervals stays the
-  reader's call (section 8, D2).
+  reader's call (section 9, D2).
 - The private binding `_reader.Reader.gradients_at` stays as it is. Only the
   public `Sequence` is the contract.
 
@@ -676,7 +683,113 @@ AssertionError: gradient event 5 has 1 points   (synth/_events.py:93)
 - `TESTS.md`: the entries of section 7.3, and the sentence on the expected
   failure in the entry of the property test goes.
 
-## 8. Decisions
+### 7.5 B6: a block whose events have all their points at one time
+
+Found on 2026-10-14 by task 5, in a sweep of `gradient_peaks` over the
+fixtures with rotation settings. The user put it in task 5: it is the same
+function and the same rule as B5.
+
+**The bug.**
+- `_plan` takes the distinct times of the points of a block's events. When
+  they are all at one time, it has one time, and `_points` gives an event of
+  one point, so the measurements raise `AssertionError` (`_events`).
+- B5 is the case where that time is after the end of the block; the fix of
+  7.2 covers only it. B6 is the case where it is inside the block: every
+  event of the block has all its points at one time.
+- With `spec` (reproduced on 2026-10-14):
+  - The file is `valid_1_5_1.seq` with the `[TRAP]` row 1 at rise, flat and
+    fall times 0 (`1 1000000 0 0 0 100`), and block 2 changed so that this
+    trapezoid is its only event.
+  - `spec` reads it, and its measurements run with no rotation.
+  - With a session field-of-view rotation, `gradient_peaks` raises
+    `AssertionError: gradient event 1 has 1 points`. The rotation sends the
+    block through `gradients_at`.
+  - A block with a ROTATIONS object in a 1.5.1 file goes the same way. That
+    is not yet tested.
+- With `cpp-siemens`: `gradient_buffer_ext_trap.seq` (task 1) with a session
+  field-of-view rotation. In block 0, event 2 decodes with all its times at 0
+  (the buffer of B1).
+- Not yet checked: whether pypulseq or MATLAB Pulseq write a gradient event
+  of length 0. Section 9, D4, asks whether `spec` should accept one.
+
+**The fix.** One rule for B5 and B6: a block that `_plan` reads through
+`gradients_at` always has two times or more.
+- When only one time is left, `_plan` adds the end of the block, or the
+  start when that time is the end.
+- For a block of duration 0, both times are 0, as 7.2 already does.
+- `_points` then gives 2 points or more, with the values of `gradients_at`.
+
+**The tests (a second test commit, before the fix of B6).**
+1. Through `spec`: the file above, built in the test from
+   `valid_1_5_1.seq`, so that it needs no fixture of `tests/seqfiles`. With a
+   session field-of-view rotation, the played points of block 2 have 2
+   points or more and are the gradients of the decoding, and `gradient_peaks`
+   runs. It fails with the fix of B5 alone.
+2. Through `cpp-siemens`: `gradient_buffer_ext_trap.seq` with a session
+   field-of-view rotation. The waveform of the measurements is the reader's
+   `gradients_at`, rotated as the session rotates it. It fails with the fix
+   of B5 alone.
+3. A fake plugin (`tests/test_played.py`) with an event of length 0 alone in
+   a block, with and without a rotation of the field of view. It fails with
+   the fix of B5 alone.
+
+**The documents.** `docs/implementation.md` section 1.2, and the docstrings
+of `_plan` and of `_played`.
+
+## 8. B7: `gradient_peaks` and a NaN of a block read through `gradients_at`
+
+### 8.1 The bug
+
+Found on 2026-10-14 by task 5, in the same sweep.
+- `tests/seqfiles/bad_syntax_number.seq` has the `[TRAP]` amplitude `nan`.
+  `spec` rejects it (`syntax.number`). `cpp-siemens` reads it: the reader's
+  `sscanf` reads `nan`.
+- Through `cpp-siemens` with `rotation="apply"`, or with a session
+  field-of-view rotation, `gradient_peaks` raises
+  `IndexError: index 60 is out of bounds for axis 0 with size 60` (144 with
+  the session) in `grad_peaks._event_values` (`t[first_peak]`).
+- With no rotation, the same file gives no error: the measurements of a
+  decoded event already carry a NaN of the file (the waveform test of task 1
+  has "a NaN of the file is NaN in both").
+- The cause is not yet known. A guess: the peak search of `_event_values`
+  finds no index where the values are NaN, and goes one past the end.
+- Not yet checked: whether pypulseq or MATLAB Pulseq write a NaN amplitude.
+  MATLAB's `%g` prints `NaN`, and Python prints `nan`.
+
+### 8.2 The fix
+
+1. Find the cause, and write it in the PR.
+2. Make `_event_values` (and any other step of `gradient_peaks` that the
+   cause shows) give for a NaN of a block read through `gradients_at` what it
+   gives for a NaN of a decoded event. A NaN peak is NaN, at the time that
+   the rule for a decoded event gives.
+3. Check `pns_levels`, `gradient_spectrum`, `block_gradient_values` and
+   `sequence_index` on the same file and settings. Fix the ones that raise,
+   or record each one that does not raise but gives a value that differs from
+   the unrotated rule, as its own bug.
+
+### 8.3 The tests (first commit)
+
+1. Through `cpp-siemens`: `gradient_peaks` of `bad_syntax_number.seq` with
+   `rotation="apply"`, and with a session field-of-view rotation, raises
+   nothing and gives the NaN results that the rule gives with no rotation
+   (axis by axis, rotated as the rotation takes the axes). It fails now with
+   `IndexError`.
+2. A root test with a fake plugin: a block with a NaN gradient, read through
+   `gradients_at` (a session field-of-view rotation). `gradient_peaks` gives
+   the NaN results of the rule. It fails now with `IndexError`, if the cause
+   is in the package and not in the plugin.
+3. Any other measurement of 8.2 step 3 that raises gets a test of the same
+   form.
+
+### 8.4 The documents
+
+- `docs/implementation.md`, where it gives the rule for a NaN of the file in
+  the peaks.
+- The docstring of `_event_values`.
+- `TESTS.md`.
+
+## 9. Decisions
 
 **D1. Does the protocol stay version 1?** Answer (2026-10-14): yes, option
 a.
@@ -713,7 +826,16 @@ task 3.
   messages, and removes the shared `messages_`.
 - Option b: yes, in task 3.
 
-## 9. Not in this plan
+**D4. Should `spec` accept a `[TRAP]` row whose rise, flat and fall times are
+all 0?** Open.
+
+- `spec` reads one today. The fix of B6 is needed either way, because a
+  plugin can give an event of length 0.
+- Not yet checked: what the specification says, and whether pypulseq or
+  MATLAB Pulseq write one. A rejection would be a rule of `spec.RULES` and
+  an entry of `docs/discrepancies.md`, on a branch of its own.
+
+## 10. Not in this plan
 
 These findings of the review are left out:
 
@@ -725,8 +847,8 @@ These findings of the review are left out:
   documents. They are for a later plan, which could commit the review as
   `docs/reviews/2026-10-13-code-review.md`, as the four earlier reviews are.
 
-## 10. When this plan is done
+## 11. When this plan is done
 
 - Delete this file before the last task merges. Its lasting content is in
-  the documents of sections 3.4, 4, 5.4, 6.4 and 7.4, and in `CHANGELOG.md`.
+  the documents of sections 3.4, 4, 5.4, 6.4, 7.4, 7.5 and 8.4, and in `CHANGELOG.md`.
 - Remove its line from `README.md` in the same PR.

@@ -1096,7 +1096,7 @@ are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the sam
 `check_the_points_are_the_gradients` and `load_or_none` from this module. The fake plugin
 `Doubled` (in this module) decodes the gradients of one block otherwise, and says so with
 `gradient_variants`, for the tests of the variants. The fake plugin `Late` (in this module) plays
-the events of one block wholly after the end of the block.
+the events of one block wholly after the end of the block, or with all their points at one time.
 
 #### `test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`
 
@@ -1195,6 +1195,43 @@ straight lines of the points with `gradients_at` of the decoding at the probes o
 
 **Assumptions:** With duration 0 the event has two points at time 0, and `_probes` has no probe
 in that block; the check there is that the measurements take the event.
+
+#### `test_a_block_whose_event_has_length_0_has_two_points_or_more_through_spec`
+
+**Checks:** Through `spec`, when the one event of a block has all its points at one time inside
+the block (a trapezoid of length 0) and the block is read through `gradients_at`, each played
+event of the block has 2 points or more, the played points are the gradients of the decoding,
+and `gradient_peaks` runs. The block goes through `gradients_at` because the session's field of
+view rotates it, or because its rotation object does (`spec` from 1.5.1).
+
+**How:** The test writes `valid_1_5_1.seq` to `tmp_path` with the `[TRAP]` row 1 changed to
+`1 1000000 0 0 0 100` (rise, flat and fall times 0, delay 100 µs) and block 2 (play index 1)
+changed so that this trapezoid on gx is its only event (`_length_0_file`). Two cases: no
+extension in block 2 and `Session(fov_rotation=...)` with 90 degrees about z; and the extension
+list 3 of the file in block 2 (its rotation object 1, 45 degrees about z), with no session. For
+each axis of block 1 with a played event, the test checks that its points have 2 offsets or more,
+then compares the straight lines of the points with `gradients_at` of the decoding at the probes
+of `check_the_points_are_the_gradients` (`_probes`), to 1e-7 of the largest value (at least 1)
+(`_check_block_1_has_two_points_or_more`), and calls `gradient_peaks`.
+
+**Assumptions:** `spec` reads the changed file. With no rotation of block 2 the block keeps its
+decoded event, so the test has no unrotated case.
+
+#### `test_an_event_of_length_0_alone_in_its_block_has_two_points_or_more`
+
+**Checks:** When a plugin's decoding plays the one event of a block with all its points at one
+time inside the block, each played event of that block has 2 points or more and the played
+points are the gradients of the decoding, with and without a rotation of the field of view, and
+`gradient_peaks` runs.
+
+**How:** The fake plugin `Late(shift=0.5, length_0=True)` reads
+`oracle/koma_v1.4_gr-trapezoidal.seq`: in block 1 the trapezoid 1 on gx has the offsets 0 and its
+delay half the duration of the block, and `gradients_at` is 0 in the block. Parametrized over no
+session and `Session(fov_rotation=...)` with 90 degrees about z. The checks are those of
+`_check_block_1_has_two_points_or_more`, then `gradient_peaks` is called.
+
+**Assumptions:** With no session the block is not read through `gradients_at`: its event is the
+decoded one, with its 4 points at one time.
 
 ### 2.4 Sequence index (`test_seq_index.py`)
 
@@ -10667,6 +10704,22 @@ quarter, a half and three quarters of the block, and these are 0; the peak of bl
 the sampler at the block start plus the times. The values are compared exactly.
 
 **Assumptions:** None.
+
+#### `test_the_waveform_of_an_event_of_length_0_that_the_session_rotates_is_the_reader_s`
+
+**Checks:** In `tests/fixtures/gradient_buffer_ext_trap.seq` under a session that rotates the
+field of view, the waveform of the measurements (`gradient_sampler(snap).sample`) is the reader's
+`gradientsAt` turned by the session's rotation, on each axis, to 1e-7 of the largest value of the
+axis.
+
+**How:** In block 0 the reader decodes event 2 with all its times at 0 (an event of length 0).
+The file is loaded through `cpp-siemens` with `Session(fov_rotation=...)`, 90 degrees about z.
+The probes are those of `_reader_probes`; the sampler is read at the block start plus the probe's
+time, and `CppSiemensDecoding.gradients_at` (the reader's `gradientsAt` with the session's
+rotation, `rotate_vec3_by_quat`) at the block and the time (µs). The values must agree to 1e-7
+times the largest value of the axis (at least 1).
+
+**Assumptions:** The file has no NaN, so the test does not compare NaNs.
 
 #### `test_the_cells_of_one_event_and_one_variant_decode_alike`
 

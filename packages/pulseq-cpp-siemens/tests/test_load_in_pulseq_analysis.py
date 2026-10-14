@@ -15,7 +15,13 @@ import numpy as np
 import pytest
 from canonical import UB_FIXTURES, fixture_id, fixtures
 from pulseq_cpp_siemens.interpreter import CppSiemens, CppSiemensDecoding
-from test_played import FIXTURES, RTOL, check_the_points_are_the_gradients, load_or_none
+from test_played import (
+    FIXTURES,
+    QUARTER_Z,
+    RTOL,
+    check_the_points_are_the_gradients,
+    load_or_none,
+)
 from test_seq_index import _seqfiles, check_the_index_of_a_snapshot_is_the_index_of_its_model
 from test_snapshot import (
     COPIERS,
@@ -32,7 +38,7 @@ from pulseq_analysis._equality import values_equal
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
-from pulseq_analysis.synth import ScannerSettingWarning
+from pulseq_analysis.synth import ScannerSettingWarning, Session
 from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.sampling import gradient_sampler
 from pulseq_analysis.synth.seq_index import has_gradients, sequence_index
@@ -322,6 +328,23 @@ def test_the_measurements_of_an_event_that_keeps_the_buffer_of_its_block_are_the
     assert gradient_peaks(snap).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
     arbitrary = load(BUFFER_ARBITRARY, "cpp-siemens")
     assert gradient_peaks(arbitrary).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
+
+
+def test_the_waveform_of_an_event_of_length_0_that_the_session_rotates_is_the_reader_s():
+    """In block 0 of `gradient_buffer_ext_trap.seq` the reader decodes event 2 with all its times
+    at 0 (an event of length 0). Under a session that rotates the field of view (90 degrees about
+    z), the sampler of the measurements gives the reader's `gradientsAt` turned by the session's
+    rotation (`CppSiemensDecoding.gradients_at`) at the probes of `_reader_probes`, on each axis,
+    to `RTOL` of the largest value of the axis."""
+    snap = load(BUFFER_EXT_TRAP, "cpp-siemens", session=Session(fov_rotation=QUARTER_Z))
+    for axis in range(3):
+        blocks, times, values = _reader_probes(snap, axis)
+        if blocks.size == 0:
+            continue
+        reader = snap.decoding.gradients_at(blocks, times * 1e6)[:, axis]
+        scale = max(float(np.abs(reader).max(initial=0.0)), 1.0)
+        bad = np.abs(values - reader) > RTOL * scale
+        assert not bad.any(), (axis, blocks[bad], times[bad] * 1e6)
 
 
 def test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_reader_s():

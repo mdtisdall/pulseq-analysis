@@ -10,7 +10,8 @@ Here for `spec`, and for a fake plugin (`test_snapshot.Unrotated`, rotations lef
 the tests through `cpp-siemens` and its settings are in the plugin's tests
 (`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`). The fake plugin `Doubled`
 decodes one event otherwise in one block (`gradient_variants`), and that block gets its own key.
-The fake plugin `Late` plays the events of one block wholly after the end of the block.
+The fake plugin `Late` plays the events of one block wholly after the end of the block, or with
+all their points at one time.
 """
 
 import dataclasses
@@ -23,7 +24,7 @@ import pytest
 from test_snapshot import Unrotated, UnrotatedDecoding
 
 from pulseq_analysis.analyses import load
-from pulseq_analysis.analyses.grad_peaks import block_gradient_values
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, SequenceData, Spec
 from pulseq_analysis.synth import ScannerSettingWarning, Session, decode
 from pulseq_analysis.synth._played import played_gradients
@@ -198,11 +199,14 @@ class Late(Unrotated):
 
     `shift` is the delay that the decoding adds to each event of block 1, in durations of the
     block: with 2 the event starts one block duration after the end of the block, with 1 at its
-    end. `duration_s`, when not None, is the actual duration of block 1 in the decoding."""
+    end, and with less than 1 inside the block. `duration_s`, when not None, is the actual
+    duration of block 1 in the decoding. With `length_0`, each event of block 1 has all its
+    points at its delay (an event of length 0)."""
 
     name: ClassVar[str] = "late"
     shift: float = 2.0
     duration_s: float | None = None
+    length_0: bool = False
 
     def decode(self, data: SequenceData, session=None) -> "LateDecoding":
         return LateDecoding(self, decode(dataclasses.replace(data, interpreter=Spec()), session))
@@ -213,8 +217,9 @@ class LateDecoding(DoubledDecoding):
     """The decoding of `Late`: `spec`'s gradients, rotated as `spec` rotates them, with the delay
     of each event of block 1 longer by `shift` times the duration of the block (its
     `duration_s`, when that is not None), so that the event starts at or after the end of the
-    block. `gradients_at` is 0 after the end of a block, so it is 0 in the whole of block 1. The
-    variants and the rotation record are those of `DoubledDecoding`."""
+    block, and with `length_0` with the offsets 0. `gradients_at` is 0 in the whole of block 1:
+    it is 0 after the end of a block, and an event of length 0 plays for no time. The variants
+    and the rotation record are those of `DoubledDecoding`."""
 
     @property
     def block_durations(self):
@@ -235,6 +240,8 @@ class LateDecoding(DoubledDecoding):
         delay, offsets, amp = self.spec.gradient_points(key, block, axis)
         if block == 1:
             delay += self.interpreter.shift * float(self.block_durations[1])
+            if self.interpreter.length_0:
+                offsets = np.zeros_like(offsets)
         return delay, offsets, amp
 
 
@@ -293,3 +300,73 @@ def test_an_event_that_starts_at_the_end_of_its_block_has_two_points_or_more(int
     got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
     scale = max(float(np.abs(values).max()), 1.0)
     assert np.abs(got - values).max() <= RTOL * scale
+
+
+# The rows of `valid_1_5_1.seq` that `_length_0_file` changes: the trapezoid 1 and block 2.
+VALID_1_5_1 = SEQFILES / "valid_1_5_1.seq"
+TRAP_1_ROW = "1 1000000 100 200 100 100\n"
+BLOCK_2_ROW = "2  50  0  1  2  0  1  0\n"
+
+
+def _length_0_file(directory: pathlib.Path, extension: int) -> pathlib.Path:
+    """`valid_1_5_1.seq`, written in `directory`, with the trapezoid 1 of length 0 (rise, flat
+    and fall times 0, delay 100 us) alone in block 2 (play index 1), whose extension list is
+    `extension`: 0 for none, 3 for the rotation object 1 of the file (45 degrees about z)."""
+    text = VALID_1_5_1.read_text()
+    assert text.count(TRAP_1_ROW) == 1 and text.count(BLOCK_2_ROW) == 1
+    text = text.replace(TRAP_1_ROW, "1 1000000 0 0 0 100\n")
+    text = text.replace(BLOCK_2_ROW, f"2  50  0  1  0  0  0  {extension}\n")
+    path = directory / "valid_1_5_1_length_0.seq"
+    path.write_text(text)
+    return path
+
+
+def _check_block_1_has_two_points_or_more(snap) -> None:
+    """Block 1 of `snap` has a played event, each played event of block 1 has 2 points or more,
+    and the points are the gradients of the decoding, at the middle of each segment and at each
+    point that is not a step (`_probes`), to `RTOL` of the largest value (at least 1)."""
+    played = played_gradients(snap)
+    columns = (played.gx, played.gy, played.gz)
+    assert any(column[1] != 0 for column in columns)
+    for column in columns:
+        if column[1] != 0:
+            _, offsets, _ = played.points[int(column[1])]
+            assert offsets.size >= 2
+    blocks, axes, times, values = _probes(snap)
+    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    scale = max(float(np.abs(values).max()), 1.0)
+    assert np.abs(got - values).max() <= RTOL * scale
+
+
+@pytest.mark.parametrize(
+    ("extension", "session"),
+    [
+        pytest.param(0, Session(fov_rotation=QUARTER_Z), id="fov"),
+        pytest.param(3, None, id="rotation"),
+    ],
+)
+def test_a_block_whose_event_has_length_0_has_two_points_or_more_through_spec(
+    tmp_path, extension, session
+):
+    """When the one event of a block has all its points at one time inside the block (a
+    trapezoid of length 0), and the block is read through `gradients_at` (the session's field of
+    view rotates it, or its rotation object does, `spec` from 1.5.1), each played event of the
+    block has 2 points or more, the points are the gradients of the decoding
+    (`_check_block_1_has_two_points_or_more`), and `gradient_peaks` runs."""
+    snap = load(_length_0_file(tmp_path, extension), "spec", session=session)
+    _check_block_1_has_two_points_or_more(snap)
+    gradient_peaks(snap)
+
+
+@pytest.mark.parametrize(
+    "session",
+    [pytest.param(None, id="unrotated"), pytest.param(Session(fov_rotation=QUARTER_Z), id="fov")],
+)
+def test_an_event_of_length_0_alone_in_its_block_has_two_points_or_more(session):
+    """When the decoding plays the one event of a block with all its points at one time, in the
+    middle of the block (`Late(shift=0.5, length_0=True)`), each played event of that block has 2
+    points or more, also when the session's field of view rotates the block, and the points are
+    the gradients of the decoding (`_check_block_1_has_two_points_or_more`)."""
+    snap = load(TRAPEZOIDS, Late(shift=0.5, length_0=True), session=session)
+    _check_block_1_has_two_points_or_more(snap)
+    gradient_peaks(snap)
