@@ -1,23 +1,25 @@
-# Implementation plan: three fixes of the plugin cpp-siemens
+# Implementation plan: four fixes of the plugin cpp-siemens
 
-Status: draft, written on 2026-10-14. Section 6 has the decisions that the
-user has not answered yet.
+Status: written on 2026-10-14. The user answered the decisions of section 7
+on 2026-10-14 (D1 to D3), and added B4 (section 6) the same day.
 
 ## 1. Scope
 
 A review of `main` at `74fa0b2` on 2026-10-13 (in this plan, "the review"; it
-is not in `docs/reviews/`) found three bugs of the plugin `cpp-siemens`
-(`packages/pulseq-cpp-siemens/`). Each one defeats the goal of the plugin:
-to give the waveforms that the C++ reader `ExternalSequence` gives, and to
-reject what the reader rejects, with a process that survives the file.
+is not in `docs/reviews/`) found four bugs of the plugin `cpp-siemens`
+(`packages/pulseq-cpp-siemens/`). Each one defeats a goal of the plugin: to
+give the waveforms that the C++ reader `ExternalSequence` gives, to reject
+what the reader rejects, with a process that survives the file, and to be
+safe to call from several threads, as its README says.
 
 | Bug | What goes wrong | Section |
 |---|---|---|
 | B1 | The measurements of a block can use the decoding of another block, so they are not the waveform that the reader plays. | 3 |
 | B2 | A byte that is not UTF-8 in the reader's messages raises `UnicodeDecodeError`, also for a file that the reader reads. | 4 |
 | B3 | `Sequence.gradients_at` with `actual_ru` can end the Python process on a file that `load` accepted. | 5 |
+| B4 | Threads that share one `Sequence` race on the reader's messages: undefined behaviour, and the messages of another call. | 6 |
 
-The other findings of the review are not in this plan (section 7).
+The other findings of the review are not in this plan (section 8).
 
 Each fix starts with tests that fail on `main` and that show the bug. The fix
 then makes them pass (section 2). Each fix is one branch and one PR
@@ -29,6 +31,7 @@ then makes them pass (section 2). Each fix is one branch and one PR
 | 1 | `fix/gradient-variants` | B1: the protocol `Decoding` says which blocks decode an event alike; `_played` gives each such variant its own key. |
 | 2 | `fix/cpp-siemens-one-point-soft-delay` | B3: `Sequence.gradients_at` refuses a time that reaches the reader's read past the times of an extended trapezoid of one point. |
 | 3 | `fix/cpp-siemens-messages-bytes` | B2: the reader's messages come to Python as bytes, and the package decodes them with `backslashreplace`. |
+| 4 | `fix/cpp-siemens-messages-race` | B4: each call of the reader returns its own messages; no shared `messages_` is read after a call. |
 
 ### 1.1 Order
 
@@ -36,6 +39,7 @@ then makes them pass (section 2). Each fix is one branch and one PR
 This plan merged
   Wave 1:  task 1 (B1)  ||  task 2 (B3)
   Wave 2:  task 3 (B2)
+  Wave 3:  task 4 (B4)
 ```
 
 - Tasks 1 and 2 change different files:
@@ -46,8 +50,11 @@ This plan merged
 - Task 3 changes each place of `__init__.py` that reads
   `self._reader.messages`. One of them is in `Sequence.gradients_at`, which
   task 2 also changes, so task 3 waits for task 2.
+- Task 4 changes the accessor of the messages that task 3 changes, and each
+  call that fills them, so it waits for task 3 (section 7, D3).
 - B1 and B3 come first. B1 gives wrong values with no error. B3 ends the
-  process. B2 raises an exception of the wrong class.
+  process. B2 raises an exception of the wrong class. B4 needs two threads on
+  one `Sequence`.
 
 ## 2. The rule for the tests of each task
 
@@ -152,7 +159,7 @@ gradient_variants() -> np.ndarray | None
   decode alike: `gradient_points` gives the same points for both. The values
   have no meaning beyond that, and a cell with no event has 0.
 
-Section 6, D1, asks whether `PROTOCOL` stays 1.
+`PROTOCOL` stays 1 (section 7, D1): the member is part of version 1.
 
 **`spec`.** `SpecDecoding.gradient_variants()` returns None. No value of
 `spec` changes.
@@ -434,8 +441,7 @@ block has no gradient. `block_durations_ru(actual_ru)` runs only
   runs. The check is vectorised over the pairs of those blocks.
 - The guard is per pair, not per block. The reader reads only at the times
   that it is given, so a call at times outside the intervals stays the
-  reader's call. Section 6, D2, asks whether to refuse the whole block
-  instead.
+  reader's call (section 7, D2).
 - The private binding `_reader.Reader.gradients_at` stays as it is. Only the
   public `Sequence` is the contract.
 
@@ -501,9 +507,98 @@ tests run the calls in a subprocess (section 2, rule 5):
   the new `UndefinedBehaviour`.
 - `TESTS.md`: the entries of section 5.3.
 
-## 6. Decisions
+## 6. B4: threads on one `Sequence` race on the reader's messages
 
-**D1. Does the protocol stay version 1?**
+### 6.1 The bug
+
+The review found this by reading the code (plugin finding 5, "plausible"). It
+did not run it.
+
+- Each call of the binding that runs the reader takes `g_reader_mutex`
+  through `ReaderCall` (`src/reader.cpp:186-198`), with the GIL released.
+  `ReaderCall` clears the member `messages_`, and the reader's messages go
+  there while the call runs. `first_rejected_block` and `decode_locked` also
+  write `messages_` themselves (`reader.cpp:1069-1121`).
+- The property `messages` (`reader.cpp:1099`, bound at :1168) reads
+  `messages_` with the GIL but without the mutex.
+- `__init__.py` reads `self._reader.messages` after the call has returned
+  and released the mutex: in `decode_block` (:242), `first_rejected_block`
+  (:257) and `gradients_at` (:338).
+- So when thread A's call returns and thread B's call starts on the same
+  `Sequence`, B can clear or write `messages_` while A copies it. That is a
+  data race on a `std::string`, which is undefined behaviour. At best,
+  `Rejected.messages` or `rejection_messages` of A are those of B's call.
+- The package docstring (line 24) and the README say that the calls are safe
+  from several threads. `tests/test_shared_state.py` runs threads on
+  separate `Sequence` objects only.
+
+`load` is not affected: its `Reader` is new and no other thread has it.
+`gradients_at`, `block_rotations`, `block_soft_delays` and
+`block_label_sets` drop their messages into a local string, and do not touch
+`messages_`.
+
+### 6.2 The fix
+
+- Each call of the binding that keeps messages returns them with its result,
+  as bytes (after task 3), and writes no member:
+  - `load(data) -> (ok, messages)`;
+  - `decode_block(index) -> (block or None, messages)`;
+  - `ensure_decoded(indices) -> (failed, messages)`;
+  - `first_rejected_block() -> (index, messages)`.
+
+  `ReaderCall` gets a string that is local to the call, as the calls that
+  drop their messages already pass one.
+- The member `messages_` and the property `messages` go. `decode_locked`
+  takes the local string as an argument.
+- `__init__.py` reads the messages from the result of each call, and passes
+  them through `_messages` (task 3).
+- `Sequence.messages` (the messages of `load`) does not change.
+- `Sequence.rejection_messages` stays an attribute of the `Sequence`. It is
+  set from the result of the same call, so it holds the messages of one
+  whole call, never a mix. Its docstring says that with several threads it
+  is the messages of the last call of `first_rejected_block` to return.
+
+### 6.3 The tests (first commit)
+
+In `packages/pulseq-cpp-siemens/tests/test_shared_state.py`:
+
+1. **Each rejection has the messages of its own block.**
+   - The fixture: a file with two blocks that `decodeBlock` rejects, at play
+     indices `i` and `j`. The binding appends `decodeBlock returned false
+     for block <n>` to each rejection, so the messages name their block.
+   - Two threads share one `Sequence`. Thread A calls `decode_block(i)` in a
+     loop, and thread B calls `decode_block(j)` in a loop, for 2000 calls
+     each, from a `threading.Barrier`.
+   - Each `Rejected.messages` of A must contain `for block i` and not
+     `for block j`, and the reverse for B.
+   - On `main` at least one call gets the messages of the other thread, or
+     empty messages.
+2. **The same for `gradients_at` and `first_rejected_block`.**
+   - Thread A calls `gradients_at([i], [0.0])`, which raises `Rejected`.
+     Thread B calls `first_rejected_block()` in a loop.
+   - Each `Rejected.messages` names block `i`, and each result of
+     `first_rejected_block` comes with `rejection_messages` for the block
+     that it returns.
+3. **A test that the race shows on `main`.** The test is only as strong as
+   the race is likely, so the implementer runs tests 1 and 2 on the first
+   commit 20 times and quotes the number of failures in the PR.
+   - If they never fail on `main`, the task widens the window, for example
+     with a file of many blocks for `first_rejected_block`, so that thread B
+     holds the mutex longer.
+   - If they still never fail, the implementer says so in the PR. The tests
+     then stay as guards, and the PR gives the code-reading argument of
+     section 6.1 as the evidence.
+
+### 6.4 The documents
+
+- The plugin `README.md` and the package docstring: what is safe from
+  several threads, and what `rejection_messages` holds then.
+- `TESTS.md`: the entries of section 6.3.
+
+## 7. Decisions
+
+**D1. Does the protocol stay version 1?** Answer (2026-10-14): yes, option
+a.
 
 - `PROTOCOL = 1` and the protocol `Plugin` came in the Unreleased section of
   `CHANGELOG.md`. The last tag is `v0.1.0rc6`. No released plugin implements
@@ -515,7 +610,8 @@ tests run the calls in a subprocess (section 2, rule 5):
 - Option b: `PROTOCOL = 2`. Each place that says "version 1" changes, and
   version 1 never ships.
 
-**D2. Does the guard of B3 refuse a time, or a block?**
+**D2. Does the guard of B3 refuse a time, or a block?** Answer
+(2026-10-14): a time, option a.
 
 - Option a (recommended): a time. The pairs that reach the read raise.
   Others give the reader's value, as the reader gives it.
@@ -523,7 +619,9 @@ tests run the calls in a subprocess (section 2, rule 5):
   hidden interval reach `start` raises, whatever the times. That is simpler
   (no per-pair check), but it refuses calls that the reader runs safely.
 
-**D3. Does task 3 also fix the race of the messages?**
+**D3. Does task 3 also fix the race of the messages?** Answer
+(2026-10-14): no, option a. The race is B4, task 4 (section 6), after
+task 3.
 
 - The review (plugin finding 5, "plausible") found that threads that share
   one `Sequence` can read `messages_` while another call writes it, because
@@ -534,21 +632,20 @@ tests run the calls in a subprocess (section 2, rule 5):
   messages, and removes the shared `messages_`.
 - Option b: yes, in task 3.
 
-## 7. Not in this plan
+## 8. Not in this plan
 
 These findings of the review are left out:
 
 - The other findings for the plugin:
   - the "edge" mode with an oversampled gradient of 0 samples;
   - undefined behaviour as one first-found rejection;
-  - the duplication with the main package;
-  - the race of the messages (section 6, D3).
+  - the duplication with the main package.
 - The findings for `spec`, `synth`, the analyses, the tests and the
   documents. They are for a later plan, which could commit the review as
   `docs/reviews/2026-10-13-code-review.md`, as the four earlier reviews are.
 
-## 8. When this plan is done
+## 9. When this plan is done
 
 - Delete this file before the last task merges. Its lasting content is in
-  the documents of sections 3.4, 4 and 5.4, and in `CHANGELOG.md`.
+  the documents of sections 3.4, 4, 5.4 and 6.4, and in `CHANGELOG.md`.
 - Remove its line from `README.md` in the same PR.
