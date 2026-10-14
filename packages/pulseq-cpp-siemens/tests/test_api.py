@@ -21,6 +21,8 @@ from canonical import (
     wrapper_dump,
 )
 
+from pulseq_analysis.seqfile import SeqFileError, read_seqfile
+
 VALID = SEQFILES / "valid_1_5_1.seq"
 _VERDICTS = json.loads(DIGESTS.read_text())
 READ = [path for path in fixtures() if _VERDICTS[fixture_id(path)]["verdict"] == "read"]
@@ -128,6 +130,35 @@ def test_a_rejection_of_load_carries_the_reader_s_messages():
     with pytest.raises(cs.Rejected) as error:
         cs.load(SEQFILES / "bad_version_missing.seq")
     assert "[VERSION]" in error.value.messages
+
+
+def test_a_file_whose_messages_are_not_utf_8_loads():
+    """`load` quotes the line of an extension that it does not know (cpp:1248); a byte there that
+    is not UTF-8 comes to `messages` as its escape."""
+    text = VALID.read_bytes()
+    data = text.replace(b"extension UNKNOWN 7", b"extension UNKN\xb5WN 7")
+    assert data != text
+    assert "extension UNKN\\xb5WN 7" in cs.load(data).messages
+
+
+def test_a_rejection_whose_messages_are_not_utf_8_keeps_its_class_and_its_code(tmp_path):
+    """`load` quotes the ADC row that it fails to decode (cpp:1150). With a byte there that is not
+    UTF-8, `load` raises `Rejected` with the byte escaped in its messages, and `read_seqfile`
+    gives the code of the same row with an ASCII byte in its place."""
+    text = VALID.read_bytes()
+    row = b"\n1 8 25000 100 0 0 0 0 0\n"
+    assert text.count(row) == 1
+    with pytest.raises(cs.Rejected) as error:
+        cs.load(text.replace(row, b"\n1 \xb5x 25000 100 0 0 0 0 0\n"))
+    assert "1 \\xb5x 25000" in error.value.messages
+    codes = {}
+    for name, byte in (("ascii", b"x"), ("not_utf_8", b"\xb5x")):
+        path = tmp_path / f"{name}.seq"
+        path.write_bytes(text.replace(row, b"\n1 " + byte + b" 25000 100 0 0 0 0 0\n"))
+        with pytest.raises(SeqFileError) as caught:
+            read_seqfile(path, "cpp-siemens")
+        codes[name] = caught.value.codes
+    assert codes["not_utf_8"] == codes["ascii"]
 
 
 def test_load_reads_the_bytes_of_a_file():

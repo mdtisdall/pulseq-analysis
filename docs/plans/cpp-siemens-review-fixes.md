@@ -312,11 +312,15 @@ that returns None.
 text of the file into its messages:
 
 - `load`: the row, after each "failed to decode" error (for example the ADC
-  event, cpp:1150), and the line of an unknown extension, after "unknown
-  extension ignored" (cpp:1248), on a file that it loads;
-- `GetBlock`: the name of an extension that it does not implement, in
-  "unimplemented extension type <name> in block <n>" (cpp:1919). Each
-  decoding of a block whose extension list has that extension prints it.
+  event, cpp:1150), and the line and the rows of an unknown extension, after
+  "unknown extension ignored" (cpp:1248) and "failed to decode unknown
+  extension event", on a file that it loads.
+- `GetBlock` and `decodeBlock` quote no text of a file. "unimplemented
+  extension type <name>" (cpp:1919) can print only one of the six names that
+  `load` knows (cpp:1233-1246); an unknown extension gets "unrecognized
+  extension type <number>" (cpp:1924). Each call of the binding clears the
+  messages first (`ReaderCall`), so a decoding never sees those of `load`.
+  (This plan said otherwise before task 3 found it, on 2026-10-14.)
 
 A byte that is not UTF-8 there makes each read of `reader.messages` raise
 `UnicodeDecodeError`. That covers every read of `messages`:
@@ -374,15 +378,12 @@ bytes in the test from `tests/seqfiles/valid_1_5_1.seq`:
      (`syntax.row`, ADC). This is a differential assertion, so it does not
      depend on the text of the message.
    - On `main`: `UnicodeDecodeError`.
-3. **The messages of a decoded block.**
-   - The file: `UNKN\xb5WN` as in test 1, and the block of ID 4 (play index
-     3), whose extension list has that extension, made to fail `decodeBlock`. For example, give it an
-     extended trapezoid whose time and wave shapes differ in length
-     (cpp:2186-2192).
-   - Then `decode_block(3)` raises `Rejected`, `gradients_at` at block 3
-     raises `Rejected`, and `first_rejected_block()` gives 3. Each message
-     contains `unimplemented extension type UNKN\\xb5WN`.
-   - On `main` each of the three raises `UnicodeDecodeError`.
+3. **Not a test: the messages of a decoded block.** This plan first had a
+   test of the messages of `decode_block`, `gradients_at` and
+   `first_rejected_block` with a byte that is not UTF-8. No text file can
+   make one: `GetBlock` and `decodeBlock` quote no text of the file (section
+   4.1). Those three reads still go through the helper of section 4.2, as a
+   guard, with no test of their own.
 4. **The fuzzer reaches it.** A file of `tests/fuzz_corpus/` has a byte that
    is not UTF-8. `test_the_corpus_agrees_with_the_sanitized_oracle` gives it
    the oracle's verdict. On `main` the worker ends with

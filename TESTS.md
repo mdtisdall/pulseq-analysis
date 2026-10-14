@@ -8663,6 +8663,31 @@ block index outside the sequence; it gives an array (0, 3) for no point.
 
 **Assumptions:** None.
 
+#### `test_a_file_whose_messages_are_not_utf_8_loads`
+
+**Checks:** `load` returns a `Sequence` for a file that the reader loads and whose messages have
+a byte that is not UTF-8, and its `messages` have that byte as its escape `\xb5`.
+
+**How:** The test changes the name of the unknown extension of `valid_1_5_1.seq` to
+`UNKN\xb5WN`, in the bytes of the file. The reader quotes that line in a warning
+(cpp:1248).
+
+**Assumptions:** One byte, 0xB5, in one message of `load`.
+
+#### `test_a_rejection_whose_messages_are_not_utf_8_keeps_its_class_and_its_code`
+
+**Checks:** For a file that `load` rejects with a byte that is not UTF-8 in its messages, `load`
+raises `Rejected` with the byte escaped in its `messages`, and `read_seqfile` with `cpp-siemens`
+raises `SeqFileError` with the codes that it gives for the same file with an ASCII byte in place
+of that byte.
+
+**How:** The test changes the ADC row `1 8 25000 ...` of `valid_1_5_1.seq` to `1 \xb5x 25000 ...`
+and to `1 x 25000 ...`, in the bytes of the file. The reader fails to decode either row and quotes
+it (cpp:1150). The comparison of the codes is differential, so it does not depend on the text of
+the message.
+
+**Assumptions:** One row of one section.
+
 #### `test_load_reads_the_bytes_of_a_file`
 
 **Checks:** `load` of the bytes of a file gives what `load` of its path gives.
@@ -9286,8 +9311,9 @@ fails (as on the seeded files below), and the package's verdict is the one of `e
 that once failed the fuzzing (an extended trapezoid of one point, the buffer that the reader
 reuses for extended trapezoids, three `[GRADIENTS]` rows of shape 0, a write past the size of a
 vector inside its capacity that the Linux oracle missed before `_GLIBCXX_SANITIZE_VECTOR`), and
-five valid files (one of them has oversampled gradients of 1 to 4 samples, for the stale values of
-`gradientsAt` in the mode "edge"). A new failure is added to it by hand.
+six valid files (one of them has oversampled gradients of 1 to 4 samples, for the stale values of
+`gradientsAt` in the mode "edge", and one has bytes that are not UTF-8 in the messages of the
+reader). A new failure is added to it by hand.
 
 #### `test_the_checks_agree_with_the_sanitized_oracle_on_the_seeded_files`
 

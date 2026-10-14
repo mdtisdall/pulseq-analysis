@@ -416,8 +416,8 @@ resampling, RF and gradient times past the range of an `int` and a `long`), valu
 of their types in any field, the sections (`[VERSION]` or `[EXTENSIONS]` last, a section missing
 or repeated, no blank line at the end or after a shape), IDs, definitions and versions. One file
 in eight also gets a change to its text (a line dropped, repeated or swapped, a byte 0xFF, 0x00
-or CR, the file cut short). A file with no mutation is valid: the package reads it. The generator
-never makes the reader allocate more than 20 000
+or CR, bytes that are not UTF-8, the file cut short). A file with no mutation is valid: the
+package reads it. The generator never makes the reader allocate more than 20 000
 samples on a path that the checks let through (`CAP`): larger sizes are not undefined behaviour,
 but they exhaust the memory of the runner.
 
@@ -427,9 +427,10 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
 
 1. **Every pull request** (`scripts/check`, about 20 s on 10 cores):
    - the **regression corpus** (`tests/fuzz_corpus/`): the smallest file of each of the 11 codes
-     in the seeded set of R6a, each file that once failed the fuzzing, and five valid files (one
+     in the seeded set of R6a, each file that once failed the fuzzing, and six valid files (one
      has oversampled gradients of 1 to 4 samples, for the values that `gradientsAt` gave the
-     channels after a gradient with no sample in the mode "edge"), with the package's verdict on
+     channels after a gradient with no sample in the mode "edge", and one has bytes that are not
+     UTF-8 in the reader's messages), with the package's verdict on
      each in `expected.json`. Both readers run on each file in each of the three sampling modes,
      as on a generated one (the verdict does not depend on the mode). It catches a regression of
      a check deterministically.
