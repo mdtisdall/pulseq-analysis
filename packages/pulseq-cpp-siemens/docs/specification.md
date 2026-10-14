@@ -166,11 +166,24 @@ The same condition in `spec`: [D2.11](../../../docs/discrepancies.md#d211-any-ot
 #### D5.10: An extended trapezoid of one point at a time above 0
 
 - Code: `ub.gradient-one-point`.
-- Condition: an extended trapezoid of one point at a time above 0.
+- Condition: an extended trapezoid of one point at a time above 0, with an amplitude that is not
+  0, in a block that `gradientsAt` samples at a time `t` with `max(delay, 0) <= t`,
+  `t < delay + times[0]` and `t <= GetDuration()`. `GetDuration()` is the stored duration of the
+  block, or the value of the hook `setActualSoftDelay_ru` when one is set (`ExternalSequence.h:705`):
+  that value replaces the stored duration, it is not added to it.
 - The reader: `gradientsAt` reads `times[1]` and `wave[1]`, past both vectors (`cpp:3639-3650`).
-- `cpp-siemens`: rejects the file with `ub.gradient-one-point`. A one-point extended trapezoid at
-  time 0 is read.
-- Fixture: `tests/fixtures/gradient_one_point.seq`.
+  The binary search starts with upper = 1 and does not run.
+- `cpp-siemens`: rejects the file with `ub.gradient-one-point` when such a time is in the stored
+  duration of the block (`max(delay, 0)` is not after it). A one-point extended trapezoid at
+  time 0 is read. When `max(delay, 0)` is after the stored duration, `load` reads the file and
+  keeps the interval from `max(delay, 0)` to `delay + times[0]` of the block;
+  `Sequence.gradients_at(..., actual_ru=...)` then raises `UndefinedBehaviour`
+  (`ub.gradient-one-point`, with the block and the time) for each pair of a block and a time in
+  that interval and not after the soft delay times the block raster, before the reader runs.
+  The other pairs give the reader's values.
+- Fixtures: `tests/fixtures/gradient_one_point.seq` (in the stored duration) and
+  `tests/fixtures/gradient_one_point_after_block.seq` (the delay of 200 us after the 100 us of
+  the block).
 
 #### D5.11: An extended trapezoid time that does not fit a long
 

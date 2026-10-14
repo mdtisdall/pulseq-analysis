@@ -129,6 +129,12 @@ A caller moves in this order:
   block's gradients with the reader's own `rotate_vec3_by_quat`, in any
   version of the file. A setting that an interpreter does not have
   (`Spec(rotation="apply")`) raises `TypeError`.
+- `Sequence.gradients_at(..., actual_ru=...)` raises `UndefinedBehaviour`
+  (`ub.gradient-one-point`) for each block and time where a soft delay longer
+  than the stored duration of the block reaches the reader's read past the
+  times of an extended trapezoid of one point (D5.10), before the reader runs.
+  `load` accepts such a file, since the stored duration hides the read; the
+  other times give the reader's values.
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 
