@@ -10,6 +10,7 @@ Here for `spec`, and for a fake plugin (`test_snapshot.Unrotated`, rotations lef
 the tests through `cpp-siemens` and its settings are in the plugin's tests
 (`packages/pulseq-cpp-siemens/tests/test_load_in_pulseq_analysis.py`). The fake plugin `Doubled`
 decodes one event otherwise in one block (`gradient_variants`), and that block gets its own key.
+The fake plugin `Late` plays the events of one block wholly after the end of the block.
 """
 
 import dataclasses
@@ -185,4 +186,60 @@ def test_a_block_that_the_session_rotates_takes_the_points_of_its_variant():
     np.testing.assert_allclose(block_1, 2 * block_0, rtol=0, atol=RTOL * scale)
     blocks, axes, times, values = _probes(snap)
     got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    assert np.abs(got - values).max() <= RTOL * scale
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Late(Unrotated):
+    """A plugin interpreter of the tests whose decoding plays each gradient event of block 1
+    wholly after the end of the block, as a plugin can play an event that `spec` rejects
+    (`block.event-too-long`). `spec`'s model and decoding otherwise, with the session."""
+
+    name: ClassVar[str] = "late"
+
+    def decode(self, data: SequenceData, session=None) -> "LateDecoding":
+        return LateDecoding(self, decode(dataclasses.replace(data, interpreter=Spec()), session))
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class LateDecoding(DoubledDecoding):
+    """The decoding of `Late`: `spec`'s gradients, rotated as `spec` rotates them, with the delay
+    of each event of block 1 longer by twice the duration of the block, so that the event starts
+    one block duration after the end of the block. `gradients_at` is 0 after the end of a block,
+    so it is 0 in the whole of block 1. The variants and the rotation record are those of
+    `DoubledDecoding`."""
+
+    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_us, rotated)
+        in_block_1 = np.asarray(block_index).reshape(-1) == 1
+        return np.where(in_block_1[:, None], 0.0, values)
+
+    def gradient_points(self, key: int, block: int, axis: int):
+        delay, offsets, amp = self.spec.gradient_points(key, block, axis)
+        if block == 1:
+            delay += 2 * float(self.block_durations[1])
+        return delay, offsets, amp
+
+
+@pytest.mark.parametrize(
+    "session",
+    [pytest.param(None, id="unrotated"), pytest.param(Session(fov_rotation=QUARTER_Z), id="fov")],
+)
+def test_an_event_wholly_after_the_end_of_its_block_has_two_points_or_more(session):
+    """When the decoding plays the event of a block wholly after the end of the block (`Late`),
+    each played event of that block has 2 points or more, also when the session's field of view
+    rotates the block (an event on each axis, `_from_gradients_at`). The points are the
+    gradients of the decoding, at the middle of each segment and at each point that is not a
+    step (`_probes`)."""
+    snap = load(TRAPEZOIDS, Late(), session=session)
+    played = played_gradients(snap)
+    columns = (played.gx, played.gy, played.gz)
+    assert any(column[1] != 0 for column in columns)
+    for column in columns:
+        if column[1] != 0:
+            _, offsets, _ = played.points[int(column[1])]
+            assert offsets.size >= 2
+    blocks, axes, times, values = _probes(snap)
+    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    scale = max(float(np.abs(values).max()), 1.0)
     assert np.abs(got - values).max() <= RTOL * scale

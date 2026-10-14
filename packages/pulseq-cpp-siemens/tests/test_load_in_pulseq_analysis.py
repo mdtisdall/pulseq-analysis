@@ -30,7 +30,7 @@ from test_snapshot import (
 
 from pulseq_analysis._equality import values_equal
 from pulseq_analysis.analyses import load
-from pulseq_analysis.analyses.grad_peaks import gradient_peaks
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
 from pulseq_analysis.synth import ScannerSettingWarning
 from pulseq_analysis.synth._played import played_gradients
@@ -58,6 +58,9 @@ FIXTURE_IDS = {"ids": lambda p: str(p.relative_to(SEQFILES))}
 # writes none of its 4 samples, so in block 1 it keeps the values of the wave shape of event 1.
 BUFFER_EXT_TRAP = UB_FIXTURES / "gradient_buffer_ext_trap.seq"
 BUFFER_ARBITRARY = UB_FIXTURES / "gradient_buffer_arbitrary.seq"
+# A file in which block 4 (play index) lasts 100 us and plays on gx an extended trapezoid of one
+# point with the delay 200 us: the event lies wholly after the end of the block.
+ONE_POINT_AFTER_BLOCK = UB_FIXTURES / "gradient_one_point_after_block.seq"
 
 
 # ---- The snapshot (`test_snapshot.py`) ----
@@ -281,24 +284,7 @@ def _reader_probes(snap, axis: int):
     return blocks, times, values
 
 
-# B5 of docs/plans/cpp-siemens-review-fixes.md: the measurements of a block whose gradient event
-# lies after the end of the block fail (an event of one point from `_played._plan`). The mark is
-# strict, so the test fails when B5 is fixed, and the mark goes with the fix.
-_B5 = pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="B5: an event wholly after the end of its block gets one point",
-)
-
-
-def _waveform_fixtures():
-    return [
-        pytest.param(path, marks=_B5) if path.name == "gradient_one_point_after_block.seq" else path
-        for path in fixtures()
-    ]
-
-
-@pytest.mark.parametrize("path", _waveform_fixtures(), ids=fixture_id)
+@pytest.mark.parametrize("path", fixtures(), ids=fixture_id)
 def test_the_waveform_of_the_measurements_is_the_gradients_of_the_reader(path):
     """On each fixture that `cpp-siemens` reads (the files of `tests/seqfiles` and the plugin's
     own), the sampler of the measurements (`gradient_sampler`) gives the reader's own
@@ -336,6 +322,22 @@ def test_the_measurements_of_an_event_that_keeps_the_buffer_of_its_block_are_the
     assert gradient_peaks(snap).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
     arbitrary = load(BUFFER_ARBITRARY, "cpp-siemens")
     assert gradient_peaks(arbitrary).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
+
+
+def test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_reader_s():
+    """In block 4 of `gradient_one_point_after_block.seq` the gx event lies wholly after the end
+    of the block, and the reader plays 0 on gx in the block. The sampler gives the reader's
+    values (0) at a quarter, a half and three quarters of the block, and the peak of block 4 on x
+    (`block_gradient_values`) is 0."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ScannerSettingWarning)
+        snap = load(ONE_POINT_AFTER_BLOCK, "cpp-siemens")
+    time_us = np.array([0.25, 0.5, 0.75]) * float(snap.decoding.block_durations[4]) * 1e6
+    reader = snap.data.reading.gradients_at(np.full(time_us.size, 4), time_us)[:, 0]
+    assert np.array_equal(reader, np.zeros(time_us.size))
+    at = sequence_index(snap).start_s[4] + time_us * 1e-6
+    assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader)
+    assert block_gradient_values(snap).peak_hz_per_m["x"][4] == 0.0
 
 
 @pytest.mark.parametrize("path", fixtures(), ids=fixture_id)

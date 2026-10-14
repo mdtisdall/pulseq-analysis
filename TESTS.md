@@ -1095,7 +1095,8 @@ are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the sam
 `cpp-siemens` and its settings are in the plugin's tests (section 3.11), which import
 `check_the_points_are_the_gradients` and `load_or_none` from this module. The fake plugin
 `Doubled` (in this module) decodes the gradients of one block otherwise, and says so with
-`gradient_variants`, for the tests of the variants.
+`gradient_variants`, for the tests of the variants. The fake plugin `Late` (in this module) plays
+the events of one block wholly after the end of the block.
 
 #### `test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`
 
@@ -1154,6 +1155,25 @@ it compares the straight lines of the points with `gradients_at` of the decoding
 `check_the_points_are_the_gradients` (`_probes`), to the same tolerance.
 
 **Assumptions:** None.
+
+#### `test_an_event_wholly_after_the_end_of_its_block_has_two_points_or_more`
+
+**Checks:** When the decoding plays the events of a block wholly after the end of the block, each
+played event of that block has 2 points or more, and the played points are the gradients of the
+decoding; also when the session's field of view rotates the block, so that it has an event on
+each axis from `gradients_at` (`_from_gradients_at`).
+
+**How:** The fake plugin `Late` (`DoubledDecoding`'s variants and rotation record, with
+`spec`'s gradients, except in block 1: there the delay of each event in `gradient_points` is
+longer by twice the duration of the block, and `gradients_at` is 0 on each axis) reads
+`oracle/koma_v1.4_gr-trapezoidal.seq`. Parametrized over no session and
+`Session(fov_rotation=...)` with 90 degrees about z. For each axis of block 1 with a played
+event, the test checks that its points have 2 offsets or more. Then it compares the straight
+lines of the points with `gradients_at` of the decoding at the probes of
+`check_the_points_are_the_gradients` (`_probes`), to 1e-7 of the largest value (at least 1).
+
+**Assumptions:** `spec` rejects a file with such an event (`block.event-too-long`), so only a
+plugin plays one; the case of `cpp-siemens` is in the plugin's tests (section 3.11).
 
 ### 2.4 Sequence index (`test_seq_index.py`)
 
@@ -10572,10 +10592,6 @@ last point time is at most the block duration plus 1e-12 s.
 **Checks:** On each fixture that `cpp-siemens` reads, the waveform of the measurements
 (`gradient_sampler(snap).sample`) is the reader's own `gradientsAt`
 (`snap.data.reading.gradients_at`), on each axis, to 1e-7 of the largest value of the axis.
-The case of `gradient_one_point_after_block.seq` is an expected failure (`xfail`, strict, with
-`AssertionError`) until B5 of `docs/plans/cpp-siemens-review-fixes.md` is fixed: its gradient
-event lies after the end of its block, and the measurements give it one point. The strict mark
-makes the test fail once B5 is fixed.
 
 **How:** Parametrized over every file of `tests/seqfiles` and of the package's `tests/fixtures`;
 a file that `cpp-siemens` rejects is skipped. For each axis the probes (`_reader_probes`) are
@@ -10617,6 +10633,19 @@ peaks to a relative 1e-7.
 
 **Assumptions:** The values of the reader are those that it gives on this platform; the test
 checks them too.
+
+#### `test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_reader_s`
+
+**Checks:** In block 4 (play index) of `tests/fixtures/gradient_one_point_after_block.seq`, whose
+gx event lies wholly after the end of the block, the sampler gives the reader's values on gx at a
+quarter, a half and three quarters of the block, and these are 0; the peak of block 4 on x
+(`block_gradient_values`) is 0.
+
+**How:** Block 4 lasts 100 µs, and its gx is an extended trapezoid of one point with the delay
+200 µs. The reader (`snap.data.reading.gradients_at`) is read at the block and the times (µs),
+the sampler at the block start plus the times. The values are compared exactly.
+
+**Assumptions:** None.
 
 #### `test_the_cells_of_one_event_and_one_variant_decode_alike`
 
