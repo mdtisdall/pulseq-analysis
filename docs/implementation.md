@@ -41,6 +41,7 @@ Contents:
 6. [Argument checks](#6-argument-checks)
 7. [What `load` does](#7-what-load-does)
 8. [`Series`: checks and the array encoding](#8-series-checks-and-the-array-encoding)
+9. [The oracles of the tests](#9-the-oracles-of-the-tests)
 
 ## 1. The gradient waveform
 
@@ -488,8 +489,9 @@ each part one time for each snapshot and keeps it (section 4), so only the first
 measurement that needs a part pays for it. `load` is before all of
 them: it reads the file through the interpreter (for a `pp.Sequence`, it
 writes the sequence with pypulseq's writer first), and decodes it (for `spec`,
-every event of the model; for `cpp-siemens`, nothing until a block is asked
-for). Its cost is in the
+every event of the model; for `cpp-siemens`, `decodeBlock` of every block,
+which gives its verdict and keeps no block; the decoding object decodes a
+block when one is asked for, and keeps it). Its cost is in the
 first two rows of the table of section 3.5.
 
 - **The played gradients** (`_played.played_gradients`). The event of each
@@ -634,8 +636,8 @@ points of the installed packages. An analysis `compute` is its function.
 ### 3.5 Measured times
 
 These times are from an Apple M1 Max, on 2026-10-13, with Python 3.12.14,
-numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, with the code of task R14 (`load`
-on the interpreters), through `spec`. The sequences are those of
+numpy 2.5.3 and the pinned pypulseq 1.5.0.post1, with the code of `main` at
+`6479eab` (the scanner session included), through `spec`. The sequences are those of
 `tests/scale_sequences.py`: a GRE TR of 5 blocks (6 ms), with a phase-encode table
 of 256 entries (`build_repeating`) or with a new phase-encode event in each TR
 (`build_worst`). The 1,000,000-block column is one run; the others the minimum
@@ -643,26 +645,26 @@ of three.
 
 | Call | 100,000 blocks, 120 s, K = 258 | 100,000 blocks, 140 s, K = 20,002 | 1,000,000 blocks, 1198 s, K = 258 |
 |---|---|---|---|
-| `load(seq)` | 0.58 s | 1.89 s | 5.95 s |
-| `load(path)` | 0.07 s | 0.92 s | 0.70 s |
-| `sequence_index` | 19 ms | 80 ms | 0.22 s |
-| `gradient_peaks(snap)`, first call | 47 ms | 65 ms | 0.53 s |
-| `block_gradient_values`, after it | 0.5 ms | 0.4 ms | 3.7 ms |
-| `gradient_peaks`, a window of 1 block | 0.4 ms | 0.4 ms | 0.4 ms |
+| `load(seq)` | 0.58 s | 1.92 s | 5.79 s |
+| `load(path)` | 0.07 s | 0.84 s | 0.72 s |
+| `sequence_index` | 18 ms | 78 ms | 0.21 s |
+| `gradient_peaks(snap)`, first call | 46 ms | 63 ms | 0.52 s |
+| `block_gradient_values`, after it | 0.5 ms | 0.5 ms | 3.6 ms |
+| `gradient_peaks`, a window of 1 block | 0.4 ms | 0.4 ms | 0.3 ms |
 | `gradient_peaks`, a window of 1 TR | 0.7 ms | 0.7 ms | 0.7 ms |
 | `gradient_peaks`, a window of 1000 TRs | 0.8 ms | 0.8 ms | 0.8 ms |
-| `sample`, 1,000,000 times | 6 ms | 6 ms | 24 ms |
-| `gradient_spectrum` | 0.89 s | 1.04 s | 8.8 s |
-| `pns_levels` | – | – | 9.0 s |
-| `pns_levels`, 3 thresholds | – | – | 13.0 s |
+| `sample`, 1,000,000 times | 6 ms | 6 ms | 23 ms |
+| `gradient_spectrum` | 0.89 s | 1.04 s | 8.7 s |
+| `pns_levels` | 0.87 s | – | 8.9 s |
+| `pns_levels`, 3 thresholds (20, 25 and 30 MHz/T, below the peak of 35.2 MHz/T) | – | – | 11.1 s |
 
 `load(seq)` writes the sequence with pypulseq's writer before the read
 (`read_pypulseq`, task R15): the writer is most of its time. `load(path)` of
 `spec` decodes every event of the file, so it grows with K. `sequence_index`
 includes the played gradients (section 3.2), which take the points of each unique
-event. With `cpp-siemens`, `load(path)` takes 0.44 s (K = 258) and 0.63 s
+event. With `cpp-siemens`, `load(path)` takes 0.42 s (K = 258) and 0.61 s
 (K = 20,002) for 100,000 blocks, because the reader decodes every block to give its
-verdict, and `sequence_index` 20 ms and 0.15 s (one `decodeBlock` for each unique
+verdict, and `sequence_index` 18 ms and 0.14 s (one `decodeBlock` for each unique
 gradient event); the other rows are within 10 % of those of `spec`.
 
 `scripts/time_measurements.py` builds a new sequence for each repeat, and
@@ -1051,3 +1053,94 @@ decompresses. The decompression itself stops at `length * itemsize + 1` bytes
 the data does not use more memory. `from_obj` takes `max_bytes` for all arrays
 of the series together. It stores a bool byte other
 than 0 as `True`, so one array always gives the same text.
+
+## 9. The oracles of the tests
+
+Some tests compare the package with another reader of Pulseq files, or with
+values that another program gave. These readers and values are the oracles.
+Two are programs that Nix builds from pulseq/pulseq at commit
+`c7469123c2f381f065986e6cc3a7d09730ed16ef` (`flake.nix`; the source is not
+copied into this repository). The third is a file of stored values.
+
+### 9.1 The C++ driver
+
+`pulseq-cpp-oracle` is a small program (`tests/cpp_oracle/driver.cpp`) on the
+C++ reader `ExternalSequence`, the reader of the Pulseq interpreter on the
+scanner. `tests/cpp_oracle/README.md` has the full protocol. It has three
+modes:
+
+| Call | What it does |
+|---|---|
+| `pulseq-cpp-oracle FILE` | The verdict, as the exit status: whether the file loads and each block decodes. |
+| `pulseq-cpp-oracle --dump FILE` | The JSON of what the reader holds after `load` and `decodeBlock` of every block. |
+| `pulseq-cpp-oracle --sample FILE` | Reads lines `block_index time_us` on stdin and writes the three values of `SeqBlock::gradientsAt` for each. |
+
+A leading `--oversampling=center|edge|preserve` sets the reader's sampling mode
+of an oversampled arbitrary gradient for every mode (the default is `center`).
+Each build has `-fsigned-char -ffp-contract=off`, so that the reader has the
+`char` and the arithmetic of its x86_64 build on the scanner on every system.
+
+`pulseq-cpp-oracle-sanitized` is the same driver and reader built with clang of
+LLVM 22, AddressSanitizer, UndefinedBehaviorSanitizer and the assertions of the
+C++ standard library. It has the same modes. Its exit status 3 says that the
+reader has undefined behaviour on the file; an ordinary build then crashes,
+accepts or rejects the file by platform and compiler, and the verdict of the
+sanitized build is the same on every platform. The default devShell and the
+`ci` devShell have both programs.
+
+### 9.2 MATLAB Pulseq under Octave
+
+`pulseq-matlab-oracle OUT_DIR FILE.seq...` runs the `matlab` folder of
+pulseq/pulseq under GNU Octave (not MATLAB), with `tests/matlab_oracle/dump.m`.
+It writes `OUT_DIR/<stem>.json` for each file, in one Octave process: the
+events of each block from `getBlock`, the block durations, the gradient
+waveform of each axis from `waveforms_and_times`, and the times of the ADC
+samples. `tests/test_matlab_oracle.py` compares the package with these values
+for the files of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/` that
+`spec` accepts. Only the default devShell has the command, because the closure
+of Octave is about 2.5 GiB.
+
+`tests/oracles/matlab.py` keeps a cache of the JSON of each file, in the
+pytest cache folder (`matlab-oracle`). The key of a file is the SHA-256 of the
+store path of the command and of the bytes of the file, so a new build of the
+command or a changed file reads again, and a run with the same files and the
+same command does not start Octave. The oracle starts Octave at most one time
+in a test session, for all the files that the cache does not have.
+
+### 9.3 The golden values
+
+`tests/golden/safe_fork.npz` holds the outputs of two functions that only the
+pypulseq fork has: the SAFE PNS filter in chunks (`_safe_gwf_to_pns_chunk`) and
+`safe_hw_check`, of `pypulseq.utils.safe_pns_prediction`. The tests of
+`tests/test_safe.py` that compare the package's SAFE filter and hardware check
+with the fork compare with these values, so that they run with a pypulseq
+release or with none. `tests/golden/make_golden.py` made the file with the
+fork pinned at one commit, from the inputs that `tests/test_safe.py` and
+`tests/synthetic.py` hold. `tests/golden/README.md` has the commit, the keys and
+the steps to make the file again. The values were written on macOS, so the
+tests compare floats within a tolerance of a few ulp.
+
+### 9.4 The markers and the skips
+
+`pyproject.toml` declares two markers, and pytest runs with `--strict-markers`:
+
+- `pypulseq`: the test needs pypulseq. `scripts/check` runs the tests a second
+  time in an environment without pypulseq, with `-m "not pypulseq"`, to show
+  that the package and the other tests work without it.
+- `cpp_oracle`: the test needs `pulseq-cpp-oracle` (or the sanitized build) on
+  the PATH. The modules `test_cpp_oracle.py`, `test_cpp_oracle_decode.py` and
+  `test_cpp_oracle_sanitized.py` have it.
+
+A test skips, and does not fail, in these cases:
+
+| Case | What skips |
+|---|---|
+| No `pulseq-cpp-oracle` or `pulseq-cpp-oracle-sanitized` on the PATH (outside the Nix devShell) | The three modules of the C++ oracle, each by the program it needs. In `packages/pulseq-cpp-siemens/tests`, `test_driver_parity.py` skips without `pulseq-cpp-oracle`, and the checks of undefined behaviour use the sanitized program only when it is there. |
+| No `pulseq-matlab-oracle` on the PATH (the `ci` devShell, or outside Nix) | `tests/test_matlab_oracle.py`. A file that `spec` rejects, or whose version is outside 1.4.0 to 1.5.x, skips its test too, and so does a file that MATLAB Pulseq cannot read and the module lists with its reason. |
+| No pypulseq | A module whose tests all need pypulseq is skipped by `pytest.importorskip("pypulseq")`. Another test with the `pypulseq` marker is left out by `-m "not pypulseq"`. The helpers take `pp` from `tests/optional_pypulseq.py`, so the other tests still run. |
+
+The plugin `cpp-siemens` is not installed in the environment of the tests of
+pulseq-analysis (`tests/test_interpreters.py` checks that). Its tests are in
+`packages/pulseq-cpp-siemens/tests`, which `scripts/check` runs in the
+environment of that sub-project, with the plugin built and pulseq-analysis
+installed from this checkout.
