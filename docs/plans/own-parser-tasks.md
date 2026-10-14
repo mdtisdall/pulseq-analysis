@@ -2,7 +2,8 @@
 
 Status: draft for review. Written on 2026-10-08, after tasks 1, 1b and 3 were
 merged (#95, #96, #97) and the amendment #98. The user answered the questions
-of section 2 on 2026-10-08.
+of section 2 on 2026-10-08. Section 9 (task 6 and the release 0.1.0rc7) was
+revised on 2026-10-13, after the redesign.
 
 This plan makes the remaining tasks of `docs/plans/own-parser.md` ("the parent
 plan") exact: the interfaces, the order of the work, the files of each
@@ -649,40 +650,146 @@ with the move to a release (step 2).
 
 K and G start after step 2.
 
-## 9. Task 6: `docs/own-parser-docs`
+## 9. Task 6 and the release 0.1.0rc7
 
-1. **`docs/usage.md`:**
-   - the install line with the extra;
-   - `load(path)` and `load(seq)`;
-   - `SeqFileError` and the rule IDs (a table from `RULES`);
-   - the model;
-   - the event types;
-   - `SafeHardware` in place of the pair;
-   - the rule "explicit" and the two layers;
-   - the section "The reader of Pulseq files (in progress)" is replaced.
-2. **`docs/implementation.md`:**
-   - the parser and its rules;
-   - the decoding (section 3.3);
-   - the converter and `convert.precision`;
-   - the oracles (C++ and MATLAB under Octave) and their skips;
-   - section 7 "The checks of `load`" is rewritten.
-3. **`docs/migration.md` (new):**
-   - for each name of rc5 and rc6 that pulseq-checks and pulseq-reports use
-     (parent plan, section 2.2 and section 5), its replacement;
-   - the consequences in section 5 of the parent plan;
-   - the values that changed (section 7.2).
-4. **`CHANGELOG.md`:** the entries of tasks 1 to 5b under `## Unreleased`,
-   in one order.
-5. **`README.md`:** the install line with the extra, and links to this plan
-   and to the migration guide.
-6. **`docs/plans/own-parser.md`:** status "done".
+Revised on 2026-10-13, after R16 (#128), task 5b (#129) and #130. The first
+version of this section was written before the redesign
+(`docs/plans/parser-redesign.md`); commit `1e317a1` is the last that has it.
+Two audits of `main` at `1e317a1` (the documents against the code, and the
+public names of `v0.1.0rc6` against `main`) and a review of what pulseq-checks
+and pulseq-reports read from the events give the facts below.
+
+### 9.1 Decisions (the user, 2026-10-13)
+
+| ID | Decision |
+|---|---|
+| V1 | No code review task before rc7: the user reviews by hand before the release. A fix that the review asks for is its own branch. |
+| V2 | The events: no `rf_events(snap)`, `grad_events(snap)` or `adc_events(snap)` (promised in section 5 of the parent plan, never built). The replacement is `synth.events.decode_rf`, `decode_gradients` and `decode_adc` on `snap.data`. pulseq-checks reads no event attribute in its code (its check `timing.pypulseq` runs pypulseq's `check_timing` on its own read); pulseq-reports reads events, from pypulseq reads only, and `decode_*` gives each attribute it reads except the center of a 1.4 RF pulse (section 9.3). That gap is decided when pulseq-reports moves to rc7. |
+| V3 | The release of pulseq-cpp-siemens: its wheels and its sdist go on the GitHub release of the tag `v0.1.0rc7`. The sdist carries the reader's files, so an install from the release does not reach pulseq/pulseq; only the build in CI does, at the commit and with the SHA-256 of `pulseq-reader.sha256`. |
+| V4 | The plugin's metadata declares `pulseq-analysis>=0.1.0rc7,<0.2`. |
+| V5 | Both distributions are `0.1.0rc7` and move in step from now on. The release also carries the wheel and the sdist of pulseq-analysis; the install from the git tag still works. |
+
+### 9.2 Order
+
+| Step | Branch | Result |
+|---|---|---|
+| 1 | `docs/own-parser-docs` | Task 6, section 9.3. Documentation only. |
+| 2 | `chore/release-artifacts` | `.github/workflows/pulseq-cpp-siemens-wheels.yml` (or a new workflow that uses its jobs): on a push of a tag `v*`, build the wheels and the sdist of both distributions, check that each version is the tag's, and create the GitHub release with the files. On pull requests nothing changes. The release section of `packages/pulseq-cpp-siemens/README.md` says how. |
+| 3 | — | The user's review (V1), and its fixes, each on its own branch. |
+| 4 | `docs/release-0.1.0rc7` | The release commit, as `v0.1.0rc6` (#86): both versions `0.1.0rc7`, the plugin's dependency (V4), both `uv.lock`; `## 0.1.0rc7 (date)` in `CHANGELOG.md`; the install lines of `README.md` and `docs/usage.md` from `@main` to the tag and to the release's files; the links of `docs/findings-for-pulseq-checks.md` to the tag `v0.1.0rc7`. |
+| 5 | — | The user pushes the tag; the workflow of step 2 makes the release. |
+
+Steps 1 and 2 touch different files and can run in parallel.
+
+### 9.3 Task 6: `docs/own-parser-docs`
+
+The main agent first runs `scripts/time_measurements.py` and
+`scripts/time_pns_levels.py` on `main` and gives the times to U and I: the
+times of both documents were taken with the code of R14, before R16.
+
+1. **`docs/usage.md`** (U):
+   - a section "Install": pulseq-analysis from the git URL at `@main` (the
+     release commit changes it), the extra `pypulseq` and what needs it
+     (`load(seq)`, `read_pypulseq`, `asc_to_hw`, `safe_example_hw`), and
+     pulseq-cpp-siemens for `cpp-siemens`. Each example that needs the extra
+     says so (lines 38, 91, 222, 330 to 340 at `1e317a1`);
+   - the module table (lines 63 to 83) gets `synth.scanner`, `synth.events`,
+     `seqfile.model`, `seqfile.spec` and `seqfile.from_pypulseq`;
+   - a section on the model: each field of `SequenceData` (`version`,
+     `definitions`, `rasters`, `required_extensions`, `rf`, `grad`, `trap`,
+     `adc`, `shapes`, `extensions`, `origin`, `interpreter`, `records`);
+   - a section on the events (V2), in place of `rf_events(snap)` and its
+     siblings (lines 632 to 635, which name functions that do not exist):
+     `decode_rf`, `decode_gradients` and `decode_adc` on `snap.data`, the
+     fields of `RfEvent`, `Trapezoid`, `ArbitraryGradient` and `AdcEvent`,
+     the keys (file IDs; a block's events through `decoding.blocks`), and the
+     `TypeError` for data of `cpp-siemens`;
+   - corrections: the comment of line 708 (the repr of `CppSiemens` has both
+     fields; only `str` leaves out the defaults); lines 936 to 938 ("no record
+     until R16"; `cpp-siemens` records unknown extensions and labels); line
+     770 without the plan's IDs; the cost table (lines 182 to 201) with the
+     new times.
+2. **`docs/implementation.md`** (I):
+   - a section on the oracles: the C++ driver and its sanitized build, MATLAB
+     Pulseq under Octave, the golden values of `tests/golden/`, the markers
+     `pypulseq` and `cpp_oracle`, and when each test skips;
+   - section 3.5 with the new times;
+   - line 491: `read_cpp_siemens` decodes every block during the read; only
+     the decoding object is lazy.
+   - Obsolete items of the first version: the converter and
+     `convert.precision` (there is no converter module).
+3. **`docs/migration.md`** (new, M): from `v0.1.0rc6` to rc7, for
+   pulseq-checks and pulseq-reports. The rows that section 2.2 or section 5
+   of the parent plan names come first.
+   - The install and the dependencies: the extra `pypulseq`; the fork pin of
+     `[tool.uv.sources]`, which stays for the `dev` group and the extra
+     (`TODO.md`); pulseq-cpp-siemens and how its version pairs (V4, V5).
+   - The modules that moved, with no aliases: `analyses` to
+     `analyses.registry` (the API and each `spec.version` unchanged; the
+     entry points renamed, the group the same); `snapshot.Snapshot` to
+     `synth.Snapshot`, `snapshot.load` to `analyses.load`; `seq_index`,
+     `sampling`, `seq_utils` to `synth.*`; `grad_peaks`, `grad_spectrum`,
+     `pns_levels`, `series`, `asc` to `analyses.*`; `extensions` removed.
+   - `load(source, interpreter="spec", session=None)`: its exceptions
+     (`SeqFileError`, `NotSupported`, `SettingError`, `TypeError`) and
+     `ScannerSettingWarning`, in place of rc6's `ValueError` for no hash and
+     `NotImplementedError` for rotations; a pypulseq sequence is found by its
+     methods.
+   - `Snapshot.sequence` is gone: `Snapshot(data, source, session)`, with
+     `.data`, `.decoding`, `.interpreter`, `.records`, `.session` and the
+     three records. The hash is `snap.data.signature`.
+   - The events (V2): a table from each attribute of rc6's events to the
+     field of `decode_*`, with the keys (file IDs, not the dense index), the
+     ADC delay as written (pypulseq's read adds `adc_dead_time`, a value of
+     the target), and `RfEvent.center`, which is `None` in a 1.4 file
+     (pypulseq's `calc_rf_center` gives the peak).
+   - `SequenceIndex.block_id` is the file's block ID; gradient numbers differ
+     where blocks are rotated or have events past their end, and equal events
+     with different IDs are no longer merged.
+   - `asc.hardware_from_asc` gives `(SafeHardware, label)`;
+     `read_gradient_asc` raises `ValueError` with the file and line;
+     `pns_levels` takes `SafeHardware` too; `seq_utils.gradient_offsets`
+     takes a `Trapezoid` or an `ArbitraryGradient`.
+   - The values that changed (from `CHANGELOG.md`).
+   - The new names, as an index into `docs/usage.md`.
+4. **`README.md`** (M): the document list gets
+   `docs/plans/parser-redesign.md`, `docs/discrepancies.md`,
+   `docs/specification.md`, `docs/findings-for-pulseq-checks.md`,
+   `docs/migration.md`, `CHANGELOG.md`, and the plugin's `README.md` and
+   `docs/specification.md`; the line of `own-parser-tasks.md` says that
+   R14 and R15 replaced its tasks 4 and 5a; the example says that
+   `safe_example_hw` needs the extra. The install lines stay for step 4.
+5. **`packages/pulseq-cpp-siemens/README.md`** (P): the comment of line 170
+   (as in usage.md); line 295 (records since R16); the names that it does not
+   give: `PULSEQ_COMMIT`, `Libraries`, `SoftDelays`, the top-level `CODES`;
+   that the group `analysis` installs `pulseq-analysis[pypulseq]`; line 9
+   without the plan's IDs.
+6. **`CHANGELOG.md`** (main): `## Unreleased` rewritten relative to
+   `v0.1.0rc6`, grouped by what a caller sees (reading and the interpreters,
+   the plugin, `load` and the snapshot, the events, the scanner session, SAFE
+   and `.asc`, the dependencies, the values). Out: what was added and removed
+   again since rc6 (the reader `strict`, `read_strict`, `StrictDecoding`, the
+   moves of modules that were never released, the empty records of
+   `cpp-siemens`, `decode(data)` without `session`). In: #125 (a one-sample
+   RF time shape plays for one dwell, D3.9; the reasons of D3.5 and D3.6),
+   the distribution pulseq-cpp-siemens (#109), and
+   `docs/findings-for-pulseq-checks.md` (#118). The advice of lines 425 to
+   429 uses `snap.data.signature`. Lines 30 to 33 and 292 (a 1.4 time shape
+   that does not start at 0) are checked against the code and made to agree.
+7. **`docs/plans/own-parser.md`** (main): status "done"; section 5 says that
+   the event functions became `decode_*` (V2).
 
 | Agent | Tier | Owns |
 |---|---|---|
 | U | T3 | `docs/usage.md` |
-| I | T3 | `docs/implementation.md` |
-| G | T2 | `docs/migration.md`, `README.md` |
-| main | — | `CHANGELOG.md`, `docs/plans/own-parser.md`, `TESTS.md` (if a test name changed) |
+| I | T2 | `docs/implementation.md` |
+| M | T3 | `docs/migration.md`, `README.md` |
+| P | T2 | `packages/pulseq-cpp-siemens/README.md` |
+| main | — | the times, `CHANGELOG.md`, `docs/plans/own-parser.md`, `TESTS.md` (if a test name changed) |
+
+M writes the events table from `src/pulseq_analysis/synth/events.py`, and U
+the events section from the same file; the main agent reads both against
+each other before the PR.
 
 ## 10. Decisions with no question
 
