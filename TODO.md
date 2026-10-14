@@ -41,13 +41,13 @@
   `spec.RULES` and an entry of `docs/discrepancies.md`, on a branch of its
   own. Also not yet checked: whether pypulseq or MATLAB Pulseq write a
   gradient amplitude of NaN, which `cpp-siemens` reads (B7, PR #140).
-- **The other findings of the review of 2026-10-13.** The plan of the fixes
-  of `cpp-siemens` (PRs #134 to #140) fixed four of its bugs, and three that
-  the work found (B5 to B7). The review is not in `docs/reviews/`; a later
-  plan could commit it as `docs/reviews/2026-10-13-code-review.md`, as the
-  four earlier reviews are. Its findings that are not fixed:
+- **The other findings of the review of 2026-10-13**
+  (`docs/reviews/2026-10-13-code-review.md`). The plan of the fixes of
+  `cpp-siemens` (PRs #134 to #141) fixed four of its bugs, and three that the
+  work found (B5 to B7); section 7 of the review gives the status. Its
+  findings that are not fixed:
   - for the plugin: the "edge" mode with an oversampled gradient of 0
-    samples, undefined behaviour reported as one first-found rejection, and
-    the duplication with the main package;
-  - the findings for `spec`, `synth`, the analyses, the tests and the
-    documents.
+    samples (1.1.5), and undefined behaviour reported as one first-found
+    rejection (1.1.6);
+  - the findings of sections 1.2 to 6, for `spec`, `synth`, the analyses,
+    the duplication, the tests, the documents and the API.
