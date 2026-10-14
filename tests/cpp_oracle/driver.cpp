@@ -4,8 +4,9 @@
 //   driver FILE            says whether the file loads and each block decodes (exit status only)
 //   driver --dump FILE     writes what the reader holds after load and decodeBlock as one JSON
 //                          object on stdout
-//   driver --sample FILE   reads lines "block_index time_us" on stdin and writes the three
-//                          gradient values of SeqBlock::gradientsAt for each line
+//   driver --sample FILE   reads lines "block_index time_us [actual_ru]" on stdin and writes
+//                          the three gradient values of SeqBlock::gradientsAt for each line,
+//                          with the soft delay actual_ru set on the block for the call
 //
 // A call with a leading --oversampling=center|edge|preserve (and at least two more arguments)
 // sets the reader's sampling mode of an oversampled arbitrary gradient (time shape -1) in every
@@ -26,6 +27,7 @@
 // the exit status 3), so 70 is then only for SIGABRT, SIGILL and SIGTRAP, for example a failed
 // assert of the reader.
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstdarg>
 #include <csignal>
@@ -442,8 +444,10 @@ struct BlockCache {
     }
 };
 
-// Reads "block_index time_us" and nothing else (spaces around the two numbers are allowed).
-static bool parse_sample_line(const std::string& line, long& block_index, double& time_us) {
+// Reads "block_index time_us" or "block_index time_us actual_ru" and nothing else (spaces
+// around the numbers are allowed). With no third number, actual_ru is -1.
+static bool parse_sample_line(const std::string& line, long& block_index, double& time_us,
+                              long& actual_ru) {
     const char* start = line.c_str();
     char* end = NULL;
     block_index = strtol(start, &end, 10);
@@ -454,6 +458,19 @@ static bool parse_sample_line(const std::string& line, long& block_index, double
     time_us = strtod(start, &end);
     if (end == start) {
         return false;
+    }
+    actual_ru = -1;
+    if (isspace(static_cast<unsigned char>(*end))) {
+        // strtol sets end to start when it reads no number: then only spaces may follow.
+        start = end;
+        errno = 0;
+        const long value = strtol(start, &end, 10);
+        if (errno == ERANGE) {
+            return false;
+        }
+        if (end != start) {
+            actual_ru = value;
+        }
     }
     while (isspace(static_cast<unsigned char>(*end))) {
         end++;
@@ -475,8 +492,11 @@ static int run_sample(const char* path) {
         line_number++;
         long block_index;
         double time_us;
-        if (!parse_sample_line(line, block_index, time_us)) {
-            fprintf(stderr, "pulseq-cpp-oracle: line %ld of stdin is not 'block_index time_us': %s\n",
+        long actual_ru;
+        if (!parse_sample_line(line, block_index, time_us, actual_ru)) {
+            fprintf(stderr,
+                    "pulseq-cpp-oracle: line %ld of stdin is not 'block_index time_us "
+                    "[actual_ru]': %s\n",
                     line_number, line.c_str());
             return 2;
         }
@@ -494,9 +514,14 @@ static int run_sample(const char* path) {
                 return 1;
             }
         }
+        // The soft delay of the line (-1 for none, the reader's default, cpp:1838) is set on the
+        // kept block for the call and set back to -1 after it, as the package's gradients_at does,
+        // so that a line does not change another.
         std::vector<double> gradients;
         g_silent = true;
+        block->setActualSoftDelay_ru(actual_ru);
         block->gradientsAt(time_us, gradients);
+        block->setActualSoftDelay_ru(-1);
         g_silent = false;
         printf("%.17g %.17g %.17g\n", gradients[0], gradients[1], gradients[2]);
     }

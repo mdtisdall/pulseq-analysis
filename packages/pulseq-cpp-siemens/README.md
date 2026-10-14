@@ -53,7 +53,10 @@ arbitrary gradient (see below). It raises:
   5.3 of the plan), with its `code` (a key of `CODES`) and its `entry`, the ID of its condition
   (section 2.2 of [`docs/specification.md`](docs/specification.md)).
   No block of such a file is decoded. For `ub.gradient-one-point`, which only `gradientsAt` meets,
-  `block` and `time_us` give a block and a time where the reader has it.
+  `block` and `time_us` give a block and a time where the reader has it. `gradients_at` with
+  `actual_ru` also raises it, before the reader runs, at a time where a soft delay longer than
+  the stored duration reaches such a read, which starts after the stored duration of the block
+  (D5.10); the other times of the call give the reader's values.
 
 `ValueError` for an `oversampling` that is not one of `OVERSAMPLING`.
 
@@ -101,7 +104,9 @@ ID, the offset (an int in us), the factor and the hint (bytes). `block_durations
 gives `GetDuration_ru` of each block after the reader's hook `setActualSoftDelay_ru` with the value
 of `actual_ru` for that block (-1 for none: the stored duration), and `gradients_at(...,
 actual_ru=...)` sets the hook for the call, so that `gradientsAt` ends the block there. The reader
-never sets it: the scanner's interpreter does. `block_label_sets()` gives the LABELSET events of
+never sets it: the scanner's interpreter does. A soft delay longer than the stored duration can
+reach the read past the times of an extended trapezoid of one point whose delay is after the end
+of the block; `gradients_at` raises `UndefinedBehaviour` at those times (D5.10). `block_label_sets()` gives the LABELSET events of
 each block that `decodeLabel` knows (it leaves out an unknown name, for example `NOSLC`).
 
 A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode, and
@@ -385,9 +390,13 @@ from a generator of its own, so that the file does not depend on it); the packag
 (`--oversampling`) read the file in that mode. It also fails on a false alarm (the
 checks reject a file that the oracle reads), on another verdict, and on another value of
 `gradientsAt` at the same times (the oracle's `--sample`, which also runs `gradientsAt` under the
-sanitizers). Two codes are confirmed otherwise: `ub.gradient-one-point` by the oracle's
-`--sample` at the block and time of the case, and `ub.gradient-shape-0`, whose indeterminate
-values no sanitizer sees, by a reading of the file's text in the fuzzing.
+sanitizers). The worker samples each block twice: at its stored duration, and with an
+`actual_ru` that makes it last past the end of its last gradient event (the oracle's `--sample`
+gets the same soft delay as the third field of each line), so that a case that only a soft delay
+reaches is fuzzed too. Two codes are confirmed otherwise: `ub.gradient-one-point` by the oracle's
+`--sample` at the block and time of the case (with the worker's soft delay where the case needs
+one), and `ub.gradient-shape-0`, whose indeterminate values no sanitizer sees, by a reading of
+the file's text in the fuzzing.
 
 The fuzzing found these two cases (2026-10-12); the user decided that `load` rejects both. Before
 the checks covered them, a file failed the fuzzing in about 1.7 % of the files: the process died
@@ -429,10 +438,10 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
 2. **A pull request or a push to `main` that changes the package, the oracle or its build**
    (`.github/workflows/pulseq-cpp-siemens-fuzz.yml`, job `seeded`): the full set, the files 0 to
    2 999 of seed 20261012, in about 115 s on 10 cores of an Apple M-series machine (CI has 4). A
-   file has 1.6 mutations on average, so each of the 25 mutations is applied about 190 times.
+   file has 1.6 mutations on average, so each of the 26 mutations is applied about 185 times.
    Each of the 11 codes must be confirmed at least 10 times in the set
    (`test_the_seeded_files_reach_each_case_of_undefined_behaviour`); the rarest,
-   `ub.rf-time-overrun`, is confirmed 17 times, the others 43 to 238 times. So the set cannot
+   `ub.rf-time-overrun`, is confirmed 17 times, the others 53 to 253 times. So the set cannot
    pass by missing a case, and 3 000 is about the smallest set that still reaches each case at
    least 10 times. Each mode has about 1 000 files (962, 1 028 and 1 010), and the files that the
    package reads have an oversampled gradient of each size (1, 2, 3, 4 or more samples) in each

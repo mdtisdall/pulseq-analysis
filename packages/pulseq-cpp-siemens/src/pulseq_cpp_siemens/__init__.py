@@ -19,7 +19,9 @@ its x86_64 build.
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
 and it rejects each case of undefined behaviour of the reader before any block is decoded
-(`UndefinedBehaviour`, with its code), so that the process survives the file.
+(`UndefinedBehaviour`, with its code), so that the process survives the file. A case that only a
+soft delay reaches (`actual_ru` longer than the stored duration of a block) is refused by
+`gradients_at`, at the times where the reader would meet it.
 
 Calls are safe from several threads: the extension holds one lock for each call into the reader,
 sets the reader's shared state for the sequence it works on, and reads numbers in the "C" locale.
@@ -198,6 +200,7 @@ class Sequence:
         messages: str,
         data: bytes,
         oversampling: str,
+        hidden_one_point: dict[int, list[tuple[float, float]]],
     ):
         self._reader = reader
         self._data = data
@@ -209,6 +212,10 @@ class Sequence:
         self._block_rotations: tuple[np.ndarray, np.ndarray] | None = None
         self._block_soft_delays: SoftDelays | None = None
         self._block_label_sets: tuple[np.ndarray, tuple[str, ...], np.ndarray] | None = None
+        # The reads past the times of an extended trapezoid of one point that the stored duration
+        # of a block hides (`_checks.Checked`): gradients_at refuses the times of a soft delay
+        # that reaches them. Not changed after `load`.
+        self._hidden_one_point = hidden_one_point
 
     def __reduce__(self):
         return _load_again, (self._data, self.oversampling)
@@ -318,7 +325,12 @@ class Sequence:
         `actual_ru` None leaves each block at its stored duration. Otherwise it has one int for
         each block: the actual soft delay that the reader's hook `setActualSoftDelay_ru` sets on
         the block for the call (below 0 for none), so that `gradientsAt` is 0 after
-        `GetDuration`."""
+        `GetDuration`. A soft delay longer than the stored duration can reach a read past the
+        times of an extended trapezoid of one point that `load` let through because it starts
+        after the stored duration (D5.10): a pair of a block and a time where the reader would
+        meet it raises `UndefinedBehaviour` (`ub.gradient-one-point`, with that block and
+        time) before the reader runs. The other pairs, also those of the same block, give the
+        reader's values."""
         block_index = np.ascontiguousarray(block_index, dtype=np.int64).reshape(-1)
         time_us = np.ascontiguousarray(time_us, dtype=np.float64).reshape(-1)
         if block_index.shape != time_us.shape:
@@ -333,10 +345,48 @@ class Sequence:
             actual = np.ascontiguousarray(actual_ru, dtype=np.int64).reshape(-1)
             if actual.size != self.block_count:
                 raise ValueError("actual_ru has one value for each block")
+            self._refuse_hidden_one_point(block_index, time_us, actual)
         failed = self._reader.ensure_decoded(np.unique(block_index))
         if failed >= 0:
             raise Rejected(f"decodeBlock rejects block {failed}", self._reader.messages)
         return self._reader.gradients_at(block_index, time_us, bool(rotated), actual)
+
+    def _refuse_hidden_one_point(
+        self, block_index: np.ndarray, time_us: np.ndarray, actual: np.ndarray
+    ) -> None:
+        """`UndefinedBehaviour` at the first pair (in the order of the call) whose block has a
+        read that its stored duration hides (`_hidden_one_point`) and a soft delay (`actual` of
+        0 or more), and whose time is in an interval of that read and not after `GetDuration`,
+        the soft delay times the block raster (gradientsAt gives 0 after it, cpp:3561)."""
+        if not self._hidden_one_point:
+            return
+        hidden = np.fromiter(self._hidden_one_point, dtype=np.int64)
+        hidden = hidden[actual[hidden] >= 0]
+        positions = np.flatnonzero(np.isin(block_index, hidden))
+        if not positions.size:
+            return
+        blocks, times = block_index[positions], time_us[positions]
+        # GetDuration() in double: the long soft delay times s_blockDurationRaster (h:705).
+        reached = times <= actual[blocks].astype(np.float64) * self.libraries.block_raster_us
+        inside = np.zeros(positions.size, dtype=bool)
+        for block in np.unique(blocks):
+            of_block = blocks == block
+            for start, end in self._hidden_one_point[int(block)]:
+                inside |= of_block & (start <= times) & (times < end)
+        refused = np.flatnonzero(inside & reached)
+        if refused.size:
+            position = positions[refused[0]]
+            block, time = int(block_index[position]), float(time_us[position])
+            raise UndefinedBehaviour(
+                _checks._case(
+                    "ub.gradient-one-point",
+                    f"block {block}: with a soft delay of {int(actual[block])} block rasters, "
+                    f"gradientsAt at {time} us reads past the times of an extended trapezoid of "
+                    "one point (cpp:3639-3650), a read that starts after the stored duration of the block",
+                    block,
+                    time,
+                )
+            )
 
 
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
@@ -387,11 +437,11 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
             f"{name}: the version gate read {found, major, minor, revision}, the reader "
             f"{libraries.version_parts}: the gate does not read the version as load does"
         )
-    case = _checks.undefined_behaviour(libraries, _reader.SIZEOF_LONG, reader.gradient_rows())
-    if case is not None:
-        raise UndefinedBehaviour(case)
+    checked = _checks.undefined_behaviour(libraries, _reader.SIZEOF_LONG, reader.gradient_rows())
+    if checked.case is not None:
+        raise UndefinedBehaviour(checked.case)
     reader.mark_checked()
-    return Sequence(reader, libraries, messages, data, oversampling)
+    return Sequence(reader, libraries, messages, data, oversampling, checked.hidden_one_point)
 
 
 def _load_again(data: bytes, oversampling: str) -> Sequence:

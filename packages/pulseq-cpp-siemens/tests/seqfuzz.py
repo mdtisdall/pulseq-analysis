@@ -646,6 +646,23 @@ def m_gradient_one_point(model, rng):
         row[-1] = delay
 
 
+def m_gradient_one_point_after_block(model, rng):
+    """An extended trapezoid of one point, played by a block, whose delay is past the end of each
+    block that plays it: load reads the file, and gradientsAt reads past its times only with a
+    soft delay that makes the block last until the delay (fuzz_worker.py samples with one)."""
+    row = _pick(rng, model.grad)
+    if row and model.blocks:
+        time = rng.choice(["0", "1", "2", "4", "10"])
+        column = 5 if model.format == "1.5" else 3
+        row[column] = model.add_shape(rng, [float(time)], compressed=False)
+        row[column - 1] = model.add_shape(rng, [rng.uniform(-1, 1)], compressed=False)
+        rng.choice(model.blocks)[rng.choice([3, 4, 5])] = row[0]
+        # The BlockDurationRaster of random_model, 10 us (m_definitions_edge can change it).
+        ends = [10 * int(block[1]) for block in model.blocks
+                if row[0] in block[3:6] and block[1].isdigit()]  # fmt: skip
+        row[-1] = str(max(ends, default=0) + rng.choice([1, 10, 100]))
+
+
 MUTATIONS = {
     "shape-missing": m_shape_missing,
     "rf-time-minus-1": m_rf_time_minus_1,
@@ -672,6 +689,7 @@ MUTATIONS = {
     "ids": m_ids,
     "gradient-shape-0": m_gradient_shape_0,
     "gradient-one-point": m_gradient_one_point,
+    "gradient-one-point-after-block": m_gradient_one_point_after_block,
 }
 
 
@@ -927,6 +945,13 @@ class Worker:
 FLAGGED = {"undefined", "no end", "crash"}
 
 
+def sample_line(point: list) -> str:
+    """The line of the oracle's `--sample` for a point of the worker: `block_index time_us`, and
+    the `actual_ru` of the block where the worker set a soft delay."""
+    block, time_us, *actual_ru = point
+    return " ".join([str(block), repr(time_us), *(str(value) for value in actual_ru)]) + "\n"
+
+
 def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Path, out: str,
             oracle_binary: str, oversampling: str = "center") -> Result:  # fmt: skip
     package = ours["verdict"]
@@ -956,17 +981,19 @@ def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Pat
             result.detail = out
     elif package == "undefined-behaviour":
         if oracle == "accept" and ours.get("where"):
-            # A case that only gradientsAt meets: the oracle's --sample at its block and time.
-            block, time_us = ours["where"]
+            # A case that only gradientsAt meets: the oracle's --sample at its block and time
+            # (with the worker's soft delay, where it set one).
+            block, time_us, *actual_ru = ours["where"]
             verdict, sampled = run_oracle(
-                oracle_binary, path, f"{block} {time_us!r}\n", oversampling
+                oracle_binary, path, sample_line(ours["where"]), oversampling
             )
             if verdict in FLAGGED:
                 result.oracle = verdict
             else:
+                soft = f" with a soft delay of {actual_ru[0]} rasters" if actual_ru else ""
                 result.failure = (
-                    f"a false alarm: the oracle's --sample at block {block}, {time_us} us says "
-                    f"{verdict!r}, the checks say {result.code}"
+                    f"a false alarm: the oracle's --sample at block {block}, {time_us} us{soft} "
+                    f"says {verdict!r}, the checks say {result.code}"
                 )
                 result.detail = sampled
         elif oracle == "accept" and result.code == "ub.gradient-shape-0":
@@ -991,7 +1018,7 @@ def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Pat
     points = ours["points"]
     if not points:
         return result
-    stdin = "".join(f"{b} {t!r}\n" for b, t in points)
+    stdin = "".join(sample_line(point) for point in points)
     verdict, sampled = run_oracle(oracle_binary, path, stdin, oversampling)
     if verdict != "accept":
         result.failure = f"the oracle's --sample says {verdict!r}, the package samples the file"

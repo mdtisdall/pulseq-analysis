@@ -2,7 +2,8 @@
 docs/plans/parser-redesign.md in pulseq-analysis). Each runs on what `ExternalSequence::load` put
 in its libraries (the reader's own reading of the file, `Libraries`) and follows what `GetBlock`
 and `decodeBlock` would do with it, without running them. `undefined_behaviour` returns the first
-case it finds, with its code.
+case it finds, with its code, and the reads of `gradientsAt` that the stored duration of a block
+hides, which a soft delay can reach (`Checked`).
 
 The checks are safety-critical: a case that they miss runs in the process, and can end it or
 corrupt it silently. tests/test_fuzz.py compares them with the sanitized build of the reader.
@@ -65,6 +66,21 @@ class Case:
 
 def _case(code: str, message: str, block=None, time_us=None) -> Case:
     return Case(code, CODES[code], message, block, time_us)
+
+
+@dataclass(frozen=True)
+class Checked:
+    """What `undefined_behaviour` found: the first case, or None, and the reads past the times of
+    an extended trapezoid of one point that the stored duration of a block hides. Those start
+    after the stored duration, so the reader meets them only when the hook
+    `setActualSoftDelay_ru` makes the block last until them (`Sequence.gradients_at` with
+    `actual_ru`). `hidden_one_point` maps the play index of each such block to its intervals
+    `(start_us, end_us)`: gradientsAt reads past the times at each time t of the block with
+    start_us <= t < end_us and t <= GetDuration(). With a case, it has only the blocks before
+    the case."""
+
+    case: Case | None
+    hidden_one_point: dict[int, list[tuple[float, float]]]
 
 
 def _int(value: int) -> bool:
@@ -438,13 +454,20 @@ def _check_extension_list(extension_list: dict, first: int, block: int) -> Case 
     return None
 
 
-def undefined_behaviour(
-    libraries: Libraries, sizeof_long: int, gradient_rows=((), ())
-) -> Case | None:
+def undefined_behaviour(libraries: Libraries, sizeof_long: int, gradient_rows=((), ())) -> Checked:
     """The first case of undefined behaviour that `GetBlock`, `decodeBlock` and `gradientsAt` of
-    the blocks in play order would meet, or None. `libraries` is what a `load` that succeeded
-    built; `load` checks that each event that a block names exists (cpp:2250-2262).
+    the blocks in play order, each at its stored duration, would meet, or None, and the reads of
+    `gradientsAt` that a soft delay can reach (`Checked`). `libraries` is what a `load` that
+    succeeded built; `load` checks that each event that a block names exists (cpp:2250-2262).
     `gradient_rows` are the rows of [GRADIENTS] and [TRAP] (`Reader.gradient_rows`)."""
+    hidden: dict[int, list[tuple[float, float]]] = {}
+    case = _first_case(libraries, sizeof_long, gradient_rows, hidden)
+    return Checked(case, hidden)
+
+
+def _first_case(libraries: Libraries, sizeof_long: int, gradient_rows, hidden: dict) -> Case | None:
+    """The first case of `undefined_behaviour`. It adds to `hidden` the intervals of the reads
+    that the stored durations hide, in the blocks before the case."""
     shapes = _Shapes(libraries.shapes)
     shape_0 = _gradients_of_shape_0(libraries, gradient_rows)
     checked_rf: dict[int, Case | None] = {}
@@ -496,10 +519,13 @@ def undefined_behaviour(
             grad = traps[position]
             delay = libraries.grad[grad]["delay_us"]
             # The first time that reaches the read: gradientsAt returns 0 before the delay, before
-            # 0 and after the block's duration (a NaN duration lets every time through).
+            # 0 and after the block's duration (a NaN duration lets every time through). It reads
+            # up to the one point, at delay + time_us, where it gives its value.
             start = float(max(delay, 0))
             duration = duration_ru * libraries.block_raster_us
-            if start - delay < time_us and not start > duration:
+            if not start - delay < time_us:
+                continue
+            if not start > duration:
                 return _case(
                     "ub.gradient-one-point",
                     f"block {index}: gradient event {grad} is an extended trapezoid of one point "
@@ -508,4 +534,6 @@ def undefined_behaviour(
                     index,
                     start,
                 )
+            # After the stored duration: only a soft delay that reaches start meets it.
+            hidden.setdefault(index, []).append((start, float(delay + time_us)))
     return None

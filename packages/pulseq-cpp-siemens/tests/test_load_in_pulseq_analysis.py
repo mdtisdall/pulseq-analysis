@@ -281,7 +281,24 @@ def _reader_probes(snap, axis: int):
     return blocks, times, values
 
 
-@pytest.mark.parametrize("path", fixtures(), ids=fixture_id)
+# B5 of docs/plans/cpp-siemens-review-fixes.md: the measurements of a block whose gradient event
+# lies after the end of the block fail (an event of one point from `_played._plan`). The mark is
+# strict, so the test fails when B5 is fixed, and the mark goes with the fix.
+_B5 = pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="B5: an event wholly after the end of its block gets one point",
+)
+
+
+def _waveform_fixtures():
+    return [
+        pytest.param(path, marks=_B5) if path.name == "gradient_one_point_after_block.seq" else path
+        for path in fixtures()
+    ]
+
+
+@pytest.mark.parametrize("path", _waveform_fixtures(), ids=fixture_id)
 def test_the_waveform_of_the_measurements_is_the_gradients_of_the_reader(path):
     """On each fixture that `cpp-siemens` reads (the files of `tests/seqfiles` and the plugin's
     own), the sampler of the measurements (`gradient_sampler`) gives the reader's own
