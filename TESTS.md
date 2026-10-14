@@ -1233,6 +1233,22 @@ session and `Session(fov_rotation=...)` with 90 degrees about z. The checks are 
 **Assumptions:** With no session the block is not read through `gradients_at`: its event is the
 decoded one, with its 4 points at one time.
 
+#### `test_an_event_of_length_0_at_the_end_of_a_block_that_the_session_rotates_has_two_points`
+
+**Checks:** When the one event of a block has all its points at the end of the block and the
+session's field of view rotates the block, each played event of that block has two points, at
+the start and at the end of the block, the played points are the gradients of the decoding, and
+`gradient_peaks` runs.
+
+**How:** The fake plugin `Late(shift=1.0, length_0=True)` reads
+`oracle/koma_v1.4_gr-trapezoidal.seq` under `Session(fov_rotation=...)` with 90 degrees about z:
+in block 1 the trapezoid 1 on gx has the offsets 0 and the delay of the duration of the block.
+The checks of `_check_block_1_has_two_points_or_more`, then for each axis of block 1 the delay 0
+and the offsets `[0, duration]`, bit for bit, then `gradient_peaks`.
+
+**Assumptions:** `Late`'s `gradients_at` is 0 in the whole of block 1, so the test does not tell
+whether the end of the block is a step; it checks the times of the points.
+
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of

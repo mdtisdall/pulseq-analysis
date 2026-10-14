@@ -370,3 +370,19 @@ def test_an_event_of_length_0_alone_in_its_block_has_two_points_or_more(session)
     snap = load(TRAPEZOIDS, Late(shift=0.5, length_0=True), session=session)
     _check_block_1_has_two_points_or_more(snap)
     gradient_peaks(snap)
+
+
+def test_an_event_of_length_0_at_the_end_of_a_block_that_the_session_rotates_has_two_points():
+    """When the one event of a block has all its points at the end of the block
+    (`Late(shift=1.0, length_0=True)`) and the session's field of view rotates the block, each
+    played event of that block has the points at the start and at the end of the block, with
+    the values of the decoding (`_check_block_1_has_two_points_or_more`), and `gradient_peaks`
+    runs."""
+    snap = load(TRAPEZOIDS, Late(shift=1.0, length_0=True), session=Session(fov_rotation=QUARTER_Z))
+    _check_block_1_has_two_points_or_more(snap)
+    played = played_gradients(snap)
+    duration = float(snap.decoding.block_durations[1])
+    for column in (played.gx, played.gy, played.gz):
+        delay, offsets, _ = played.points[int(column[1])]
+        assert delay == 0.0 and np.array_equal(offsets, [0.0, duration])
+    gradient_peaks(snap)
