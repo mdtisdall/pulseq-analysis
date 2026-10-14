@@ -1175,6 +1175,27 @@ lines of the points with `gradients_at` of the decoding at the probes of
 **Assumptions:** `spec` rejects a file with such an event (`block.event-too-long`), so only a
 plugin plays one; the case of `cpp-siemens` is in the plugin's tests (section 3.11).
 
+#### `test_an_event_that_starts_at_the_end_of_its_block_has_two_points_or_more`
+
+**Checks:** When the events of a block start at the end of the block, or the block lasts 0 s and
+its events start at its start, each played event of that block has 2 points or more, from the
+start of the block to its end, the per-block peak of the measurements is 0 there, and the played
+points are the gradients of the decoding; also when the session's field of view rotates the
+block.
+
+**How:** The fake plugin `Late` with `shift=1.0` (the delay of each event of block 1 is longer by
+the duration of the block) and with `duration_s=0.0` (block 1 lasts 0 s in `block_durations`, so
+its trapezoid starts at the end of the block), on `oracle/koma_v1.4_gr-trapezoidal.seq`;
+parametrized over these two and over no session and `Session(fov_rotation=...)` with 90 degrees
+about z. For each axis of block 1 with a played event, the test checks that its points have 2
+offsets or more, that its delay is 0 and that its last offset is the duration of the block. It
+checks that `block_gradient_values` gives a peak of 0 in block 1 on each axis, and compares the
+straight lines of the points with `gradients_at` of the decoding at the probes of
+`check_the_points_are_the_gradients` (`_probes`), to 1e-7 of the largest value (at least 1).
+
+**Assumptions:** With duration 0 the event has two points at time 0, and `_probes` has no probe
+in that block; the check there is that the measurements take the event.
+
 ### 2.4 Sequence index (`test_seq_index.py`)
 
 `test_seq_index.py` tests `seq_index.py`: the dense RF, gradient and ADC event numbering of

@@ -133,8 +133,13 @@ nothing themselves.
   of such a block are straight lines between the times of the points of its
   events, up to the end of the block (`gradients_at` is 0 after it), so each
   axis gets one event with a point at each of these times and the value of
-  `gradients_at` there. At a step of an event (it starts or ends at a value
-  that is not 0, or has two points at one time), the event has two points at
+  `gradients_at` there. An event can lie wholly after the end of its block
+  (`cpp-siemens` reads such a file; the reader plays 0 on that axis in the
+  block). When no point of the events of the block is before its end, the
+  times are the start and the end of the block, so each event has two points
+  or more, with the values of `gradients_at` (0 where the reader gives 0). At
+  a step of an event (it starts or ends at a value that is not 0, or has two
+  points at one time), the event has two points at
   that time: the value just before and the value just after, each the
   straight line of `gradients_at` at two times inside the next segment,
   carried to its end. A rotated block has an event on each axis; another block
