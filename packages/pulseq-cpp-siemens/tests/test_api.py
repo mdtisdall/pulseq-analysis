@@ -235,10 +235,11 @@ def test_the_version_gate_reads_each_fixture_as_load_does(path):
         assert not ok  # load returns false where the gate finds no version
 
 
-def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq"):
+def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq", first=0, last=0):
     """A file of one block of 200 us: gradient 1 on X is an oversampled arbitrary gradient (time
-    shape -1) of `samples` with no delay, and gradient 2 on Y is a trapezoid with a plateau from
-    10 to 110 us. The reader plays Y at 1e6 Hz/m there, and X from the shape."""
+    shape -1) of `samples` with no delay and the first and last values `first` and `last`, and
+    gradient 2 on Y is a trapezoid with a plateau from 10 to 110 us. The reader plays Y at 1e6
+    Hz/m there, and X from the shape."""
     text = (
         f"""# Pulseq sequence file
 [VERSION]
@@ -256,7 +257,7 @@ RadiofrequencyRasterTime 1e-06
 1 20 0 1 2 0 0 0
 
 [GRADIENTS]
-1 500000 0 0 1 -1 0
+1 500000 {first} {last} 1 -1 0
 
 [TRAP]
 2 1000000 10 100 10 0
