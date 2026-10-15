@@ -5761,7 +5761,7 @@ path.
 
 ### 2.18 The names of the interface (`test_interface.py`)
 
-The tests read the backtick spans and the code blocks of `docs/usage.md` and
+The tests read the backtick spans and the code blocks of `README.md`, `docs/usage.md` and
 `docs/implementation.md`. A dotted name that starts (after an optional `pulseq_analysis.`) with
 the path of a module or subpackage of the package (the longest one, for example
 `synth.snapshot`), or with the last part of the path of a module (`snapshot`), is a name with a
