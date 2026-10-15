@@ -206,6 +206,47 @@ def test_matches_oracle_with_many_chunks(case, monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        pytest.param({"window_s": 0.04999}, id="odd_window"),
+        pytest.param({"max_frequency_hz": 1234.5}, id="maximum_off_the_bins"),
+        pytest.param(
+            {"window_s": 0.04999, "max_frequency_hz": 1234.5, "frequency_oversampling": 2.2},
+            id="odd_window_oversampling_2_2",
+        ),
+        pytest.param({"window_s": 0.01001, "max_frequency_hz": 3000.5}, id="short_odd_window"),
+        pytest.param(
+            {"window_s": 0.1, "frequency_oversampling": 1}, id="wide_window_no_oversampling"
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "make_seq",
+    [spin_echo_sequence, gre_sequence, arbitrary_gradient_sequence, lambda: _sine_sequence(600)],
+    ids=["spin_echo", "gre", "arbitrary_gradient", "sine"],
+)
+def test_matches_oracle_with_other_arguments(make_seq, arguments, monkeypatch):
+    """The comparison of `test_matches_oracle_on_synthetic_sequences` for arguments that are
+    not the defaults, given to both implementations. At the 10 us raster: 0.04999 s is an odd
+    window of 4999 samples (the start padding is `nwin // 2` = 2499 zeros and the hop is
+    2500 samples), and 0.01001 s an odd window of 1001 samples. 1234.5 Hz is 185.175 steps of
+    the defaults (a step of 1 / (15000 * 10 us) Hz), 1234.5 Hz at the oversampling of 2.2 is
+    135.77 steps (nfft 10998), and 3000.5 Hz at a window of 1001 samples is 90.105 steps
+    (nfft 3003), so the last frequency of these results is below the maximum. 0.1 s at the
+    oversampling of 1 is an even window of 10000 samples with nfft 10000. `_CHUNK_WINDOWS` is
+    4, so a spectrum of more than 4 windows (the sine, and the GRE at each window but 0.1 s)
+    has more than one chunk, and with an odd window the chunks start at multiples of the hop
+    of an odd window. The oracle keeps its own chunks of 256 windows."""
+    monkeypatch.setattr(grad_spectrum, "_CHUNK_WINDOWS", 4)
+    snap = load(make_seq())
+    _assert_matches_oracle(
+        grad_spectrum.gradient_spectrum(snap, **arguments),
+        oracle.gradient_spectrum(sequence_of(snap), **arguments),
+        sequence_of(snap),
+    )
+
+
 def test_gradient_spectrum_keeps_the_result():
     snap = load(gre_sequence(num_trs=2))
     first = grad_spectrum.gradient_spectrum(snap)
