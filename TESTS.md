@@ -1039,6 +1039,26 @@ the two results with `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
+#### `test_pns_levels_refuses_a_hardware_label_that_a_series_refuses_before_the_snapshot_type`
+
+**Checks:** `pns_levels` raises `ValueError` for a hardware label that the `meta` of a
+`Series` refuses: `"nan"`, `"inf"` and `"-inf"`, the strings that the JSON form of a
+`Series` uses for a float that is not finite. `to_series` puts the label into `meta`, so
+such a label would otherwise give a result whose series cannot be made. It does so before
+any work: before the type of the first argument is checked.
+
+**How:** Parametrized over the three strings. The test calls
+`pns_levels("sequence.seq", hardware=(safe_example_hw(), label))` inside
+`pytest.raises(ValueError, match="label")`. The first argument is a path, which is not a
+snapshot and would raise the `TypeError` that names `load`, so the error is still the one
+of the label.
+
+**Assumptions:**
+
+- The label is the second item of the `hardware` pair, which `PnsLevels.hardware` gives.
+- The `meta` of a `Series` refuses these three strings only, in lower case: `"NaN"` or
+  `"Inf"` is a valid label, and is not a case.
+
 #### `test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot`
 
 **Checks:** `pns_levels` with good other arguments raises `TypeError` with a message that
@@ -4040,6 +4060,20 @@ makes a valid spec with the changed fields and checks `pytest.raises` with `matc
 
 **Assumptions:** None.
 
+#### `test_analysis_spec_raises_for_a_necessary_title_description_or_series_of_a_wrong_type`
+
+**Checks:** `AnalysisSpec` raises `TypeError` for a `necessary` that is not a tuple of
+`str` (a list, a `str`, a tuple with an `int`), a `title` or a `description` that is not a
+`str` (None, an `int`, `bytes`), and a `series` that is neither None nor a `str` (an `int`,
+a tuple of a `str`). It raises `ValueError` for a repeated name in `necessary`.
+
+**How:** Parametrized with the changed fields, the exception type and the message. Each case
+makes a valid spec with the changed fields (and `params` that hold the names of
+`necessary`) and checks `pytest.raises` with `match=`: "necessary is", "repeated in
+necessary", "title is", "description is" or "series is".
+
+**Assumptions:** None.
+
 #### `test_analysis_spec_accepts_each_raster_cost_and_finite_default`
 
 **Checks:** `RASTERS` is the four names `GradientRasterTime`, `BlockDurationRaster`,
@@ -4695,8 +4729,8 @@ code of the package.
 
 #### `test_a_frozen_dict_is_made_from_pairs_and_keywords`
 
-**Checks:** `FrozenDict(...)` takes the arguments of `dict`, so `dict.__init__` can fill it
-although `__setitem__` is closed.
+**Checks:** `FrozenDict(...)` takes the arguments of `dict`: `__new__` fills it with
+`dict.__init__`, although `__setitem__` is closed.
 
 **How:** `FrozenDict([("a", 1)], b=2)` must hold `{"a": 1, "b": 2}`.
 
@@ -4705,6 +4739,18 @@ although `__setitem__` is closed.
 - CPython's `dict.__init__` does not call the overridden `__setitem__`.
 - The test checks the behaviour that `FrozenDict` gets from `dict`, not code of the
   package.
+
+#### `test_a_second_init_does_not_change_a_frozen_dict`
+
+**Checks:** `d.__init__(...)` on a made `FrozenDict` leaves its items as they were:
+`__init__` does not fill it, so it cannot change a kept result.
+
+**How:** Parametrized over three calls on `FrozenDict({"a": 1})`: `d.__init__(b=2)` (a new
+key), `d.__init__({"a": 5})` (another value for a key of `d`) and
+`d.__init__([("b", 2)])` (pairs). After the call, `list(d.items())` must be `[("a", 1)]`.
+
+**Assumptions:** `dict.__init__(d, ...)` and `dict.__setitem__(d, ...)` on a `FrozenDict`
+are not tested: a program can always change a `dict` through the methods of `dict`.
 
 #### `test_a_frozen_dict_survives_pickle_and_copy`
 

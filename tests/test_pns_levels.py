@@ -901,6 +901,19 @@ def test_pns_levels_refuses_a_bad_bin_s_before_the_snapshot_type(bin_s, error):
         pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
 
 
+@pytest.mark.parametrize("label", ["nan", "inf", "-inf"])
+def test_pns_levels_refuses_a_hardware_label_that_a_series_refuses_before_the_snapshot_type(
+    label,
+):
+    """`pns_levels` with a hardware label that the meta of a `Series` refuses ("nan", "inf"
+    and "-inf", the strings of the JSON form for a float that is not finite) raises
+    `ValueError` ("label"), before any work: the first argument is a path, which is not a
+    snapshot and would raise the `TypeError` that names `load`, and the error is still the one
+    of the label. `to_series` puts the label into `meta`, so it would fail there instead."""
+    with pytest.raises(ValueError, match="label"):
+        pns_levels("sequence.seq", hardware=(safe_example_hw(), label))
+
+
 @pytest.mark.parametrize(
     "source",
     [

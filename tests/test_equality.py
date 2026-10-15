@@ -170,9 +170,25 @@ def test_a_frozen_dict_reads_like_a_dict():
 
 
 def test_a_frozen_dict_is_made_from_pairs_and_keywords():
-    """`FrozenDict(...)` takes the arguments of `dict`, so `dict.__init__` can fill it
-    although `__setitem__` is closed."""
+    """`FrozenDict(...)` takes the arguments of `dict`: `__new__` fills it with
+    `dict.__init__`, although `__setitem__` is closed."""
     assert dict(FrozenDict([("a", 1)], b=2)) == {"a": 1, "b": 2}
+
+
+@pytest.mark.parametrize(
+    ("args", "kwargs"),
+    [
+        pytest.param((), {"b": 2}, id="a new key"),
+        pytest.param(({"a": 5},), {}, id="another value"),
+        pytest.param(([("b", 2)],), {}, id="pairs"),
+    ],
+)
+def test_a_second_init_does_not_change_a_frozen_dict(args, kwargs):
+    """`d.__init__(...)` on a made `FrozenDict`, with a new key, with another value for a key
+    of `d` or with pairs, leaves its items as they were: `__init__` does not fill it."""
+    d = FrozenDict({"a": 1})
+    d.__init__(*args, **kwargs)
+    assert list(d.items()) == [("a", 1)]
 
 
 @pytest.mark.parametrize(

@@ -62,6 +62,7 @@ from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
 from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
 from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
+from .series import _NON_FINITE
 
 # The default bin of the level, in seconds: 5 ms (500 samples at the 10 us raster). A caller
 # that needs another bin gives `bin_s`. It changes only the bin size, not the summary or the
@@ -185,6 +186,9 @@ def _check_hardware(hardware: object) -> SafeHardware:
     with `SafeHardware.from_namespace`, which raises:
 
     - TypeError, when `hardware` is not a tuple of two items with a `str` second item;
+    - ValueError, when the label is "nan", "inf" or "-inf": the meta of a `Series` refuses
+      these strings, which its JSON form uses for a float that is not finite, and
+      `to_series` puts the label into the meta;
     - ValueError, when the struct has no `x`, `y` or `z`, or an axis has no field of
       `SAFE_FIELDS` (the message names it, for example "'x.stim_thresh' missing in the
       hardware struct");
@@ -199,6 +203,11 @@ def _check_hardware(hardware: object) -> SafeHardware:
             "form of pypulseq's asc_to_hw), and its name as a str. For a Siemens gradient .asc "
             "file, give hardware=asc.hardware_from_asc(path); for pypulseq's example hardware "
             '(not a real scanner), give hardware=(safe_example_hw(), "<a label>")'
+        )
+    if hardware[1] in _NON_FINITE:
+        raise ValueError(
+            f"the hardware label {hardware[1]!r} is not valid: the JSON form of a Series "
+            "uses it for a float that is not finite"
         )
     return _as_safe_hardware(hardware)
 
@@ -232,8 +241,10 @@ def pns_levels(
     `hardware=(safe_example_hw(), "<a label>")`. `_check_hardware` checks it first, before
     the type of `snap` is checked, also for a sequence with no gradient event. Anything that is not
     a tuple of two items with a `str` second item raises TypeError; the call without
-    `hardware` raises Python's own TypeError. A struct with no `x`, `y` or `z`, or an axis
-    with no field of `SAFE_FIELDS` (`stim_thresh` too), raises ValueError that names it.
+    `hardware` raises Python's own TypeError. A label "nan", "inf" or "-inf" raises
+    ValueError, because the meta of a `Series` refuses it (`to_series` puts the label there).
+    A struct with no `x`, `y` or `z`, or an axis with no field of `SAFE_FIELDS`
+    (`stim_thresh` too), raises ValueError that names it.
     Each field is a finite real number (`_validate.real`: not a real number raises
     TypeError, not finite raises ValueError); `stim_limit` is above 0; and `a1 + a2 + a3`
     of each axis is within 0.001 of 1, or ValueError (a `SafeHardware` has been checked when
@@ -320,9 +331,10 @@ def pns_levels(
     `thresholds_hz_per_t` is not a tuple or has an element that is a `bool` or not a real
     number, or `bin_s` is a `bool` or not a real number, or `snap` is not a `snapshot.Snapshot` (the
     message names `load`; this is checked after the other arguments); ValueError when the
-    struct of `hardware` lacks an axis or a field, has a field that is not finite, a
-    `stim_limit` not above 0, or an axis with `a1 + a2 + a3` not within 0.001 of 1, when a
-    threshold or `bin_s` is not finite or not above 0, or when two thresholds are equal.
+    label of `hardware` is "nan", "inf" or "-inf", when the struct of `hardware` lacks an
+    axis or a field, has a field that is not finite, a `stim_limit` not above 0, or an axis
+    with `a1 + a2 + a3` not within 0.001 of 1, when a threshold or `bin_s` is not finite or
+    not above 0, or when two thresholds are equal.
 
     The kept result: `pns_levels` keeps the result on the snapshot, for the hardware, the
     thresholds and the bin size, so that a caller that needs the levels of one sequence for
