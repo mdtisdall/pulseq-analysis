@@ -83,14 +83,15 @@ def test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq(cases, 
     """`CppSiemens(rotation="apply")` rotates each block's gradients by the reader's quaternion
     with the reader's `rotate_vec3_by_quat`, and MATLAB's `waveforms_and_times` rotates them
     with `mr.rotate3D` (Sequence.m:1988-1999), in any version: they agree as
-    `test_matlab_oracle.compare_rotated_gradients` says. The test skips without the MATLAB
-    oracle, as `test_matlab_oracle` does."""
+    `test_matlab_oracle.compare_rotated_gradients` says, to the relative tolerance of the
+    reader's float32 amplitudes (`FLOAT32_REL`). The test skips without the MATLAB oracle, as
+    `test_matlab_oracle` does."""
     case = test_matlab_oracle.case_of(cases, path)
     try:
         data = read_seqfile(path, CppSiemens(rotation="apply"))
     except SeqFileError as error:
         pytest.skip(f"cpp-siemens rejects the file ({', '.join(sorted(error.codes))})")
-    test_matlab_oracle.compare_rotated_gradients(case, data)
+    test_matlab_oracle.compare_rotated_gradients(case, data, test_matlab_oracle.FLOAT32_REL)
 
 
 def test_a_rejection_whose_messages_are_not_utf_8_has_the_code_of_the_ascii_row(tmp_path):
