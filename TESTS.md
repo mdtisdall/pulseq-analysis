@@ -6329,6 +6329,14 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
+#### `test_a_syntax_error_in_the_blocks_keeps_the_raster_checks_of_the_event_tables`
+
+**Checks:** The module docstring of `spec` ("the error has every violation of the tables that read"): a syntax error in one row of `[BLOCKS]` does not skip the raster rules of the event tables, which do not need the blocks. The file gives `syntax.integer` and `raster.gradient-flat`, and no other code.
+
+**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the flat time of the trapezoid at 195 us, and checks that it gives `raster.gradient-flat` only. It then puts `x` in the duration of block 3, and reads the file again.
+
+**Assumptions:** The rules of `[BLOCKS]` itself (`block.event-too-long`, `gradient.nonzero-end-align`) need the blocks, and are not checked here.
+
 #### `test_an_arbitrary_gradient_plays_on_the_raster_of_the_file`
 
 **Checks:** `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, and its gradient is decoded on the raster of the file (the first sample times 2.5 us and 7.5 us).

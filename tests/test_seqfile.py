@@ -1559,6 +1559,20 @@ def test_a_syntax_error_in_one_event_table_keeps_the_trigger_check(tmp_path, tab
     assert codes_of(path) == {syntax, "block.event-too-long"}
 
 
+def test_a_syntax_error_in_the_blocks_keeps_the_raster_checks_of_the_event_tables(tmp_path):
+    """The module docstring of `spec` ("the error has every violation of the tables that read"):
+    the raster rules of an event table do not need `[BLOCKS]`, so a row of `[BLOCKS]` that breaks a
+    rule of syntax does not skip them. A flat time off the gradient raster (spec:290) gives
+    `raster.gradient-flat`, and with the syntax error both codes, and no other."""
+    text = _text("valid_no_signature.seq")
+    row, broken = "3  50  0  0  0  3  0  0\n", "3  x  0  0  0  3  0  0\n"
+    old, new = "1 1000000 100 200 100 100\n", "1 1000000 100 195 100 100\n"
+    assert row in text and old in text
+    assert codes_of(_write(tmp_path, text.replace(old, new), "r.seq")) == {"raster.gradient-flat"}
+    path = _write(tmp_path, text.replace(row, broken).replace(old, new), "t.seq")
+    assert codes_of(path) == {"syntax.integer", "raster.gradient-flat"}
+
+
 def test_an_arbitrary_gradient_plays_on_the_raster_of_the_file():
     """The specification accepts any gradient raster (spec:273: "Default raster time"). The
     raster must divide or be a multiple of the block raster (slide 11, in
