@@ -5351,19 +5351,35 @@ cases and checks the name.
 
 #### `test_read_gradient_asc_reads_every_form_of_a_line`
 
-**Checks:** `read_gradient_asc` reads a string, an integer, a float with an exponent and a
-sign, a single quoted character, an empty string, indices (`e[1][2].f`) and a comment after a
-value (`#` and `//`) into nested dicts of the right types, and leaves out a blank line, a
-comment line, a line with no `=`, and the fields after `### ASCCONV END ###`. LF and CRLF line
-ends give the same fields.
+**Checks:** `read_gradient_asc` reads a string, an integer, a negative integer, a hex
+integer (`0x10`, `0x1F`), a float with an exponent and a sign, a float with an exponent in
+capitals or with a sign in the exponent (`1.5E-3`, `1e+02`), a single quoted character, an
+empty string, indices (`e[1][2].f`) and a comment after a value (`#` and `//`) into nested
+dicts of the right types, and leaves out a blank line, a comment line, a line with no `=`, and
+the lines after `### ASCCONV END ###`, also a line with `=` there that is not a field. LF and
+CRLF line ends give the same fields.
 
 **How:** Parametrized on the line end. The test writes one file with each form (`_FORMS`) and
-compares the fields with the expected dict (`_FORMS_FIELDS`). It checks the type of six
-values (`int` for digits only, `float` for a number with a point, an exponent or a sign, `str`
-for a quoted value).
+compares the fields with the expected dict (`_FORMS_FIELDS`). It checks the type of nine
+values (`int` for digits only, with or without a `-`, and for hex; `float` for a number with a
+point or an exponent; `str` for a quoted value). The type checks are necessary because
+`-1 == -1.0`: the dict comparison alone does not see an integer read as a float.
 
 **Assumptions:** The expected dict is written by hand from the rules of the reader, not taken
 from pypulseq's `readasc`.
+
+#### `test_read_gradient_asc_reads_a_byte_that_is_not_ascii_as_latin_1`
+
+**Checks:** `read_gradient_asc` reads a file in latin-1, so a byte that is not ASCII and not
+valid UTF-8 there does not raise `UnicodeDecodeError`. The byte is read as its latin-1
+character, in a string value and in a comment.
+
+**How:** The test writes the bytes of `a = "café" # é` and `b = 1` in latin-1 (`é` is the
+byte 0xE9) and reads them. The fields must be `a` with the value `"café"`, and `b`.
+
+**Assumptions:** Siemens `.asc` files come from Windows tools, so they are likely in latin-1
+or cp1252 (decision Q5 of `docs/plans/remaining-review-fixes.md`). There is no real file with a
+byte that is not ASCII to check this against.
 
 #### `test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_included_file`
 
