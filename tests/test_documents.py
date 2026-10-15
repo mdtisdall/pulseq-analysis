@@ -1,6 +1,7 @@
 """The checks of the documents: what a document cites or links exists, no link names this
-repository at a commit, and a table of a document that repeats a table of the code has the values
-of the code.
+repository at a commit, a table of a document that repeats a table of the code has the values of
+the code, and the version and the requirement of pulseq-cpp-siemens that the documents give are
+those of its `pyproject.toml`.
 
 The documents are the Markdown files at the top of the repository, of `docs/` and of `tests/` (and
 its folders), and the same of `packages/pulseq-cpp-siemens/`. The folders of `docs/` (`plans/`,
@@ -17,6 +18,7 @@ import importlib
 import inspect
 import pkgutil
 import re
+import tomllib
 import unicodedata
 from pathlib import Path
 from urllib.parse import unquote
@@ -30,6 +32,8 @@ PLUGIN = ROOT / "packages" / "pulseq-cpp-siemens"
 USAGE = ROOT / "docs" / "usage.md"
 SPECIFICATION = ROOT / "docs" / "specification.md"
 FINDINGS = ROOT / "docs" / "findings-for-pulseq-checks.md"
+MIGRATION = ROOT / "docs" / "migration.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 PLUGIN_SPECIFICATION = PLUGIN / "docs" / "specification.md"
 INTERPRETER = PLUGIN / "src" / "pulseq_cpp_siemens" / "interpreter.py"
 
@@ -47,6 +51,8 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _LINE_ANCHOR = re.compile(r"L(\d+)(?:-L(\d+))?")
 _RECORD_ID = re.compile(r"(?<![\w.])D[1-7]\.\d+(?!\w)")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
+_REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
+_UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
 
 # This repository at a commit: a URL of GitHub (a file, a folder, a commit, or a `pip` install),
 # a raw file, or a flake reference, with a commit ID of 7 to 40 hex digits as its ref.
@@ -373,3 +379,64 @@ def test_the_analyses_table_of_usage_is_the_registry():
             f"{analysis_id}: (params, necessary, defaults, cost) are {written} in the document "
             f"and {registered} in the registry"
         )
+
+
+def _project_name(requirement: str) -> str:
+    """The name of the project of a requirement of `pyproject.toml`, normalized (PEP 503)."""
+    name = re.match(r"[A-Za-z0-9._-]+", requirement.strip())[0]
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _unspaced(requirement: str) -> str:
+    return "".join(requirement.split())
+
+
+def test_the_documents_give_the_version_of_pulseq_cpp_siemens():
+    """`docs/migration.md` and the entry "Unreleased" of `CHANGELOG.md` give the version of
+    pulseq-cpp-siemens and its requirement on pulseq-analysis, and the plugin's `pyproject.toml`
+    has them. The release that the documents describe is the "to" of the title of
+    `docs/migration.md`, and the "from" is the last release: pulseq-analysis has the version of
+    one of the two. At that release, both distributions have its version ("both are"). The
+    dependencies of the plugin do not name pulseq-analysis, so its wheels install and run their
+    tests without it; one extra of the plugin has the requirement that both documents give, both
+    documents name that extra (`pulseq-cpp-siemens[extra]`), and the lower bound of the
+    requirement is the version of the release."""
+    analysis = tomllib.loads(_text(ROOT / "pyproject.toml"))["project"]
+    plugin = tomllib.loads(_text(PLUGIN / "pyproject.toml"))["project"]
+    migration = " ".join(_text(MIGRATION).split())
+    match = re.match(r"# Migrating from (\S+) to (\S+) ", migration)
+    assert match is not None, f"{MIGRATION.name} has no title 'Migrating from <last> to <next>'"
+    last, release = match.groups()
+    assert analysis["version"] in (last, release), (
+        f"pulseq-analysis is {analysis['version']}; {MIGRATION.name} is from {last} to {release}"
+    )
+    unreleased = _UNRELEASED.search(_text(CHANGELOG))
+    assert unreleased is not None, f"{CHANGELOG.name} has no entry 'Unreleased'"
+    documents = {MIGRATION.name: migration, CHANGELOG.name: " ".join(unreleased[1].split())}
+
+    assert re.findall(r"For `([^`]+)`, both are `([^`]+)`", migration) == [(release, release)]
+    assert plugin["version"] == release, (
+        f"pulseq-cpp-siemens is {plugin['version']} in its pyproject.toml; "
+        f"{MIGRATION.name} gives {release}"
+    )
+
+    written = {
+        name: {_unspaced(r) for r in _REQUIREMENT.findall(text)} for name, text in documents.items()
+    }
+    assert len(written[MIGRATION.name]) == 1, f"the requirements on pulseq-analysis: {written}"
+    assert written[CHANGELOG.name] == written[MIGRATION.name], f"they differ: {written}"
+    (requirement,) = written[MIGRATION.name]
+    assert requirement.startswith(f"pulseq-analysis>={release},")
+    named = [r for r in plugin["dependencies"] if _project_name(r) == "pulseq-analysis"]
+    assert not named, f"the dependencies of pulseq-cpp-siemens name pulseq-analysis: {named}"
+    extras = [
+        extra
+        for extra, requirements in plugin.get("optional-dependencies", {}).items()
+        if requirement in map(_unspaced, requirements)
+    ]
+    assert len(extras) == 1, f"the extras of pulseq-cpp-siemens with {requirement}: {extras}"
+    (extra,) = extras
+    unnamed = [
+        name for name, text in documents.items() if f"pulseq-cpp-siemens[{extra}]" not in text
+    ]
+    assert not unnamed, f"documents that do not name pulseq-cpp-siemens[{extra}]: {unnamed}"

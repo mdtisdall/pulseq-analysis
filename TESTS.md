@@ -8919,8 +8919,9 @@ caller has no sequence to give it, so no `ImportError` that names the extra is n
 
 ### 2.32 The documents (`test_documents.py`)
 
-`test_documents.py` checks what the documents cite and link, and the tables of the documents that
-repeat a table of the code. The documents are the Markdown files at the top of the repository, of
+`test_documents.py` checks what the documents cite and link, the tables of the documents that
+repeat a table of the code, and the version of pulseq-cpp-siemens that the documents give. The
+documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
 time they were written. The module imports only `pulseq_analysis` and the standard library, so
@@ -9019,6 +9020,27 @@ defaults of the parameters of that function in the module `grad_spectrum`.
 
 **Assumptions:** The columns `compute` (beyond the names of its arguments) and `to_series` are not
 compared. `registry()` has only the analyses of this package in the test environment.
+
+#### `test_the_documents_give_the_version_of_pulseq_cpp_siemens`
+
+**Checks:** `docs/migration.md` and the entry "Unreleased" of `CHANGELOG.md` give the version and
+the requirement on pulseq-analysis of pulseq-cpp-siemens that the plugin's `pyproject.toml` has.
+The plugin has the version of the release that the documents describe, and pulseq-analysis that
+version or the one before it. The dependencies of the plugin do not name pulseq-analysis, so that
+its wheels install and are tested without it (review 2026-10-13, 3.2).
+
+**How:** The test reads both `pyproject.toml` files with `tomllib`. The release is the "to" of the
+title of `docs/migration.md` ("Migrating from A to B"), and its "from" is the release before it:
+the version of pulseq-analysis is one of the two. The sentence "For `B`, both are `B`" of
+`docs/migration.md` gives `B`, which is the version of the plugin. The requirement is the code
+span `pulseq-analysis>=...` of each document: the two documents give the same one, its lower bound
+is `B`, one extra of the plugin (`[project.optional-dependencies]`) has it, and both documents name
+that extra (`pulseq-cpp-siemens[extra]`). The spaces of a requirement are not compared.
+
+**Assumptions:** The test does not check that the version of pulseq-analysis is the version of the
+plugin after the release: until the release, pulseq-analysis has the version before it. The upper
+bound of the requirement is not compared with the version. The wording of the documents around
+the requirement ("require") is not read.
 
 ## 3. The package pulseq-cpp-siemens
 

@@ -85,11 +85,12 @@ pulseq-checks and pulseq-reports pin the same commit, and move together to a
 pypulseq release when one has the six changes of the fork (`TODO.md`).
 
 **pulseq-cpp-siemens.** The two distributions have the same version and move in
-step. For `0.1.0rc7`, both are `0.1.0rc7`, and the wheels of pulseq-cpp-siemens
-require `pulseq-analysis>=0.1.0rc7,<0.2`. Install the same version of both. A
-plugin of another protocol version raises `TypeError` when it is chosen.
-pulseq-analysis has no dependency on pulseq-cpp-siemens, in its code or in its
-metadata. [`docs/usage.md`](usage.md#0-install) has the install lines.
+step. For `0.1.0rc7`, both are `0.1.0rc7`. pulseq-cpp-siemens needs only numpy;
+its extra `analysis` (`pulseq-cpp-siemens[analysis]`), for the interpreter
+`cpp-siemens`, requires `pulseq-analysis>=0.1.0rc7,<0.2`. Install the same
+version of both. A plugin of another protocol version raises `TypeError` when it
+is chosen. pulseq-analysis has no dependency on pulseq-cpp-siemens, in its code
+or in its metadata. [`docs/usage.md`](usage.md#0-install) has the install lines.
 
 **A plugin of your own.** Its decoding implements every member of the protocol
 `synth.Decoding` of version 1, which includes `gradient_variants()`: return

@@ -57,8 +57,10 @@ uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@main"
 ```
 
 uv builds pulseq-cpp-siemens from source: this needs a C++ compiler and the
-network (CMake fetches the reader's files from pulseq/pulseq). How a release
-of pulseq-cpp-siemens depends on pulseq-analysis is decided at release time.
+network (CMake fetches the reader's files from pulseq/pulseq).
+pulseq-cpp-siemens is released at the version of pulseq-analysis. It needs only
+numpy; its extra `analysis` (`pulseq-cpp-siemens[analysis]`) requires
+pulseq-analysis of that version, up to `0.2`.
 
 The last release is the tag `v0.1.0rc6`:
 
