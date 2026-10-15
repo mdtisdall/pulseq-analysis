@@ -104,6 +104,9 @@ A caller moves in this order:
   active rotation `R(q) v`); before 1.5.1, ROTATIONS is an unknown extension
   and nothing is rotated. `rotation_record` (a `synth.RotationRecord`)
   records the setting and the blocks with a rotation.
+- The `id` of `Extensions.rotations` is int64, as every other ID of the model,
+  for `spec` and for `cpp-siemens` (review 2026-10-13 1.2.4a). Before, it was
+  float64.
 - An RF event with a time shape follows `spec`: a shape whose times are
   `(i + 0.5) d` is cells of `d`, and any other is points at its times, joined
   by straight lines of the complex signal (D2.10 to D2.12). A time shape of
