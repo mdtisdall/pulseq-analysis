@@ -8240,14 +8240,17 @@ field is kept.
 
 **Checks:** The typing by `numpy.loadtxt` and the typing one field at a time give the same values,
 validity, counts and dtypes, for 400 random tables of int, float and text columns whose fields are
-taken from tokens at the edges of each kind (signs, leading zeros, -2**63 and 2**63, `nan`,
-`Infinity`, `1_0`, `0x10`, a non-ASCII letter) and whose rows have other separators (tabs, a
-no-break space, a vertical tab), white space at their ends, and missing or extra fields.
+taken from tokens at the edges of each kind (signs, leading zeros, a trailing dot, -2**63 and 2**63,
+`nan`, `Infinity`, `1_0`, `0x10`, a non-ASCII letter) and whose rows have other separators (tabs, a
+no-break space, a vertical tab), white space at their ends, and missing or extra fields. At least
+300 of the tables are compared, and `_fast` gives up on at least one.
 
-**How:** For each table, the test calls `as_written._fast` and, when it gives a table,
-`as_written._slow`, and compares the arrays.
+**How:** A row has, with a probability of 0.95, three fields that are valid for their columns, and
+otherwise two to four fields of any token. For each table, the test calls `as_written._fast` and,
+when it gives a table, `as_written._slow`, and compares the arrays. It counts the tables that it
+compares.
 
-**Assumptions:** The tokens are those of the list in the test. A table that `_fast` leaves to
+**Assumptions:** The tokens are those of the lists in the test. A table that `_fast` leaves to
 `_slow` is not compared.
 
 #### `test_the_other_spaces_are_the_white_space_of_str_split`

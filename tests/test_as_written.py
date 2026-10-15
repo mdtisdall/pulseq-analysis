@@ -275,57 +275,40 @@ def test_each_field_is_read_by_the_kind_of_its_column(tmp_path):
 
 def test_the_fast_and_the_slow_typing_agree(tmp_path):
     """`numpy.loadtxt` (the fast typing) and the typing one field at a time give the same
-    values, validity and counts, for random rows of tokens at the edges of each kind."""
+    values, validity and counts, for random rows of tokens at the edges of each kind. Most rows
+    have a valid token for each column, so that most tables are compared; the other rows take
+    any token and any number of fields, so that `_fast` also gives up."""
     rng = random.Random(3)
-    tokens = [
-        "0",
-        "-0",
-        "+7",
-        "007",
-        "12",
-        "-9223372036854775808",
-        "9223372036854775807",
-        "9223372036854775808",
-    ]
-    tokens += [
-        "1.5",
-        "-.5",
-        "5.",
-        "+1e3",
-        "1E-3",
-        "1e999",
-        "nan",
-        "NaN",
-        "-inf",
-        "Infinity",
-        "1_0",
-        "0x10",
-        "e",
-        "1e",
-        "-",
-        ".",
-        "abc",
-        "u",
-        "é",
-    ]
+    ints = ["0", "-0", "+7", "007", "12", "-9223372036854775808", "9223372036854775807"]
+    floats = ints + ["9223372036854775808", "1.5", "-.5", "5.", "+1e3", "1E-3"]
+    others = ["1e999", "nan", "NaN", "-inf", "Infinity", "1_0", "0x10", "e", "1e", "-", "."]
+    others += ["abc", "u"]
+    texts = floats + others
+    tokens = texts + ["é"]
     seps = [" ", "  ", "\t", " \t", "\xa0", "\x0b"]
     columns = (Column("a", "int"), Column("b", "float"), Column("c", "text"))
+    compared = 0
     for _ in range(400):
         rows = []
         for _ in range(rng.randint(1, 5)):
-            n = rng.choice([3, 3, 3, 2, 4])
-            row = rng.choice(seps).join(rng.choice(tokens) for _ in range(n))
+            if rng.random() < 0.95:
+                fields = [rng.choice(ints), rng.choice(floats), rng.choice(texts)]
+            else:
+                fields = [rng.choice(tokens) for _ in range(rng.choice([3, 3, 3, 2, 4]))]
+            row = rng.choice(seps).join(fields)
             rows.append(rng.choice(["", " "]) + row + rng.choice(["", " ", "\r"]))
         text = "\n".join(rows)
         fast = as_written._fast(text, len(rows), columns)
         slow = as_written._slow(text, len(rows), columns)
         if fast is None:
             continue
+        compared += 1
         for f, s in zip(fast, slow, strict=True):
             assert f.dtype == s.dtype, text
             for name in f.dtype.names or (None,):
                 a, b = (f, s) if name is None else (f[name], s[name])
                 assert np.array_equal(a, b, equal_nan=a.dtype.kind == "f"), text
+    assert 300 <= compared < 400
 
 
 def test_the_other_spaces_are_the_white_space_of_str_split():
