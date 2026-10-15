@@ -630,10 +630,15 @@ dev = [
 
 [[package]]
 name = "pulseq-cpp-siemens"
-version = "0.1.0"
+version = "0.1.0rc7"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
+]
+
+[package.optional-dependencies]
+analysis = [
+    { name = "pulseq-analysis" },
 ]
 
 [package.dev-dependencies]
@@ -645,7 +650,11 @@ test = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "numpy" }]
+requires-dist = [
+    { name = "numpy" },
+    { name = "pulseq-analysis", marker = "extra == 'analysis'", editable = "../../" },
+]
+provides-extras = ["analysis"]
 
 [package.metadata.requires-dev]
 analysis = [{ name = "pulseq-analysis", extras = ["pypulseq"], editable = "../../" }]

@@ -11,13 +11,20 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pulseq-cpp-siemens"
-version = "0.1.0"
+version = "0.1.0rc7"
 description = "ExternalSequence of pulseq/pulseq, the reader of the Pulseq interpreter on Siemens scanners, in the process"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE", "LICENSE.pulseq"]
 dependencies = ["numpy"]
+
+# `analysis`: pulseq-analysis, for the module pulseq_cpp_siemens.interpreter (the plugin). An
+# extra, not a dependency: `import pulseq_cpp_siemens` does not need pulseq-analysis, the wheel
+# tests run without it, and it is not on PyPI (the user, 2026-10-15). The same version as this
+# package, in step until 0.2.
+[project.optional-dependencies]
+analysis = ["pulseq-analysis>=0.1.0rc7,<0.2"]
 
 # The interpreter `cpp-siemens` of pulseq-analysis (P21): pulseq-analysis finds it by this name
 # and imports the module only when the name is asked for.
@@ -26,9 +33,9 @@ cpp-siemens = "pulseq_cpp_siemens.interpreter:CppSiemens"
 
 # `analysis`: pulseq-analysis, for the module pulseq_cpp_siemens.interpreter and its tests, with
 # its extra `pypulseq`, which the tests import (pulseq-analysis does not depend on it). A
-# dependency group, so not in the published metadata: how a release of this package depends on
-# pulseq-analysis is decided at release time (the user, 2026-10-13). The tests that need it skip
-# without it, as in the wheel tests of cibuildwheel (test-groups below).
+# dependency group, so not in the published metadata; a release names pulseq-analysis only in the
+# extra `analysis` above. The tests that need it skip without it, as in the wheel tests of
+# cibuildwheel (test-groups below).
 [dependency-groups]
 test = ["pytest"]
 analysis = ["pulseq-analysis[pypulseq]"]

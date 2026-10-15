@@ -207,9 +207,10 @@ rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotati
 
 `import pulseq_cpp_siemens` does not import pulseq-analysis; only `pulseq_cpp_siemens.interpreter`
 does. The dependency group `analysis` of `pyproject.toml` installs `pulseq-analysis[pypulseq]` from
-this repository for this module and its tests; the tests import pypulseq, which the extra gives.
-It is not a dependency of the published package: how a release of this package depends on
-pulseq-analysis is decided at release time.
+this repository for this module and its tests; the tests import pypulseq, which its extra
+`pypulseq` gives. The published package needs only numpy: its extra `analysis`
+(`pulseq-cpp-siemens[analysis]`) requires pulseq-analysis of the same version, up to `0.2`
+(`pulseq-analysis>=0.1.0rc7,<0.2` for `0.1.0rc7`), for this module.
 
 `pulseq_cpp_siemens.interpreter` has:
 

@@ -132,7 +132,9 @@ A caller moves in this order:
   wheels for Linux, macOS and Windows. The reader's files are not in this
   repository: the build takes them at that commit and checks the SHA-256 of
   each, and the sdist carries them. It is released with pulseq-analysis, at
-  the same version, and requires `pulseq-analysis>=0.1.0rc7,<0.2`.
+  the same version. It needs only numpy; its extra `analysis`
+  (`pulseq-cpp-siemens[analysis]`), for the interpreter, requires
+  `pulseq-analysis>=0.1.0rc7,<0.2`.
 - It gives the interpreter `cpp-siemens` as a plugin
   (`pulseq_cpp_siemens.interpreter.CppSiemens`), found by name: it reads what
   the reader reads, misreadings included, and rejects what it rejects, with a

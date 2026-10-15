@@ -808,6 +808,9 @@ Answer (2026-10-14): (a), relative links.
 Answer (2026-10-14): (a), the same version (`0.1.0rc7`) and
 `pulseq-analysis>=0.1.0rc7,<0.2`. This settles the "decided at release" of
 2026-10-13.
+Refined (2026-10-15): the requirement is the extra `analysis`
+(`pulseq-cpp-siemens[analysis]`), not a dependency, because neither package is
+on PyPI and the wheel tests run without pulseq-analysis.
 - **The evidence:** the user decided on 2026-10-13 that this is "decided at
   release". `CHANGELOG.md` and `docs/migration.md` promise the same version
   and `>=0.1.0rc7,<0.2`. The protocol version ties the two distributions
