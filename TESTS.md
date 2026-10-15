@@ -8942,6 +8942,26 @@ and one within a document.
 (`[text][ref]`) are not. A `_` of emphasis in a heading stays in its anchor, where GitHub drops
 it.
 
+#### `test_no_document_links_a_commit`
+
+**Checks:** No document names this repository at a commit: a document describes `main`, the tag
+of a release pins it, and a link to a file of the repository is relative (finding 3.1 of
+`docs/reviews/2026-10-13-code-review.md`).
+
+**How:** The test reads each line of each document, code blocks and code spans too, for
+`github.com/mdtisdall/pulseq-analysis` followed by `/blob/`, `/tree/`, `/commit/`, `/raw/`,
+`/blame/` or `@` (a `pip` install), for `raw.githubusercontent.com/mdtisdall/pulseq-analysis/`,
+and for the flake reference `github:mdtisdall/pulseq-analysis/`, each followed by a ref of 7 to 40
+hex digits (in either case) with no letter, digit, `_` or `-` after it. It first checks that the
+pattern finds each of four pinned forms, and none of `@main`, a tag (`@v0.1.0rc6`) and another
+repository at a commit.
+
+**Assumptions:** Another repository at a commit (pulseq/pulseq at `c7469123`, pypulseq, KomaMRI.jl)
+is allowed: the pin keeps the lines that a document cites stable. A commit ID in the text that is
+not a URL or a flake reference (`6479eab`, the code of the times of `docs/implementation.md`) is
+not read. A branch or a tag
+whose name is 7 or more hex digits would count as a commit.
+
 #### `test_the_codes_of_spec_in_the_documents_are_spec_rules`
 
 **Checks:** The table of the codes of `docs/specification.md` (section 3) is the keys of

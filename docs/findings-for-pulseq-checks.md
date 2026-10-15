@@ -3,17 +3,16 @@
 This document is for the maintainers of pulseq-checks. It describes what
 pulseq-analysis gives pulseq-checks so that pulseq-checks can find the
 discrepancies that `docs/discrepancies.md` records. It describes the code of
-pulseq-analysis at commit
-[`6fa807d`](https://github.com/mdtisdall/pulseq-analysis/tree/6fa807d) of
-`main`, with the tasks that section 7 lists as done since then (the `spec`
-part of R9, and `cpp-siemens` as a plugin, P21). Each link names that commit, so a shared copy stays exact. What
-pulseq-checks does with it is pulseq-checks' own plan: this project writes
-nothing in pulseq-checks' repository, and it does not read its code.
+pulseq-analysis on `main`, and the tag of a release pins it at that release.
+Each link to a file of this repository is relative, so the copy at a tag links
+the files of that tag. What pulseq-checks does with it is pulseq-checks' own
+plan: this project writes nothing in pulseq-checks' repository, and it does not
+read its code.
 
 The plan behind it is
-[`docs/plans/parser-redesign.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/docs/plans/parser-redesign.md)
+[`docs/plans/parser-redesign.md`](plans/parser-redesign.md)
 ("the plan"), task C1 (section 7.5). "Dg.n" is an entry of
-[`docs/discrepancies.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/docs/discrepancies.md)
+[`docs/discrepancies.md`](discrepancies.md)
 ("the record"), whose groups D1 to D4 give what `spec` does; what `cpp-siemens`
 does is in `packages/pulseq-cpp-siemens/docs/specification.md` (its rule, to do
 what the C++ reader does, and each exception), whose groups are D5 to D7. Since
@@ -101,7 +100,7 @@ reports (section 7.5 of the plan).
 These readings are public, and kept stable for pulseq-checks (section 7.3 of
 the plan). A change to any of them is a change of the contract: it is noted in
 `CHANGELOG.md` and in this document, in the same pull request. The
-[`docs/usage.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/docs/usage.md)
+[`docs/usage.md`](usage.md)
 sections "The interpreters", "A pypulseq sequence in memory" and "The 'as
 written' reading" have every field; this section is the index for
 pulseq-checks.
@@ -160,7 +159,8 @@ interpreter object:
   `cpp-siemens(rotation='apply')`.
 
 A plugin is a class of the protocol `seqfile.interpreters.Plugin` (`name`,
-`read(path)`, `decode(data)` and `str()`), found by the entry-point group
+`protocol`, `read(path)`, `decode(data, session=None)` and `str()`), found by
+the entry-point group
 `seqfile.interpreters.GROUP` (`"pulseq_analysis.interpreters"`).
 `interpreters.interpreter(value)` gives the object of a name, and
 `interpreters.Interpreter` is `Spec | Plugin`. The module has no `INTERPRETERS`
@@ -653,13 +653,15 @@ The flake of this repository (`flake.nix`) builds three programs from
 pulseq/pulseq at `c7469123c2f381f065986e6cc3a7d09730ed16ef`. Each is an output
 `packages.<system>.<name>`, so a consumer can run it from a flake reference,
 for example
-`nix run github:mdtisdall/pulseq-analysis/6fa807d#pulseq-cpp-oracle -- --dump FILE`.
+`nix run github:mdtisdall/pulseq-analysis#pulseq-cpp-oracle -- --dump FILE`
+for `main`, or `github:mdtisdall/pulseq-analysis/<tag>#pulseq-cpp-oracle` for
+a release.
 
 | Program | What it gives | Documentation |
 |---|---|---|
-| `pulseq-cpp-oracle` | The C++ reader with a small driver, built with `-fsigned-char -ffp-contract=off` (the `char` and arithmetic of the scanner's x86_64 build on each system). `FILE`: the verdict as the exit status (0 reads, 1 rejects, 70 crashes). `--dump FILE`: what the reader holds after `load` and `decodeBlock`, as JSON. `--sample FILE`: `SeqBlock::gradientsAt` for lines `block_index time_us` on stdin. `--oversampling=center\|edge\|preserve` sets the reader's mode. | [`tests/cpp_oracle/README.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/tests/cpp_oracle/README.md) |
+| `pulseq-cpp-oracle` | The C++ reader with a small driver, built with `-fsigned-char -ffp-contract=off` (the `char` and arithmetic of the scanner's x86_64 build on each system). `FILE`: the verdict as the exit status (0 reads, 1 rejects, 70 crashes). `--dump FILE`: what the reader holds after `load` and `decodeBlock`, as JSON. `--sample FILE`: `SeqBlock::gradientsAt` for lines `block_index time_us` on stdin. `--oversampling=center\|edge\|preserve` sets the reader's mode. | [`tests/cpp_oracle/README.md`](../tests/cpp_oracle/README.md) |
 | `pulseq-cpp-oracle-sanitized` | The same reader and driver with AddressSanitizer, UndefinedBehaviorSanitizer and the standard library's assertions (clang of LLVM 22). Exit status 3: the reader has undefined behaviour on the file, whatever an ordinary build does. | the same README, "The sanitized build" |
-| `pulseq-matlab-oracle OUT_DIR FILE.seq...` | MATLAB Pulseq run under GNU Octave: `read`, `getBlock` and `waveforms_and_times(true)` of each file, as JSON. About 2.5 GiB of closure; only in the default devShell. | [`tests/matlab_oracle/README.md`](https://github.com/mdtisdall/pulseq-analysis/blob/6fa807d/tests/matlab_oracle/README.md) |
+| `pulseq-matlab-oracle OUT_DIR FILE.seq...` | MATLAB Pulseq run under GNU Octave: `read`, `getBlock` and `waveforms_and_times(true)` of each file, as JSON. About 2.5 GiB of closure; only in the default devShell. | [`tests/matlab_oracle/README.md`](../tests/matlab_oracle/README.md) |
 
 `cpp-siemens` gives the same values in the process: its `decode_block` has the
 fields of `--dump`, and its `gradients_at` those of `--sample`, bit for bit on
@@ -670,9 +672,9 @@ project's test code, not part of the contract.
 
 ## 7. What is still to come
 
-These parts of the contract are planned, not in the code at `6fa807d`. Each
-task updates this document and `CHANGELOG.md` when it changes the contract,
-and marks its row done.
+These parts of the contract are planned; a row marked done is in the code of
+`main`. Each task updates this document and `CHANGELOG.md` when it changes the
+contract, and marks its row done.
 
 | Task | What it adds |
 |---|---|
