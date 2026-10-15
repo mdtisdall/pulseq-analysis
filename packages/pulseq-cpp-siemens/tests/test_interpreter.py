@@ -11,6 +11,7 @@ devShell. The module is not collected without pulseq-analysis (`conftest.py`).
 import copy
 import dataclasses
 import pickle
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from test_cpp_oracle_sanitized import SANITIZED, run
 
 from pulseq_analysis import seqfile, synth
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, Spec, read_seqfile
+from pulseq_analysis.seqfile.spec import MAX_LOCATIONS
 
 # The fixtures of this package.
 PACKAGE_FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -223,6 +225,59 @@ def test_a_rejection_quotes_the_line_of_the_row_that_does_not_decode(tmp_path):
     assert reason.section == "RF"
     assert path.read_text().split("\n")[reason.line - 1] == "# a note"
     assert reason.message.startswith("*** ERROR: failed to decode RF event")
+
+
+def gradient_events(error):
+    """The (code, gradient event) of each reason of a rejection for undefined behaviour, by the
+    event that its message names (None where it names none)."""
+    events = [re.search(r"\bgradient event (\d+)\b", v.message) for v in error.violations]
+    return [
+        (v.rule, int(event.group(1)) if event else None)
+        for v, event in zip(error.violations, events, strict=True)
+    ]
+
+
+def test_every_case_of_undefined_behaviour_is_a_violation(tmp_path):
+    """valid_no_signature.seq with two cases in two blocks (play order from 0): gradient event 2
+    of block 1 uses a shape of 0 samples (D5.6), and gradient event 4, of blocks 2 and 3, a shape
+    that does not exist (D5.1). The error has a reason for each event, once, with the event that
+    it names."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    text = edit(text, "\n2 500000 0 0 3 0 100\n", "\n2 500000 0 0 10 0 100\n")
+    text = edit(text, "\n4 500000 500000 0 4 0 0\n", "\n4 500000 500000 0 99 0 0\n")
+    text = edit(text, "\n3  50  0  0  0  3  0  0\n", "\n3  50  0  0  0  4  0  0\n")
+    path = tmp_path / "two_cases.seq"
+    path.write_text(text + "shape_id 10\nnum_samples 0\n\n")
+    with pytest.raises(SeqFileError) as caught:
+        read_seqfile(path, "cpp-siemens")
+    assert sorted(gradient_events(caught.value)) == [
+        ("ub.shape-empty", 2),
+        ("ub.shape-missing", 4),
+    ], str(caught.value)
+    assert not caught.value.omitted
+
+
+def test_the_cases_of_one_code_are_capped_at_max_locations(tmp_path):
+    """MAX_LOCATIONS + 3 blocks, each with a gradient event of its own that uses a shape that does
+    not exist: the error has the first MAX_LOCATIONS, in play order, and counts the other 3 in
+    `omitted`, as `spec` does for a rule."""
+    count = MAX_LOCATIONS + 3
+    blocks = "".join(f"{i} 100 0 {i} 0 0 0 0\n" for i in range(1, count + 1))
+    gradients = "".join(f"{i} 1000 0 0 {100 + i} 0 0\n" for i in range(1, count + 1))
+    text = edit(
+        MINIMAL_SEQ,
+        "[BLOCKS]\n1 100 0 0 0 0 0 0\n",
+        f"[BLOCKS]\n{blocks}\n[GRADIENTS]\n{gradients}\n"
+        "[SHAPES]\nshape_id 1\nnum_samples 3\n0\n1\n0\n\n",
+    )
+    path = tmp_path / "many_cases.seq"
+    path.write_text(text)
+    with pytest.raises(SeqFileError) as caught:
+        read_seqfile(path, "cpp-siemens")
+    assert sorted(gradient_events(caught.value)) == [
+        ("ub.shape-missing", i) for i in range(1, MAX_LOCATIONS + 1)
+    ], str(caught.value)
+    assert dict(caught.value.omitted) == {"ub.shape-missing": 3}
 
 
 def test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode(tmp_path):

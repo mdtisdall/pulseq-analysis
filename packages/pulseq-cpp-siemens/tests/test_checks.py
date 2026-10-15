@@ -190,6 +190,39 @@ def test_the_checks_give_the_one_point_reads_that_the_stored_duration_hides():
     assert (inside.code, inside.block, inside.time_us) == ("ub.gradient-one-point", 4, 0.0)
 
 
+def test_the_hidden_one_point_reads_cover_the_blocks_after_a_case(tmp_path):
+    """gradient_one_point_after_block.seq with a case in block 1 (gradient event 2 uses a shape
+    that does not exist), before the read that the stored duration of block 4 hides: the checks
+    still give that read."""
+    path = tmp_path / "case_before_hidden.seq"
+    text = (UB_FIXTURES / "gradient_one_point_after_block.seq").read_text()
+    assert "\n2 500000 0 0 3 0 100\n" in text
+    path.write_text(text.replace("\n2 500000 0 0 3 0 100\n", "\n2 500000 0 0 99 0 100\n"))
+    with pytest.raises(cs.UndefinedBehaviour) as error:
+        cs.load(path)
+    assert error.value.code == "ub.shape-missing"
+    assert checked(path).hidden_one_point == {4: [(200.0, 240.0)]}
+
+
+def test_the_verdict_does_not_depend_on_the_size_of_long(tmp_path):
+    """D5.11 with a 32-bit `long`, the size of the Windows build of the reader: the last time of
+    the extended trapezoid of block 4 (ID 5), 10 us times its time shape, is 2e9 us (a `long` of 32
+    bits) or 3e9 us (past 2**31 - 1, so only of 64 bits). The second is rejected on every host,
+    also where the reader's `long` has 64 bits and its sanitized build reads the file."""
+    times = "shape_id 6\nnum_samples 5\n0\n1\n3\n6\n10\n"
+    assert times in VALID
+    fits = tmp_path / "time_2e9_us.seq"
+    fits.write_text(VALID.replace(times, times.replace("\n10\n", "\n2e8\n")))
+    cs.load(fits)
+    past = tmp_path / "time_3e9_us.seq"
+    past.write_text(VALID.replace(times, times.replace("\n10\n", "\n3e8\n")))
+    with pytest.raises(cs.UndefinedBehaviour) as error:
+        cs.load(past)
+    assert error.value.code == "ub.gradient-time-range"
+    if SANITIZED is not None:
+        assert sanitized_verdict(past) == "accept"
+
+
 def test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0(tmp_path):
     """load reads [TRAP] after [GRADIENTS]: a [TRAP] row with the ID of a [GRADIENTS] row of shape
     0 replaces it, and its times are set."""
