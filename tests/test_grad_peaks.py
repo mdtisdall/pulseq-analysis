@@ -497,8 +497,15 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
 #
 # `tests/oracles/waveform.py` is the oracle of the model of the module docstring of `grad_peaks`
 # (the model of MATLAB Pulseq). It builds the polyline of each axis one time, with the ramps of
-# the long gaps, and it reads every value from it with no per-block code, so it shares no code
-# with this package. `oracle.peaks(seq, window)` gives the values of the package: the peak, the
+# the long gaps, and it reads every value from it with no per-block code. Its own code calls no
+# code of this package, but its input here is not independent of it: `sequence_of(snap)`
+# (`tests/oracles/blocks.py`) gives it the events that `_played.played_gradients(snap)` gives
+# this package too (the event of each block and axis, and the points of each event), with the
+# block durations and the gradient raster of the snapshot's data. The oracle adds up the block
+# starts, joins the events by the gap rule, and finds each value, its time and its block itself.
+# So these comparisons test the measurements of the played events, not the decoding, which has
+# its own tests (`test_played.py`, `test_decoding.py`, and the C++ and MATLAB oracle tests).
+# `oracle.peaks(seq, window)` gives the values of the package: the peak, the
 # slew, the RMS and the vector peak, each with its time and its block. The test here compares all
 # of them, for the whole file and for windows, on random sequences. The comparisons on the
 # synthetic sequences and on the sequences of the oracle's own tests are in the tests of the

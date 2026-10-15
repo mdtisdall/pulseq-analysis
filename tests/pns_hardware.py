@@ -2,7 +2,7 @@
 `safe_example_hw` of `synthetic.py`, a new namespace), the example hardware with a scaled
 stimulation limit, so that a sequence has a chosen PNS peak, the values of `hardware` that are
 not a pair, and the structs that the check of the hardware refuses. It uses the package
-(`pns_levels`), so it is not in `synthetic.py`, which the oracles import. It does not import
+(`pns_levels`), so it is not in `synthetic.py`, which does not use the package. It does not import
 pypulseq: a test of `test_safe.py` with the `pypulseq` marker checks the example against
 pypulseq's `safe_example_hw()`."""
 

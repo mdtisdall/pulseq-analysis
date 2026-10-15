@@ -1,10 +1,15 @@
 """The gradient waveform of a sequence, and the values that it gives.
 
 This is the oracle of the model of `docs/plans/third-review-fixes.md` section 5.1 (the
-model of MATLAB Pulseq, with decisions D1 to D5 of that plan). It does not import the
+model of MATLAB Pulseq, with decisions D1 to D5 of that plan). Its code calls no code of the
 package, and it has no per-block shortcut: it builds the polyline of each axis one time,
 and every value (the samples, the peak, the slew, the RMS and the vector peak) is read
-from that polyline.
+from that polyline. It imports `iter_blocks` from `oracles.blocks`, and that module imports the
+package for `sequence_of`. Most comparisons with the measurements of the package give the
+oracle `sequence_of(snap)`: the events of the package's `_played.played_gradients(snap)`, which
+the measurements read too. So there the oracle checks what the measurements make of the played
+events, and not the decoding. The tests of the oracle itself (`tests/test_oracle_waveform.py`)
+give it the `pp.Sequence` of a builder.
 
 The model of one axis (`dt = seq.grad_raster_time`, `TIME_TOLERANCE` below):
 
