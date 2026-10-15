@@ -44,8 +44,10 @@ if [[ -n $base ]] && docs_only "$base"; then
   uv sync --frozen
   echo
   echo "# pytest (the tests that read the documentation)"
-  # tests/test_interface.py checks the names that docs/usage.md and docs/implementation.md give.
-  uv run pytest -q tests/test_interface.py
+  # tests/test_interface.py checks the names that docs/usage.md and docs/implementation.md give;
+  # tests/test_documents.py checks the record IDs, the links with an anchor and
+  # the tables of the documents that repeat a table of the code.
+  uv run pytest -q tests/test_interface.py tests/test_documents.py
   exit 0
 fi
 

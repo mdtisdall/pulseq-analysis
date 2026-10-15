@@ -38,7 +38,8 @@ Contents:
    the SAFE hardware and filter; the decoded events; the decoding against the C++
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
    written" reading; the plugin interpreters; a pypulseq sequence in memory; the
-   scanner session; the imports of the package; the package without pypulseq
+   scanner session; the imports of the package; the package without pypulseq; the
+   documents
 3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
    the checks of undefined behaviour; the digests of the driver's output; the
    driver of the C++ oracle; the reader's shared state; the cases of undefined
@@ -8682,6 +8683,89 @@ pypulseq sequence with its `TypeError` ("read_pypulseq takes a pypulseq.Sequence
 **Assumptions:** `read_pypulseq` needs pypulseq only through its argument: without pypulseq, a
 caller has no sequence to give it, so no `ImportError` that names the extra is needed
 (docs/plans/own-parser-tasks.md, section 8, after R14).
+
+### 2.32 The documents (`test_documents.py`)
+
+`test_documents.py` checks what the documents cite and link, and the tables of the documents that
+repeat a table of the code. The documents are the Markdown files at the top of the repository, of
+`docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
+plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
+time they were written. The module imports only `pulseq_analysis` and the standard library, so
+the docs-only path of `scripts/check` runs it with `test_interface.py`, with no build of the
+plugin.
+
+#### `test_each_record_id_that_a_document_cites_is_an_entry_of_the_record`
+
+**Checks:** Each record ID (`D1.1` to `D7.n`) that a document cites is an entry of
+`docs/discrepancies.md` or of `packages/pulseq-cpp-siemens/docs/specification.md`.
+
+**How:** The entries are the headings `#### D<group>.<n>: ...` of the two files. The test checks
+that it found entries of both files and a citation of `docs/usage.md` (so the reading is not
+empty), and collects each citation of each line of each document, code blocks too, that is not an
+entry.
+
+**Assumptions:** An ID is `D`, a group from 1 to 7, a dot and a number, with no letter, digit, `_`
+or dot before it and no letter, digit or `_` after it. The test does not check that the entry is
+the one that the text means.
+
+#### `test_each_relative_link_with_an_anchor_resolves`
+
+**Checks:** Each relative link with an anchor of a document (`file.md#heading`, `#heading`) names
+a file that exists, and the anchor is in that file: a heading or an `<a id>` / `<a name>` of a
+Markdown file, or a line (`L12`) or a range of lines (`L12-L20`) of another file.
+
+**How:** The test reads the inline links (`](target#anchor)`) outside the code blocks and the code
+spans, and leaves out the links with a scheme (`https:`). The anchor of a heading is GitHub's: the
+text of the heading without the marks of a code span or a link, in lower case, without each
+character that is not a letter, a mark, a digit, `_`, `-` or a space, with each space a `-`, and
+`-n` for the n-th repeat in the file. The test checks that it found a link to another document
+and one within a document.
+
+**Assumptions:** Only ATX headings (`#` to `######`) are read, and the reference links
+(`[text][ref]`) are not. A `_` of emphasis in a heading stays in its anchor, where GitHub drops
+it.
+
+#### `test_the_codes_of_spec_in_the_documents_are_spec_rules`
+
+**Checks:** The table of the codes of `docs/specification.md` (section 3) is the keys of
+`spec.RULES`, in their order. The table of the codes of `docs/usage.md` ("The interpreters") and
+the list of the codes of `docs/findings-for-pulseq-checks.md` (section 2.5) give each key once,
+and the findings give the number of the keys.
+
+**How:** The test reads the code spans of the first column of each table, and the number and the
+code spans of the paragraph "The codes of `spec`" of the findings, and compares them with
+`spec.RULES` (the lists sorted for the last two).
+
+**Assumptions:** The ID, the basis and the text of each row are not compared with the `Rule`.
+
+#### `test_the_codes_of_cpp_siemens_in_the_documents_are_interpreter_codes`
+
+**Checks:** The table of the codes of `packages/pulseq-cpp-siemens/docs/specification.md` (section
+2.5) gives each code of `CODES` of the plugin's `interpreter.py` once, with the ID of its entry in
+`CODES`. The table of the codes of `docs/findings-for-pulseq-checks.md` (section 2.5) is the codes
+of `CODES`, in their order, and the findings give their number.
+
+**How:** The test reads `CODES` from the source of `interpreter.py` with `ast.literal_eval` of the
+dict that `MappingProxyType` takes (the plugin is not imported), and compares the pairs (code, ID)
+of the plugin's table, sorted, and the codes of the table of the findings with it.
+
+**Assumptions:** `CODES` is a dict of literals in the source. The column "Entry" of the findings
+is not the ID of `CODES` (it gives `D1.1` for `version.missing`, where `CODES` has "—"), and is not
+compared. The text of each row is not compared.
+
+#### `test_the_analyses_table_of_usage_is_the_registry`
+
+**Checks:** The table of the analyses of `docs/usage.md` (section 7) has one row for each analysis
+of `registry()`, and each row gives the `spec` of its analysis: the names of `params`,
+`necessary`, `defaults` and `cost`.
+
+**How:** The parameters are the keyword arguments of the call in the column `compute`, in order.
+`none` is no name. A default `name=value` is the literal, or, for a name (`BIN_S`), the attribute
+of the module that defines the function of the call; "the defaults of `grad_spectrum`" is the
+defaults of the parameters of that function in the module `grad_spectrum`.
+
+**Assumptions:** The columns `compute` (beyond the names of its arguments) and `to_series` are not
+compared. `registry()` has only the analyses of this package in the test environment.
 
 ## 3. The package pulseq-cpp-siemens
 
