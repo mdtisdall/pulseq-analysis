@@ -488,6 +488,41 @@ def test_analysis_spec_raises_for_a_field_that_a_runner_uses(changes, error, mes
         AnalysisSpec(**_spec_args(**changes))
 
 
+@pytest.mark.parametrize(
+    ("changes", "error", "message"),
+    [
+        pytest.param(
+            {"params": ("a",), "necessary": ["a"]}, TypeError, "necessary is", id="necessary-list"
+        ),
+        pytest.param(
+            {"params": ("a",), "necessary": "a"}, TypeError, "necessary is", id="necessary-str"
+        ),
+        pytest.param({"necessary": (1,)}, TypeError, "necessary is", id="necessary-not-str"),
+        pytest.param(
+            {"params": ("a",), "necessary": ("a", "a")},
+            ValueError,
+            "repeated in necessary",
+            id="necessary-repeated",
+        ),
+        pytest.param({"title": None}, TypeError, "title is", id="title-none"),
+        pytest.param({"title": 1}, TypeError, "title is", id="title-int"),
+        pytest.param({"description": None}, TypeError, "description is", id="description-none"),
+        pytest.param({"description": b"d"}, TypeError, "description is", id="description-bytes"),
+        pytest.param({"series": 1}, TypeError, "series is", id="series-int"),
+        pytest.param({"series": ("s",)}, TypeError, "series is", id="series-tuple"),
+    ],
+)
+def test_analysis_spec_raises_for_a_necessary_title_description_or_series_of_a_wrong_type(
+    changes, error, message
+):
+    """`AnalysisSpec` raises `TypeError` for a `necessary` that is not a tuple of `str` (a
+    list, a `str`, a tuple with an `int`), a `title` or a `description` that is not a `str`,
+    and a `series` that is neither None nor a `str`, and `ValueError` for a repeated name in
+    `necessary`. A spec with a list in a field would not be hashable."""
+    with pytest.raises(error, match=message):
+        AnalysisSpec(**_spec_args(**changes))
+
+
 def test_analysis_spec_accepts_each_raster_cost_and_finite_default():
     """`AnalysisSpec` accepts each name of `RASTERS` with the cost "fast" or "slow", a
     version above 1, and a finite float default, and `RASTERS` has the four names."""
