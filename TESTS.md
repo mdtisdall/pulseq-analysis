@@ -1252,6 +1252,25 @@ and the offsets `[0, duration]`, bit for bit, then `gradient_peaks`.
 **Assumptions:** `Late`'s `gradients_at` is 0 in the whole of block 1, so the test does not tell
 whether the end of the block is a step; it checks the times of the points.
 
+#### `test_blocks_with_the_same_events_and_duration_are_planned_once`
+
+**Checks:** When `spec` rotates blocks with the same events and duration by different rotations,
+`_played` makes one plan of the times of their points (`_plan`) for all of them, not one for each
+rotation. Each block keeps keys of its own, and the played points are the gradients of the
+decoding.
+
+**How:** The test writes a 1.5.1 file to `tmp_path` (`ROTATED_READOUTS`): five blocks of 400 µs,
+each with the trapezoid 1 on gx and the ADC 1, and each with its own rotation object, k times 36
+degrees about z for k from 1 to 5. `_played._plan` is replaced (`monkeypatch`) by a wrapper that
+counts its calls. The test reads the file through `spec`, takes `played_gradients`, and checks
+that `gx` has five distinct keys and that `_plan` ran once. Then
+`check_the_points_are_the_gradients` runs on the file through `spec`.
+
+**Assumptions:** `_from_gradients_at` calls `_plan` through the module, so the wrapper sees each
+call. The values of rotated blocks with the same events and different rotations are also checked
+on `oracle/pulseq_make_radial.seq` and `oracle/koma_v1.5_rotation_radial_tiny.seq`, by
+`test_the_points_of_the_played_events_are_the_gradients_of_the_decoding`.
+
 #### `test_a_nan_point_of_a_block_is_credited_to_the_block_at_its_first_nan`
 
 **Checks:** When the decoding gives one point of the event of a block NaN, `gradient_peaks` and
