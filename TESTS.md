@@ -7874,6 +7874,40 @@ other table of the model (`blocks`, `rf`, `grad`, `trap`, `adc`, and the tables 
 **Assumptions:** `test_the_rotation_ids_are_int64` (`test_interpreter.py` of pulseq-cpp-siemens)
 checks the model of `cpp-siemens`.
 
+#### `test_spec_gradients_at_of_many_events_is_each_read_alone`
+
+**Checks:** `SpecDecoding.gradients_at` of many reads of many events is, bit for bit, the value of
+each read alone (C10 of `docs/plans/remaining-review-fixes.md`, 2.1 of the review of 2026-10-13):
+in a 1.5.1 file of 3000 blocks of 500 µs that play more than 1400 of 1500 random trapezoids (one cell
+in five has none), with a ROTATIONS object (one of 50 random quaternions) in one block in two, 20 000
+reads in random order, with repeats, from 50 µs before each block to 50 µs after it, give the
+logical gradients (`rotated=False`) and the rotated ones (`rotated` None) of the reference. More
+than 30 % of the reads are not 0, and each read outside its block is 0.
+
+**How:** The test writes the file in `tmp_path` (seed 10) and draws the reads (seed 11): half at
+random times, half on the 10 µs raster. The reference takes one read at a time: `np.interp` of the
+`gradient_offsets` of each cell's event, 0 outside the block, then `decoding.rotate` by the
+quaternion of `rotations()` of each block with a rotation.
+
+**Assumptions:** Each value of the reference is the arithmetic of `gradients_at` on one read, so the
+two are equal bit for bit whatever the order in which `gradients_at` groups the reads. The times of
+the speed fix are in its PR (Q8: no timing tests).
+
+#### `test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence`
+
+**Checks:** A call of `SpecDecoding.gradients_at` with one read allocates nothing in proportion to
+the number of blocks (3 of 2.1 of the review of 2026-10-13, C10): in a 1.5.1 file of 100 000
+blocks, each of which plays one trapezoid of 1000 Hz/m on gx and the first of which has a rotation
+of 45 degrees about z, the peak of `tracemalloc` over the second call at 250 µs in the first block
+is below 100 kB, with `rotated` False, None and True. The values are (1000, 0, 0) Hz/m and, rotated,
+1000·√0.5 Hz/m on x and on y and 0 on z (to 1e-2 Hz/m). A map of 8 bytes for each block is 800 kB.
+
+**How:** The test writes the file in `tmp_path`, calls `gradients_at` once before it starts
+`tracemalloc`, and reads the peak of `tracemalloc.get_traced_memory()` over one call.
+
+**Assumptions:** numpy reports the memory of its arrays to `tracemalloc`. A decoding may build what
+it keeps on its first call, so the test measures the second one.
+
 ### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
 
 `test_cpp_oracle_decode.py` compares the model of `read_seqfile` (the `spec` interpreter), the events of

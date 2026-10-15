@@ -1,4 +1,5 @@
 import pickle
+import tracemalloc
 from pathlib import Path
 from types import MappingProxyType
 
@@ -16,6 +17,7 @@ from pulseq_analysis.synth.events import (
     decode_gradients,
     decode_rf,
 )
+from pulseq_analysis.synth.seq_utils import gradient_offsets
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
 ORACLE = SEQFILES / "oracle"
@@ -823,3 +825,117 @@ def test_the_rotation_ids_of_spec_are_int64_as_every_other_id():
     tables = (data.blocks, data.rf, data.grad, data.trap, data.adc, ext.entries, ext.triggers)
     tables += (ext.labelset, ext.labelinc, ext.soft_delays, rotations)
     assert {table.dtype["id"] for table in tables} == {np.dtype(np.int64)}
+
+
+_HEADER_1_5_1 = """\
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+"""
+
+
+def _many_trapezoids(path: Path, blocks: int, traps: int, seed: int) -> Path:
+    """A 1.5.1 file of `blocks` blocks of 500 us, each with a trapezoid of the `traps` (random
+    amplitude, ramps and flat time, delay of 0 to 100 us, all in 500 us) on each axis, or none
+    (one cell in five), and a ROTATIONS object (one of 50 random quaternions) in the extension
+    list of one block in two."""
+    rng = np.random.default_rng(seed)
+    cells = rng.integers(1, traps + 1, size=(blocks, 3))
+    cells[rng.random((blocks, 3)) < 0.2] = 0
+    rotation = np.where(rng.random(blocks) < 0.5, rng.integers(1, 51, size=blocks), 0)
+    lines = [_HEADER_1_5_1, "[BLOCKS]"]
+    lines += [
+        f"{i + 1} 50 0 {x} {y} {z} 0 {r}"
+        for i, ((x, y, z), r) in enumerate(zip(cells.tolist(), rotation.tolist(), strict=True))
+    ]
+    lines += ["", "[TRAP]"]
+    for i in range(1, traps + 1):
+        rise, flat, fall, delay = (10 * rng.integers([1, 0, 1, 0], [11, 21, 11, 11])).tolist()
+        lines.append(f"{i} {rng.uniform(-1e5, 1e5):.3f} {rise} {flat} {fall} {delay}")
+    lines += ["", "[EXTENSIONS]"]
+    lines += [f"{j} 1 {j} 0" for j in range(1, 51)]
+    lines += ["", "extension ROTATIONS 1"]
+    lines += [f"{j} " + " ".join(f"{q:.6f}" for q in rng.normal(size=4)) for j in range(1, 51)]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _gradients_one_read_at_a_time(decoding, block_index, time_us):
+    """`gradients_at` of `spec` under the neutral session, one read at a time: the logical
+    gradients (the straight lines of `gradient_offsets` of each cell's event, 0 outside the
+    block), and those turned by the quaternion of each block with a rotation."""
+    indices, quaternions = decoding.rotations()
+    quaternion_of = dict(zip(indices.tolist(), quaternions, strict=True))
+    logical = np.zeros((block_index.size, 3))
+    for k, (b, us) in enumerate(zip(block_index.tolist(), time_us.tolist(), strict=True)):
+        t = us * 1e-6
+        if t < 0 or t > decoding.block_durations[b]:
+            continue
+        for axis, column in enumerate(("gx", "gy", "gz")):
+            gid = int(decoding.blocks[column][b])
+            if gid:
+                delay, offsets, amp = gradient_offsets(decoding.gradients[gid])
+                logical[k, axis] = np.interp(t - delay, offsets, amp, left=0.0, right=0.0)
+    rotated = logical.copy()
+    for k, b in enumerate(block_index.tolist()):
+        if b in quaternion_of:
+            rotated[k] = synth.decoding.rotate(quaternion_of[b][None], logical[k][None])[0]
+    return logical, rotated
+
+
+def test_spec_gradients_at_of_many_events_is_each_read_alone(tmp_path):
+    """`SpecDecoding.gradients_at` of many reads of many events (C10 of
+    `docs/plans/remaining-review-fixes.md`, 2.1 of `docs/reviews/2026-10-13-code-review.md`) is,
+    bit for bit, the value of each read alone: 3000 blocks of 1500 trapezoids, one block in two
+    with a rotation, and 20 000 reads in random order, with repeats, at random times and at times
+    on the 10 us raster, from 50 us before each block to 50 us after it."""
+    path = _many_trapezoids(tmp_path / "many.seq", blocks=3000, traps=1500, seed=10)
+    decoding = synth.decode(seqfile.read_seqfile(path))
+    assert decoding.block_count == 3000
+    assert np.unique(decoding.blocks[["gx", "gy", "gz"]].tolist()).size > 1400
+    assert 1300 < decoding.rotation_blocks.size < 1700
+    rng = np.random.default_rng(11)
+    block_index = rng.integers(0, 3000, size=20_000)
+    time_us = np.where(
+        rng.random(20_000) < 0.5, rng.uniform(-50, 550, 20_000), 10.0 * rng.integers(-5, 56, 20_000)
+    )
+    logical, rotated = _gradients_one_read_at_a_time(decoding, block_index, time_us)
+    assert logical.any(axis=1).mean() > 0.3 and not logical[(time_us < 0) | (time_us > 500)].any()
+    assert np.array_equal(decoding.gradients_at(block_index, time_us, rotated=False), logical)
+    assert np.array_equal(decoding.gradients_at(block_index, time_us), rotated)
+
+
+def test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence(tmp_path):
+    """A call of `SpecDecoding.gradients_at` with one read allocates nothing in proportion to the
+    blocks (3 of 2.1 of `docs/reviews/2026-10-13-code-review.md`, C10): in a file of 100 000
+    blocks, the first of which has a rotation, the peak of `tracemalloc` over the second call is
+    below 100 kB, with the rotations (`rotated` None and True) and without them. A map of 8 bytes
+    for each block is 800 kB."""
+    blocks = 100_000
+    lines = [_HEADER_1_5_1, "[BLOCKS]", "1 50 0 1 0 0 0 1"]
+    lines += [f"{i} 50 0 1 0 0 0 0" for i in range(2, blocks + 1)]
+    lines += ["", "[TRAP]", "1 1000 100 200 100 0", "", "[EXTENSIONS]", "1 1 1 0", ""]
+    lines += ["extension ROTATIONS 1", "1 0.92388 0 0 0.382683"]
+    path = tmp_path / "long.seq"
+    path.write_text("\n".join(lines) + "\n")
+    decoding = synth.decode(seqfile.read_seqfile(path))
+    assert decoding.block_count == blocks
+    turned = 1000 * np.sqrt(0.5)
+    for rotated in (False, None, True):
+        decoding.gradients_at([0], [250.0], rotated)
+        tracemalloc.start()
+        try:
+            values = decoding.gradients_at([0], [250.0], rotated)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        expected = [1000, 0, 0] if rotated is False else [turned, turned, 0]
+        np.testing.assert_allclose(values, [expected], rtol=0, atol=1e-2)
+        assert peak < 100e3, (rotated, peak)
