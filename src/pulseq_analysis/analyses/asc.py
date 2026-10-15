@@ -20,12 +20,15 @@ _INCLUDE_LINE = re.compile(
 # A line that starts with `$INCLUDE` (in any case), whether or not `_INCLUDE_LINE` matches.
 _INCLUDE_START = re.compile(r"^\s*\$INCLUDE", re.IGNORECASE)
 # A line that sets a field, as `a[0].b[2][3].c = "string" # comment`, with the line stripped.
-# The value is a double-quoted string, a single quoted character, an integer (digits only), or
-# a number of the characters `0-9`, `.`, `e` and `-` (read as a float). A comment that starts
-# with `#` or `//` can follow it. The brackets are not checked here (see `_field_keys`).
+# The value is a double-quoted string, a single quoted character, a hex integer (`0x` and hex
+# digits), an integer (digits, with an optional `-`), or a number of the characters `0-9`, `.`,
+# `e`, `E`, `+` and `-` (read as a float, so that `float` names a number that it cannot read).
+# A comment that starts with `#` or `//` can follow it. The brackets are not checked here (see
+# `_field_keys`).
 _FIELD_LINE = re.compile(
     r"^\s*(?P<name>[a-zA-Z0-9\[\]\._]+)\s*=\s*"
-    r"(?:(?P<string>\"[^\"]*\"|'[^']')|(?P<int>\d+)|(?P<float>[0-9\.e\-]+))"
+    r"(?:(?P<string>\"[^\"]*\"|'[^']')|(?P<hex>0[xX][0-9a-fA-F]+)|(?P<int>-?\d+)"
+    r"|(?P<float>[0-9\.eE+\-]+))"
     r"\s*(?:(?:#|//).*)?$"
 )
 # One part of a field name between dots: a name and zero or more indices, as `b[2][3]`.
@@ -41,12 +44,14 @@ def read_gradient_asc(path: str | Path) -> dict:
     A line `a[0].b[2][3].c = "string" # comment` sets the field
     `fields["a"][0]["b"][2][3]["c"]`: a nested dict, with the name of each part as a `str`
     key and each index as an `int` key. The value is a `str` for a quoted string, an `int`
-    for digits only, and else a `float` (of the characters `0-9`, `.`, `e` and `-`). The
-    comment starts with `#` or `//`. A blank line, a line that starts with `#` and the
-    fields after the line `### ASCCONV END ###` are left out. A line with `=` that is not a
-    field, a field name that is not names with indices, a number that is not a float, and a
-    field that sets a name under a value that is not a dict, raise `ValueError` that names
-    the file and the line.
+    for digits with an optional `-` and for hex (`0x1F`), and else a `float` (of the
+    characters `0-9`, `.`, `e`, `E`, `+` and `-`, as `1.5E-3` or `1e+02`). The comment
+    starts with `#` or `//`. A blank line, a line that starts with `#` and the lines after
+    the line `### ASCCONV END ###` (also a line with `=` that is not a field) are left out.
+    A line with `=` that is not a field, a field name that is not names with indices, a
+    number that is not a float, and a field that sets a name under a value that is not a
+    dict, raise `ValueError` that names the file and the line. The file is read as latin-1,
+    so every byte is read.
 
     An included file is in the same directory as the file that includes it, and its fields
     replace fields with the same name: an included field wins over a field that the
@@ -80,7 +85,7 @@ def _read_fields(path: Path) -> tuple[dict, list[str]]:
     fields: dict = {}
     includes: list[str] = []
     ended = False
-    for number, line in enumerate(path.read_text().split("\n"), 1):
+    for number, line in enumerate(path.read_text(encoding="latin-1").split("\n"), 1):
         if _INCLUDE_START.match(line):
             match = _INCLUDE_LINE.match(line)
             if not match:
@@ -90,14 +95,12 @@ def _read_fields(path: Path) -> tuple[dict, list[str]]:
         text = line.strip()
         if text == _ASCCONV_END:
             ended = True
-        if not text or text[0] == "#":
+        if not text or text[0] == "#" or ended:
             continue
         match = _FIELD_LINE.match(text)
         if match is None:
             if "=" in text:
                 raise ValueError(f"{path.name}, line {number}: cannot read the field {text!r}")
-            continue
-        if ended:
             continue
         try:
             keys = _field_keys(match["name"])
@@ -123,6 +126,8 @@ def _field_value(match: re.Match) -> str | float:
     """The value of a line that `_FIELD_LINE` matched."""
     if match["string"] is not None:
         return match["string"][1:-1]
+    if match["hex"] is not None:
+        return int(match["hex"], 16)
     if match["int"] is not None:
         return int(match["int"])
     try:
