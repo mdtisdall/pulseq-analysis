@@ -174,6 +174,11 @@ A caller moves in this order:
   plays (float32 values, D7.2; an event after the end of its block is 0 there,
   D7.4). A block that the decoding rotates, or with an event after its end,
   gets an event of its own on each axis (`docs/implementation.md`, 1.2).
+- The rotated blocks with the same events and duration share the times of
+  their points, and one call of `gradients_at` reads them all. One run on an
+  Apple M1 Max, of the played gradients of 300,000 readout blocks with a
+  rotation each, under `spec`: 9.5 s before, 0.84 s now. The output is the
+  same, bit for bit.
 - The block table (`seq.index`) gives the file's block IDs, and numbers the
   gradient events that play; two equal events with different IDs are two
   events (pypulseq's reading merged them). The spec of each analysis is not
