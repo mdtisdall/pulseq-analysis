@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from canonical import UB_FIXTURES, fixture_id, fixtures
 from pulseq_cpp_siemens.interpreter import CppSiemens, CppSiemensDecoding
+from test_api import oversampled_file
 from test_played import (
     FIXTURES,
     QUARTER_Z,
@@ -361,6 +362,30 @@ def test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_
     at = sequence_index(snap).start_s[4] + time_us * 1e-6
     assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader)
     assert block_gradient_values(snap).peak_hz_per_m["x"][4] == 0.0
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements(tmp_path, count):
+    """With `oversampling="edge"` the reader keeps no sample of an oversampled gradient of 1 or 2
+    samples (the file of `test_api.oversampled_file`, with the first and the last value of X at
+    300 000 Hz/m), and `gradientsAt` plays 0 on X: 0 before the delay and after it, and at the
+    delay it returns early (cpp:3653-3678). The points of the event are 0, `gradient_peaks` gives
+    a peak and a slew of 0 on x, and the sampler gives the reader's 0 on gx."""
+    path = oversampled_file(tmp_path, [0.5, 1.0][:count], first=300000, last=300000)
+    snap = load(path, CppSiemens(oversampling="edge"))
+    grad = snap.decoding.block(0)["grad"][0]
+    assert grad["samples"].size == 0
+    assert (grad["first"], grad["last"]) == (300000.0, 300000.0)
+    _, _, amp = snap.decoding.gradient_points(1, 0, 0)
+    assert np.array_equal(amp, np.zeros(amp.size))
+    x = gradient_peaks(snap).axes["x"]
+    assert x.peak_hz_per_m == 0.0
+    assert x.max_slew_hz_per_m_per_s == 0.0
+    time_us = np.array([0.0, 5.0, 50.0, 100.0, 199.0])
+    reader = snap.data.reading.gradients_at(np.zeros(time_us.size, dtype=np.int64), time_us)
+    assert np.array_equal(reader[:, 0], np.zeros(time_us.size))
+    at = sequence_index(snap).start_s[0] + time_us * 1e-6
+    assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader[:, 0])
 
 
 @pytest.mark.parametrize("path", fixtures(), ids=fixture_id)

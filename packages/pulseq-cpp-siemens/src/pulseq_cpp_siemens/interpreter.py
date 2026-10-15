@@ -818,7 +818,9 @@ class CppSiemensDecoding:
         (cpp:3558-3690), in the layout of
         `pulseq_analysis.synth.seq_utils.gradient_offsets`. The values are those that
         `gradientsAt` gives at the points: the amplitude (a float32) times each sample of a
-        shape in float32, and 0 everywhere when the amplitude is 0."""
+        shape in float32, and 0 everywhere when the amplitude is 0 or when the reader keeps no
+        sample of an arbitrary gradient (an oversampled one of 1 or 2 samples in the mode
+        "edge")."""
         return _points(self.block(block)["grad"][axis], self._gradient_raster)
 
     def gradient_variants(self) -> np.ndarray | None:
@@ -917,6 +919,11 @@ def _points(grad: Mapping[str, Any], raster_s: float) -> Points:
         amp = np.concatenate(
             [[grad["first"]], (samples * amplitude).astype(np.float64), [grad["last"]]]
         )
+        if n == 0:
+            # No sample kept (an oversampled gradient of 1 or 2 samples in the mode "edge",
+            # D6.1): `gradientsAt` gives 0 before the delay and after it, and returns early at it
+            # (cpp:3653-3678), so `first` and `last` are never played.
+            amp = np.zeros_like(amp)
     if amplitude == 0:
         amp = np.zeros_like(amp)
     return delay, offsets, amp

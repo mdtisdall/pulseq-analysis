@@ -144,6 +144,11 @@ A caller moves in this order:
   call: each call returns them with its result, and no call reads messages
   that another call can write. `rejection_messages` then has the messages of
   the last call of `first_rejected_block` to return.
+- With `CppSiemens(oversampling="edge")`, an oversampled arbitrary gradient of
+  1 or 2 samples, of which the reader keeps none, plays 0 in the
+  measurements, as the reader plays it: its points
+  (`CppSiemensDecoding.gradient_points`) are 0, and `gradient_peaks` no longer
+  gives its `first` and `last` as a peak and a slew on its axis.
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 

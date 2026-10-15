@@ -10878,6 +10878,24 @@ the sampler at the block start plus the times. The values are compared exactly.
 
 **Assumptions:** None.
 
+#### `test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements`
+
+**Checks:** With `CppSiemens(oversampling="edge")`, an oversampled gradient of 1 or 2 samples has
+no sample, and the reader plays 0 on its axis: the points of the event
+(`CppSiemensDecoding.gradient_points`) are 0, `gradient_peaks` gives a peak and a slew of 0 on
+x, and the sampler gives the reader's 0 on gx.
+
+**How:** Parametrized over 1 and 2 samples. The file is that of `test_api.oversampled_file`
+(one block of 200 µs, X the oversampled gradient with no delay), written in `tmp_path`, with the
+`first` and the `last` of X at 300 000 Hz/m. The reader (`snap.data.reading.gradients_at`) is
+read at 0, 5, 50, 100 and 199 µs of block 0, the sampler at the block start plus the times. The
+values are compared exactly. Without the fix, the points are the `first` and the `last` at the
+delay, and `gradient_peaks` gives a peak of 300 000 Hz/m and a slew of 3e10 Hz/m/s on x.
+
+**Assumptions:** One delay (0), one value of `first` and `last`. `gradientsAt` plays 0 on X at
+every time of the block (cpp:3653-3678): before the delay, after it, and at the delay, where it
+returns early.
+
 #### `test_the_waveform_of_an_event_of_length_0_that_the_session_rotates_is_the_reader_s`
 
 **Checks:** In `tests/fixtures/gradient_buffer_ext_trap.seq` under a session that rotates the
