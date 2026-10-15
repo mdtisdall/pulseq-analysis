@@ -1,5 +1,6 @@
-"""The checks of the documents: what a document cites or links exists, and a table of a document
-that repeats a table of the code has the values of the code.
+"""The checks of the documents: what a document cites or links exists, no link names this
+repository at a commit, and a table of a document that repeats a table of the code has the values
+of the code.
 
 The documents are the Markdown files at the top of the repository, of `docs/` and of `tests/` (and
 its folders), and the same of `packages/pulseq-cpp-siemens/`. The folders of `docs/` (`plans/`,
@@ -46,6 +47,16 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _LINE_ANCHOR = re.compile(r"L(\d+)(?:-L(\d+))?")
 _RECORD_ID = re.compile(r"(?<![\w.])D[1-7]\.\d+(?!\w)")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
+
+# This repository at a commit: a URL of GitHub (a file, a folder, a commit, or a `pip` install),
+# a raw file, or a flake reference, with a commit ID of 7 to 40 hex digits as its ref.
+REPOSITORY = "mdtisdall/pulseq-analysis"
+_PINNED = re.compile(
+    rf"(?:github\.com/{REPOSITORY}(?:/(?:blob|tree|commit|raw|blame)/|@)"
+    rf"|raw\.githubusercontent\.com/{REPOSITORY}/|github:{REPOSITORY}/)"
+    r"([0-9a-f]{7,40})(?![\w-])",
+    re.IGNORECASE,
+)
 
 PREFIX = "pulseq_analysis."
 
@@ -220,6 +231,33 @@ def test_each_relative_link_with_an_anchor_resolves():
         if not _resolves(target, anchor)
     ]
     assert not broken, f"links whose anchor is not in their target: {broken}"
+
+
+def test_no_document_links_a_commit():
+    """No document links this repository at a commit (a URL or a flake reference whose ref is a
+    commit ID), code blocks too: a document describes `main`, and the tag of a release pins it.
+    A link to a file of the repository is relative. Another repository at a commit (the C++
+    reader at `c7469123`) is a source whose lines a document cites, and is kept."""
+    # The pattern finds each form of a pin, and not a branch, a tag or another repository.
+    pinned = (
+        f"https://github.com/{REPOSITORY}/tree/6fa807d "
+        f"https://github.com/{REPOSITORY}/blob/6fa807d/docs/usage.md#2-before-you-start "
+        f"git+https://github.com/{REPOSITORY}@6fa807d "
+        f"`nix run github:{REPOSITORY}/6fa807d#pulseq-cpp-oracle`"
+    )
+    assert _PINNED.findall(pinned) == ["6fa807d"] * 4
+    kept = (
+        f"https://github.com/{REPOSITORY}@main git+https://github.com/{REPOSITORY}@v0.1.0rc6 "
+        "https://github.com/pulseq/pulseq/blob/c7469123c2f381f065986e6cc3a7d09730ed16ef/README.md"
+    )
+    assert _PINNED.findall(kept) == []
+    found = [
+        f"{document.relative_to(ROOT)}:{number}: {match.group(0)}"
+        for document in _documents()
+        for number, line in enumerate(_text(document).splitlines(), 1)
+        for match in _PINNED.finditer(line)
+    ]
+    assert not found, f"the documents link this repository at a commit: {found}"
 
 
 def test_the_codes_of_spec_in_the_documents_are_spec_rules():
