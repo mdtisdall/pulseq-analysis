@@ -1399,9 +1399,11 @@ table over the IDs would take 800 MB.
 of the file in play order.
 
 **How:** The test builds `build_repeating(50)`, computes `sequence_index(snap)`, and
-independently walks `seq.block_events.keys()` of `sequence_of(snap)` with a running total `t` (starting at
+walks `seq.block_events.keys()` of `sequence_of(snap)` itself with a running total `t` (starting at
 0.0, recording `t` before adding each block's own duration from
-`seq.block_durations`). It compares `index.start_s` to that running list with
+`seq.block_durations`). The durations are those of the snapshot's data
+(`data.block_durations_s`, which `sequence_of` gives), so the test checks the sums and the order,
+not the reading of the durations. It compares `index.start_s` to that running list with
 `numpy.array_equal`, `index.end_s` to the final `t` with `==`, and `index.duration_s`
 to a plain array of the `seq.block_durations` values in play order with
 `numpy.array_equal`.
@@ -2131,33 +2133,67 @@ the snapshot sampler's.
 
 `test_grad_peaks.py` tests `grad_peaks.py`: the peak amplitude, the peak slew
 rate and the RMS amplitude of a sequence's gradients, on each logical axis and
-as a three-axis vector, over the whole sequence or over a window. Every
-expected value is computed by hand from the parameters of the trapezoid or
-arbitrary gradient that the test builds, not by calling `gradient_peaks`
-itself for the expected value. The values are in Hz/m and Hz/m/s, the units of pypulseq,
+as a three-axis vector, over the whole sequence or over a window (`gradient_peaks`), and the
+values of each block (`block_gradient_values`). Most expected values are computed by hand from
+the parameters of the gradients that the test builds, not by calling `gradient_peaks`. The other
+tests compare two results of the package with each other, or the package with the oracle of the
+gradient waveform. The values are in Hz/m and Hz/m/s, the units of pypulseq,
 with no gamma, so the hand-computed values have no conversion. No comparison with the
-oracle converts the values: the oracle gives Hz/m and Hz/m/s. `GAMMA_1H` from
-`tests/synthetic.py` only converts the mT/m values of the sequences with a 4 µs
-raster.
+oracle converts the values: the oracle gives Hz/m and Hz/m/s. No test of this file uses
+`GAMMA_1H`: the tests of the sequences with a 4 µs raster, which convert mT/m values with it,
+are in section 3.10.
 
 `grad_peaks.py` computes its values from the per-event values of the decoding
 (`_played.played_gradients`) and the columns of `seq_index.sequence_index`, not from every block. It
 uses the gradient waveform of MATLAB Pulseq: a step across a zero gap, a line across a short gap,
 and a ramp to 0 and a ramp from 0 across a long gap (`docs/implementation.md`, section 1). The slew
-includes the steps, the lines and the ramps. The tests below the first group add: the credited
-block for a value that several blocks and axes share, a window that keeps
-only part of a ramp's slew, the vector peak of two blocks with different triples of active
-gradients, the step at a junction, the step at the last point of an axis, the ramps of a first
-value after a delay, the gap sequences of `tests/gap_sequences.py` with their hand-computed
-values, the refusal of a bad window before the sequence is read, the range of a window past an
-end of the sequence, and a comparison with the oracle of the gradient waveform
-(`tests/oracles/waveform.py`, section 2.15) on random sequences. The oracle builds the polyline
-of each axis one time and reads every value from it, so it shares no code with the package. The
-comparisons with the oracle on the synthetic sequences and on the sequences of the oracle's own
-tests are in section 3.10: they load the sequences through `cpp-siemens`, with the helpers of this
-file.
+includes the steps, the lines and the ramps. The tests, in the order of the file:
 
-Every test reads a pypulseq sequence with `load(seq)` (`spec`; `pulseq_analysis.analyses.load`):
+- The values of one trapezoid, of a negated waveform (equal to those of the waveform), and of a
+  sequence with no gradient. The credited block for a value that several blocks and axes share,
+  a window that keeps only part of the slew of an extended trapezoid, the slew time, the credit of
+  a junction step and a segment with the same slew (two tests), and the vector peak of two blocks
+  with different triples of active gradients.
+- The step at the last point of an axis, a gradient that ends at the end of the sequence (also in
+  the oracle), a window in a block with no gradient after such a step, the credit on two ties, and
+  an axis whose only event has the amplitude 0.
+- A comparison with the oracle of the gradient waveform (`tests/oracles/waveform.py`, section
+  2.15) on 50 random sequences, for the whole file and for windows.
+- `block_gradient_values`: the blocks with no event on an axis, an event of amplitude 0 after a
+  long gap, the junction of each block, and the play order, the shape and the dtype of its arrays.
+- The equality and the hash of the results, and their read-only arrays and frozen dicts.
+- The `window` argument: the refusal of a bad window before the sequence or its events are read,
+  a window as a list or with numpy scalars, a window within `TIME_TOLERANCE` of the ends of the
+  sequence (also one that gives a range of length 0), and a window that does not calculate the
+  values of all the blocks again.
+- The gap sequences of `tests/gap_sequences.py`, with their hand-computed values: a zero gap, a
+  window with a step at an edge, a long gap, a first value and a last value that are not 0, the
+  vector peak of two axes in one block, and the credit of a segment before a step of the same slew.
+- The `TypeError` for a first argument that is not a snapshot, and a bad window that is refused
+  before that check.
+
+The oracle builds the polyline of each axis one time and reads every value from it, with no
+per-block code. Its own code calls no code of the package. Its input is not independent of the
+package: `sequence_of(snap)` (`tests/oracles/blocks.py`) makes it from
+`_played.played_gradients(snap)`, the events that `grad_peaks` reads too (the event of each block
+and axis, and the points of each event), with the block durations (`data.block_durations_s`) and
+the gradient raster of the snapshot. The oracle adds up the block starts, joins the events by the
+gap rule (the steps, the lines and the ramps), and finds each value, its time and its block
+itself. So a comparison with the oracle tests the measurements of the played events, not the
+decoding of the file, which has its own tests (sections 2.3, 2.22, 2.23 and 2.24). Two tests
+instead give the oracle the builder's `pp.Sequence`, which it reads with no code of the package,
+and compare its values to a relative 1e-6 or 1e-9:
+`test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step` and
+`test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step`. The comparisons
+with the oracle on the synthetic sequences and on the sequences of the oracle's own tests are in
+section 3.10: they load the sequences through `cpp-siemens`, with the helpers of this file. The
+tests of `block_gradient_values` against `gradient_peaks`
+(`test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file`) and against the
+polyline of the oracle (`test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has`)
+are also only in section 3.10.
+
+Each test but the two of the type of the first argument reads a pypulseq sequence with
+`load(seq)` (`spec`; `pulseq_analysis.analyses.load`):
 the sequence is written by pypulseq's writer and read as a file. The
 values are those of the file: the writer rounds amplitudes (and the values of a shape) to 6 significant
 digits. The module constants `_WRITER_REL` (1e-5) and `_WRITER_STEP_REL` (1e-4, for a step, which is a
@@ -2166,15 +2202,7 @@ with the value of the builder. `spec` rejects a gradient that starts at a value 
 delay (`gradient.nonzero-start-delay`), a gradient that ends at a value that is not 0 before the end
 of its block (`gradient.nonzero-end-align`), and a gradient raster of 4 µs with a block duration
 raster of 10 µs (`definitions.raster-commensurate`). Tests of the waveform model with such a
-sequence are in section 3.10, and use `cpp-siemens`, which plays it. The oracle reads `sequence_of(snap)`
-(`tests/oracles/blocks.py`), the gradients as the snapshot plays them, where the test compares exactly or
-the sequence is rejected as a `pp.Sequence`.
-
-The last group tests `block_gradient_values`: the values of each block, in play order. Its
-main test compares the maxima over the blocks with the whole-file result of `gradient_peaks`.
-The other tests check the blocks without an event on an axis, the junction of each block, the
-items that each block has in the polyline of the oracle, the arrays, and the refusal of the
-rotation extension.
+sequence are in section 3.10, and use `cpp-siemens`, which plays it.
 
 #### `test_trapezoid_peak_slew_and_rms_match_hand_computed_values`
 
@@ -2203,20 +2231,21 @@ trapezoid's own block ID.
 equal values of `gradient_peaks` (with and without a window) and of `block_gradient_values`,
 in every field. This is why the documents use the magnitude of gamma, which can be negative.
 
-**How:** The test builds the sequence of the test above for `SYSTEM`, one time with the
-amplitude of the trapezoid and the waveform of the arbitrary gradient as they are, and one
-time with each of them times -1 (an exact operation). It checks that the sequence has
-gradients, then compares the results as the test above does: field by field with `==` for
-`GradientPeaks`, with `numpy.array_equal` for each array of `BlockGradientValues`.
+**How:** The test loads `waveform_sequence(SYSTEM)` of `tests/synthetic.py` (an x trapezoid, a y
+arbitrary gradient, and a block with both), one time as it is, and one time with `sign=-1.0`,
+which multiplies the amplitude of the trapezoid and the waveform of the arbitrary gradient by -1
+(an exact operation). It checks that the sequence has gradients (`reason` is None), then
+compares the results for the whole file and for the window of the first half of the sequence
+field by field with `==` (`GradientPeaks`), and each array of `BlockGradientValues` with
+`numpy.array_equal` (`asserts.assert_block_values_equal`).
 
 **Assumptions:** The multiplication by -1 of a float is exact, so the two sequences differ only
 in the sign. The test checks that the values are equal for this sequence.
 
 #### `test_no_gradients_sets_reason`
 
-**Checks:** A sequence with no gradient at all gives a set `reason`,
-and every numeric field is its zero value: 0.0 for an amplitude, slew or RMS
-field, and None for a block field.
+**Checks:** A sequence with no gradient at all gives a set `reason`, a vector peak and a vector
+peak time of 0.0, and on each axis a peak, a slew and an RMS of 0.0, with no credited block (None).
 
 **How:** The test builds a sequence with one delay block and no gradients, and
 calls `gradient_peaks`. It checks that `reason` is
@@ -2239,7 +2268,7 @@ larger x trapezoid, and the same larger x trapezoid again. It checks that the
 x axis peak and slew equal the larger trapezoid's own amplitude and slew
 (divided by its rise time), each credited to the third block (the first
 block with that event, not the fourth), and that the y axis peak equals the y
-trapezoid's amplitude.
+trapezoid's amplitude, credited to the second block.
 
 **Assumptions:** None.
 
@@ -2252,11 +2281,12 @@ largest slope of the whole event, and the slew time is the window start, where
 the window cuts that segment.
 
 **How:** The test builds an x extended trapezoid with four segments of
-different slopes and a window that lies inside the two segments with the
-smallest slopes, excluding the segment with the largest. It computes the
-expected slew by hand from the times and amplitudes of the segment the window
-keeps. It checks that the x axis slew matches, not the whole event's own
-largest segment slope, and that `slew_time_s` is the window start (100 µs).
+different slopes (500, 250, 0 and 750 times `max_grad` per second) and the window from 100 to
+300 µs, which lies inside the first two segments and not in the steepest one (900 to 1100 µs).
+It computes the expected slew by hand from the times and amplitudes of the first segment, which
+the window cuts (500 times `max_grad` per second). It checks that the x axis slew is that value,
+not the whole event's own largest segment slope, and that `slew_time_s` is the window start
+(100 µs).
 
 **Assumptions:** The file holds the amplitudes of the event with 6 significant digits, so the slew
 has a relative tolerance of 1e-5.
@@ -2314,8 +2344,8 @@ time are those of the block that reaches it.
 **How:** The test builds one block with a large x trapezoid alone, and a
 second block with a smaller, equal-amplitude trapezoid on both x and y (whose
 combined vector magnitude, `sqrt(2)` times the smaller amplitude, is larger
-than the first block's lone peak). It checks that the vector peak equals the
-hand-computed combined magnitude of the second block's triple, that
+than the first block's lone peak; the test checks that it is larger). It checks that the vector
+peak equals the hand-computed combined magnitude of the second block's triple, that
 `vector_peak_block` is the second block, and that `vector_peak_time_s` is the
 end of the second block's rise (1.0 ms, after the 0.8 ms of the first block).
 
@@ -2351,7 +2381,8 @@ trapezoid that rises to `A` in 100 µs and holds it to the end of the block. The
 the last point would be `A / DT` (3.19e9 Hz/m/s), above the slope of the trapezoid. It checks
 that the largest x slew of `gradient_peaks` is 1e9 Hz/m/s and is credited to block 1, that the
 slew of block 1 in `block_gradient_values` is 1e9, and that the slew of block 2 is `A / 100 µs`
-(the rise: the step is not counted). It checks the same slew and credit in the oracle.
+(the rise: the step is not counted). It checks the same slew and credit in the oracle, which
+reads the builder's `pp.Sequence` (`oracle.peaks(seq)`), not the file.
 
 **Assumptions:** The 20 end times do not each give a different rounding of the last time: the
 test relies on some of them giving a last time one ulp before `end_s` and others giving it equal
@@ -2362,9 +2393,11 @@ written text (checked for the 20 values), so the test does not read the file aga
 
 #### `test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_it`
 
-**Checks:** A window that is inside the delay block after the sequence of the test above has
-no gradient. A window that starts at the time of the step to 0 has the step. A window that ends
-at that time does not have it, because a step counts for `lo <= time < hi`.
+**Checks:** In the sequence of
+`test_gradient_ending_non_zero_at_the_last_point_of_the_axis_has_a_step_in_its_own_block` (a
+gradient that ends at a value that is not 0, then a delay block of 1 ms), a window that is inside
+the delay block has no gradient. A window that starts at the time of the step to 0 has the step.
+A window that ends at that time does not have it, because a step counts for `lo <= time < hi`.
 
 **How:** The test calls `gradient_peaks` with three windows. The window from 0.5 ms to 1.0 ms
 must have `reason` equal to `seq_index.NO_GRADIENTS_IN_WINDOW`, an x slew of 0.0 and
@@ -2423,7 +2456,8 @@ centre of a phase-encode table) after a long gap has the slew 0 at the start of 
 the time of a ramp.
 
 **How:** Block 1 on x goes from 0 to U, then a delay block of 200 µs, then a trapezoid scaled to
-the amplitude 0 (`pp.scale_grad(trapezoid, 0)`). The slew of x is `[2U/DT, 0, 0]` at the times
+the amplitude 0 (`pp.scale_grad(trapezoid, 0)`). The block starts are `[0, 100, 300]` µs and
+the x peaks are `[U, 0, 0]`. The slew of x is `[2U/DT, 0, 0]` at the times
 `[100, 100, 300]` µs: the zero block has its block start, 300 µs, not 295 µs.
 
 **Assumptions:** None.
@@ -2434,7 +2468,8 @@ the amplitude 0 (`pp.scale_grad(trapezoid, 0)`). The slew of x is `[2U/DT, 0, 0]
 random axes, each event built so that it starts and ends at 0 (so no gap has a step, a line or
 a ramp, and the values come from the events alone): `gradient_peaks` matches the oracle on the
 whole file and on up to 6 windows. The oracle reads the gradients that the
-snapshot plays (`sequence_of(snap)`).
+snapshot plays (`sequence_of(snap)`), the played events that `gradient_peaks` reads too, so the
+test does not check the decoding.
 
 **How:** For each of 50 seeds, the test builds a sequence of 2 to 6 blocks, each with 0 to 3
 random axes, each a trapezoid, an extended trapezoid or an arbitrary gradient built with
@@ -2521,8 +2556,9 @@ copy.
 **Checks:** Two `BlockGradientValues` of two equal sequences are equal by value, another sequence
 gives an unequal result, and a result is not hashable.
 
-**How:** The test calls `block_gradient_values(gre_sequence())` two times: two objects, `==`
-true. The results for `gre_sequence(num_trs=5)` and for the spin echo are `!=`.
+**How:** The test calls `block_gradient_values` on the snapshots of two separately built
+`gre_sequence()`: two objects, `==` true. The results for `gre_sequence(num_trs=5)` and for the
+spin echo are `!=`.
 `hash(result)` is in `pytest.raises(TypeError)`.
 
 **Assumptions:** None.
@@ -2718,9 +2754,9 @@ step has the value after it and the slew of the step.
 
 **How:** Block 1 on x goes from 0 to U and stays at U to its end at 200 µs. Block 2 starts at 3U,
 a step of 2U at 200 µs. The window from 100 to 200 µs has the vector peak U at 100 µs in block 1,
-the x peak U, the slew 0 and the RMS U (hand values), and the oracle gives the same vector peak.
-The window from 100 to 250 µs has the vector peak 3U at 200 µs in block 2, and the slew 2U/DT of
-the step.
+the x peak U, the slew 0 and the RMS U (hand values), and the oracle of the builder's
+`pp.Sequence` gives the same vector peak. The window from 100 to 250 µs has the vector peak 3U at
+200 µs in block 2, and the slew 2U/DT of the step, in block 2.
 
 **Assumptions:** None.
 
@@ -2748,9 +2784,9 @@ earlier block and the ramp from 0 to the later block. The gradient in the gap is
 **How:** Block 1 goes from 0 to 3 U in 100 µs. Block 2 is a delay of 200 µs. Block 3 goes from
 2 U to 0 in 100 µs. For the whole file, the test checks the peak 3 U at 100 µs in block 1, the
 slew 3 U / 5 µs at 100 µs in block 1, and the RMS (U sqrt(455 / 400)). For the blocks, it checks
-the junction 0, the slew (6e9, 0 and 4e9 with the start times 100, 100 and 295 µs) and the
-vector peak (3 U, 3 U and 2 U with the times 100, 100 and 300 µs). Block 2 starts at 100 µs,
-where the ramp to 0 starts. The window from 150 to 250 µs is in the gap: `reason` is
+the junction 0, the slew (6e9, 0 and 4e9 with the start times 100, 100 and 295 µs), the peak
+(3 U, 0 and 2 U) and the vector peak (3 U, 3 U and 2 U with the times 100, 100 and 300 µs).
+Block 2 starts at 100 µs, where the ramp to 0 starts. The window from 150 to 250 µs is in the gap: `reason` is
 `seq_index.NO_GRADIENTS_IN_WINDOW`, and all the values are 0 with no block. The window from
 102.5 to 150 µs has half of the ramp to 0. The peak 1.5 U and the slew 6e9 are each at 102.5 µs
 in block 1, and the vector peak is in block 2.
@@ -5056,8 +5092,10 @@ function, keeps the result, takes a `weakref` to the snapshot, deletes the snaps
 
 `test_oracle_waveform.py` tests `tests/oracles/waveform.py`, the oracle of the gradient
 waveform (the model of `docs/implementation.md`, section 1, and of section 5.1 of
-`docs/plans/third-review-fixes.md`). The oracle
-does not import the package. The tests do not call the package either. Each expected value
+`docs/plans/third-review-fixes.md`). The code of the oracle calls no code of the package. It
+imports `iter_blocks` from `tests/oracles/blocks.py`, and that module imports the package for
+`sequence_of`, which these tests do not use: they give the oracle the builder's `pp.Sequence`,
+and they call no code of the package either. Each expected value
 is computed by hand from the numbers given to the `make_*` functions, and the text of the
 test shows the calculation. The sequences and the constants DT, U and A are in
 `tests/gap_sequences.py`, which the tests of `gradient_peaks`, `sampling`, `pns_levels` and

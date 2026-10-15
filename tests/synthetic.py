@@ -1,5 +1,7 @@
 """Small synthetic pypulseq sequences for the tests of pulseq-analysis. They do not use the
-package, and the oracles of `tests/oracles/` are independent of it too. The module imports
+package. The oracles of `tests/oracles/` calculate their values with no code of it, but
+`oracles.blocks.sequence_of(snap)`, the input that most tests give the oracles `waveform` and
+`grad_spectrum`, is made from the package's `_played.played_gradients`. The module imports
 without pypulseq (`optional_pypulseq`): its constants are then there, `SYSTEM` is a stand-in,
 and a builder raises `ImportError`."""
 
