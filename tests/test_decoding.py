@@ -809,3 +809,17 @@ def test_a_file_older_than_1_5_1_with_rotations_is_not_rotated(tmp_path):
         values = decoding.gradients_at(np.full(10, block), times)
         assert values[:, 0].any()
         assert np.array_equal(values, decoding.gradients_at(np.full(10, block), times, False))
+
+
+def test_the_rotation_ids_of_spec_are_int64_as_every_other_id():
+    """The `id` of the ROTATIONS table that `spec` makes is int64, as the `id` of every other
+    table of the model (1.2.4a of `docs/reviews/2026-10-13-code-review.md`): the rotation of
+    `valid_1_5_1.seq` has the ID 1."""
+    data = seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    ext = data.extensions
+    rotations = ext.rotations
+    assert rotations.dtype["id"] == np.int64
+    assert rotations["id"].tolist() == [1]
+    tables = (data.blocks, data.rf, data.grad, data.trap, data.adc, ext.entries, ext.triggers)
+    tables += (ext.labelset, ext.labelinc, ext.soft_delays, rotations)
+    assert {table.dtype["id"] for table in tables} == {np.dtype(np.int64)}

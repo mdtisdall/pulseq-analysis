@@ -321,6 +321,12 @@ def test_the_rotations_are_the_readers_normalized_quaternions(tmp_path):
     assert read_seqfile(path, "spec").extensions.rotations["q0"].tolist() == [1.0]
 
 
+def test_the_rotation_ids_are_int64():
+    rotations = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens").extensions.rotations
+    assert rotations.dtype["id"] == np.int64
+    assert rotations["id"].tolist() == [1]
+
+
 def test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it():
     path = SEQFILES / "valid_1_5_1.seq"
     assert read_seqfile(path).interpreter == Spec()  # the default
