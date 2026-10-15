@@ -6,10 +6,14 @@ Oracle: the earlier implementation, with the waveform of the gradient oracle
 across a gap of one raster time or less. Do not change its method.
 
 `gradient_spectrum` uses the same method as pypulseq's
-`calculate_gradient_spectrum`: 50 ms Hann windows with 50% overlap, the
-magnitude spectrum of each window, and the maximum over windows. pypulseq
-stops sampling at the last gradient point and starts the first window at 0.
-Here the gradients are sampled to the end of the sequence and padded with half
+`calculate_gradient_spectrum`: Hann windows (50 ms by default) with 50% overlap, the
+magnitude spectrum of each window, and the maximum over windows. Its arguments are those of
+`calculate_gradient_spectrum`, with the same defaults: `max_frequency_hz` is the highest
+frequency of the result, `window_s` is the length of a window (`nwin = round(window_s / dt)`
+samples), and `frequency_oversampling` gives the FFT length,
+`round(frequency_oversampling * nwin)`. pypulseq stops sampling at the last gradient point
+and starts the first window at 0. Here the gradients are sampled to the end of the sequence
+and padded with half
 a window of zeros at the start, and with half a window or more at the end, so a sequence
 shorter than one window still has a spectrum. The end padding makes the last sample
 within half a hop of the centre of a window, as in the middle of the sequence.
@@ -44,8 +48,15 @@ class GradientSpectrum:
     rss: np.ndarray  # root-sum-of-squares of the axes in each window, then the maximum
 
 
-def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
-    """The spectrum of each gradient axis up to `MAX_FREQUENCY_HZ`."""
+def gradient_spectrum(
+    seq: pp.Sequence,
+    *,
+    max_frequency_hz: float = MAX_FREQUENCY_HZ,
+    window_s: float = WINDOW_S,
+    frequency_oversampling: float = FREQUENCY_OVERSAMPLING,
+) -> GradientSpectrum:
+    """The spectrum of each gradient axis up to `max_frequency_hz`. The arguments are not
+    checked."""
     # One pass over the blocks gives the polyline of each axis (`axis_polyline` makes all three
     # for each call), and `values_at` reads it at all the sample times with numpy, so the
     # spectrum of 10^4 blocks takes no more than the Python loop over the blocks.
@@ -55,7 +66,8 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
         return GradientSpectrum(NO_GRADIENTS, empty, {}, empty)
 
     dt = seq.grad_raster_time
-    nwin = round(WINDOW_S / dt)
+    nwin = round(window_s / dt)
+    nfft = round(frequency_oversampling * nwin)
     pad = nwin // 2
     to_mt = 1e3 / seq.system.gamma  # Hz/m to mT/m
     nt = _num_samples(seq, dt)
@@ -83,8 +95,8 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
         for axis in "xyz":
-            freq, sxx = _chunk_spectrogram(gradients[axis], start, stop, pad, nt, dt, nwin)
-            keep = freq <= MAX_FREQUENCY_HZ + 1e-6
+            freq, sxx = _chunk_spectrogram(gradients[axis], start, stop, pad, nt, dt, nwin, nfft)
+            keep = freq <= max_frequency_hz + 1e-6
             sxx = sxx[keep]
             chunk_max = sxx.max(axis=1)
             axes_max[axis] = (
@@ -93,14 +105,15 @@ def gradient_spectrum(seq: pp.Sequence) -> GradientSpectrum:
             rss_sq = rss_sq + sxx**2
         chunk_rss = np.sqrt(rss_sq).max(axis=1)
         rss_max = chunk_rss if rss_max is None else np.maximum(rss_max, chunk_rss)
-    freq = freq[freq <= MAX_FREQUENCY_HZ + 1e-6]
+    freq = freq[freq <= max_frequency_hz + 1e-6]
     return GradientSpectrum(None, freq, axes_max, rss_max)
 
 
-def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin):
+def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin, nfft):
     """The frequencies and the magnitude spectrogram of samples [start, stop) of one
     axis's padded waveform, with the arguments of pypulseq's
-    `calculate_gradient_spectrum`. `g` is the `nt` samples of the axis (mT/m)."""
+    `calculate_gradient_spectrum`. `g` is the `nt` samples of the axis (mT/m), and `nfft`
+    is the FFT length."""
     w = np.zeros(stop - start)
     # Sequence sample i is padded sample i + pad.
     lo, hi = max(start - pad, 0), min(stop - pad, nt)
@@ -112,7 +125,7 @@ def _chunk_spectrogram(g, start, stop, pad, nt, dt, nwin):
         mode="magnitude",
         nperseg=nwin,
         noverlap=nwin // 2,
-        nfft=FREQUENCY_OVERSAMPLING * nwin,
+        nfft=nfft,
         detrend="constant",
         window=("tukey", 1),
     )

@@ -4235,8 +4235,10 @@ sampled through the raster sampler (`sampling.GradientSampler`), in chunks of
 `tests/oracles/grad_spectrum.py` is the module before the raster sampler. It samples the
 polyline of `tests/oracles/waveform.py` (the model of MATLAB Pulseq) instead. It gives mT/m/√Hz with
 `seq.system.gamma`. The oracle comparison multiplies this module's values by
-`1e3 / seq.system.gamma`, so it also tests the conversion. The oracle is a copy of
-the file of pulseq-reports.
+`1e3 / seq.system.gamma`, so it also tests the conversion. The oracle began as a copy of
+the file of pulseq-reports. It takes the three arguments of `gradient_spectrum`
+(`max_frequency_hz`, `window_s` and `frequency_oversampling`), with the same defaults, and it
+imports no code of `analyses.grad_spectrum`.
 
 Several tests use a 1 mT/m sine on x, on the synthetic system. On a frequency
 bin, a Hann window gives an amplitude spectral density of
@@ -4248,7 +4250,9 @@ peak in Hz/m/√Hz (`SINE_PEAK`).
 
 - The test sine frequency (600 Hz) is exactly on a frequency bin, and each
   window holds a whole number of cycles. So there is no scalloping loss, and
-  the peak is the full value.
+  the peak is the full value. This holds for the windows of the tests that check the
+  peak. `test_matches_oracle_with_other_arguments` also uses windows where it does not hold,
+  and checks only the agreement with the oracle.
 - The tests do not compare the result with vb-pulseq. Parity with vb-pulseq
   (rtol 1e-12, several chunk sizes) was checked outside CI when this module
   moved from vb-pulseq.
@@ -4396,6 +4400,44 @@ oracle's, as the test above does, with the tolerance `1e-12 * max(1, duration in
 - The test no longer runs the sequences of 10^4 blocks and 5000 blocks (14 s and 7 s) that it
   ran before 2026-10-07, so that it is faster. It does not test the rounding of an absolute
   time above 1.4 s.
+
+#### `test_matches_oracle_with_other_arguments`
+
+**Checks:** The same comparison with the oracle as `test_matches_oracle_on_synthetic_sequences`,
+for arguments that are not the defaults: an odd window (in samples), a maximum frequency that is
+not on a frequency bin, an FFT length that is not a whole multiple of the window, and a window
+longer than the default. The other oracle comparisons use the defaults, an even window of 5000
+samples, so they do not compare the padding and the hop of an odd window with the oracle.
+
+**How:** Parametrized over the synthetic spin echo, GRE, arbitrary-gradient and 600 Hz sine
+sequences, and five sets of arguments, which the test gives to both `gradient_spectrum` and the
+oracle. At the 10 us raster:
+
+- `window_s=0.04999`: an odd window of 4999 samples, with the start padding of 2499 zeros
+  and a hop of 2500 samples;
+- `max_frequency_hz=1234.5`: 185.175 frequency steps of the defaults;
+- `window_s=0.04999`, `max_frequency_hz=1234.5` and `frequency_oversampling=2.2`: nfft 10998,
+  and 135.77 steps;
+- `window_s=0.01001` and `max_frequency_hz=3000.5`: an odd window of 1001 samples, nfft 3003,
+  and 90.105 steps;
+- `window_s=0.1` and `frequency_oversampling=1`: an even window of 10000 samples and nfft
+  10000.
+
+The test sets `grad_spectrum._CHUNK_WINDOWS` to 4 (`monkeypatch`), so the sine, and the GRE at
+each window but 0.1 s, have more than 4 windows and more than one chunk. The oracle keeps its
+own chunks of 256 windows. `_assert_matches_oracle` compares the reasons, the frequencies (equal),
+and the axis spectra and the RSS (times `1e3 / gamma`) within a relative 1e-12 or an absolute
+1e-12 times the array's own peak. The oracle reads `sequence_of(snap)`.
+
+**Assumptions:**
+
+- The tolerance is the one of `test_matches_oracle_on_synthetic_sequences`, for the same reason:
+  the sampler and the oracle's polyline make the waveform in a different order of float
+  operations. The sequences are at most 0.5 s long, so the rule `1e-12 * max(1, duration in s)`
+  of `test_matches_oracle_with_many_chunks` gives 1e-12 too.
+- The oracle uses the rules of pypulseq's `calculate_gradient_spectrum` for the arguments
+  (`nwin = round(window_s / dt)`, `nfft = round(frequency_oversampling * nwin)`), so the test
+  compares the package's use of the arguments with these rules.
 
 #### `test_gradient_spectrum_keeps_the_result`
 
