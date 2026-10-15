@@ -6319,7 +6319,7 @@ follows it, not that the decision is right.
 
 **How:** For each of the four tables (parametrized), the test writes `valid_no_signature.seq` to `tmp_path` with a time off its raster in another table, and checks that it gives that rule only. It then puts `x` in an integer column of one row of the table, and reads the file again.
 
-**Assumptions:** The four tables are those that `_event_ends` needs. A syntax error in `[BLOCKS]` is not tested.
+**Assumptions:** The four tables are the event tables that `_event_ends` reads. A syntax error in `[BLOCKS]` is in `test_a_syntax_error_in_the_blocks_keeps_the_raster_checks_of_the_event_tables`.
 
 #### `test_a_syntax_error_in_one_event_table_keeps_the_trigger_check`
 
