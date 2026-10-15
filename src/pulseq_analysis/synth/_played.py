@@ -168,43 +168,94 @@ def _from_gradients_at(
     """Give each of `blocks` (play indices) the events that `gradients_at` gives (the module
     docstring): new keys in `columns`, and their points in `points`. `rotated` says which blocks
     the decoding rotates: these get an event on each axis, the others on the axes with an event.
-    `flags` are the flags of the field of view of each block of the sequence (an int)."""
+    `flags` are the flags of the field of view of each block of the sequence (an int).
+
+    The blocks with the same events, rotation, flags and duration are a group, numbered in the
+    order of their first blocks, with the keys `base + 3 * group + axis`. The groups with the
+    same events and duration share one plan (`_plan`), and one `gradients_at` reads them all."""
     decoding = snap.decoding
-    duration = decoding.block_durations
-    quaternion: dict[int, bytes] = {}
+    duration = np.asarray(decoding.block_durations, dtype=np.float64)[blocks]
+    base = max(int(column.max(initial=0)) for column in columns) + 1
+    events = np.stack([column[blocks] for column in columns], axis=1)
+
+    # The key of each block as int64 columns: the events, the flags, the duration (by value: 0.0
+    # and -0.0 alike, and each NaN apart), and the bytes of the quaternion of a rotated block
+    # with one (by bytes), or none.
+    nan = np.isnan(duration)
+    nan_id = np.where(nan, np.arange(blocks.size), -1)[:, None]
+    by_value = np.where(nan, 0.0, duration + 0.0).view(np.int64)[:, None]
+    quaternion = np.zeros((blocks.size, 1), dtype=np.int64)
     if rotated.any():
         indices, quaternions = decoding.rotations()
-        quaternion = {int(b): q.tobytes() for b, q in zip(indices, quaternions, strict=True)}
-    base = max(int(column.max(initial=0)) for column in columns) + 1
-    groups: dict[tuple, int] = {}  # the events, the rotation and the duration -> the group
-    first_block: list[int] = []
-    group_of = np.empty(blocks.size, dtype=np.int64)
-    for i, block in enumerate(blocks.tolist()):
-        key = (
-            tuple(int(column[block]) for column in columns),
-            quaternion.get(block) if rotated[i] else None,
-            int(flags[block]),
-            float(duration[block]),
-        )
-        if key not in groups:
-            groups[key] = len(first_block)
-            first_block.append(block)
-        group_of[i] = groups[key]
+        indices = np.asarray(indices, dtype=np.int64)
+        # The row of the quaternion of each block (the last row of a block given twice).
+        position = np.full(int(blocks.max()) + 1, -1, dtype=np.int64)
+        present, last = np.unique(indices[::-1], return_index=True)
+        inside = (present >= 0) & (present < position.size)
+        position[present[inside]] = indices.size - 1 - last[inside]
+        at = position[blocks]
+        has = rotated & (at >= 0)
+        rows = np.ascontiguousarray(quaternions)
+        row_bytes = rows.view(np.uint8).reshape(rows.shape[0], rows[:1].nbytes)
+        row_bytes = np.pad(row_bytes, ((0, 0), (0, -row_bytes.shape[1] % 8)))
+        quaternion = np.zeros((blocks.size, 1 + row_bytes.shape[1] // 8), dtype=np.int64)
+        quaternion[has, 0] = 1
+        quaternion[has, 1:] = row_bytes.view(np.int64)[at[has]]
+    keys = np.concatenate([events, flags[blocks][:, None], by_value, nan_id, quaternion], axis=1)
+    _, first, inverse = np.unique(keys, axis=0, return_index=True, return_inverse=True)
+    order = np.argsort(first)
+    rank = np.empty(order.size, dtype=np.int64)
+    rank[order] = np.arange(order.size)
+    group_of = rank[inverse.ravel()]
+    first = first[order]  # the first of `blocks` of each group, in group order
+    first_block = blocks[first]
 
-    # The times of each group, with the steps, and the times at which `gradients_at` is read.
-    plans = [_plan(snap, block, columns, points) for block in first_block]
-    pairs_block = np.concatenate(
-        [np.full(plan[2].size, block) for plan, block in zip(plans, first_block, strict=True)]
+    # The plans: the groups with the same events and duration (by its bytes, as `_plan` reads
+    # it, and each NaN apart). The plan of a block depends on these alone, so each plan is made
+    # at the first block of its first group.
+    plan_keys = np.concatenate([events, duration.view(np.int64)[:, None], nan_id], axis=1)[first]
+    _, plan_first, plan_of_group = np.unique(
+        plan_keys, axis=0, return_index=True, return_inverse=True
     )
-    pairs_time_s = np.concatenate([plan[2] for plan in plans])
+    plan_of_group = plan_of_group.ravel()
+    plans = [_plan(snap, int(first_block[group]), columns, points) for group in plan_first]
+
+    # The times at which `gradients_at` is read: those of the plan of each group, at its first
+    # block, in group order.
+    size = np.array([plan[2].size for plan in plans], dtype=np.int64)
+    plan_start = np.cumsum(size) - size
+    group_size = size[plan_of_group]
+    group_start = np.cumsum(group_size) - group_size
+    within = np.arange(int(group_size.sum())) - np.repeat(group_start, group_size)
+    pairs_time_s = np.concatenate([plan[2] for plan in plans])[
+        np.repeat(plan_start[plan_of_group], group_size) + within
+    ]
+    pairs_block = np.repeat(first_block, group_size)
     values = decoding.gradients_at(pairs_block, pairs_time_s * 1e6)
-    at = 0
-    for group, (times, steps, reads) in enumerate(plans):
-        read = values[at : at + reads.size]
-        at += reads.size
+
+    # The points of each group, from the reads of the groups of each plan together. The keys of
+    # a plan's groups share its offsets, and the three axes of a group share its values, so
+    # these are read-only. The points are added in the order of the keys.
+    delays: list[float] = [0.0] * first.size
+    offsets_of: list[np.ndarray] = [np.empty(0)] * first.size
+    amp_of: list[np.ndarray] = [np.empty(0)] * first.size
+    by_plan = np.argsort(plan_of_group, kind="stable")
+    bounds = np.cumsum(np.bincount(plan_of_group, minlength=len(plans)))[:-1]
+    for (times, steps, reads), groups in zip(plans, np.split(by_plan, bounds), strict=True):
+        read = values[group_start[groups][:, None] + np.arange(reads.size)]
         offsets, amp = _points(times, steps, read)
+        offsets.flags.writeable = False
+        amp.flags.writeable = False
+        delay = float(times[0])
+        for i, group in enumerate(groups.tolist()):
+            delays[group], offsets_of[group], amp_of[group] = delay, offsets, amp[i]
+    for group in range(first.size):
         for axis in range(3):
-            points[base + 3 * group + axis] = (float(times[0]), offsets, amp[:, axis])
+            points[base + 3 * group + axis] = (
+                delays[group],
+                offsets_of[group],
+                amp_of[group][:, axis],
+            )
     for axis, column in enumerate(columns):
         keep = ~rotated & (column[blocks] == 0)  # no event on this axis, and no rotation
         column[blocks] = np.where(keep, 0, base + 3 * group_of + axis)
@@ -255,30 +306,35 @@ def _plan(
 def _points(
     times: np.ndarray, steps: np.ndarray, read: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """The offsets (from the first time) and the values (n, 3) of the points of a rotated block:
-    the values that `gradients_at` gave at `times` (the first `times.size` rows of `read`), and
-    at a step the value just before and the value just after, from the two reads inside each
-    segment (the following rows of `read`, as `_plan` orders them)."""
+    """The offsets (from the first time) and the values (g, n, 3) of the points of the g rotated
+    blocks of one plan (`_plan`): the values that `gradients_at` gave at `times` (the first
+    `times.size` rows of each block of `read`, an array (g, rows, 3)), and at a step the value
+    just before and the value just after, from the two reads inside each segment (the following
+    rows of each block of `read`, as `_plan` orders them). The offsets are the same for every
+    block."""
     n = times.size
-    at_times, inside = read[:n], read[n:].reshape(-1, 2, 3)
+    at_times, inside = read[:, :n], read[:, n:].reshape(read.shape[0], -1, 2, 3)
     # The two reads are half a segment apart: half their difference is the change over a quarter.
-    half = (inside[:, 1] - inside[:, 0]) / 2
-    before_end = inside[:, 1] + half  # the value at the end of each segment
-    after_start = inside[:, 0] - half  # the value at the start of each segment
+    half = (inside[:, :, 1] - inside[:, :, 0]) / 2
+    before_end = inside[:, :, 1] + half  # the value at the end of each segment
+    after_start = inside[:, :, 0] - half  # the value at the start of each segment
+    # The rows of `table` that give the points: `at_times` (n), then `before_end` and
+    # `after_start` (n - 1 each).
+    table = np.concatenate([at_times, before_end, after_start], axis=1)
     point_times: list[float] = []
-    point_values: list[np.ndarray] = []
+    sources: list[int] = []
     for i in range(n):
         if not steps[i]:
             point_times.append(float(times[i]))
-            point_values.append(at_times[i])
+            sources.append(i)
             continue
         if i > 0:
             point_times.append(float(times[i]))
-            point_values.append(before_end[i - 1])
+            sources.append(n + i - 1)
         if i < n - 1:
             point_times.append(float(times[i]))
-            point_values.append(after_start[i])
+            sources.append(2 * n - 1 + i)
     if not point_times:  # every point at one time, a step: the value there
-        point_times, point_values = [float(times[0])], [at_times[0]]
+        point_times, sources = [float(times[0])], [0]
     t = np.asarray(point_times, dtype=np.float64)
-    return t - t[0], np.asarray(point_values, dtype=np.float64).reshape(-1, 3)
+    return t - t[0], np.asarray(table[:, sources], dtype=np.float64)

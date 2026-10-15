@@ -28,7 +28,7 @@ from test_snapshot import Unrotated, UnrotatedDecoding
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, SequenceData, Spec
-from pulseq_analysis.synth import ScannerSettingWarning, Session, decode
+from pulseq_analysis.synth import ScannerSettingWarning, Session, _played, decode
 from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.seq_index import sequence_index
 from pulseq_analysis.synth.seq_utils import TIME_TOLERANCE
@@ -390,6 +390,72 @@ def test_an_event_of_length_0_at_the_end_of_a_block_that_the_session_rotates_has
         delay, offsets, _ = played.points[int(column[1])]
         assert delay == 0.0 and np.array_equal(offsets, [0.0, duration])
     gradient_peaks(snap)
+
+
+# Five readouts with the same events and duration (the trapezoid 1 on gx and the ADC 1, 400 us),
+# each with its own rotation object: k times 36 degrees about z, for k from 1 to 5.
+ROTATED_READOUTS = """\
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+RequiredExtensions ROTATIONS
+
+[BLOCKS]
+1 40 0 1 0 0 1 1
+2 40 0 1 0 0 1 2
+3 40 0 1 0 0 1 3
+4 40 0 1 0 0 1 4
+5 40 0 1 0 0 1 5
+
+[TRAP]
+1 100000 100 200 100 0
+
+[ADC]
+1 8 25000 100 0 0 0 0 0
+
+[EXTENSIONS]
+1 1 1 0
+2 1 2 0
+3 1 3 0
+4 1 4 0
+5 1 5 0
+
+extension ROTATIONS 1
+{rotations}
+"""
+
+
+def test_blocks_with_the_same_events_and_duration_are_planned_once(tmp_path, monkeypatch):
+    """Five blocks that `spec` rotates (1.5.1), with the same events and duration and five
+    rotations, get one plan of the times of their points (`_played._plan`), not one for each
+    rotation. Each block keeps keys of its own, and the points are the gradients of the decoding
+    (`check_the_points_are_the_gradients`)."""
+    rows = []
+    for k in range(1, 6):
+        half = math.radians(36 * k) / 2
+        rows.append(f"{k} {math.cos(half):.6f} 0 0 {math.sin(half):.6f}")
+    path = tmp_path / "rotated_readouts.seq"
+    path.write_text(ROTATED_READOUTS.format(rotations="\n".join(rows)))
+    calls: list[int] = []
+    plan = _played._plan
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return plan(*args, **kwargs)
+
+    monkeypatch.setattr(_played, "_plan", counted)
+    snap = load(path, "spec")
+    played = played_gradients(snap)
+    assert np.unique(played.gx).size == 5
+    assert len(calls) == 1
+    check_the_points_are_the_gradients(path, "spec")
 
 
 # ---- A NaN of the gradients in the peaks ----
