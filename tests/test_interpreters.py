@@ -104,6 +104,18 @@ def test_a_plugin_that_does_not_load_or_has_another_name_or_two_entry_points_is_
         seqfile.interpreter("fake")
 
 
+def test_a_class_is_not_an_interpreter_and_the_error_names_its_call():
+    """Finding 1.2.4c of `docs/reviews/2026-10-13-code-review.md`: the class of a plugin has the
+    members of `Plugin`, but an interpreter is an object of the class."""
+    path = SEQFILES / "valid_1_5_1.seq"
+    with pytest.raises(TypeError, match=re.escape("Fake()")):
+        seqfile.interpreter(Fake)
+    with pytest.raises(TypeError, match=re.escape("Fake()")):
+        read_seqfile(path, Fake)
+    with pytest.raises(TypeError, match=re.escape("Spec()")):
+        seqfile.interpreter(Spec)
+
+
 def test_a_plugin_cannot_be_spec(monkeypatch):
     _install(monkeypatch, spec=f"{__name__}:Fake")
     assert interpreters.interpreter_names() == ("spec",)
