@@ -151,8 +151,15 @@ def _plugin(name: str) -> type:
 def interpreter(value: "str | Interpreter") -> Interpreter:
     """The interpreter `value`: an interpreter object as it is, or a name (`interpreter_names`)
     with its default settings. Raises `ValueError` for another name (a plugin cannot be named
-    `spec`), `ImportError` for a plugin that does not load, and `TypeError` for another value
+    `spec`), `ImportError` for a plugin that does not load, and `TypeError` for a class (its
+    message names the call that makes an object of it, for example `Spec()`), for another value
     and for a plugin of another protocol version (`PROTOCOL`)."""
+    if isinstance(value, type):
+        # The class of a plugin has the members of `Plugin`, but an interpreter is an object.
+        raise TypeError(
+            f"an interpreter is a name or an interpreter object, not the class {value!r}: "
+            f"give an object of it, {value.__name__}()"
+        )
     if isinstance(value, Spec):
         return value
     if isinstance(value, str):

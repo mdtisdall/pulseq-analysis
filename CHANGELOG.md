@@ -60,6 +60,11 @@ A caller moves in this order:
   `seqfile.interpreter_names()` lists the names without importing a plugin. A
   name that no installed interpreter has raises `ValueError`, and a plugin
   that does not load raises `ImportError`. The package names no plugin.
+- A class in place of an interpreter object (`read_seqfile(path, CppSiemens)`)
+  raises `TypeError`, whose message names the object to give, `CppSiemens()`
+  (review 2026-10-13 1.2.4c). Before, `interpreter()` returned the class of a
+  plugin, and the reading failed in its `read` with a `TypeError` about a
+  missing argument.
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package

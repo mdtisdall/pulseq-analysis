@@ -8413,6 +8413,20 @@ with one name raise `ValueError` ("more than one interpreter is named 'fake'").
 
 **Assumptions:** None.
 
+#### `test_a_class_is_not_an_interpreter_and_the_error_names_its_call`
+
+**Checks:** A class in place of an interpreter object raises `TypeError` whose message names the
+call that makes the object (finding 1.2.4c of `docs/reviews/2026-10-13-code-review.md`): the class
+`Fake`, which has every member of `Plugin`, to `interpreter` and to `read_seqfile` of
+`valid_1_5_1.seq` gives a message with `Fake()`, and the class `Spec` to `interpreter` gives a
+message with `Spec()`.
+
+**How:** The test calls each function with the class, with no entry point installed.
+
+**Assumptions:** The test does not check the rest of the message. The message of a call of an
+unbound method (`Fake.read()`) does not contain `Fake()`, so the test fails when the class
+reaches `read`.
+
 #### `test_a_plugin_cannot_be_spec`
 
 **Checks:** An entry point named `spec` is not an interpreter: `interpreter_names()` is still
