@@ -189,6 +189,10 @@ A caller moves in this order:
   or None for a pulse of points, and `RfEvent.signal(times)` gives the complex
   signal at any times. `AdcEvent.phase_modulation` is in rad, one value for
   each sample (D2.15).
+- `RfEvent.signal` of a pulse of cells puts a time within 1e-6 dwells below a
+  cell boundary in the cell after it (review 2026-10-13 1.3.1). With
+  `floor(time / dwell)`, 89 of the 5000 boundaries `k dwell` of a pulse of
+  cells of 1 us gave the sample of the cell before.
 - `seq_index.rf_events`, `grad_events` and `adc_events`, which gave
   pypulseq's events, are removed. `seq_utils.gradient_offsets` takes a
   `Trapezoid` or an `ArbitraryGradient`, not a pypulseq event.

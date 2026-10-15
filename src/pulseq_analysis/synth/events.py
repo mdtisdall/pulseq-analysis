@@ -145,13 +145,15 @@ class RfEvent:
     def signal(self, times: np.ndarray) -> np.ndarray:
         """The complex signal `magnitude * exp(1j * phase)` (Hz) at `times` (s from the start of
         the event, after `delay`), without the offsets. A pulse of cells holds each sample from
-        `i dwell` to `(i + 1) dwell`; a pulse of points is a straight line of the complex signal
-        between two neighbouring points. The signal is 0 outside the pulse: for cells before 0 and
-        from `shape_dur` on, for points before the first time and after the last."""
+        `i dwell` to `(i + 1) dwell`, and a time within 1e-6 dwells below a cell boundary is in
+        the cell after it (so `k dwell` is in the cell `k`, although `k dwell / dwell` can round
+        under `k`); a pulse of points is a straight line of the complex signal between two
+        neighbouring points. The signal is 0 outside the pulse: for cells before 0 and from
+        `shape_dur` on, for points before the first time and after the last."""
         times = np.asarray(times, dtype=np.float64)
         samples = self.magnitude * np.exp(1j * self.phase)
         if self.dwell is not None:
-            cell = np.floor(times / self.dwell).astype(np.int64)
+            cell = np.floor(times / self.dwell + 1e-6).astype(np.int64)
             inside = (cell >= 0) & (cell < samples.size)
             return np.where(inside, samples[np.clip(cell, 0, samples.size - 1)], 0j)
         inside = (times >= self.t[0]) & (times <= self.t[-1])

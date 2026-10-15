@@ -7533,8 +7533,9 @@ relative 1e-12) and the two magnitudes of 1000 Hz.
 -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3 and 3.5 µs and compares with 0, 1000, 1000, 500, 500, 250, 250, 0, 0. It calls
 `signal` of RF 2 (cells of 2 µs, 1000 Hz) at -1, 0, 1, 99 and 101 µs and compares with 0, 1000, 1000, 1000, 0.
 
-**Assumptions:** The times are not within a rounding error of a cell edge, except the edges 1 µs, 2 µs and 3 µs
-of RF 3, where `time / dwell` is exactly a whole number in float64 (the test passes on this platform).
+**Assumptions:** The times that are not on a cell edge are half a dwell from one. At the edges 0, 1 µs, 2 µs and
+3 µs, `time / dwell` is within 1e-6 of a whole number in float64 (on this platform it is exactly one), so these
+times are in the cell after the edge.
 
 #### `test_the_signal_of_cells_is_the_complex_sample`
 
