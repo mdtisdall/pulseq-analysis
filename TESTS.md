@@ -6313,6 +6313,22 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
+#### `test_a_syntax_error_in_one_event_table_keeps_the_checks_of_the_others`
+
+**Checks:** The module docstring of `spec` ("the error has every violation of the tables that read"): a syntax error in one row of `[RF]`, `[GRADIENTS]`, `[TRAP]` or `[ADC]` does not skip the raster rules of the other event tables. Each file gives `syntax.integer` and the raster rule (`raster.adc-dwell`, `raster.gradient-flat` or `raster.gradient-delay`), and no other code.
+
+**How:** For each of the four tables (parametrized), the test writes `valid_no_signature.seq` to `tmp_path` with a time off its raster in another table, and checks that it gives that rule only. It then puts `x` in an integer column of one row of the table, and reads the file again.
+
+**Assumptions:** The four tables are those that `_event_ends` needs. A syntax error in `[BLOCKS]` is not tested.
+
+#### `test_a_syntax_error_in_one_event_table_keeps_the_trigger_check`
+
+**Checks:** spec:318: a trigger that ends after its block gives `block.event-too-long` when one row of `[RF]`, `[GRADIENTS]`, `[TRAP]` or `[ADC]` has a syntax error. Each file gives `syntax.integer` and `block.event-too-long`, and no other code.
+
+**How:** For each of the four tables (parametrized), the test writes `valid_no_signature.seq` to `tmp_path` with the trigger of 30 us of `bad_block_event_too_long_trigger.seq` and with `x` in an integer column of one row of the table, and reads it.
+
+**Assumptions:** None.
+
 #### `test_an_arbitrary_gradient_plays_on_the_raster_of_the_file`
 
 **Checks:** `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, and its gradient is decoded on the raster of the file (the first sample times 2.5 us and 7.5 us).
@@ -6496,6 +6512,14 @@ follows it, not that the decision is right.
 **How:** The test reads the three files.
 
 **Assumptions:** The rejection is the user's choice.
+
+#### `test_a_1_4_gradient_whose_end_is_not_defined_gives_only_layer1_gradient_ends`
+
+**Checks:** D4.4, spec:420: a 1.4 gradient on the default raster, whose value at its end the file does not define, in a block that ends after it, gives `layer1.gradient-ends` only, and not also `gradient.nonzero-end-align`.
+
+**How:** The test writes `bad_layer1_gradient_ends.seq` to `tmp_path` with one more block of 100 us that plays its gradient 3 (50 us), reads it, and compares the list of (rule, section) of the violations.
+
+**Assumptions:** None.
 
 #### `test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_centre`
 
