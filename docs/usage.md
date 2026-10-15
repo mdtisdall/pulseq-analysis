@@ -421,7 +421,10 @@ gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
 levels = pns_levels(snap, hardware=hardware, thresholds_hz_per_t=(abs(gamma), 0.8 * abs(gamma)))
 
-print(f"peak {levels.peak_hz_per_t / abs(gamma):.0%} at {levels.peak_time_s:.4f} s")
+if levels.peak_time_s is None:  # the peak is 0: no gradient, or all have the amplitude 0
+    print(f"peak {levels.peak_hz_per_t / abs(gamma):.0%}")
+else:
+    print(f"peak {levels.peak_hz_per_t / abs(gamma):.0%} at {levels.peak_time_s:.4f} s")
 for run in levels.above[0.8 * abs(gamma)]:
     print(f"over 80 % from {run.start_s:.4f} s to {run.end_s:.4f} s")
 ```
