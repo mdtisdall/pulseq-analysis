@@ -264,6 +264,13 @@ A caller moves in this order:
   `RuntimeError`), for a number that `float` cannot read, for a field name
   that is not names with indices, and for a field under a name that has a
   value.
+- `asc.read_gradient_asc` reads a negative integer (`-5`) as an `int`, a hex
+  integer (`0x10`) as an `int`, and a float with `E` or with a sign in the
+  exponent (`1.5E-3`, `1e+02`) (review 2026-10-13 1.3.2). Before, `-5` was a
+  `float` and the others raised `ValueError`. It reads a file as latin-1, so a
+  byte that is not ASCII no longer raises `UnicodeDecodeError`, and it leaves
+  out a line with `=` after `### ASCCONV END ###` that is not a field, as its
+  docstring said, where before it raised `ValueError`.
 
 ### The modules
 

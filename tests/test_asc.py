@@ -13,8 +13,10 @@ from pulseq_analysis.analyses.asc import (
 from pulseq_analysis.analyses.safe import SAFE_FIELDS, SafeHardware
 
 # Every form of a line that `read_gradient_asc` reads, in the layout of a scanner file: a
-# comment line, blank lines, a line with no `=` (left out), strings, integers, floats (with an
-# exponent, negative), indices, comments after a value, and a field after the end marker.
+# comment line, blank lines, a line with no `=` (left out), strings, integers (negative, hex),
+# floats (with an exponent, with a sign in the exponent, negative), indices, comments after a
+# value, a field after the end marker, and a line with `=` after the end marker that is not a
+# field (left out).
 _FORMS = """\
 ### ASCCONV BEGIN @Checksum=mp2:0 ###
 # a comment line
@@ -30,8 +32,13 @@ h = 2e3
 i = ""
 j = 0
 k = -1
+m = 0x10
+n = 0x1F
+o = 1.5E-3
+p = 1e+02
 ### ASCCONV END ###
 l = 5
+q = a value that is not a field
 """
 _FORMS_FIELDS = {
     "a": {"b": {0: 1, 1: -0.0025}, "c": "text with spaces"},
@@ -41,7 +48,11 @@ _FORMS_FIELDS = {
     "h": 2000.0,
     "i": "",
     "j": 0,
-    "k": -1.0,
+    "k": -1,
+    "m": 16,
+    "n": 31,
+    "o": 0.0015,
+    "p": 100.0,
 }
 
 
@@ -160,8 +171,19 @@ def test_read_gradient_asc_reads_every_form_of_a_line(tmp_path, newline):
     assert type(fields["a"]["b"][1]) is float
     assert type(fields["h"]) is float
     assert type(fields["j"]) is int
-    assert type(fields["k"]) is float
+    assert type(fields["k"]) is int
+    assert type(fields["m"]) is int
+    assert type(fields["o"]) is float
+    assert type(fields["p"]) is float
     assert type(fields["d"]) is str
+
+
+def test_read_gradient_asc_reads_a_byte_that_is_not_ascii_as_latin_1(tmp_path):
+    """The byte 0xE9 (`é` in latin-1, and not valid UTF-8 there) in a string value and in a
+    comment."""
+    path = tmp_path / "main.asc"
+    path.write_bytes('a = "caf\u00e9" # \u00e9\nb = 1\n'.encode("latin-1"))
+    assert read_gradient_asc(path) == {"a": "caf\u00e9", "b": 1}
 
 
 def test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_included_file(
