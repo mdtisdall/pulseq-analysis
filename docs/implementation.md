@@ -796,7 +796,10 @@ are read-only: a change in place, such as `index.start_s[0] = 1.0`, raises
 `BlockGradientValues` are its own arrays, not views of the index. The dicts of
 a result are `FrozenDict`s (`series.FrozenDict`): subclasses of `dict` whose
 methods that change them (`d[key] = x`, `del d[key]`, `update`, `pop` and the
-like) raise `TypeError`. A `FrozenDict` is still a `dict` for `isinstance`,
+like) raise `TypeError`. `FrozenDict(...)` is filled by `__new__`, and its
+`__init__` does nothing, so `d.__init__(...)` does not change it. The methods of
+`dict` itself (`dict.__setitem__(d, key, x)`, `dict.__init__(d, ...)`) cannot be
+blocked, and they change it. A `FrozenDict` is still a `dict` for `isinstance`,
 `json.dumps`, `pickle` and `copy.deepcopy`, and it equals a `dict` with the
 same items in any order (it has the `==` of `dict`). Only the `==` of a result
 checks the order of the keys of its dicts. Make a copy to change one:
@@ -823,8 +826,11 @@ window that is not in the sequence.
 **`pns_levels`, `hardware`.** A required keyword argument: a call without it
 raises Python's own `TypeError`. A value that is not a tuple of two items with
 a `str` second item raises `TypeError` with a message that says how to make a
-hardware. A struct with no `x`, `y` or `z`, or an axis with no field of
-`pns_levels.SAFE_FIELDS`, raises `ValueError` that names it, for example
+hardware. A label `"nan"`, `"inf"` or `"-inf"` raises `ValueError`: the `meta`
+of a `Series` refuses these strings, which its JSON form uses for a float that
+is not finite, and `to_series` puts the label there. A struct with no `x`, `y`
+or `z`, or an axis with no field of `pns_levels.SAFE_FIELDS`, raises
+`ValueError` that names it, for example
 `'x.stim_thresh' missing in the hardware struct`. Each field is a finite real
 number: a value that is not a real number raises `TypeError`, and one that is
 not finite raises `ValueError`. `stim_limit` must be above 0, and
@@ -874,10 +880,11 @@ that is not in `params` or is repeated, defaults not in the order of `params`,
 a default of another kind than `None`, `bool`, `int`, `float`, `str` or a
 tuple of these, a default float that is not finite, an empty `id`, a `version`
 below 1, a `cost` other than `"fast"` and `"slow"`, a raster that is not in
-`registry.RASTERS`, and a repeated name in `params`. It raises `TypeError` for
-an `id` that is not a `str`, a `version` that is not an `int` (a `bool` too), a
-`cost` that is not a `str`, and `params` or `rasters` that is not a tuple of
-`str`. A test checks that the signature of each `compute` agrees with
+`registry.RASTERS`, and a repeated name in `params` or in `necessary`. It
+raises `TypeError` for an `id`, a `title` or a `description` that is not a
+`str`, a `version` that is not an `int` (a `bool` too), a `cost` that is not a
+`str`, a `series` that is not None or a `str`, and `params`, `rasters` or
+`necessary` that is not a tuple of `str`. A test checks that the signature of each `compute` agrees with
 its spec. `registry.registry()` raises `registry.RegistryError` for two
 analyses with one ID, an entry point that cannot load, an object with no
 `Analysis.spec.id`, and an entry point whose name is not the `Analysis.spec.id` of its object.

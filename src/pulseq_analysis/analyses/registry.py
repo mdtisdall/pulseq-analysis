@@ -113,7 +113,8 @@ class AnalysisSpec:
     default is finite. `id` is a `str` that is not empty. `version` is an `int` of 1 or more
     (not a `bool`). `cost` is `"fast"` (the cost grows with the number of blocks and of unique
     events) or `"slow"` (it grows with the duration of the sequence). Each name of `rasters`
-    is in `RASTERS`. `params` is a tuple of unique `str`. A spec that breaks one of these
+    is in `RASTERS`. `params` and `necessary` are tuples of unique `str`. `title` and
+    `description` are `str`, and `series` is None or a `str`. A spec that breaks one of these
     rules raises `ValueError`, or `TypeError` for a value of a wrong type.
     """
 
@@ -141,10 +142,18 @@ class AnalysisSpec:
             raise TypeError(f"cost is {self.cost!r}, which is not a str")
         if self.cost not in _COSTS:
             raise ValueError(f"cost is {self.cost!r}, which is not one of {_COSTS!r}")
-        for field in ("params", "rasters"):
+        for field in ("title", "description"):
+            value = getattr(self, field)
+            if not isinstance(value, str):
+                raise TypeError(f"{field} is {value!r}, which is not a str")
+        if self.series is not None and not isinstance(self.series, str):
+            raise TypeError(f"series is {self.series!r}, which is not None or a str")
+        for field in ("params", "rasters", "necessary"):
             value = getattr(self, field)
             if not isinstance(value, tuple) or not all(isinstance(name, str) for name in value):
                 raise TypeError(f"{field} is {value!r}, which is not a tuple of str")
+        if len(set(self.necessary)) != len(self.necessary):
+            raise ValueError(f"a name is repeated in necessary {self.necessary!r}")
         for name in self.rasters:
             if name not in RASTERS:
                 raise ValueError(f"raster {name!r} is not one of {RASTERS!r}")

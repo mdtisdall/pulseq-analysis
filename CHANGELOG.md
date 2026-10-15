@@ -274,6 +274,10 @@ A caller moves in this order:
   byte that is not ASCII no longer raises `UnicodeDecodeError`, and it leaves
   out a line with `=` after `### ASCCONV END ###` that is not a field, as its
   docstring said, where before it raised `ValueError`.
+- `pns_levels` raises `ValueError` for a hardware label `"nan"`, `"inf"` or
+  `"-inf"`, before it reads the snapshot (review 2026-10-13 1.3.3). The JSON
+  form of a `Series` uses these strings for a float that is not finite, so
+  before, `to_series` of such a result raised `ValueError`.
 
 ### The modules
 
@@ -328,6 +332,15 @@ sequence against the code before each change:
   values, credited to the first block with the NaN at the time of its first
   NaN, and they no longer raise `IndexError`; `pns_levels` gives a NaN peak at
   the time of the first NaN total, not 0.0 with no time.
+- `d.__init__(...)` no longer changes a `FrozenDict` (review 2026-10-13
+  1.3.3): `__new__` fills it, and `__init__` does nothing. The methods of
+  `dict` itself, such as `dict.__setitem__(d, key, value)`, still change it.
+- `AnalysisSpec` checks its other fields (review 2026-10-13 1.3.3): `necessary`
+  is a tuple of unique `str`, `title` and `description` are `str`, and
+  `series` is None or a `str`. A wrong type raises `TypeError`, and a repeated
+  name in `necessary` raises `ValueError`. Before, such a spec was made, and
+  one with a list could not be hashed; a name of `necessary` that is not a
+  `str` raised `ValueError` ("not in params"), and now raises `TypeError`.
 
 ### Documents and tests
 

@@ -25,7 +25,7 @@ The rules of `values_equal`:
 """
 
 import dataclasses
-from typing import Any, NoReturn, dataclass_transform
+from typing import Any, NoReturn, Self, dataclass_transform
 
 import numpy as np
 
@@ -37,10 +37,21 @@ class FrozenDict(dict):
     would change it for all of them. `MappingProxyType` cannot be pickled, and it is not a
     `dict`. A subclass of `dict` keeps `isinstance(x, dict)`, `json.dumps`, `pickle` and
     `copy`. Each method that changes the dict raises `TypeError`. `|` gives a plain `dict`.
-    It is not hashable, as `dict`.
+    It is not hashable, as `dict`. `__new__` fills it, with the arguments of `dict`, and
+    `__init__` does nothing, so `d.__init__(...)` does not change a made `FrozenDict`. The
+    methods of `dict` itself, called on a `FrozenDict` (for example `dict.__setitem__(d, k, v)`
+    or `dict.__init__(d, ...)`), cannot be blocked: they change it.
     """
 
     __slots__ = ()
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Self:
+        self = super().__new__(cls)
+        dict.__init__(self, *args, **kwargs)
+        return self
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
 
     def _refuse(self, *args: Any, **kwargs: Any) -> NoReturn:
         raise TypeError("a FrozenDict of a result cannot be changed")

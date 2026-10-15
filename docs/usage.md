@@ -397,10 +397,12 @@ package does not assume one. For a test, pypulseq's example hardware, which is
 not a real scanner, is `hardware=(safe_example_hw(), "a label")`
 (`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`, so it needs the
 extra `pypulseq`). A `hardware`
-that is not such a pair raises `TypeError`. A struct with a missing axis or a
-missing field of `pns_levels.SAFE_FIELDS`, a field that is not a finite number,
-a `stim_limit` not above 0, or an axis with `a1 + a2 + a3` more than 0.001 from
-1 raises `ValueError` (or `TypeError` for a field that is not a number). These
+that is not such a pair raises `TypeError`. A label `"nan"`, `"inf"` or `"-inf"`
+raises `ValueError`: the JSON form of a `Series` uses these strings for a float
+that is not finite, so the label could not go into the `meta` of `pns_total`.
+A struct with a missing axis or a missing field of `pns_levels.SAFE_FIELDS`, a
+field that is not a finite number, a `stim_limit` not above 0, or an axis with
+`a1 + a2 + a3` more than 0.001 from 1 raises `ValueError` (or `TypeError` for a field that is not a number). These
 checks run also for a sequence with no gradient.
 
 **The limit.** The PNS values are in Hz/T. The stimulation limit is `abs(gamma)`,
@@ -583,11 +585,12 @@ unique events, and `"slow"` when it grows with the duration of the sequence. The
 `rasters` are names from `registry.RASTERS` (`GradientRasterTime`,
 `BlockDurationRaster`, `RadiofrequencyRasterTime`, `AdcRasterTime`). `AnalysisSpec`
 checks its fields: `id` is a `str` that is not empty, `version` is an `int` of 1
-or more, `cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params`
-is a tuple of unique `str`, each name of `params` is in `necessary` or has one
-default (in the order of `params`), and each default is `None`, a `bool`, an
-`int`, a finite `float`, a `str` or a tuple of these. It raises `ValueError` for
-a bad value and `TypeError` for a wrong type.
+or more, `title` and `description` are `str`, `series` is None or a `str`,
+`cost` is `"fast"` or `"slow"`, each raster is in `RASTERS`, `params` and
+`necessary` are tuples of unique `str`, each name of `params` is in `necessary`
+or has one default (in the order of `params`), and each default is `None`, a
+`bool`, an `int`, a finite `float`, a `str` or a tuple of these. It raises
+`ValueError` for a bad value and `TypeError` for a wrong type.
 
 The objects of this package are `registry.SEQ_INDEX`, `registry.GRADIENT_PEAKS`,
 `registry.GRADIENT_BLOCKS`, `registry.PNS_SAFE_LEVELS` and

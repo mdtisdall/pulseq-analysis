@@ -170,8 +170,8 @@ def test_a_frozen_dict_reads_like_a_dict():
 
 
 def test_a_frozen_dict_is_made_from_pairs_and_keywords():
-    """`FrozenDict(...)` takes the arguments of `dict`, so `dict.__init__` can fill it
-    although `__setitem__` is closed."""
+    """`FrozenDict(...)` takes the arguments of `dict`: `__new__` fills it with
+    `dict.__init__`, although `__setitem__` is closed."""
     assert dict(FrozenDict([("a", 1)], b=2)) == {"a": 1, "b": 2}
 
 

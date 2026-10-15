@@ -4729,8 +4729,8 @@ code of the package.
 
 #### `test_a_frozen_dict_is_made_from_pairs_and_keywords`
 
-**Checks:** `FrozenDict(...)` takes the arguments of `dict`, so `dict.__init__` can fill it
-although `__setitem__` is closed.
+**Checks:** `FrozenDict(...)` takes the arguments of `dict`: `__new__` fills it with
+`dict.__init__`, although `__setitem__` is closed.
 
 **How:** `FrozenDict([("a", 1)], b=2)` must hold `{"a": 1, "b": 2}`.
 
