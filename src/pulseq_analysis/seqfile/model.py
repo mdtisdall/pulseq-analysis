@@ -124,7 +124,7 @@ TABLE_DTYPES: Mapping[str, np.dtype] = MappingProxyType(
         "soft_delays": np.dtype(
             [("id", "<i8"), ("num", "<i8"), ("offset", "<f8"), ("factor", "<f8"), ("hint", "<U1")]
         ),
-        "rotations": np.dtype([(n, "<f8") for n in ("id", "q0", "qx", "qy", "qz")]),
+        "rotations": np.dtype([("id", "<i8")] + [(n, "<f8") for n in ("q0", "qx", "qy", "qz")]),
     }
 )
 

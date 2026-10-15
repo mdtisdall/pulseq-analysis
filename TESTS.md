@@ -7769,6 +7769,17 @@ in the list of block 2, which plays a trapezoid on gx; it samples 10 times insid
 
 **Assumptions:** None.
 
+#### `test_the_rotation_ids_of_spec_are_int64_as_every_other_id`
+
+**Checks:** The `id` of the ROTATIONS table of the model of `spec` is int64, as the `id` of every
+other table of the model (`blocks`, `rf`, `grad`, `trap`, `adc`, and the tables of `Extensions`)
+(1.2.4a of the review of 2026-10-13): the rotation of `valid_1_5_1.seq` has the ID 1.
+
+**How:** The test reads the fixture and compares the dtype of the `id` field of each table.
+
+**Assumptions:** `test_the_rotation_ids_are_int64` (`test_interpreter.py` of pulseq-cpp-siemens)
+checks the model of `cpp-siemens`.
+
 ### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
 
 `test_cpp_oracle_decode.py` compares the model of `read_seqfile` (the `spec` interpreter), the events of
@@ -9886,6 +9897,16 @@ norm in the model of `cpp-siemens`, and in the model of `spec` too (from 1.5.1, 
 **How:** The test writes a file with a rotation and reads it with both interpreters.
 
 **Assumptions:** The file is 1.5.1: `spec` skips ROTATIONS in a file of an older version (D4.6).
+
+#### `test_the_rotation_ids_are_int64`
+
+**Checks:** The `id` of the ROTATIONS table of the model of `cpp-siemens` is int64, as in the model
+of `spec` (1.2.4a of the review of 2026-10-13): the rotation of `valid_1_5_1.seq` has the ID 1.
+
+**How:** The test reads the fixture and compares the dtype of `extensions.rotations["id"]`.
+
+**Assumptions:** `test_the_rotation_ids_of_spec_are_int64_as_every_other_id` (`test_decoding.py`)
+checks the IDs of the other tables.
 
 #### `test_the_interpreter_is_a_name_or_an_object_and_the_result_records_it`
 
