@@ -6263,6 +6263,22 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
+#### `test_a_time_within_1_ps_of_a_raster_multiple_is_on_the_raster`
+
+**Checks:** The tolerance of the raster rules (`spec.TOLERANCE_NS`, 1 ps): a time 0.9 ps from a multiple of the raster, on either side, is on the raster; a time 1.1 ps from it is off; a multiple is on.
+
+**How:** The test calls `spec._off_raster` on five times in ns with a raster of 100 ns. The limits of the test are numbers, not `TOLERANCE_NS`, so the test fails when the tolerance changes (for example to 0).
+
+**Assumptions:** None.
+
+#### `test_an_adc_dwell_time_that_is_a_multiple_of_the_adc_raster_only_to_1_ps_reads`
+
+**Checks:** A valid fixture with `AdcRasterTime 3e-08` and ADC dwell times of 30 ns reads, with dwell times of 3e-8 s. In floats, the raster is 29.999999999999996 ns, and 30 ns is 6.7e-15 ns from one raster step: the file reads only because of the tolerance of `spec.TOLERANCE_NS`.
+
+**How:** The test changes the raster and the two dwell times of a valid fixture, and reads the file.
+
+**Assumptions:** None.
+
 #### `test_a_soft_delay_offset_is_a_float_in_us_and_its_hint_is_kept_whole`
 
 **Checks:** D2.16: the soft delay of `valid_soft_delay_fraction.seq` has the offset -100.5 us (-100.5e-6 s) and the hint `TE`; a hint of 40 characters is kept whole.
