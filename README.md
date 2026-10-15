@@ -31,24 +31,19 @@ key `"format"` of a `Series`, and removes `block_cache_off`.
 
 ## Install
 
-The documents (`docs/usage.md` and `docs/implementation.md`) describe `main`.
-The tag `v0.1.0rc6` of the install line below has an older interface: its
-`load` is `pulseq_analysis.snapshot.load`, it reads with pypulseq, it refuses a
-sequence with no `[SIGNATURE]` hash, and it has `extensions.refuse_unsigned`.
-The next release replaces this note and the tag.
-
-With uv, from the git URL:
+The documents (`docs/usage.md` and `docs/implementation.md`) and the example
+below describe `main`. Until the release `0.1.0rc7`, install `main`. With uv,
+from the git URL:
 
 ```
-uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc6"
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@main"
 ```
 
-The tag `v0.1.0rc6` needs pypulseq 1.5.0.post1 with six commits that are not
-in a release. `pyproject.toml` pins them from a fork in `[tool.uv.sources]`.
-uv applies this pin for a project that depends on `pulseq-analysis` by git
-URL. pip does not. On `main`, pypulseq is optional: the package does not
-import it, and it is the extra `pypulseq` (`pulseq-analysis[pypulseq]`), which
-uv resolves to the same fork.
+On `main`, pypulseq is optional: the package does not import it, and it is the
+extra `pypulseq` (`pulseq-analysis[pypulseq]`). `pyproject.toml` pins it from a
+fork in `[tool.uv.sources]`, at pypulseq 1.5.0.post1 with six commits that are
+not in a release. uv applies this pin for a project that depends on
+`pulseq-analysis` by git URL. pip does not.
 
 On `main`, `read_seqfile` takes the interpreter `spec` (the default, as true as
 possible to the Pulseq specification) and the interpreters that other
@@ -65,6 +60,18 @@ uv builds pulseq-cpp-siemens from source: this needs a C++ compiler and the
 network (CMake fetches the reader's files from pulseq/pulseq). How a release
 of pulseq-cpp-siemens depends on pulseq-analysis is decided at release time.
 
+The last release is the tag `v0.1.0rc6`:
+
+```
+uv add "pulseq-analysis @ git+https://github.com/mdtisdall/pulseq-analysis@v0.1.0rc6"
+```
+
+Its interface is older than the one of the documents and of the example. The
+entry "Unreleased" of [`CHANGELOG.md`](CHANGELOG.md) gives the changes since
+it, and [`docs/migration.md`](docs/migration.md) the replacement of each of its
+names that pulseq-checks and pulseq-reports use. It requires pypulseq, with the
+same pin from the fork. The next release replaces this tag.
+
 ## Example
 
 The SAFE PNS peak of a `.seq` file:
@@ -80,7 +87,10 @@ snap = load("sequence.seq")  # through `spec`; load(seq) for a pypulseq Sequence
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
 levels = pns_levels(snap, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)
-print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
+if levels.peak_time_s is None:  # the peak is 0: no gradient, or all have the amplitude 0
+    print(f"{fraction:.0%} of the stimulation limit")
+else:
+    print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```
 
 The hardware is necessary: the model has no default. It is a pair of the

@@ -1,5 +1,5 @@
-"""The names of the interface: the names that `docs/usage.md` and `docs/implementation.md` give
-exist, and each public name of a module is in the documents.
+"""The names of the interface: the names that `README.md`, `docs/usage.md` and
+`docs/implementation.md` give exist, and each public name of a module is in the documents.
 
 The documents write a name in backticks or in a code block. These tests read two forms:
 
@@ -23,7 +23,7 @@ from pathlib import Path
 import pulseq_analysis
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = [ROOT / "docs" / "usage.md", ROOT / "docs" / "implementation.md"]
+DOCS = [ROOT / "README.md", ROOT / "docs" / "usage.md", ROOT / "docs" / "implementation.md"]
 
 # The public names (no `_` at the start) of a module of the package that no document gives.
 # Each has the module, the name and the reason. A new public name needs a document, or a `_`.
