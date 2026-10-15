@@ -93,22 +93,32 @@ def _off_raster_sequence() -> pp.Sequence:
     return seq
 
 
+def _other_gamma_waveform_sequence() -> pp.Sequence:
+    """`waveform_sequence` with a copy of `SYSTEM` whose gamma is 0.9 times the gamma of 1H.
+    The written file has no gamma (it is that of `waveform_sequence(SYSTEM)`), so the levels
+    are those of the Hz/m samples."""
+    other = copy.copy(SYSTEM)
+    other.gamma = 0.9 * SYSTEM.gamma
+    return waveform_sequence(other)
+
+
 _SEQUENCES = {
     "spin_echo": spin_echo_sequence,
     "gre": gre_sequence,
     "arbitrary_gradient": arbitrary_gradient_sequence,
     "border": border_sequence,
+    "waveform_other_gamma": _other_gamma_waveform_sequence,
 }
 
 
-def _oracle_model(snap, levels: PnsLevels, scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+def _oracle_model(snap, levels: PnsLevels) -> tuple[np.ndarray, np.ndarray]:
     """The SAFE model of the oracle samples of `snap`, the reference of `pns_levels`: the
     package's `_safe_gwf_to_pns_chunk` in one chunk, with the example hardware, on the stacked
     `(N, 3)` samples of the oracle of `sequence_of(snap)` (`oracle.block_samples` at the
     gradient raster when `levels.on_raster`, else `oracle.sample` at the file times
-    `(k + 0.5) * dt` for `k < levels.num_samples`), each sample times `scale`. Returns
-    `(axis_values, total)`: the percent times 0.01 (`(N, 3)`) and the `sqrt(sum of squares)`
-    of each row, as `pns_levels` computes them. The oracle reads the gradients of the snapshot
+    `(k + 0.5) * dt` for `k < levels.num_samples`). Returns `(axis_values, total)`: the
+    percent times 0.01 (`(N, 3)`) and the `sqrt(sum of squares)` of each row, as
+    `pns_levels` computes them. The oracle reads the gradients of the snapshot
     as it plays them, so the rounding of the written file is not in a difference. The oracles
     import pypulseq, so they are imported here: the module also runs without it."""
     from oracles import waveform as oracle
@@ -121,24 +131,24 @@ def _oracle_model(snap, levels: PnsLevels, scale: float = 1.0) -> tuple[np.ndarr
     else:
         t = (np.arange(levels.num_samples) + 0.5) * dt
         columns = [oracle.sample(seq, axis, t) for axis in "xyz"]
-    gwf = scale * np.stack(columns, axis=1)
+    gwf = np.stack(columns, axis=1)
     percent, _ = _safe_gwf_to_pns_chunk(gwf, dt, safe_example_hw(), None)
     axis_values = 0.01 * percent
     return axis_values, np.sqrt((axis_values**2).sum(axis=1))
 
 
 def _assert_summary_is_the_model(
-    levels: PnsLevels, axis_values: np.ndarray, total: np.ndarray, scale: float = 1.0
+    levels: PnsLevels, axis_values: np.ndarray, total: np.ndarray
 ) -> None:
-    """The peak and the axis peaks of `levels`, times `scale`, equal those of the model
-    (`_oracle_model`) to a relative 1e-9 (the axis peaks also to an absolute 1e-12 of the
-    peak), and the peak time is the centre of the first sample whose total is at least the
-    peak times `1 - PEAK_TOLERANCE`."""
+    """The peak and the axis peaks of `levels` equal those of the model (`_oracle_model`)
+    to a relative 1e-9 (the axis peaks also to an absolute 1e-12 of the peak), and the peak
+    time is the centre of the first sample whose total is at least the peak times
+    `1 - PEAK_TOLERANCE`."""
     peak = total.max()
     assert levels.num_samples == total.size
-    assert scale * levels.peak_hz_per_t == pytest.approx(peak, rel=1e-9)
+    assert levels.peak_hz_per_t == pytest.approx(peak, rel=1e-9)
     for i, axis in enumerate("xyz"):
-        assert scale * levels.axis_peaks_hz_per_t[axis] == pytest.approx(
+        assert levels.axis_peaks_hz_per_t[axis] == pytest.approx(
             axis_values[:, i].max(), rel=1e-9, abs=1e-12 * peak
         )
     assert levels.peak_time_s == pytest.approx(
@@ -522,9 +532,9 @@ def test_off_raster_block_falls_back_to_sampling():
 def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(monkeypatch):
     """An off-raster sequence (the samples come from `GradientSampler.sample` at the file
     times, chunk by chunk) of more than three chunks gives the result of one chunk, every
-    field and every interval, `==`, and `num_samples` is `ceil((end_s - 1e-10) / dt)` with
-    `end_s` the end of `sequence_index(snap)`. A chunk that read the samples of the first
-    chunk again, or a `num_samples` that rounds down, gives another result."""
+    field and every interval, `==`, and `num_samples` is 6002: 3 TRs of 2000 samples and a
+    block of 1.5 samples, rounded up. A chunk that read the samples of the first chunk
+    again, or a `num_samples` that rounds down, gives another result."""
     seq = gre_sequence(num_trs=3)
     _add_a_delay(seq, 1.5)  # off the raster
     snap = load(seq)
@@ -541,8 +551,7 @@ def test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples(
     assert math.ceil(reference.num_samples / reference.bin_samples) > 3  # chunks of 1 bin
     assert reference.above[_LIMIT]
     assert got == reference
-    dt = reference.dt_s
-    assert reference.num_samples == math.ceil((sequence_index(snap).end_s - 1e-10) / dt)
+    assert reference.num_samples == 6002
 
 
 # A bin of 615 samples at the 10 us raster. The intervals of `gre_sequence(num_trs=20)` are
@@ -1027,27 +1036,6 @@ def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair()
         levels = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
         assert levels.hardware == "LABEL"
         assert_levels_equal(levels, default, ignore=("hardware",))
-
-
-@pytest.mark.pypulseq
-def test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_the_limit():
-    """For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and the axis
-    peaks of `pns_levels`, divided by `seq.system.gamma`, equal the fractions of the
-    stimulation limit of the SAFE model of the oracle samples in T/m (each sample divided by
-    `seq.system.gamma`, `_oracle_model`) to a relative 1e-9, and the peak time is that of the
-    model. The peak divided by the gamma of 1H does not equal it: the division uses the gamma
-    of the caller."""
-    other = copy.copy(SYSTEM)
-    other.gamma = 0.9 * SYSTEM.gamma
-    seq = waveform_sequence(other)
-    snap = load(seq)
-    levels = pns_levels(snap, hardware=EXAMPLE_HW)
-    gamma = seq.system.gamma
-    axis_values, total = _oracle_model(snap, levels, scale=1 / gamma)
-
-    assert gamma == 0.9 * GAMMA_1H
-    _assert_summary_is_the_model(levels, axis_values, total, scale=1 / gamma)
-    assert levels.peak_hz_per_t / GAMMA_1H != pytest.approx(total.max(), rel=1e-5)
 
 
 @pytest.mark.pypulseq

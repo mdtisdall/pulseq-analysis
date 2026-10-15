@@ -296,24 +296,29 @@ limits with the gamma of `SYSTEM`, so the two must be equal.
 - The test checks the test helpers (the gamma constant against `SYSTEM`), not code of
   the package.
 
-#### `test_gradient_points_matches_gradient_offsets_exactly`
+#### `test_gradient_points_are_t0_plus_the_delay_plus_the_offsets_of_the_file`
 
-**Checks:** `gradient_points(g, t0)` gives exactly `(t0 + delay) + offsets`
-for the `delay` and `offsets` that `gradient_offsets(g)` returns, for both a
-trapezoid and an arbitrary gradient. This is the relationship a later phase
-depends on to rebuild point times from the stored offset tables.
+**Checks:** `gradient_points(g, t0)` gives exactly `(t0 + delay) + offsets`, with the
+`delay` and the `offsets` of the file, for both a trapezoid and an arbitrary gradient.
+This is the relationship a later phase depends on to rebuild point times from the
+stored offset tables.
 
 **How:** The test is parametrized over a trapezoid and an arbitrary gradient: the decoded events 1
 (trapezoid) and 3 (arbitrary) of `tests/seqfiles/valid_1_5_1.seq`, decoded with
-`decode_gradients(seqfile.read_seqfile(...))`, not pypulseq events. For each, it calls `gradient_points` with a non-zero `t0` and
-`gradient_offsets` on the same event, then compares the two with
-`numpy.testing.assert_array_equal` — exact equality, not a tolerance.
+`decode_gradients(seqfile.read_seqfile(...))`, not pypulseq events. The hand values are those
+of the file: for TRAP 1 the delay 100 µs and the corners `cumsum([0, 100, 200, 100])` µs; for
+GRADIENTS 3 the delay 400 µs and the offsets 0, `(i + 0.5) * 10` µs for its 10 samples (time ID
+0, spec:290) and 100 µs. For each, it calls `gradient_points` with a non-zero `t0` and compares
+the times with `(t0 + delay) + offsets` with `numpy.testing.assert_array_equal`: exact
+equality, not a tolerance.
 
 **Assumptions:**
 
 - Bit-for-bit equality is the right check here, not an approximation: the
-  point in this test is that `gradient_points` is defined in terms of
-  `gradient_offsets` with no room for a rounding difference to creep in.
+  times must be `(t0 + delay) + offsets` with no room for a rounding difference to
+  creep in. The hand offsets use the float operations of the package (the corners
+  as a sum in order, the samples as `(i + 0.5) * dt`), so they are the same bits; the
+  end, 100 µs, is the float of `10 * dt`.
 
 #### `test_gradient_offsets_of_a_decoded_trapezoid`
 
@@ -399,17 +404,21 @@ section 2.7.
 
 #### `test_summary_is_the_safe_model_of_the_oracle_samples`
 
-**Checks:** For a spin echo, a gradient echo, an arbitrary gradient, and a
+**Checks:** For a spin echo, a gradient echo, an arbitrary gradient, a
 hand-made "border" sequence (two extended-trapezoid blocks whose gradient is not
-zero at the block border between them), `pns_levels`'s peak, peak time and axis
+zero at the block border between them), and a trapezoid with an arbitrary gradient
+on a system whose gamma is not that of 1H, `pns_levels`'s peak, peak time and axis
 peaks equal those of the SAFE model of the oracle samples (`_oracle_model`, example
 hardware). Also checks `reason`, `hardware`, `dt_s` and `on_raster` for the
 example-hardware, on-raster case.
 
 **How:** Parametrized over `spin_echo_sequence()`, `gre_sequence()`,
-`arbitrary_gradient_sequence()` and `synthetic.border_sequence()` (two
+`arbitrary_gradient_sequence()`, `synthetic.border_sequence()` (two
 `pp.make_extended_trapezoid` blocks on x, the second continuing the first's
-amplitude with no step, so `add_block` accepts the junction). `_assert_summary_is_the_model`
+amplitude with no step, so `add_block` accepts the junction) and
+`_other_gamma_waveform_sequence()` (`synthetic.waveform_sequence` with a copy of `SYSTEM`
+whose gamma is 0.9 times that of 1H; its written file is that of `SYSTEM`, which has no
+gamma, so the values stay those of the Hz/m samples). `_assert_summary_is_the_model`
 checks `num_samples` against the length of the model, the peak and the axis peaks with a
 relative 1e-9 (the axis peaks also with an absolute 1e-12 of the peak), and the peak time
 against the centre of the first sample of the model at or above `peak * (1 - PEAK_TOLERANCE)`
@@ -422,11 +431,11 @@ flip which one the tolerance-based peak-time search finds first.
 
 **Checks:** Each stored bin's minimum and maximum equal the minimum and the maximum of the
 totals of the SAFE model of the oracle samples (`_oracle_model`) over the same samples, for
-every bin, for the same four sequences.
+every bin, for the same five sequences.
 
 **How:** Same parametrization as `test_summary_is_the_safe_model_of_the_oracle_samples`, with
 `bin_s` of 7 raster times, so that each sequence has more than one bin and the last bin is
-shorter. The reference of bin `i` is the minimum and the maximum of the model's totals from
+shorter, except for `_other_gamma_waveform_sequence()` (210 samples, 30 whole bins). The reference of bin `i` is the minimum and the maximum of the model's totals from
 sample `i * bin_samples` to the next bin or the end. `numpy.testing.assert_allclose` compares
 `level_min_hz_per_t` and `level_max_hz_per_t` with them, with `rtol=1e-6` (the stored bins are
 float32, cast outward) and `atol` of 1e-12 of the peak, and the test checks that the number of
@@ -635,7 +644,7 @@ every field. The samples of a delay are 0 in both, so the totals are equal.
 **Checks:** `hardware=(SafeHardware.from_namespace(struct), label)` gives the same result as
 `hardware=(struct, label)`, every field exactly equal, for the example hardware.
 
-**How:** Parametrized over the four sequences of
+**How:** Parametrized over the five sequences of
 `test_summary_is_the_safe_model_of_the_oracle_samples`. The test calls `_compute` (no keep)
 with the namespace pair `EXAMPLE_HW` and with the `SafeHardware`
 pair, with one threshold of half of `_LIMIT`, checks that the peak is above 0, and compares the
@@ -685,10 +694,9 @@ checks `on_raster` and then `_assert_summary_is_the_model`, as in
 #### `test_an_off_raster_sequence_of_many_chunks_does_not_depend_on_chunk_samples`
 
 **Checks:** An off-raster sequence of more than three chunks gives the result of one
-chunk (`==`, each field and each interval), and its `num_samples` is
-`ceil((end_s - 1e-10) / dt)`, with `end_s` the end of `sequence_index(snap)`. A chunk
-that reads the samples of the first chunk again, or a `num_samples` that rounds down,
-gives another result.
+chunk (`==`, each field and each interval), and its `num_samples` is 6002: 3 TRs of
+2000 samples and a block of 1.5 samples, rounded up. A chunk that reads the samples of
+the first chunk again, or a `num_samples` that rounds down, gives another result.
 
 **How:** `gre_sequence(num_trs=3)` and then a delay block of 1.5 raster times (block duration raster of 1 µs), so that the
 sequence is not on the raster. The hardware gives a peak of 1.5 times `_LIMIT`
@@ -697,7 +705,7 @@ calls are `_compute` calls (`_compute_levels`). `monkeypatch` sets
 `_CHUNK_SAMPLES` to `10**9` for the reference (one chunk) and to 1 (a chunk of one bin)
 for the second call. The test checks that the second result is not the object of the
 reference, `on_raster is False`, more than three chunks, an
-interval above `_LIMIT`, `got == reference`, and `num_samples`.
+interval above `_LIMIT`, `got == reference`, and `num_samples == 6002`.
 
 **Assumptions:** The sequence has an interval above `_LIMIT`.
 
@@ -991,26 +999,6 @@ the raster, the test calls both and compares each field of the `PnsLevels` but
 `hardware` (`numpy.array_equal` for the arrays, `==` for the rest).
 
 **Assumptions:** None.
-
-#### `test_the_levels_divided_by_the_gamma_of_the_system_are_the_fractions_of_the_limit`
-
-**Checks:** For a sequence whose `seq.system.gamma` is not the gamma of 1H, the peak and
-the axis peaks of `pns_levels`, divided by `seq.system.gamma`, are the fractions of the
-stimulation limit: those of the SAFE model of the oracle samples in T/m. Its peak time is that of
-the model. The peak divided by the gamma of 1H does not equal it. Thus the conversion of
-`docs/usage.md` section 9 uses the gamma of the caller.
-
-**How:** The sequence of `waveform_sequence` (`tests/synthetic.py`) with a copy of `SYSTEM` with
-`gamma = 0.9 * SYSTEM.gamma`. The reference is `_oracle_model` with each sample divided by
-`seq.system.gamma` (T/m), so its values are fractions (the percent times 0.01).
-`_assert_summary_is_the_model` compares the values of `pns_levels` divided by
-`seq.system.gamma` with it, as in `test_summary_is_the_safe_model_of_the_oracle_samples`. The
-test also checks that `peak_hz_per_t / GAMMA_1H` is not within a relative 1e-5 of the reference
-peak.
-
-**Assumptions:** The model is linear in the samples, so the division by gamma of the samples
-and of the values give the same fractions. The two gammas give peaks that differ by more than
-the tolerance (a factor of 0.9 does).
 
 #### `test_the_levels_of_a_negated_waveform_are_equal`
 
@@ -1967,15 +1955,15 @@ gradient raster times, and `block_samples("gx", 0, 1, 2 * raster)` (1.5 samples)
 
 #### `test_raster_block_lengths_with_different_block_lengths`
 
-**Checks:** `raster_block_lengths` gives `round(duration / dt)` for each block of a
+**Checks:** `raster_block_lengths` gives the number of samples of each block of a
 file whose blocks do not all have the same duration, and reports the file as on the
 raster.
 
 **How:** Builds `gre_sequence(num_trs=2)` (RF, phase-encode, readout, spoiler and delay
 blocks, of different durations; confirmed with `len(set(index.duration_s.tolist())) >
-1`). Compares `raster_block_lengths(index, dt)`'s `n` with `numpy.rint(index.duration_s
-/ dt)` cast to `int64`, with `numpy.testing.assert_array_equal`, and checks `on_raster`
-is `True`.
+1`). Compares `raster_block_lengths(index, dt)`'s `n` with the hand values
+`[112, 36, 164, 87, 1601]` for each TR (1.12, 0.36, 1.64, 0.87 and 16.01 ms at 10 µs, a TR
+of 20 ms), with `numpy.testing.assert_array_equal`, and checks `on_raster` is `True`.
 
 **Assumptions:** None.
 
@@ -2018,8 +2006,7 @@ samples, the end is 2.8 samples and the result must be 3 (the sum of the rounded
 Blocks of 1 and 2 gradient raster times with `dt = 3 * raster / 3.000005`: 1.0000017 and 2.0000033
 samples, the end is 3.000005 samples, which is less than 1e-10 s above 3 samples, and the result must be
 3 (a `ceil` of the end without the 1e-10 s gives 4). Each sequence must be off the raster in
-`raster_block_lengths`, and the result must equal `ceil((index.end_s - 1e-10) /
-dt)`.
+`raster_block_lengths`.
 
 #### `test_raster_block_lengths_tolerance_is_a_millionth_of_a_sample`
 
@@ -7392,8 +7379,9 @@ namespace with no `x`); a refusal of `from_namespace` is a `ValueError`.
 `PnsLevels` as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden
 values): the level, the summary and the intervals above each threshold.
 
-**How:** Marker `pypulseq` (the sequences are built with it). Parametrized over the four
-sequences of `test_summary_is_the_safe_model_of_the_oracle_samples` and over the default bin and bins of one
+**How:** Marker `pypulseq` (the sequences are built with it). Parametrized over the spin echo,
+the gradient echo, the arbitrary gradient and the border sequence of
+`test_summary_is_the_safe_model_of_the_oracle_samples` and over the default bin and bins of one
 sample. `_CHUNK_SAMPLES` is 1000, so the state passes from chunk to chunk; two thresholds make
 intervals (the test checks that some interval exists and that the peak is above 0).
 `levels_arrays` gives the fields as arrays (`num_samples`, `bin_samples`, the two levels, the
@@ -7931,7 +7919,8 @@ shim of the block. The differences by design (the intro) are not failures.
   is recorded as D2.11. The package's dwell is `RfEvent.dwell`.
 - Gradients: the samples of an arbitrary gradient are compared as fraction times amplitude, after
   `checkGradient`. For an oversampled gradient, the package's samples at the even indices (the
-  centres of the raster cells) are compared, and the comparison of all of them is recorded as D6.1.
+  centres of the raster cells) are compared, and D6.1 is recorded for the samples between them,
+  which the dump does not have.
   For a gradient with a time shape, the package's times in µs must equal the times that the reader
   rounds to µs, and the waveform the samples.
 - Extensions: the test walks the extension list of each block in the model, without the extensions that

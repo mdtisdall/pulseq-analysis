@@ -788,8 +788,9 @@ def test_raster_block_lengths_with_different_block_lengths():
     index = sequence_index(snap)
     n, on_raster = raster_block_lengths(index, dt)
     assert on_raster
-    expected = np.rint(index.duration_s / dt).astype(np.int64)
-    np.testing.assert_array_equal(n, expected)
+    # Each TR of 20 ms is 2000 samples: the RF block of 1.12 ms, the phase encode of 0.36 ms,
+    # the readout of 1.64 ms, the spoiler of 0.87 ms and the delay of 16.01 ms.
+    np.testing.assert_array_equal(n, np.array([112, 36, 164, 87, 1601] * 2))
     # gre_sequence's TR has blocks of different lengths (RF, phase-encode, readout,
     # spoiler, delay): not every block has the same duration.
     assert len(set(index.duration_s.tolist())) > 1
@@ -849,7 +850,6 @@ def test_sequence_samples_off_the_raster_is_the_ceil_of_the_end(durations_s, dt,
     index = sequence_index(load(_delay_sequence(durations_s)))
     assert not raster_block_lengths(index, dt)[1]
     assert sequence_samples(index, dt) == expected
-    assert sequence_samples(index, dt) == math.ceil((index.end_s - 1e-10) / dt)
 
 
 @pytest.mark.parametrize(
