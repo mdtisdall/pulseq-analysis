@@ -49,13 +49,25 @@ def test_gradient_offsets_of_a_decoded_arbitrary_gradient(gradient_id):
     npt.assert_array_equal(amp, np.concatenate([[g.first], g.waveform, [g.last]]))
 
 
-@pytest.mark.parametrize("gradient_id", [1, 3], ids=["trapezoid", "arbitrary"])
-def test_gradient_points_matches_gradient_offsets_exactly(gradient_id):
+@pytest.mark.parametrize(
+    ("gradient_id", "delay", "offsets"),
+    [
+        # TRAP 1: delay 100 us, rise 100, flat 200, fall 100: the corners are the sums.
+        (1, 1e-4, np.cumsum([0.0, 1e-4, 2e-4, 1e-4])),
+        # GRADIENTS 3: delay 400 us, 10 samples with time ID 0 at (i + 0.5) * 10 us
+        # (spec:290), `first` at 0 and `last` at 10 * 10 us.
+        (3, 4e-4, np.concatenate([[0.0], (np.arange(10) + 0.5) * 1e-5, [1e-4]])),
+    ],
+    ids=["trapezoid", "arbitrary"],
+)
+def test_gradient_points_are_t0_plus_the_delay_plus_the_offsets_of_the_file(
+    gradient_id, delay, offsets
+):
     # This is the relationship the diagram tables rest on: gradient_points must be
     # exactly (not just approximately) t0 + delay + offsets, for every bit, because a
-    # later phase rebuilds the same times from the stored offsets.
+    # later phase rebuilds the same times from the stored offsets. The delay and the
+    # offsets are those of the file, not those of `gradient_offsets`.
     g = _decoded_event(gradient_id)
     t0 = 1.234e-3
     t, _ = seq_utils.gradient_points(g, t0)
-    delay, offsets, _ = seq_utils.gradient_offsets(g)
     npt.assert_array_equal(t, (t0 + delay) + offsets)

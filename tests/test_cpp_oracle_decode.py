@@ -339,14 +339,9 @@ def _compare_gradient(diff: _Differences, where: str, ev: events.GradEvent, grad
         samples = _floats(grad["samples"]) * np.float64(grad["amplitude"])
         diff.close(where, "waveform (Hz/m)", waveform, samples, scale)
         if ev.time_id == -1:
-            diff.close(
-                where,
-                "waveform (Hz/m)",
-                ev.waveform,
-                samples,
-                scale,
-                by_design=DESIGNED_OVERSAMPLED,
-            )
+            # The samples between the even ones are not in the dump, so there is nothing to
+            # compare them with: the difference is recorded, not looked for.
+            diff.designed.add(f"waveform (Hz/m): {DESIGNED_OVERSAMPLED}")
     # The dump has `first` and `last` of an arbitrary gradient only.
     if kind == "arbitrary":
         diff.close(where, "first (Hz/m)", ev.first, grad["first"], scale)
