@@ -802,6 +802,9 @@ settings. It raises:
   installed.
 - `ImportError` (chained to the cause) for a plugin that does not load;
   `OSError` when the file cannot be read.
+- `TypeError` for a value that is neither a name nor an interpreter object. A
+  class is not an interpreter: `read_seqfile(path, Spec)` raises `TypeError`
+  whose message names `Spec()`, the object to give.
 
 **Plugin interpreters.** A distribution adds an interpreter through the
 entry-point group `interpreters.GROUP` (`"pulseq_analysis.interpreters"`). The
