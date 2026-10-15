@@ -416,6 +416,38 @@ def test_the_signal_of_cells_is_the_complex_sample(time_shaped):
     )
 
 
+def test_the_signal_of_cells_puts_each_cell_boundary_in_the_cell_after_it():
+    """A pulse of 5000 cells of 1 us, each with its own sample: the boundary `k dwell`, computed
+    as `decode_rf` computes `shape_dur = n dwell`, is in the cell `k` (the end, `n dwell`, gives
+    0), although `k dwell / dwell` is a hair under `k` for some `k`. A time 2e-6 dwells below the
+    boundary is still in the cell `k - 1`."""
+    n, dwell = 5000, 1e-6
+    samples = 1.0 + np.arange(n)
+    rf = RfEvent(
+        id=1,
+        amplitude=1.0,
+        mag_id=1,
+        phase_id=2,
+        time_id=0,
+        magnitude=samples,
+        phase=np.zeros(n),
+        t=_samples(n, dwell),
+        dwell=dwell,
+        shape_dur=n * dwell,
+        center=None,
+        delay=0.0,
+        freq_ppm=0.0,
+        phase_ppm=0.0,
+        freq_offset=0.0,
+        phase_offset=0.0,
+        use="e",
+    )
+    below = (np.arange(1, n + 1) - 2e-6) * dwell
+    np.testing.assert_array_equal(rf.signal(below), samples)
+    boundaries = np.arange(n + 1) * dwell
+    np.testing.assert_array_equal(rf.signal(boundaries), np.append(samples, 0))
+
+
 def test_the_signal_of_points_is_the_straight_line_of_the_complex_signal():
     """RF 5 of `valid_rf_time_shapes.seq`: between two points the signal is the straight line of
     the complex signal (linear interpolation of the real and the imaginary part, D2.11). The

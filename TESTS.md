@@ -7546,6 +7546,22 @@ phase 2π 0.1. The test calls `signal` at 12 µs and 19 µs and compares both va
 
 **Assumptions:** None.
 
+#### `test_the_signal_of_cells_puts_each_cell_boundary_in_the_cell_after_it`
+
+**Checks:** `RfEvent.signal` of a pulse of cells puts each cell boundary `k dwell` in the cell `k`, the cell
+after it, although `k dwell / dwell` is a rounding error under `k` for some `k`; a time 2e-6 dwells below a
+boundary stays in the cell before it.
+
+**How:** The test builds an `RfEvent` of 5000 cells of 1 µs whose samples are 1 to 5000 Hz, so each cell has
+its own value. It calls `signal` at `(k - 2e-6) dwell` for `k` from 1 to 5000 and compares with the sample
+`k - 1`. It calls `signal` at the boundaries `k dwell` for `k` from 0 to 5000, computed as `decode_rf` computes
+`shape_dur = n dwell`, and compares with the sample `k`, and 0 at the end `5000 dwell`. With
+`floor(time / dwell)`, 89 of these boundaries give the cell before.
+
+**Assumptions:** A boundary is the float64 product `k dwell`; a time computed in another way (for example
+`delay + k dwell`, less `delay`) can round to another side. The test covers one dwell, 1 µs, and a time below a
+boundary only at 2e-6 dwells.
+
 #### `test_the_signal_of_points_is_the_straight_line_of_the_complex_signal`
 
 **Checks:** Between two points, `RfEvent.signal` is the straight line of the complex signal: the linear
