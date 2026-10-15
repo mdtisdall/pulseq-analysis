@@ -14,8 +14,9 @@ Where the package decodes a file otherwise than MATLAB, the tests do not compare
 say why: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and of one of
 points whose last time is not a whole number of RF rasters (D2.12: MATLAB rounds the last time up
 to the RF raster), `first` of a 1.4 gradient with a time shape (U23), the polyline of an arbitrary
-gradient of time ID 0 away from its samples and its ends (U21), and the waveform of a file in
-which a block plays a rotation (U22).
+gradient of time ID 0 away from its samples and its ends (U21), the waveform of a file older than
+1.5.1 with a rotation (MATLAB rotates in any version, `spec` from 1.5.1 only, D4.6), and the
+midpoints of the waveform at the boundary of a block that plays a rotation (D2.14).
 
 The module skips when the command is not on the PATH: only the default devShell has it.
 """
@@ -27,6 +28,7 @@ import pytest
 from oracles import matlab
 
 from pulseq_analysis import seqfile
+from pulseq_analysis.analyses import load
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
 from pulseq_analysis.seqfile.model import TIME_TOLERANCE
 from pulseq_analysis.synth._events import _points_from_events
@@ -37,7 +39,7 @@ from pulseq_analysis.synth.events import (
     decode_gradients,
     decode_rf,
 )
-from pulseq_analysis.synth.sampling import GradientSampler
+from pulseq_analysis.synth.sampling import GradientSampler, gradient_sampler
 from pulseq_analysis.synth.seq_index import _dense_ids, _index_from_data
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
@@ -408,16 +410,41 @@ def _restored(case, axis, t):
     return restored
 
 
+def _at_a_boundary(case, blocks, t):
+    """True for each time of `t` that is within `TIME` of the start or the end of a block of
+    `blocks` (play indices).
+
+    MATLAB rotates the points of each block's own events (`mr.rotate3D`, Sequence.m:1988-1999)
+    and joins them across blocks (D2.14). The measurements of `spec` take the gradients of a
+    block that plays a rotation from `gradients_at` up to the end of the block (`_played`), and
+    draw their own gap to the next block. So a segment of MATLAB with an end at the boundary of
+    such a block is not compared at its midpoint. MATLAB's points there are."""
+    starts = case.index.start_s[blocks]
+    edges = np.concatenate([starts, starts + case.index.duration_s[blocks]])
+    return np.abs(t[:, None] - edges[None, :]).min(axis=1, initial=np.inf) <= TIME
+
+
 @pytest.mark.parametrize("path", FILES, ids=lambda p: str(p.relative_to(SEQFILES)))
 def test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq(cases, path):
+    """The sampler of the package gives MATLAB's waveform at each point of MATLAB's polyline and
+    at the midpoint of each of its segments. For a file with a rotated block, the sampler is that
+    of `load(path)`, whose decoding rotates the gradients as MATLAB does (`spec` from 1.5.1, P20),
+    and the midpoints of a segment with an end at the boundary of a block that plays a rotation
+    are left out (`_at_a_boundary`)."""
     case = case_of(cases, path)
+    sampler, turned = case.sampler, np.empty(0, dtype=np.int64)
     if case.rotated:
-        pytest.skip(
-            f"block {min(case.rotated) + 1} plays a rotation: MATLAB rotates its gradients "
-            "(Sequence.m:1989-2000), and strict does not (U18, U22); "
-            "test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq compares "
-            "the rotated gradients"
-        )
+        if case.data.version < (1, 5, 1):
+            pytest.skip(
+                f"block {min(case.rotated) + 1} has a rotation: MATLAB rotates its gradients in "
+                "any version (Sequence.m:1989-2000), and spec reads ROTATIONS from 1.5.1 only "
+                "(D4.6)"
+            )
+        snap = load(path)
+        sampler = gradient_sampler(snap)
+        # The blocks that play a rotation: a quaternion whose vector part is not 0.
+        blocks, quaternions = snap.decoding.rotations()
+        turned = blocks[np.any(quaternions[:, 1:] != 0, axis=1)]
     diff = Differences(case.name)
     for axis in ("gx", "gy", "gz"):
         wave = case.dump["waveforms"][axis]
@@ -433,11 +460,13 @@ def test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq(cases, path
         at_points, mid_t, mid_v, pairs = _matlab_values(t, v)
         restored = _restored(case, axis, t)
         kept_mid = ~restored[pairs] & ~restored[pairs + 1]
+        boundary = _at_a_boundary(case, turned, t)
+        kept_mid &= ~boundary[pairs] & ~boundary[pairs + 1]
         for label, times, expected in (
             ("point", t[~restored], at_points[~restored]),
             ("midpoint", mid_t[kept_mid], mid_v[kept_mid]),
         ):
-            ours = case.sampler.sample(axis, times)
+            ours = sampler.sample(axis, times)
             error = np.abs(ours - expected)
             outside = np.flatnonzero(error > REL * scale)
             for i in outside[:3]:
@@ -481,8 +510,9 @@ FLOAT32_REL = 1e-6
 def test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq(cases, path):
     """`spec` (from 1.5.1) rotates each block's gradients by the model's quaternion with the
     package's `decoding.rotate`, and MATLAB's `waveforms_and_times` rotates them with
-    `mr.rotate3D` (Sequence.m:1988-1999): `compare_rotated_gradients`. MATLAB rotates in any
-    version and `spec` from 1.5.1 only (P20, rule 2), so a file older than 1.5.1 is left out."""
+    `mr.rotate3D` (Sequence.m:1988-1999): `compare_rotated_gradients`, to a relative `REL`, as
+    both hold the amplitudes in float64. MATLAB rotates in any version and `spec` from 1.5.1 only
+    (P20, rule 2), so a file older than 1.5.1 is left out."""
     from pulseq_analysis.seqfile import read_seqfile
 
     case = case_of(cases, path)
@@ -492,21 +522,28 @@ def test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq(cases, path):
         pytest.skip(f"spec rejects the file ({', '.join(sorted(error.codes))})")
     if data.version < (1, 5, 1):
         pytest.skip("spec reads ROTATIONS from 1.5.1 only")
-    compare_rotated_gradients(case, data)
+    compare_rotated_gradients(case, data, REL)
 
 
-def compare_rotated_gradients(case, data):
+def compare_rotated_gradients(case, data, rel):
     """The rotated gradients of the decoding of `data` (`synth.decode`) agree with MATLAB's at
     the midpoint of each segment of MATLAB's polyline, on each axis, where MATLAB does not guess
     the edges of an arbitrary gradient (U21), and on a segment with no end at a block boundary:
     there MATLAB can join the last point of one block to the first sample of the next, and each
-    interpreter gives each block alone (D2.14). The unrotated gradients do not agree where a block
-    plays a rotation. The tests of a plugin interpreter call it too."""
+    interpreter gives each block alone (D2.14). They agree to a relative `rel` of the largest
+    magnitude of MATLAB's axis: `REL` for `spec`, which holds the amplitudes in float64 as MATLAB
+    does, and `FLOAT32_REL` for a plugin interpreter that holds them in float32. The unrotated
+    gradients do not agree where a block plays a rotation. The tests of a plugin interpreter call
+    it too."""
     from pulseq_analysis import synth
 
     decoding = synth.decode(data)
-    # valid_1_5_1_rotation_not_played.seq has a rotation that no block plays: 0 blocks rotated.
-    assert decoding.rotation_record.rotated == decoding.rotation_record.blocks
+    # The decoding applies the rotations of the file, to each block with a rotation (0 blocks
+    # for valid_1_5_1_rotation_not_played.seq). The setting is checked too: a setting that leaves
+    # the rotations unapplied has 0 blocks rotated, which is also `blocks` for such a file.
+    record = decoding.rotation_record
+    assert record.setting == "apply"
+    assert record.rotated == record.blocks
     starts = np.concatenate([[0.0], np.cumsum(data.block_durations_s)])
     diff = Differences(case.name)
     unrotated_differs = False
@@ -528,7 +565,7 @@ def compare_rotated_gradients(case, data):
         time_us = (mid_t - starts[block]) * 1e6
         ours = decoding.gradients_at(block, time_us)[:, column]
         scale = np.abs(v).max()
-        tolerance = FLOAT32_REL * scale
+        tolerance = rel * scale
         error = np.abs(ours - mid_v)
         diff._first_outside(axis, "rotated value at the midpoints", ours, mid_v, error, tolerance)
         logical = decoding.gradients_at(block, time_us, rotated=False)[:, column]

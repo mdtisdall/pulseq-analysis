@@ -5866,7 +5866,7 @@ counts and path, and a `Violation` cannot be changed.
 
 #### `test_valid_fixture_loads_with_its_version`
 
-**Checks:** Each valid fixture loads into a `SequenceData` of its version, with `origin` `"file"` and the interpreter `Spec()`: the versions 1.4.0, 1.4.1, 1.5.0 and 1.5.1, a 1.5.0 file with the extensions of 1.5.1, a file with CRLF line ends, a file with comments between sections, a `#` line inside a shape, no signature, a wrong signature hash, a gradient raster of 5 us, a rotation that no block plays (`valid_1_5_1_rotation_not_played.seq`: the MATLAB waveform test skips a file that plays a rotation, and compares its gradients), a last section with no blank line, an unknown label, a soft delay with a fraction, and RF time shapes of each kind.
+**Checks:** Each valid fixture loads into a `SequenceData` of its version, with `origin` `"file"` and the interpreter `Spec()`: the versions 1.4.0, 1.4.1, 1.5.0 and 1.5.1, a 1.5.0 file with the extensions of 1.5.1, a file with CRLF line ends, a file with comments between sections, a `#` line inside a shape, no signature, a wrong signature hash, a gradient raster of 5 us, a rotation that no block plays (`valid_1_5_1_rotation_not_played.seq`: the MATLAB waveform test compares its gradients with no rotation), a last section with no blank line, an unknown label, a soft delay with a fraction, and RF time shapes of each kind.
 
 **How:** For each file (parametrized), the test calls `read_seqfile` and compares the version, the origin and the interpreter.
 
@@ -7914,8 +7914,9 @@ a time to an absolute 1e-12 s. Each failure lists every difference with the file
 the two values. Where the package decodes a file otherwise than MATLAB, the tests do not compare that part,
 and the test gives the reason: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and
 of one of points whose last time is not a whole number of RF rasters (D2.12); `first` of a 1.4 gradient with a
-time shape (U23); MATLAB's restored points of an arbitrary gradient of time ID 0 (U21); and the waveform of a
-file in which a block plays a rotation (U22).
+time shape (U23); MATLAB's restored points of an arbitrary gradient of time ID 0 (U21); the waveform of a
+file older than 1.5.1 with a rotation (D4.6); and the midpoints of the waveform at the boundary of a block
+that plays a rotation (D2.14).
 
 #### `test_the_events_of_each_block_are_those_of_matlab_pulseq`
 
@@ -7972,18 +7973,28 @@ a block that only MATLAB has.
 
 #### `test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq`
 
-**Checks:** For each file in which no block plays a rotation, and each axis, `GradientSampler` of the
-package's model has the values of MATLAB's polyline from `waveforms_and_times(true)`, at each time
-of the polyline and at the midpoint of each pair of consecutive points with distinct times. An axis
-where MATLAB has no point has no event in the package's model.
+**Checks:** For each file and each axis, the `GradientSampler` of the package has the values of
+MATLAB's polyline from `waveforms_and_times(true)`, at each time of the polyline and at the midpoint
+of each pair of consecutive points with distinct times. For a file in which a block has a rotation,
+from 1.5.1, the sampler is that of `load(path)` (`spec`), whose decoding rotates the gradients of the
+block as MATLAB's `mr.rotate3D` does, in float64. An axis where MATLAB has no point has no event in
+the package's model.
 
 **How:**
 
-- The test (one case for each file) skips a file in which the extension list of a block reaches a
-  `ROTATIONS` object: MATLAB rotates the gradients of the block and `strict` does not (U18, U22).
-  `test_the_rotated_gradients_of_each_interpreter_are_those_of_matlab_pulseq` compares such files.
-- It builds the sampler from the model with `_index_from_data`, `_dense_ids`, `decode_gradients`,
-  `_points_from_events` and `GradientSampler._from_parts`, and samples it at MATLAB's times.
+- For a file in which no block has a rotation, the test (one case for each file) builds the sampler
+  from the model with `_index_from_data`, `_dense_ids`, `decode_gradients`, `_points_from_events`
+  and `GradientSampler._from_parts`, and samples it at MATLAB's times.
+- For a file in which the extension list of a block reaches a `ROTATIONS` object, from 1.5.1, it
+  samples `gradient_sampler(load(path))`. It leaves out each midpoint of a segment with an end within
+  1e-12 s of the start or the end of a block that plays a rotation (its quaternion in
+  `Decoding.rotations` has a vector part that is not 0): MATLAB joins the rotated points of the block
+  to those of the next block, and the measurements take the block from `gradients_at` up to its end
+  and draw their own gap (D2.14). MATLAB's points there are compared, and so are the midpoints at the
+  boundaries of a block whose rotation is the identity (in `oracle/koma_v1.5_rotation_radial_tiny.seq`
+  and `oracle/pulseq_make_radial.seq`).
+- It skips a file older than 1.5.1 with a rotation (`valid_1_5_0_extensions_of_1_5_1.seq`): MATLAB
+  rotates in any version, and `spec` reads ROTATIONS from 1.5.1 only (D4.6).
 - Where MATLAB has several points at one time (a step), the expected value is the first of them: the
   value before the step, as the package gives it. At a midpoint, the expected value is MATLAB's
   segment line at the float midpoint, so that the rounding of the time is not a difference.
@@ -7998,9 +8009,13 @@ where MATLAB has no point has no event in the package's model.
 
 - MATLAB's polyline is sampled only between its first and last points; the value before and after
   them is not compared.
-- A file with a played rotation has no waveform comparison at all, also on its blocks without a
-  rotation. `valid_1_5_1_rotation_not_played.seq` has the gradients of `valid_1_5_1.seq` without the
-  played rotation, so they are compared.
+- The comparison of a rotated file reads the rotation through the package's own decoding
+  (`decoding.rotate`), so it also tests that the quaternions are divided by their norm (D2.18): with
+  them as written, the test fails for each of the 10 files of 1.5.1 with a rotated block that MATLAB
+  reads. `valid_1_5_1_rotation_not_played.seq` has a rotation that no block plays, so its gradients
+  are those of `valid_1_5_1.seq` without the rotation, compared with the sampler of the model.
+- The midpoints left out at the boundaries of a block that plays a rotation are compared nowhere
+  against MATLAB.
 - A sample centre of a gradient of time ID 0 that MATLAB drops (it removes points on a straight line)
   is not compared.
 
@@ -8019,18 +8034,18 @@ The test does not check the phase or frequency of the samples.
 
 **Checks:** For each file with a `ROTATIONS` section, the rotated gradients of `spec` (each block
 turned by the model's normalized quaternion with `decoding.rotate`), from 1.5.1, equal MATLAB's
-rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-6 of the axis's
-largest value. The record has as many blocks rotated as blocks with a rotation (0 for
-`valid_1_5_1_rotation_not_played.seq`). Where a block plays a rotation that is not the identity,
-the unrotated gradients (`rotated=False`) differ from MATLAB's. The comparison is the helper
+rotated polyline from `waveforms_and_times` (`mr.rotate3D`) on each axis, to 1e-12 (`REL`) of the
+axis's largest value. The rotation record of the decoding has the setting `"apply"`, and as many
+blocks rotated as blocks with a rotation (0 for `valid_1_5_1_rotation_not_played.seq`). Where a block
+plays a rotation that is not the identity, the unrotated gradients (`rotated=False`) differ from MATLAB's. The comparison is the helper
 `compare_rotated_gradients`, which `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
 (section 3.9) also calls for `cpp-siemens`.
 
 **How:**
 
-- The test (one case for each file) reads the file with `spec`, and the helper samples the
-  decoding's `gradients_at` at the midpoint of each segment of MATLAB's polyline, with the block and
-  the time in it from the cumulative block durations.
+- The test (one case for each file) reads the file with `spec`, and gives the helper the
+  tolerance `REL`. The helper samples the decoding's `gradients_at` at the midpoint of each segment
+  of MATLAB's polyline, with the block and the time in it from the cumulative block durations.
 - It leaves out the segments where MATLAB guesses the edges of an arbitrary gradient (U21, as the
   test of the waveform), and each segment with an end within 1e-12 s of a block boundary: there
   MATLAB can join the last point of one block to the first sample of the next (in
@@ -8040,8 +8055,10 @@ the unrotated gradients (`rotated=False`) differ from MATLAB's. The comparison i
   version, and `spec` reads ROTATIONS from 1.5.1 only (P20, rule 2).
   `test_a_file_older_than_1_5_1_with_rotations_is_not_rotated` checks that file.
 
-**Assumptions:** The tolerance of 1e-6 (`FLOAT32_REL`) covers the float32 amplitudes of a plugin
-interpreter such as `cpp-siemens` (P6) against MATLAB's float64; `spec` is in float64.
+**Assumptions:** `spec` holds the amplitudes in float64, as MATLAB does, so the tolerance is that of
+the other values of the module. The tolerance of 1e-6 (`FLOAT32_REL`), which the test of a plugin
+gives the helper, covers the float32 amplitudes of a plugin interpreter such as `cpp-siemens` (P6)
+against MATLAB's float64.
 `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are the radial cases of
 `docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds an extended
 trapezoid in a rotated block. A file that `spec` rejects or that MATLAB cannot read is skipped.
@@ -10063,7 +10080,8 @@ message for the three functions.
 `compare_rotated_gradients` says (section 2.24).
 
 **How:** The test (one case for each file) reads the file with `cpp-siemens` and
-`rotation="apply"`, and calls `compare_rotated_gradients` with the MATLAB case of the file.
+`rotation="apply"`, and calls `compare_rotated_gradients` with the MATLAB case of the file and the
+tolerance `FLOAT32_REL`.
 
 **Assumptions:** The tolerance of 1e-6 covers the reader's float32 amplitudes (P6) against MATLAB's
 float64. A file that `cpp-siemens` rejects (`valid_last_section_no_blank.seq`,
