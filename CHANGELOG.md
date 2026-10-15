@@ -65,6 +65,17 @@ A caller moves in this order:
   (review 2026-10-13 1.2.4c). Before, `interpreter()` returned the class of a
   plugin, and the reading failed in its `read` with a `TypeError` about a
   missing argument.
+- A rejection of `spec` has the violations of every table that reads, also
+  when another table has a violation of syntax (review 2026-10-13 1.2.2, 1.2.3).
+  Before, a syntax error in `[BLOCKS]`, `[RF]`, `[GRADIENTS]`, `[TRAP]` or
+  `[ADC]` skipped the `raster.*` rules of the event tables (all but
+  `raster.gradient-vertex`), `shape.event-length`, `shape.oversampled-length`,
+  `gradient.nonzero-start-delay` and `layer1.gradient-ends`; one in an event
+  table also skipped `block.event-too-long` (also for the triggers) and
+  `gradient.nonzero-end-align`.
+  A 1.4.x gradient whose value at its end the file does not define gives
+  `layer1.gradient-ends` only: before, it also gave
+  `gradient.nonzero-end-align` when it ended before its block.
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package

@@ -1260,13 +1260,15 @@ def _walk_extensions(f: _File) -> tuple[np.ndarray, np.ndarray]:
 
 
 class _Ends(NamedTuple):
-    """The end of each event in nanoseconds from the start of its block (NaN where it cannot
-    be known), and for the gradients the amplitude at the end."""
+    """The IDs of the events of each kind, the end of each event in nanoseconds from the start of
+    its block (NaN where it cannot be known), and for the gradients the amplitude at the end."""
 
+    rf_ids: np.ndarray
     rf: np.ndarray
     grad_ids: np.ndarray
     grad_end: np.ndarray
     grad_last: np.ndarray
+    adc_ids: np.ndarray
     adc: np.ndarray
 
 
@@ -1295,11 +1297,26 @@ def _rf_played(info: _ShapeInfo) -> float:
     return info.samples.size * step if step is not None else float(info.samples[-1])
 
 
-def _event_ends(f: _File) -> _Ends | None:
+def _stand_in(table: _Table | None, name: str, version: tuple[int, int, int]) -> _Table:
+    """`table`, or, for a table with a violation of syntax (None), a table of the section `name`
+    with no row."""
+    if table is not None:
+        return table
+    return _Table(_empty(_layout(name, version)), np.zeros(0, np.int64), name)
+
+
+def _event_ends(f: _File) -> _Ends:
     """Checks every event table against the rasters and the shapes, and gives the end of each
-    event. None if a table or a raster that the checks need is missing."""
-    if None in (f.rf, f.grad, f.trap, f.adc) or f.blocks is None:
-        return None
+    event. A table with a violation of syntax has no row here (`_stand_in`): its events are not
+    found, so they have no end, and the other tables are checked. A check whose raster is missing
+    is skipped."""
+    f = dataclasses.replace(
+        f,
+        rf=_stand_in(f.rf, "RF", f.version),
+        grad=_stand_in(f.grad, "GRADIENTS", f.version),
+        trap=_stand_in(f.trap, "TRAP", f.version),
+        adc=_stand_in(f.adc, "ADC", f.version),
+    )
     rep = f.report
     num, first, last, valid = _shape_columns(f)
     rf_cells = np.array([_rf_played(s) for s in f.shapes.values()] + [np.nan])
@@ -1444,10 +1461,12 @@ def _event_ends(f: _File) -> _Ends | None:
         )
     adc_end = a["delay"] * 1e3 + a["num_samples"] * a["dwell"]
     return _Ends(
+        d["id"],
         rf_end,
         np.concatenate([g["id"], t["id"]]),
         np.concatenate([g_end, t_end]),
         np.concatenate([g_last, np.zeros(len(t))]),
+        a["id"],
         adc_end,
     )
 
@@ -1587,7 +1606,7 @@ def _take(values: np.ndarray, row: np.ndarray, found: np.ndarray, fill: float) -
     return np.where(found, values[row], fill)
 
 
-def _check_blocks(f: _File, ends: _Ends | None) -> None:
+def _check_blocks(f: _File, ends: _Ends) -> None:
     """`block.event-too-long`, `gradient.nonzero-end-align` and `extension.per-block`."""
     r_block = _raster_ns(f.rasters, "block_duration")
     if f.blocks is None or r_block is None:
@@ -1595,40 +1614,47 @@ def _check_blocks(f: _File, ends: _Ends | None) -> None:
     rep, b = f.report, f.blocks.data
     block_ns = b["duration_ticks"] * r_block
     pair_block, pair_entry = _walk_extensions(f)
-    if ends is not None:
-        events = [("rf", "RF", _ids_of(f.rf), ends.rf), ("adc", "ADC", _ids_of(f.adc), ends.adc)]
-        grad_ids = _Ids(ends.grad_ids)
-        for column in ("gx", "gy", "gz"):
-            events.append((column, "gradient", grad_ids, ends.grad_end))
-        for column, what, ids, end_ns in events:
-            assert ids is not None
-            row, found = ids.find(b[column])
-            found &= b[column] != 0
-            end = _take(end_ns, row, found, np.nan)
+    events = [
+        ("rf", "RF", _Ids(ends.rf_ids), ends.rf),
+        ("adc", "ADC", _Ids(ends.adc_ids), ends.adc),
+    ]
+    grad_ids = _Ids(ends.grad_ids)
+    for column in ("gx", "gy", "gz"):
+        events.append((column, "gradient", grad_ids, ends.grad_end))
+    for column, what, ids, end_ns in events:
+        row, found = ids.find(b[column])
+        found &= b[column] != 0
+        end = _take(end_ns, row, found, np.nan)
+        rep.rows(
+            "block.event-too-long",
+            f.blocks,
+            np.flatnonzero(end > block_ns + TOLERANCE_NS),
+            lambda r, column=column, what=what, end=end: (
+                f"the {what} event {b[column][r]} "
+                f"ends at {end[r] / 1e3:g} us, the block lasts {block_ns[r] / 1e3:g} us"
+            ),
+        )
+        if what == "gradient":
+            # A gradient whose value at its end the file does not define (NaN,
+            # `layer1.gradient-ends`) is not checked.
+            last = _take(ends.grad_last, row, found, 0.0)
+            bad = (
+                found
+                & np.isfinite(end)
+                & np.isfinite(last)
+                & (last != 0)
+                & (np.abs(end - block_ns) > TOLERANCE_NS)
+            )
             rep.rows(
-                "block.event-too-long",
+                "gradient.nonzero-end-align",
                 f.blocks,
-                np.flatnonzero(end > block_ns + TOLERANCE_NS),
-                lambda r, column=column, what=what, end=end: (
-                    f"the {what} event {b[column][r]} "
-                    f"ends at {end[r] / 1e3:g} us, the block lasts {block_ns[r] / 1e3:g} us"
+                np.flatnonzero(bad),
+                lambda r, column=column, end=end: (
+                    f"gradient {b[column][r]} ends at "
+                    f"{end[r] / 1e3:g} us, not at the end of the block ({block_ns[r] / 1e3:g} us)"
                 ),
             )
-            if what == "gradient":
-                last = _take(ends.grad_last, row, found, 0.0)
-                bad = (
-                    found & np.isfinite(end) & (last != 0) & (np.abs(end - block_ns) > TOLERANCE_NS)
-                )
-                rep.rows(
-                    "gradient.nonzero-end-align",
-                    f.blocks,
-                    np.flatnonzero(bad),
-                    lambda r, column=column, end=end: (
-                        f"gradient {b[column][r]} ends at "
-                        f"{end[r] / 1e3:g} us, not at the end of the block ({block_ns[r] / 1e3:g} us)"
-                    ),
-                )
-        _check_trigger_ends(f, block_ns, pair_block, pair_entry)
+    _check_trigger_ends(f, block_ns, pair_block, pair_entry)
     if f.entries is not None:
         types = f.entries.data["type"][pair_entry]
         for string_id in ("ROTATIONS", "RF_SHIMS"):

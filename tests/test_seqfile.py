@@ -1501,6 +1501,78 @@ def test_a_gradient_that_is_not_aligned_to_its_block_is_rejected(name, rule):
     assert not carries_choice(violation)
 
 
+# A syntax error in one row of each event table of `valid_no_signature.seq` (the row, the row with
+# the error, and its code).
+_BROKEN_EVENT_ROWS = {
+    "RF": ("1 1000 1 2 0 50 100 0 0 0 0 e", "1 1000 1 2 0 50 x 0 0 0 0 e", "syntax.integer"),
+    "GRADIENTS": ("6 300000 0 0 7 -1 0", "6 300000 0 0 7 -1 x", "syntax.integer"),
+    "TRAP": ("1 1000000 100 200 100 100", "1 1000000 100 200 100 x", "syntax.integer"),
+    "ADC": ("2 8 25000 100 0 0 0 0 8", "2 8 25000 x 0 0 0 0 8", "syntax.integer"),
+}
+
+
+@pytest.mark.parametrize(
+    ("table", "old", "new", "rule"),
+    [
+        ("RF", "1 8 25000 100 0 0 0 0 0", "1 8 25050 100 0 0 0 0 0", "raster.adc-dwell"),
+        (
+            "GRADIENTS",
+            "1 1000000 100 200 100 100",
+            "1 1000000 100 195 100 100",
+            "raster.gradient-flat",
+        ),
+        ("TRAP", "2 500000 0 0 3 0 100", "2 500000 0 0 3 0 105", "raster.gradient-delay"),
+        ("ADC", "1 1000000 100 200 100 100", "1 1000000 100 195 100 100", "raster.gradient-flat"),
+    ],
+    ids=["RF", "GRADIENTS", "TRAP", "ADC"],
+)
+def test_a_syntax_error_in_one_event_table_keeps_the_checks_of_the_others(
+    tmp_path, table, old, new, rule
+):
+    """The module docstring of `spec`: a check that needs a table with a violation of syntax is
+    skipped, "so the error has every violation of the tables that read". A row of `table` that
+    breaks a rule of syntax, and a time off its raster in another event table (spec:290,
+    spec:275), give both codes, and no other."""
+    row, broken, syntax = _BROKEN_EVENT_ROWS[table]
+    text = _text("valid_no_signature.seq")
+    assert row in text and old in text
+    assert codes_of(_write(tmp_path, text.replace(old, new), "r.seq")) == {rule}
+    path = _write(tmp_path, text.replace(row, broken).replace(old, new), "t.seq")
+    assert codes_of(path) == {syntax, rule}
+
+
+@pytest.mark.parametrize("table", sorted(_BROKEN_EVENT_ROWS))
+def test_a_syntax_error_in_one_event_table_keeps_the_trigger_check(tmp_path, table):
+    """spec:318 ("No event comprising this block is allowed to last longer than the specified
+    block duration"): a trigger reads from its own extension table, so a row of an event table
+    that breaks a rule of syntax does not skip it. The trigger of `valid_no_signature.seq` lasts
+    30 us in a block of 20 us (as in `bad_block_event_too_long_trigger.seq`)."""
+    row, broken, syntax = _BROKEN_EVENT_ROWS[table]
+    text = _text("valid_no_signature.seq")
+    trigger = "extension TRIGGERS 3\n1 1 2 0 10\n"
+    assert row in text and trigger in text
+    path = _write(
+        tmp_path,
+        text.replace(row, broken).replace(trigger, trigger.replace(" 10\n", " 30\n")),
+        "t.seq",
+    )
+    assert codes_of(path) == {syntax, "block.event-too-long"}
+
+
+def test_a_syntax_error_in_the_blocks_keeps_the_raster_checks_of_the_event_tables(tmp_path):
+    """The module docstring of `spec` ("the error has every violation of the tables that read"):
+    the raster rules of an event table do not need `[BLOCKS]`, so a row of `[BLOCKS]` that breaks a
+    rule of syntax does not skip them. A flat time off the gradient raster (spec:290) gives
+    `raster.gradient-flat`, and with the syntax error both codes, and no other."""
+    text = _text("valid_no_signature.seq")
+    row, broken = "3  50  0  0  0  3  0  0\n", "3  x  0  0  0  3  0  0\n"
+    old, new = "1 1000000 100 200 100 100\n", "1 1000000 100 195 100 100\n"
+    assert row in text and old in text
+    assert codes_of(_write(tmp_path, text.replace(old, new), "r.seq")) == {"raster.gradient-flat"}
+    path = _write(tmp_path, text.replace(row, broken).replace(old, new), "t.seq")
+    assert codes_of(path) == {"syntax.integer", "raster.gradient-flat"}
+
+
 def test_an_arbitrary_gradient_plays_on_the_raster_of_the_file():
     """The specification accepts any gradient raster (spec:273: "Default raster time"). The
     raster must divide or be a multiple of the block raster (slide 11, in
@@ -1964,6 +2036,20 @@ def test_a_1_4_gradient_with_no_values_at_its_ends_is_layer1_gradient_ends():
         (violation,) = violations_of(SEQFILES / name).violations
         assert (violation.rule, violation.section) == ("layer1.gradient-ends", "GRADIENTS")
         assert carries_choice(violation)
+
+
+def test_a_1_4_gradient_whose_end_is_not_defined_gives_only_layer1_gradient_ends(tmp_path):
+    """D4.4: the value at the end of a 1.4 gradient on the default raster is not in the file, so
+    `spec` does not know whether the gradient ends above 0 (spec:420), and gives
+    `layer1.gradient-ends` only, not also `gradient.nonzero-end-align`. The gradient 3 of
+    `bad_layer1_gradient_ends.seq` (50 us) is here in a block of 100 us."""
+    text = _text("bad_layer1_gradient_ends.seq")
+    gradient = "3 400000 3 0 0\n"
+    blocks = "4   2  0  0  0  0  0  2\n"
+    assert gradient in text and blocks in text
+    path = _write(tmp_path, text.replace(blocks, blocks + "5  10  0  3  0  0  0  0\n"), "e.seq")
+    found = [(v.rule, v.section) for v in violations_of(path).violations]
+    assert found == [("layer1.gradient-ends", "GRADIENTS")]
 
 
 def test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_centre():
