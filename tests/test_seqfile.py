@@ -34,7 +34,13 @@ from pulseq_analysis.seqfile.model import (
     decompress_shape,
     rf_time_step,
 )
-from pulseq_analysis.seqfile.spec import MAX_LOCATIONS, RANGE_TOLERANCE, RULES, read_spec
+from pulseq_analysis.seqfile.spec import (
+    MAX_LOCATIONS,
+    RANGE_TOLERANCE,
+    RULES,
+    _off_raster,
+    read_spec,
+)
 from pulseq_analysis.synth import events
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
@@ -1281,6 +1287,24 @@ def test_an_adc_dwell_time_is_a_float_in_ns_and_a_multiple_of_the_adc_raster(tmp
     )
     off = text.replace(row, "1 8 25000.5 100 0 0 0 0 0")
     assert codes_of(_write(tmp_path, off, "c.seq")) == {"raster.adc-dwell"}
+
+
+def test_a_time_within_1_ps_of_a_raster_multiple_is_on_the_raster():
+    """`spec.TOLERANCE_NS` (1 ps): a time 0.9 ps from a multiple of the raster, on either side, is
+    on the raster; a time 1.1 ps from it is off."""
+    ns = np.array([300.0, 300.0009, 299.9991, 300.0011, 299.9989])
+    assert _off_raster(ns, 100.0).tolist() == [False, False, False, True, True]
+
+
+def test_an_adc_dwell_time_that_is_a_multiple_of_the_adc_raster_only_to_1_ps_reads(tmp_path):
+    """spec:275 and `spec.TOLERANCE_NS`: `AdcRasterTime 3e-08` is 29.999999999999996 ns in
+    floats, so a dwell of 30 ns is 6.7e-15 ns from one raster step. The file reads."""
+    text = _text("valid_no_signature.seq")
+    fine = text.replace("AdcRasterTime 1e-07", "AdcRasterTime 3e-08").replace(
+        " 8 25000 100 ", " 8 30 100 "
+    )
+    data = read_seqfile(_write(tmp_path, fine, "a.seq"))
+    assert data.adc["dwell"].tolist() == [3e-8, 3e-8]
 
 
 def test_a_soft_delay_offset_is_a_float_in_us_and_its_hint_is_kept_whole(tmp_path):
