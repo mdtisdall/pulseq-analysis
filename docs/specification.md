@@ -203,7 +203,7 @@ the package's choice.
 | `syntax.use` | — | an RF `use` that is not one of `e r i s p o u` | spec:356-357 |
 | `syntax.negative` | D3.6 | a negative time or count | spec:176; choice |
 | `syntax.shape` | D3.11 | a shape without its two header lines, a line outside a shape, or a shape with no blank line after it | spec:602-612; partly choice |
-| `id.positive` | — | an ID that is not positive | spec:181 |
+| `id.positive` | — | an ID that is not positive, also an extension type ID (in an `extension` header or in `[EXTENSIONS]`) | spec:181, spec:472, spec:494 |
 | `id.unique` | D3.4 | an ID used twice in one class | spec:182-183; partly choice (blocks) |
 | `id.gradient-unique` | — | a gradient ID in `[GRADIENTS]` and in `[TRAP]` | spec:183, spec:403 |
 | `ref.unresolved` | D4.3 | a reference that names nothing, an extension list that does not end, or a time ID -1 where it is not defined | spec:178-186, spec:478, spec:349, spec:395, slide 4 |

@@ -76,6 +76,11 @@ A caller moves in this order:
   A 1.4.x gradient whose value at its end the file does not define gives
   `layer1.gradient-ends` only: before, it also gave
   `gradient.nonzero-end-align` when it ended before its block.
+- `spec` rejects an extension type ID of 0 or less, in an
+  `extension <STRING_ID> <type>` header or in the `type` column of
+  `[EXTENSIONS]`, as `id.positive` (spec:181, spec:472, spec:494; review
+  2026-10-13 1.2.4b). Before, a file whose header and entries had such a type
+  read.
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package

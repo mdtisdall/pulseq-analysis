@@ -224,7 +224,11 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "say what a shape without one is; " + _NO_WRITER,
             partial=True,
         ),
-        "id.positive": Rule("an ID is not positive", 'spec:181 ("IDs must be positive")'),
+        "id.positive": Rule(
+            "an ID, or the type ID of an extension, is not positive",
+            'spec:181 ("IDs must be positive"); spec:472, spec:494 (`<type>` is the "ID of the '
+            'type" of an extension)',
+        ),
         "id.unique": Rule(
             "an ID is used twice in one class",
             "spec:182-183 (shapes, and events of one class); D3.4",
@@ -751,6 +755,20 @@ def _check_table_ids(report: _Report, table: _Table | None, blocks: bool = False
     report.rows("id.unique", table, later, lambda r: f"ID {ids[r]} is used twice", choice=blocks)
 
 
+def _check_entry_types(report: _Report, entries: _Table | None) -> None:
+    """`id.positive` for the `type` column of `[EXTENSIONS]`, which holds the ID of an extension
+    type (spec:472). The type of each `extension` header (spec:494) is checked as it is read."""
+    if entries is None:
+        return
+    types = entries.data["type"]
+    report.rows(
+        "id.positive",
+        entries,
+        np.flatnonzero(types <= 0),
+        lambda r: f"type ID {types[r]} is not positive",
+    )
+
+
 def _check_non_negative(report: _Report, table: _Table | None) -> None:
     if table is None:
         return
@@ -1019,6 +1037,8 @@ def _read_extensions(
                 f"{copies[string_id][0].line}",
             )
             continue
+        if type_id <= 0:
+            report.add("id.positive", name, section.line, f"type ID {type_id} is not positive")
         if type_id in type_users:
             report.add(
                 "id.unique",
@@ -1772,6 +1792,7 @@ def _build(written: AsWritten, report: _Report) -> SequenceData | None:
     for t in (f.rf, f.grad, f.trap, f.adc, f.entries):
         _check_table_ids(report, t)
         _check_non_negative(report, t)
+    _check_entry_types(report, f.entries)
     signature = _read_signature(named.get("SIGNATURE", []), written, report)
     if f.blocks is not None and len(f.blocks.data) == 0:
         report.add("blocks.empty", "BLOCKS", None, "the file has no block")
