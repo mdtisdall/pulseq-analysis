@@ -2348,6 +2348,28 @@ def test_an_extension_header_has_a_word_and_a_type_id(tmp_path):
         assert rule in codes_of(path), header
 
 
+@pytest.mark.parametrize("type_id", [0, -1])
+@pytest.mark.parametrize(
+    ("written", "changed", "section"),
+    [
+        ("extension UNKNOWN 7", "extension UNKNOWN {}", "extension UNKNOWN"),
+        ("2 2 1 0", "2 {} 1 0", "EXTENSIONS"),
+    ],
+    ids=["header", "type column"],
+)
+def test_an_extension_type_id_that_is_not_positive_is_id_positive(
+    tmp_path, written, changed, section, type_id
+):
+    """spec:181 ("IDs must be positive integers"), spec:472 and spec:494 (`<type>` is the "ID of
+    the type"; decision Q4: the rule of spec:181 covers it): a type ID of 0 or less in the header
+    `extension <STRING_ID> <type>` or in the `type` column of a row of `[EXTENSIONS]` is
+    `id.positive`, at the section and the line of that ID."""
+    line = changed.format(type_id)
+    path = _write(tmp_path, _text("valid_no_signature.seq").replace(written, line), "e.seq")
+    found = [(v.section, v.line) for v in violations_of(path).violations if v.rule == "id.positive"]
+    assert found == [(section, _line_of(path, line))]
+
+
 def test_the_extensions_of_a_later_revision_are_skipped_in_an_older_file(tmp_path):
     """The version gate (the user, 2026-10-12): `spec` reads each extension from the revision that
     introduced it: `extension DELAYS` from 1.5.0 (spec:545), ROTATIONS and RF_SHIMS from 1.5.1
