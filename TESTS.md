@@ -9562,6 +9562,31 @@ does. The result has the fields `case` and `hidden_one_point`.
 **Assumptions:** The intervals are a list of `(start_us, end_us)` for each block that has one;
 `end_us` is not in the interval (`gradientsAt` gives the one point's value there).
 
+#### `test_the_hidden_one_point_reads_cover_the_blocks_after_a_case`
+
+**Checks:** `tests/fixtures/gradient_one_point_after_block.seq` with a case in block 1 (gradient
+event 2 uses a shape that does not exist, `ub.shape-missing`), before block 4: `load` rejects the
+file with that code, and `_checks.undefined_behaviour` still gives the interval of the read that
+the stored duration of block 4 hides, `{4: [(200.0, 240.0)]}`.
+
+**How:** The test changes the fixture, loads it, and calls the checks as `load` does.
+
+**Assumptions:** The checks look at every block after a case (the user, 2026-10-14: every case of
+undefined behaviour is a reason of the rejection), so `hidden_one_point` covers every block.
+
+#### `test_the_verdict_does_not_depend_on_the_size_of_long`
+
+**Checks:** D5.11 with a 32-bit `long`: `valid_no_signature.seq` with the last value of the
+time shape of the extended trapezoid of block 4 (ID 5) at 2e8 (a time of 2e9 us, which a 32-bit
+`long` holds) loads, and at 3e8 (3e9 us, past 2**31 - 1) `load` raises `ub.gradient-time-range`
+on every host, also where `long` has 64 bits. Where `pulseq-cpp-oracle-sanitized` is on the PATH,
+it reads the second file (its `long` has 64 bits).
+
+**How:** The test writes both files and loads them.
+
+**Assumptions:** The checks use a 32-bit `long` (the user, 2026-10-14), the size of the Windows
+build of the reader, so that a file has one verdict on every host (D5.11).
+
 #### `test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0`
 
 **Checks:** A `[TRAP]` row with the ID of a `[GRADIENTS]` row of shape 0 replaces it (load reads
@@ -10031,6 +10056,32 @@ of the `#` line in the file, and the reader's message "failed to decode RF event
 **How:** The test reads the file of `syntax.comment-row` and looks up the line.
 
 **Assumptions:** None.
+
+#### `test_every_case_of_undefined_behaviour_is_a_violation`
+
+**Checks:** `valid_no_signature.seq` with two cases in two blocks: gradient event 2 of block 1
+uses a shape of 0 samples (`ub.shape-empty`), and gradient event 4, which blocks 2 and 3 play, a
+shape that does not exist (`ub.shape-missing`). The `SeqFileError` has one reason for each event,
+with its code and the event that its message names, and nothing in `omitted`: every case, and
+each event once.
+
+**How:** The test changes the file and reads it with `cpp-siemens`. The event of each reason is
+the number after "gradient event" in its message.
+
+**Assumptions:** Every case is a `Violation` of the one `SeqFileError` (the user, 2026-10-14). A case of an event does not depend on the block, so an event of two
+blocks gives one reason.
+
+#### `test_the_cases_of_one_code_are_capped_at_max_locations`
+
+**Checks:** A file of `MAX_LOCATIONS` + 3 blocks, each with its own gradient event that uses a
+shape that does not exist: the `SeqFileError` has `MAX_LOCATIONS` reasons of `ub.shape-missing`,
+those of the first `MAX_LOCATIONS` events in play order, and `omitted` is
+`{"ub.shape-missing": 3}`.
+
+**How:** The test writes an edit of `MINIMAL_SEQ` and reads it with `cpp-siemens`.
+
+**Assumptions:** The cap and `omitted` are those of `spec` (`spec.MAX_LOCATIONS` for each code,
+the further ones counted).
 
 #### `test_the_dwell_with_a_decimal_point_is_a_row_that_does_not_decode`
 

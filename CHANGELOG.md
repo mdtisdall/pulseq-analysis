@@ -156,6 +156,17 @@ A caller moves in this order:
   times of an extended trapezoid of one point (D5.10), before the reader runs.
   `load` accepts such a file, since the stored duration hides the read; the
   other times give the reader's values.
+- A file with undefined behaviour of the reader is rejected with every case,
+  not the first only (review 2026-10-13 1.1.6): `UndefinedBehaviour.cases`
+  has each, in play order, and `code`, `entry`, `block` and `time_us` are
+  those of the first. Each event, extension list and set of extended
+  trapezoids of a block gives one case at most. The `SeqFileError` of
+  `cpp-siemens` has a reason for each case, at most `MAX_LOCATIONS` for each
+  code, and counts the others in `omitted`, as `spec` does.
+- The checks take a `long` of 32 bits, the size of the Windows build of the
+  reader, on every host (D5.11). An extended trapezoid time past 2^31 us is
+  `ub.gradient-time-range` also on Linux and macOS, where `load` read it
+  before, so that a file has one verdict on every host.
 - The reader's messages (`Sequence.messages`, `Sequence.rejection_messages`,
   `Rejected.messages`) are `str` with each byte that is not UTF-8 as `\xNN`.
   The reader quotes lines of the file in them, so a file with such a byte in

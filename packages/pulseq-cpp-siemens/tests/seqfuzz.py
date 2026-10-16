@@ -10,7 +10,10 @@ corrupts it silently. A file fails the fuzzing when:
   file anyway (it does not raise `UndefinedBehaviour` or `NotSupported`);
 - the package's process dies or does not end;
 - the package raises `UndefinedBehaviour` for a file that the oracle reads (a false alarm: the
-  package would reject a file that the C++ reader reads);
+  package would reject a file that the C++ reader reads), unless the file is rejected for the
+  32-bit build: the checks take a `long` of 32 bits on every host (D5.11), and the oracle's build
+  has one of 64 bits, so a time of an extended trapezoid between the two ranges is a case for the
+  package alone (the worker's "long_32_only");
 - the two give other verdicts, or other values of `gradientsAt` at the same times.
 
 Each file is generated from (seed, index) alone, so a failure is reproduced by its two numbers
@@ -983,7 +986,11 @@ def compare(index: int, mutations: list[str], ours: dict, oracle: str, path: Pat
             )
             result.detail = out
     elif package == "undefined-behaviour":
-        if oracle == "accept" and ours.get("where"):
+        if ours.get("long_32_only") and oracle in ("accept", "reject"):
+            # Rejected for the 32-bit build (D5.11): the oracle's build, of a 64-bit long, has no
+            # case, and reads or rejects the file.
+            result.oracle = "long-32-only"
+        elif oracle == "accept" and ours.get("where"):
             # A case that only gradientsAt meets: the oracle's --sample at its block and time
             # (with the worker's soft delay, where it set one).
             block, time_us, *actual_ru = ours["where"]

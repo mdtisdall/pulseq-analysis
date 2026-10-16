@@ -18,10 +18,11 @@ its x86_64 build.
     rotate_vec3_by_quat(q, v)         # the reader's rotation of vectors by quaternions
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
-and it rejects each case of undefined behaviour of the reader before any block is decoded
-(`UndefinedBehaviour`, with its code), so that the process survives the file. A case that only a
-soft delay reaches (`actual_ru` longer than the stored duration of a block) is refused by
-`gradients_at`, at the times where the reader would meet it.
+and it rejects a file with a case of undefined behaviour of the reader before any block is
+decoded (`UndefinedBehaviour`, with every case and its code), so that the process survives the
+file. The checks take a `long` of 32 bits, as the Windows build of the reader has, on every host
+(D5.11). A case that only a soft delay reaches (`actual_ru` longer than the stored duration of a
+block) is refused by `gradients_at`, at the times where the reader would meet it.
 
 Calls are safe from several threads, also on one `Sequence`: the extension holds one lock for
 each call into the reader, sets the reader's shared state for the sequence it works on, reads
@@ -91,11 +92,16 @@ class Rejected(Exception):
 
 class UndefinedBehaviour(Rejected):
     """The C++ reader would have undefined behaviour on the file, or would not end, so no block
-    of it is decoded. `code` names the case (a key of `CODES`); `entry` is the ID of its
-    condition (section 2.2 of docs/specification.md)."""
+    of it is decoded. `cases` has every case that the checks find, in play order, each with its
+    `code` (a key of `CODES`), its `entry` (the ID of its condition, section 2.2 of
+    docs/specification.md) and its `message`. `code`, `entry`, `block` and `time_us` are those of
+    the first case."""
 
-    def __init__(self, case: _checks.Case):
-        super().__init__(f"{case.code} ({case.entry}): {case.message}")
+    def __init__(self, cases: tuple[_checks.Case, ...]):
+        case = cases[0]
+        more = f" and {len(cases) - 1} more (see the `cases` attribute)" if len(cases) > 1 else ""
+        super().__init__(f"{case}{more}")
+        self.cases = tuple(cases)
         self.code = case.code
         self.entry = case.entry
         # For a case that only gradientsAt meets (ub.gradient-one-point): a block and a time (us)
@@ -384,16 +390,15 @@ class Sequence:
         if refused.size:
             position = positions[refused[0]]
             block, time = int(block_index[position]), float(time_us[position])
-            raise UndefinedBehaviour(
-                _checks._case(
-                    "ub.gradient-one-point",
-                    f"block {block}: with a soft delay of {int(actual[block])} block rasters, "
-                    f"gradientsAt at {time} us reads past the times of an extended trapezoid of "
-                    "one point (cpp:3639-3650), a read that starts after the stored duration of the block",
-                    block,
-                    time,
-                )
+            case = _checks._case(
+                "ub.gradient-one-point",
+                f"block {block}: with a soft delay of {int(actual[block])} block rasters, "
+                f"gradientsAt at {time} us reads past the times of an extended trapezoid of "
+                "one point (cpp:3639-3650), a read that starts after the stored duration of the block",
+                block,
+                time,
             )
+            raise UndefinedBehaviour((case,))
 
 
 def _messages(messages: bytes) -> str:
@@ -425,8 +430,8 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
     the life of the `Sequence`. "center" is the reader's default.
 
     Raises `NotSupported` for a file outside the package's scope (the reader is not run),
-    `Rejected` when `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for a case
-    of undefined behaviour of `GetBlock` or `decodeBlock` on any block."""
+    `Rejected` when `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for the cases
+    of undefined behaviour of `GetBlock` or `decodeBlock` on any block, with every case."""
     if oversampling not in OVERSAMPLING:
         raise ValueError(f"oversampling is one of {OVERSAMPLING}, not {oversampling!r}")
     data, name = _read_bytes(source)
@@ -452,9 +457,11 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
             f"{name}: the version gate read {found, major, minor, revision}, the reader "
             f"{libraries.version_parts}: the gate does not read the version as load does"
         )
-    checked = _checks.undefined_behaviour(libraries, _reader.SIZEOF_LONG, reader.gradient_rows())
-    if checked.case is not None:
-        raise UndefinedBehaviour(checked.case)
+    checked = _checks.undefined_behaviour(
+        libraries, _checks.CHECKED_SIZEOF_LONG, reader.gradient_rows()
+    )
+    if checked.cases:
+        raise UndefinedBehaviour(checked.cases)
     reader.mark_checked()
     return Sequence(reader, libraries, messages, data, oversampling, checked.hidden_one_point)
 

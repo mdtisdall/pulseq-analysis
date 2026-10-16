@@ -21,8 +21,8 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
    as the reader does (the reader takes the last row of each key), and refuses it in the same
    way; a binary Pulseq file and a folder are `NotSupported` too.
 2. **`ExternalSequence::load`**, then the checks of this package for the undefined
-   behaviour of the reader (section 5.3 of the plan): a case is a rejection with its `ub.*`
-   code.
+   behaviour of the reader (section 5.3 of the plan): a file with a case is a rejection, with a
+   reason for each case and its `ub.*` code.
 3. **`decodeBlock` of every block**, as the C++ oracle's first mode does. A block that it
    rejects rejects the file. No decoded block is kept.
 4. **The model** (`model.SequenceData`) from the reader's own libraries (P14): the events,
@@ -34,8 +34,10 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
 rejection, with the ID of its condition, and `_classify` finds it from the reader's
 message, and where the message is not enough, from the "as written" reading. The reasons of a
 `SeqFileError` of `cpp-siemens` are the code, the section and the line (where the message quotes
-a row), and the reader's message. The reader stops at its first error, so a rejection has one
-reason.
+a row), and the reader's message. The reader stops at its first error, so a rejection by the
+reader has one reason. A rejection for undefined behaviour has a reason for each case that the
+checks find, in play order, at most `MAX_LOCATIONS` of `seqfile.spec` for each code, and
+`omitted` counts the others, as for `spec`.
 
 **The model from the libraries.** Where the reader holds a value, the model has it, in the units
 of the model (s, Hz, Hz/m) from the reader's float32 values (P6), so a value can differ from the
@@ -63,6 +65,7 @@ file in the last digits of float32 (D7.2). Where the reader differs from `spec`:
 
 import dataclasses
 import re
+from collections import Counter
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -82,6 +85,7 @@ from pulseq_analysis.seqfile.model import (
     Shape,
     Signature,
 )
+from pulseq_analysis.seqfile.spec import MAX_LOCATIONS
 from pulseq_analysis.synth.scanner import (
     FovRecord,
     RotationRecord,
@@ -316,8 +320,7 @@ def read_cpp_siemens(path: str | Path, interpreter: CppSiemens | None = None) ->
     except cs.NotSupported as error:
         raise NotSupported(f"{path}: {error}") from None
     except cs.UndefinedBehaviour as error:
-        reason = Violation(error.code, None, None, str(error))
-        raise SeqFileError(str(path), [reason], interpreter=interpreter.name) from None
+        raise _undefined_behaviour(path, error.cases, interpreter) from None
     except cs.Rejected as error:
         reason = _classify(error.messages, written, None)
         raise SeqFileError(str(path), [reason], interpreter=interpreter.name) from None
@@ -326,6 +329,22 @@ def read_cpp_siemens(path: str | Path, interpreter: CppSiemens | None = None) ->
         reason = _classify(sequence.rejection_messages, written, (sequence.libraries, index))
         raise SeqFileError(str(path), [reason], interpreter=interpreter.name)
     return _model(sequence, interpreter, written)
+
+
+def _undefined_behaviour(
+    path: Path, cases: tuple[_checks.Case, ...], interpreter: CppSiemens
+) -> SeqFileError:
+    """The rejection of a file with the cases of undefined behaviour `cases` (play order): a
+    reason for each, at most `MAX_LOCATIONS` for each code, and the number of the others of each
+    code (`SeqFileError.omitted`), as `spec` gives its violations."""
+    counts: Counter[str] = Counter()
+    reasons = []
+    for case in cases:
+        counts[case.code] += 1
+        if counts[case.code] <= MAX_LOCATIONS:
+            reasons.append(Violation(case.code, None, None, str(case)))
+    omitted = {code: n - MAX_LOCATIONS for code, n in counts.items() if n > MAX_LOCATIONS}
+    return SeqFileError(str(path), reasons, omitted, interpreter=interpreter.name)
 
 
 def _quoted_row(messages: str, start: int) -> str:
