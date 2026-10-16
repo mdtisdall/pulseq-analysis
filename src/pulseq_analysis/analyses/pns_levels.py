@@ -596,21 +596,44 @@ class _IntervalFinder:
             ends = edges[1::2]
         if mask[-1]:
             ends = np.concatenate((ends, [total.shape[0]]))
-        for i, (a, b) in enumerate(zip(starts.tolist(), ends.tolist(), strict=True)):
-            local = int(np.argmax(total[a:b]))  # the first sample of the largest total
-            run = (s0 + a, s0 + b - 1, float(total[a + local]), s0 + a + local)
-            if i == 0 and a == 0 and self._open is not None:
-                first, _, peak, peak_sample = self._open
-                if run[2] > peak:  # a tie keeps the earlier sample
-                    peak, peak_sample = run[2], run[3]
-                run = (first, run[1], peak, peak_sample)
-            else:
-                self._close_open()
-            if b == total.shape[0]:
-                self._open = run
-            else:
-                self._closed.append(self._interval(run))
-                self._open = None
+        # The largest total of each run: `reduceat` at the start and the end of each run, in
+        # turn, gives the maximum of each run and of each gap after it. A run to the end of
+        # the chunk has no end index (`reduceat` takes no index past the end), so its
+        # maximum reaches the end.
+        bounds = np.stack((starts, ends), axis=1).ravel()
+        if mask[-1]:
+            bounds = bounds[:-1]
+        largest = np.maximum.reduceat(total, bounds)[0::2]
+        # The first sample of the largest total of each run, as `np.argmax` of the run gives
+        # it: of the samples of the runs that equal the largest total of their run, the first
+        # of each run.
+        lengths = ends - starts
+        samples = np.flatnonzero(mask)
+        hits = np.flatnonzero(total[samples] == np.repeat(largest, lengths))
+        runs_of_hits = np.repeat(np.arange(lengths.shape[0]), lengths)[hits]
+        peak_samples = samples[hits[np.flatnonzero(np.diff(runs_of_hits, prepend=-1))]]
+        # The runs, with global indices: the first and the last sample, the largest total and
+        # its first sample.
+        firsts = starts + s0
+        lasts = ends + (s0 - 1)
+        peaks = total[peak_samples]
+        peak_samples += s0
+        if starts[0] == 0 and self._open is not None:
+            # The first run continues the open run: it starts at the first sample of the open
+            # run, and keeps its peak unless its own is larger (a tie keeps the earlier sample).
+            first, _, peak, peak_sample = self._open
+            firsts[0] = first
+            if not peaks[0] > peak:
+                peaks[0], peak_samples[0] = peak, peak_sample
+            self._open = None
+        else:
+            self._close_open()
+        runs = (firsts, lasts, peaks, peak_samples)
+        if mask[-1]:
+            # The last run reaches the end of the chunk, so it stays open.
+            self._open = tuple(column[-1].item() for column in runs)
+            runs = tuple(column[:-1] for column in runs)
+        self._closed.extend(self._intervals(*runs))
 
     def finish(self) -> tuple[PnsInterval, ...]:
         """The intervals in time order, after the last chunk."""
@@ -619,17 +642,24 @@ class _IntervalFinder:
 
     def _close_open(self) -> None:
         if self._open is not None:
-            self._closed.append(self._interval(self._open))
+            self._closed.extend(self._intervals(*(np.array([value]) for value in self._open)))
             self._open = None
 
-    def _interval(self, run: tuple[int, int, float, int]) -> PnsInterval:
-        first, last, peak, peak_sample = run
-        return PnsInterval(
-            start_s=first * self._dt,
-            end_s=(last + 1) * self._dt,
-            peak_hz_per_t=peak,
-            peak_time_s=(peak_sample + 0.5) * self._dt,
-            num_samples=last - first + 1,
+    def _intervals(
+        self, firsts: np.ndarray, lasts: np.ndarray, peaks: np.ndarray, peak_samples: np.ndarray
+    ) -> list[PnsInterval]:
+        """The intervals of runs from their arrays: the first and the last sample, the largest
+        total and its first sample (int64, int64, float64, int64, global indices). For indices
+        below 2**53, the float64 products equal those of Python's `int * float`."""
+        return list(
+            map(
+                PnsInterval,
+                (firsts * self._dt).tolist(),
+                ((lasts + 1) * self._dt).tolist(),
+                peaks.tolist(),
+                ((peak_samples + 0.5) * self._dt).tolist(),
+                (lasts - firsts + 1).tolist(),
+            )
         )
 
 

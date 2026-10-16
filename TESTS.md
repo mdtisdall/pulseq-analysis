@@ -508,6 +508,42 @@ interval with `num_samples == 1`, `start_s == 0.5`, `end_s - start_s == 0.25` an
 **Assumptions:** `dt` is 0.25, a power of 2, so the products and the difference are exact in
 floats.
 
+#### `test_interval_finder_makes_as_many_numpy_calls_for_many_runs_as_for_one`
+
+**Checks:** The NumPy work of `_IntervalFinder.add_chunk` does not grow with the number of
+runs in the chunk: no NumPy call is made for each run.
+
+**How:** A chunk of `4 * runs + 1` totals at 0.0, with 1.0 at samples 2, 6, 10 and so on, so
+it has `runs` runs of one sample and none touches an end of the chunk. `add_chunk(0, chunk)`
+of `_IntervalFinder(1.0, 0.5)` runs under `sys.setprofile`, which counts each call of a
+Python function of the NumPy package and each call of a C method of an array, a ufunc or the
+`numpy` module, at any depth (`_numpy_calls`). `finish()` gives `runs` intervals. The count
+for 40 runs equals the count for 1 run.
+
+**Assumptions:** The count does not see an indexing of an array (`total[a:b]`), a call of a
+ufunc as a function, or a C function of NumPy that is not a method, so Python work for each
+run through these alone is not caught. The other tests of `_IntervalFinder` check the
+intervals.
+
+#### `test_interval_finder_gives_the_runs_of_a_reference_over_random_chunks`
+
+**Checks:** The intervals of `_IntervalFinder`, fed the totals in chunks, are the runs of the
+whole totals at or above the threshold, with the first sample of the largest total of each
+run, for runs inside a chunk, runs that cross one or more chunk boundaries, runs of one
+sample, ties of the largest total within a run, and NaN totals.
+
+**How:** 500 cases from `numpy.random.default_rng(0)`: 1 to 79 totals, each 0, 0.5, 1 or 1.5,
+with about 5 % set to NaN, cut at a random set of distinct sample indices into chunks of 1
+sample or more. `_IntervalFinder(1e-5, 1.0)` takes the chunks in order, each with the index
+of its first sample. `finish()` equals `_reference_runs` of the whole totals: the runs of
+`total >= 1.0` from `itertools.groupby`, each with `start_s = first * dt`,
+`end_s = (first + length) * dt`, the largest total, the time `(peak + 0.5) * dt` of the
+first sample with that total (`numpy.flatnonzero(run == run.max())[0]`) and the length.
+
+**Assumptions:** `_reference_runs` computes the times with the same float expressions as
+`_IntervalFinder`, so the equality of floats is exact. The totals are small multiples of
+0.5, so that ties are common; the totals of the model are not limited to these values.
+
 #### `test_bin_samples_for_matches_the_formula`
 
 **Checks:** `bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
