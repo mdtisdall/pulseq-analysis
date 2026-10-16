@@ -124,9 +124,12 @@ nothing themselves.
     `docs/findings-for-pulseq-checks.md`, 2.4). An event whose amplitude is 0
     is 0 everywhere, as `gradientsAt` gives it.
 - **A block whose gradients the decoding gives with `gradients_at`**: a block
-  that the decoding rotates by a rotation that is not the identity (`spec`
-  from 1.5.1, `CppSiemens(rotation="apply")`; D2.18, D6.2), and a block with an
-  event that ends after the end of the block (`spec` rejects it,
+  with a gradient event that the decoding rotates by a rotation that is not the
+  identity (`spec` from 1.5.1, `CppSiemens(rotation="apply")`; D2.18, D6.2), or
+  that the field of view of the scanner session rotates (a block without NOROT,
+  when the session rotates) or scales (a block without the scaling flag, when
+  the session scales; section 7.0), and a block with an event that ends
+  after the end of the block (`spec` rejects it,
   `block.event-too-long`; `cpp-siemens` plays such a file, D7.4, and
   `oversampling="preserve"` stretches an oversampled gradient, D6.1). The
   package does not rotate: the decoding's `gradients_at` does. The gradients
@@ -148,9 +151,9 @@ nothing themselves.
   points at one time), the event has two points at
   that time: the value just before and the value just after, each the
   straight line of `gradients_at` at two times inside the next segment,
-  carried to its end. A rotated block has an event on each axis; another block
-  on the axes that have an event. The block table numbers these events after
-  the events of the file (section 2.5).
+  carried to its end. A rotated block (by its rotation or by the field of view)
+  has an event on each axis; another block on the axes that have an event. The
+  block table numbers these events after the events of the file (section 2.5).
 
 `test_played.py` checks, on every fixture, that the straight lines of the
 points equal `gradients_at` at the middle of each segment and at each point that
@@ -549,16 +552,22 @@ first two rows of the table of section 3.5.
 
 - **The played gradients** (`_played.played_gradients`). The event of each
   block and axis (section 1.2): one `np.unique` of the gradient columns, and
-  the points of each unique event, in a Python loop (for `cpp-siemens`, one
-  `decodeBlock` of the first block that plays it). Then, only for the blocks
-  whose gradients come from `gradients_at`, one call of `gradients_at` for all
-  of them. Time O(B log B + K + P), plus O(the points of those blocks).
+  the points of each unique event, in a Python loop. For `cpp-siemens`, each
+  event costs one `GetBlock` and `decodeBlock` of the first block that plays
+  it: a block that is the first to play the events of two or three axes is
+  decoded again for each of them, although the reader keeps it. These calls of
+  `gradient_points` take 0.02 s for 1000 calls, and 0.10 s for 32,000
+  (measured on 2026-10-14). Then, only for the blocks whose gradients come
+  from `gradients_at`, one call of `gradients_at` for all of them. Time
+  O(B log B + K + P), plus O(the points of those blocks).
 - **The block table** (`sequence_index`). The block table of the data and its
   durations as arrays, and the played gradient columns, then numpy: a
   cumulative sum for the starts, and a lookup table over the event IDs that
   numbers the events in the order of their first use (`np.unique` of the used
   IDs when the largest ID is more than 16 times the number of entries). Time
-  O(B), memory O(B), also for a large ID.
+  O(B), or O(B log B) with `np.unique`; memory O(B), also for a large ID. The
+  first call of `sequence_index` makes the played gradients too, so it takes
+  time O(B log B + K + P) and memory O(B + P).
 - **The points of the unique gradient events.** The points of the played
   gradients of each unique event, into flat arrays for all the events, which
   all the measurements share. Time O(K + P). This is a part whose cost grows
@@ -568,12 +577,16 @@ first two rows of the table of section 3.5.
   than 0.1 µs for each of them. So that first call grows by about 9 µs for each
   unique event in all.
 - **The gaps of each axis.** The consecutive events of an axis, the length of
-  each gap between them, and its kind (section 1.3). Vectorised. Time
-  O(M log M) for the M blocks with an event on the axis. Only `GradientSampler`
-  uses these gaps, and so only `pns_levels`, `gradient_spectrum` and
-  `gradient_sampler` share them. `gradient_peaks` and `block_gradient_values`
-  do not: they classify the gaps of each axis themselves, with the values of
-  each block, in a vectorised step of their first call.
+  each gap between them, and its kind (section 1.3), give the parts of the
+  waveform in the gaps: the line across a short gap and the ramps of a long
+  gap. Vectorised. Time O(M log M) for the M blocks with an event on the axis.
+  Only `GradientSampler.block_samples` uses these parts, and so only
+  `pns_levels` (on the raster) and `block_samples` of a `gradient_sampler`
+  share them. `GradientSampler.sample`, and so `gradient_spectrum`, does not:
+  each sampler finds the kind of each gap of an axis itself, in its first call
+  on that axis (section 3.3). `gradient_peaks` and `block_gradient_values` do
+  not either: they classify the gaps of each axis themselves, with the values
+  of each block, in a vectorised step of their first call.
 
 ### 3.3 Each call
 
@@ -609,11 +622,11 @@ time: a window of 5000 blocks takes about the time of a window of one TR.
 `t[0]` to `t[-1]`. The points of their events, with the ramps of the long gaps,
 make the polyline of that range, and `np.interp` gives the values. Time
 O(log B + points of the events in the range + Q), memory O(Q + those points).
-This leaves out two costs of the first call. `gradient_sampler(snap)` makes a
+This leaves out a cost of the first call: `gradient_sampler(snap)` makes a
 new sampler for each call, and the first `sample` of a sampler on an axis finds
-the events, the gaps and the ramps of that axis (`_events.axis_events`,
-`gap_kinds` and `ramps`, time O(B), kept by the sampler). The first sampler of a sequence also finds the gaps
-of that axis (section 3.2).
+the events, the kinds of the gaps and the ramps of that axis
+(`_events.axis_events`, `gap_kinds` and `ramps`, time O(B), kept by the
+sampler). `sample` does not use the gaps that the snapshot keeps (section 3.2).
 
 **`GradientSampler.block_samples(...)`.** The samples of each block of a
 range, on the raster. The samples of one event do not depend on the length
@@ -622,7 +635,10 @@ makes them one time for each unique event and gathers them into all the blocks
 with one indexed copy. The samples of the gaps are then written over them,
 vectorised. Time O(samples of the range + blocks of the range), plus the
 samples of each new event one time. A sequence that repeats a TR has few
-unique events.
+unique events. The first `block_samples` of a sequence on an axis also finds
+the gaps of that axis (section 3.2), with the events, the kinds of the gaps
+and the ramps of the axis, as `sample` does; the snapshot keeps the gaps, so a
+later sampler does not find them again.
 
 **`pns_levels`.** The model runs on chunks of about 30,000 samples, or of one
 bin when a bin is longer (a chunk is `bin_samples * ceil(_CHUNK_SAMPLES /
@@ -651,6 +667,13 @@ sequence has few unique events: one block of 120 s took 0.83 s, and 1200 blocks
 of 0.1 s (12 million samples in each case) took 0.86 s. A sequence with many
 unique events pays for each of them, about 20 µs for each one (section 3.5).
 
+Each call of `pns_levels` makes a new sampler, so a call with other arguments
+(another hardware, for example) makes the cache of `block_samples` again; the
+snapshot keeps the gaps (section 3.2). A sampler kept between the calls would
+save 2 % of a call on a file of 40,000 blocks, and 13 % on a spiral file
+(measured on 2026-10-14): most of the time is the filling of each chunk, which
+a cache cannot avoid without keeping the whole waveform.
+
 **`gradient_spectrum`.** The windows go through the FFT in chunks of 256
 windows:
 
@@ -678,8 +701,8 @@ points of the installed packages. An analysis `compute` is its function.
 
 | Call | Time | Memory | Grows most with |
 |---|---|---|---|
-| `sequence_index` | O(B) | O(B) | blocks |
-| First gradient measurement (the played gradients and the points of the unique events) | O(B log B + K + P) | O(B + P) | blocks, unique events |
+| `sequence_index` (with the played gradients) | O(B log B + K + P) | O(B + P) | blocks, unique events |
+| First gradient measurement (the block table, the played gradients and the points of the unique events) | O(B log B + K + P) | O(B + P) | blocks, unique events |
 | `gradient_peaks(snap)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
 | `gradient_peaks(snap, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
 | `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
@@ -721,9 +744,12 @@ verdict, and `sequence_index` 18 ms and 0.14 s (one `decodeBlock` for each uniqu
 gradient event); the other rows are within 10 % of those of `spec`.
 
 `scripts/time_measurements.py` builds a new sequence for each repeat, and
-gives the minimum over the repeats. `scripts/time_pns_levels.py` times the
-model with no kept result. Each script with `--json OUT` writes its results
-with the machine and the commit.
+gives the minimum over the repeats. From `sequence_index` on, each of its rows
+is the time of the call after the rows above it, on one snapshot: the first
+call of `gradient_peaks` does not include the block table.
+`scripts/time_pns_levels.py` times the model with no kept result, and without
+the block table. Each script with `--json OUT` writes its results with the
+machine and the commit.
 
 ## 4. Kept results
 
@@ -747,8 +773,9 @@ A second call with the same arguments gives the same object. A result with a
 window is not kept, because a caller can ask for many windows, but it uses the
 kept values of each block. The points of the unique gradient events are kept
 too, and all the gradient measurements share them. The gaps of each axis are
-kept with the points, but only `GradientSampler` (so `pns_levels`,
-`gradient_spectrum` and `gradient_sampler`) uses them: `gradient_peaks` and
+kept with the points, but only `GradientSampler.block_samples` (so
+`pns_levels` on the raster, and `block_samples` of a `gradient_sampler`) uses
+them: `GradientSampler.sample` (so `gradient_spectrum`), `gradient_peaks` and
 `block_gradient_values` classify their gaps themselves.
 
 A different `bin_s` is another kept result of `pns_levels`, also when it gives
@@ -1007,7 +1034,13 @@ the cycles of the extension lists); only the shapes are read one at a time.
 shape is cells or points by `model.rf_time_step`; for points,
 `RfEvent.signal` interpolates the real and imaginary parts linearly
 (`numpy.interp`), which is the straight line of the complex signal between two
-points. A shape that several events use is decompressed once.
+points. A shape that several events use is decompressed once in one call of
+`decode_rf`, `decode_gradients` or `decode_adc`, and once more in each other
+of these calls that uses it. The model keeps each shape as the file stores it,
+so the decoder decompresses again the shapes of the events, which the checks
+of `spec` decompressed before (`spec._read_shapes`). This second
+decompression costs 0.05 s for 1000 shapes of 4000 samples (measured on
+2026-10-14).
 
 ## 8. `Series`: checks and the array encoding
 

@@ -209,8 +209,11 @@ A caller moves in this order:
   its events, and for `cpp-siemens` the reader's own decoding, so a
   measurement of `cpp-siemens` is of the waveform that the scanner's reader
   plays (float32 values, D7.2; an event after the end of its block is 0 there,
-  D7.4). A block that the decoding rotates, or with an event after its end,
-  gets an event of its own on each axis (`docs/implementation.md`, 1.2).
+  D7.4). A block with a gradient event that the decoding or the session's
+  field of view rotates, or that the field of view scales, and a block with an
+  event after its end get events of their own: on each axis for a rotated
+  block, and on the axes with an event for another (`docs/implementation.md`,
+  1.2).
 - The rotated blocks with the same events and duration share the times of
   their points, and one call of `gradients_at` reads them all. One run on an
   Apple M1 Max, of the played gradients of 300,000 readout blocks with a
