@@ -226,8 +226,17 @@ A caller moves in this order:
   160,000. The output is the same, bit for bit.
 - The block table (`seq.index`) gives the file's block IDs, and numbers the
   gradient events that play; two equal events with different IDs are two
-  events (pypulseq's reading merged them). The spec of each analysis is not
-  changed: each `spec.version` stays 1.
+  events (pypulseq's reading merged them). Each `spec.version` stays 1
+  (below).
+- The descriptions of `gradient.peaks`, `gradient.blocks` and
+  `gradient.spectrum` give the axes of the gradients as the decoding gives
+  them (each block turned by its rotation where the decoding applies it, and
+  turned and scaled by the field of view of the session), not the logical axes
+  of the file. The description of `gradient.peaks` gives a tie of the vector
+  peak to the block of the earliest time, as the code does, not to the first
+  block in play order (review 2026-10-13 3.4). Each `spec.version` stays 1:
+  the versions of the analyses count from `0.1.0` (`docs/migration.md`,
+  section 9).
 
 ### The events
 

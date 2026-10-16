@@ -310,14 +310,18 @@ raster time.
 | `rms_hz_per_m` | The RMS amplitude over the range (Hz/m). |
 
 When several blocks have the largest value, the first of them in play order
-is the block of the value. A largest value of 0 has the block `None` and the
+is the block of the value. For the vector peak, the block is the block of the
+earliest time with the largest value
+([implementation, section 1.8](implementation.md#18-the-rms-and-the-vector-peak)).
+A largest value of 0 has the block `None` and the
 time 0.0. A ramp or a line between two events can belong to the block before
 or after it ([implementation, section 1.6](implementation.md#16-the-credit-of-each-item-to-a-block)).
 
 A NaN of the gradients (a plugin can read the amplitude `nan` of a file, which
 `spec` rejects) propagates. A NaN is larger than every number: the peak, the
 slew, the RMS and the vector peak of a range with a NaN are NaN, credited to the
-first block in play order with the NaN, at the time of its first NaN. In
+first block in play order with the NaN (for the vector peak, the block of the
+earliest time), at the time of its first NaN. In
 `block_gradient_values`, each block with a NaN has its NaN values at the time
 of its first NaN ([implementation, section 2.1](implementation.md#21-gradient_peaks-and-block_gradient_values)).
 

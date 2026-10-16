@@ -382,6 +382,22 @@ hardware that is not valid, as before.
 The values of the measurements change from those of the reading of
 `0.1.0rc6` only where the sources differ. Nothing raises a `spec.version`.
 
+The versions of the analyses count from `0.1.0`. Until then, each analysis
+stays at version 1, also when its contract changes. From `0.1.0`, a change of
+the contract of an analysis raises its `spec.version`. Two contracts change in
+`0.1.0rc7` with no new version:
+
+- **The axes.** The gradient values are of the axes of the gradients as the
+  decoding gives them: the logical axes of the file (x, y, z), each block
+  turned by its rotation where the decoding applies it, and turned and scaled
+  by the field of view of the session
+  ([`docs/usage.md`, section 2](usage.md#2-before-you-start)). In `0.1.0rc6`
+  they were the logical axes of the file.
+- **The tie of the vector peak** of `gradient.peaks`. The description of the
+  analysis gave it to the first block in play order. It now gives it to the
+  block of the earliest time with the largest value, which is what the code of
+  `0.1.0rc6` already did.
+
 | What | `0.1.0rc6` | `0.1.0rc7` |
 |---|---|---|
 | Amplitudes and shapes | pypulseq's `read` rounded the amplitude of a gradient or RF event to 6 significant digits and the samples of a shape to 9, and merged the events that were then equal | the values of the file, as float64 |
