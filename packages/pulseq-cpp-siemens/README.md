@@ -49,9 +49,12 @@ arbitrary gradient (see below). It raises:
 - `Rejected` when `ExternalSequence::load` returns false or throws, with the reader's
   `messages`. `decode_block`, `decode` and `gradients_at` raise it when `decodeBlock` returns
   false.
-- `UndefinedBehaviour` (a `Rejected`) for a case of undefined behaviour of the reader (section
-  5.3 of the plan), with its `code` (a key of `CODES`) and its `entry`, the ID of its condition
-  (section 2.2 of [`docs/specification.md`](docs/specification.md)).
+- `UndefinedBehaviour` (a `Rejected`) for the cases of undefined behaviour of the reader (section
+  5.3 of the plan). `cases` has every case that the checks find, in play order, each with its
+  `code` (a key of `CODES`), its `entry` (the ID of its condition, section 2.2 of
+  [`docs/specification.md`](docs/specification.md)) and its `message`. Each event, extension
+  list and set of extended trapezoids of a block gives one case at most, at the first block that
+  meets it. `code`, `entry`, `block` and `time_us` are those of the first case.
   No block of such a file is decoded. For `ub.gradient-one-point`, which only `gradientsAt` meets,
   `block` and `time_us` give a block and a time where the reader has it. `gradients_at` with
   `actual_ru` also raises it, before the reader runs, at a time where a soft delay longer than
@@ -249,7 +252,10 @@ that is not its default, for example `cpp-siemens(oversampling='edge')`.
 **The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to the ID
 of its entry (— for none) and what the reader rejects; section 2.5 of
 [`docs/specification.md`](docs/specification.md) lists them. The reader stops at its first error,
-so a rejection has one reason. Its message is the reader's own.
+so a rejection by the reader has one reason, and its message is the reader's own. A rejection for
+undefined behaviour has a reason for each case (`UndefinedBehaviour.cases`), at most
+`MAX_LOCATIONS` of `pulseq_analysis.seqfile.spec` for each code, and `SeqFileError.omitted` counts
+the others, as for `spec`.
 
 The reader gives a message, not a code. Each message of `load` that returns false is a pattern of
 `_LOAD_MESSAGES`, and `_classify` finds the code from the message. The order in which the patterns
@@ -398,7 +404,9 @@ behaviour, no end or a crash while the package decodes it. Each file gets one of
 sampling modes of oversampled gradients, from its seed and index (a function of the two numbers,
 from a generator of its own, so that the file does not depend on it); the package and the oracle
 (`--oversampling`) read the file in that mode. It also fails on a false alarm (the
-checks reject a file that the oracle reads), on another verdict, and on another value of
+checks reject a file that the oracle reads, except a file rejected for the 32-bit build: every
+case is `ub.gradient-time-range`, and the checks with the 64-bit `long` of the oracle's build find
+none, D5.11), on another verdict, and on another value of
 `gradientsAt` at the same times (the oracle's `--sample`, which also runs `gradientsAt` under the
 sanitizers). The worker samples each block twice: at its stored duration, and with an
 `actual_ru` that makes it last past the end of its last gradient event (the oracle's `--sample`
@@ -484,7 +492,9 @@ for it. Then add the file to `tests/fuzz_corpus/`, with the package's verdict on
   For files from unknown sources, a worker process is safer.
 - The scanner's build is not known. The package matches a build on x86_64 with a signed `char`
   and no FMA; MSVC's `/fp:precise` gives the same bits on the fixtures. `long` is 32 bits on
-  Windows, which matters only past 2^31 us.
+  Windows and 64 bits on Linux and macOS, which matters only for an extended trapezoid time past
+  2^31 us: the checks take 32 bits on every host (D5.11), so such a file is rejected also where
+  the reader of the host reads it.
 - Process-wide state outside the lock: the global C++ locale (the reader's `istringstream` reads
   the definitions with it), and any other code in the process that calls
   `ExternalSequence::SetPrintFunction`.

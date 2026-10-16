@@ -53,7 +53,12 @@ In each case below the reader reads or writes memory that it does not own, reads
 indeterminate value, or never ends. `cpp-siemens` rejects the file with a `ub.*` code
 (`UndefinedBehaviour` in this package, a `SeqFileError` in pulseq-analysis), whose `entry` is the
 ID of the case. The checks (`_checks.py`) run on the libraries after `load`, before any `GetBlock`
-or `decodeBlock`.
+or `decodeBlock`, and give every case of the file (the user, 2026-10-14):
+`UndefinedBehaviour.cases`, and a `Violation` of the `SeqFileError` for each, at most
+`MAX_LOCATIONS` of `pulseq_analysis.seqfile.spec` for each code, with `omitted` for the others.
+Each event, extension list and set of extended trapezoids of a block is checked once, and gives
+one case at most, at the first block that meets it. `UndefinedBehaviour.code` and `.entry` are
+those of the first case.
 
 Why (Q2, for each case): the reader has no single behaviour to follow (the same file crashes one
 build and reads in another), and it runs in this process, where a bad write or an endless loop
@@ -188,9 +193,16 @@ The same condition in `spec`: [D2.11](../../../docs/discrepancies.md#d211-any-ot
 #### D5.11: An extended trapezoid time that does not fit a long
 
 - Code: `ub.gradient-time-range`.
-- Condition: an extended trapezoid time that does not fit a `long`.
-- The reader: an undefined conversion (`cpp:2182`).
-- `cpp-siemens`: rejects the file with `ub.gradient-time-range`.
+- Condition: an extended trapezoid time that does not fit a `long` of 32 bits:
+  `0.5 + m_dGradientRasterTime_us*waveform[i]`, in double (`cpp:2182`), is not finite, or its
+  truncation is outside -2^31 to 2^31 - 1.
+- The reader: an undefined conversion (`cpp:2182`). `long` is 32 bits on the Windows build of the
+  Siemens host and 64 bits on Linux (MARS) and macOS, so a time between the two ranges is a case
+  for one build only.
+- `cpp-siemens`: rejects the file with `ub.gradient-time-range` on every host, whatever the size
+  of its `long` (the user, 2026-10-14), so that a file has one verdict: it is rejected where any build has undefined behaviour. The fuzzing
+  compares with the sanitized build of the host, of a 64-bit `long`, and accepts a file that the
+  checks reject only for the 32-bit `long`.
 - Fixture: `tests/fuzz_corpus/gradient-time-range.seq`.
 
 ### 2.3 Settings of the scanner
@@ -349,7 +361,8 @@ The same condition in `spec`: [D2.15](../../../docs/discrepancies.md#d215-an-adc
 The reader gives a message, not a code. `cpp-siemens` gives each rejection a stable code, so that
 a caller can tell rejections apart (P2). `_classify` finds the code from the reader's message,
 and, where the message is not enough, from the "as written" reading of pulseq-analysis. The reader
-stops at its first error, so a rejection has one reason, with the reader's message.
+stops at its first error, so a rejection by the reader has one reason, with the reader's message.
+A rejection for undefined behaviour has a reason for each case (section 2.2).
 
 | Code | ID | The reader rejects |
 |---|---|---|

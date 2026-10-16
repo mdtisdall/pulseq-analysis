@@ -9510,8 +9510,8 @@ the stored duration of block 4 hides, `{4: [(200.0, 240.0)]}`.
 
 **How:** The test changes the fixture, loads it, and calls the checks as `load` does.
 
-**Assumptions:** Task C8 of `docs/plans/remaining-review-fixes.md`: the checks look at every block
-after a case, so `hidden_one_point` covers every block.
+**Assumptions:** The checks look at every block after a case (the user, 2026-10-14: every case of
+undefined behaviour is a reason of the rejection), so `hidden_one_point` covers every block.
 
 #### `test_the_verdict_does_not_depend_on_the_size_of_long`
 
@@ -9523,8 +9523,8 @@ it reads the second file (its `long` has 64 bits).
 
 **How:** The test writes both files and loads them.
 
-**Assumptions:** Q2 (a) of `docs/plans/remaining-review-fixes.md`: the checks use a 32-bit `long`,
-the size of the Windows build of the reader, so that a file has one verdict on every host.
+**Assumptions:** The checks use a 32-bit `long` (the user, 2026-10-14), the size of the Windows
+build of the reader, so that a file has one verdict on every host (D5.11).
 
 #### `test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0`
 
@@ -10007,8 +10007,7 @@ each event once.
 **How:** The test changes the file and reads it with `cpp-siemens`. The event of each reason is
 the number after "gradient event" in its message.
 
-**Assumptions:** Q1 (A) of `docs/plans/remaining-review-fixes.md`: every case is a `Violation` of
-the one `SeqFileError`. A case of an event does not depend on the block, so an event of two
+**Assumptions:** Every case is a `Violation` of the one `SeqFileError` (the user, 2026-10-14). A case of an event does not depend on the block, so an event of two
 blocks gives one reason.
 
 #### `test_the_cases_of_one_code_are_capped_at_max_locations`

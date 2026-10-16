@@ -1,15 +1,17 @@
 """The checks of undefined behaviour of the C++ reader (section 5.3 of
 docs/plans/parser-redesign.md in pulseq-analysis). Each runs on what `ExternalSequence::load` put
 in its libraries (the reader's own reading of the file, `Libraries`) and follows what `GetBlock`
-and `decodeBlock` would do with it, without running them. `undefined_behaviour` returns the first
-case it finds, with its code, and the reads of `gradientsAt` that the stored duration of a block
-hides, which a soft delay can reach (`Checked`).
+and `decodeBlock` would do with it, without running them. `undefined_behaviour` returns every
+case it finds, each with its code, and the reads of `gradientsAt` that the stored duration of a
+block hides, which a soft delay can reach (`Checked`). Each event, extension list and set of
+extended trapezoids of a block is checked once, so a case of an event is one case, at the first
+block that plays it.
 
 The checks are safety-critical: a case that they miss runs in the process, and can end it or
 corrupt it silently. tests/test_fuzz.py compares them with the sanitized build of the reader.
 
-They look at every block, whether or not an earlier block would make `decodeBlock` return false,
-because `Sequence.decode_block` decodes any block. Within a block they are a superset: a step of
+They look at every block, whether or not an earlier block would make `decodeBlock` return false or
+has a case, because `Sequence.decode_block` decodes any block. Within a block they are a superset: a step of
 `decodeBlock` that a clean rejection earlier in the same block would skip is still checked. Such
 a file is rejected either way; it only gets the code of the case instead of the plain rejection.
 Where the reader takes another path and reads no more (a regular RF time shape is not
@@ -32,6 +34,12 @@ if TYPE_CHECKING:
     from . import Libraries
 
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1
+
+# The size of `long` (bytes) that `load` checks with (the user, 2026-10-14): 4, the size of the
+# Windows build of the reader, also on a host whose `long` has 8 bytes (Linux, macOS), so that a
+# file has one verdict on every host. A file is rejected where any build of the reader has
+# undefined behaviour (D5.11).
+CHECKED_SIZEOF_LONG = 4
 
 # The code of each case, with the ID of its entry (section 2.2 of docs/specification.md).
 CODES = {
@@ -63,6 +71,9 @@ class Case:
     block: int | None = None
     time_us: float | None = None
 
+    def __str__(self) -> str:
+        return f"{self.code} ({self.entry}): {self.message}"
+
 
 def _case(code: str, message: str, block=None, time_us=None) -> Case:
     return Case(code, CODES[code], message, block, time_us)
@@ -70,17 +81,22 @@ def _case(code: str, message: str, block=None, time_us=None) -> Case:
 
 @dataclass(frozen=True)
 class Checked:
-    """What `undefined_behaviour` found: the first case, or None, and the reads past the times of
-    an extended trapezoid of one point that the stored duration of a block hides. Those start
-    after the stored duration, so the reader meets them only when the hook
+    """What `undefined_behaviour` found: every case, in play order (empty for none), and the reads
+    past the times of an extended trapezoid of one point that the stored duration of a block
+    hides. Those start after the stored duration, so the reader meets them only when the hook
     `setActualSoftDelay_ru` makes the block last until them (`Sequence.gradients_at` with
-    `actual_ru`). `hidden_one_point` maps the play index of each such block to its intervals
+    `actual_ru`). `hidden_one_point` maps the play index of each such block of the file (except a
+    block with a case of its gradients, `undefined_behaviour`) to its intervals
     `(start_us, end_us)`: gradientsAt reads past the times at each time t of the block with
-    start_us <= t < end_us and t <= GetDuration(). With a case, it has only the blocks before
-    the case."""
+    start_us <= t < end_us and t <= GetDuration()."""
 
-    case: Case | None
+    cases: tuple[Case, ...]
     hidden_one_point: dict[int, list[tuple[float, float]]]
+
+    @property
+    def case(self) -> Case | None:
+        """The first case, or None."""
+        return self.cases[0] if self.cases else None
 
 
 def _int(value: int) -> bool:
@@ -455,49 +471,60 @@ def _check_extension_list(extension_list: dict, first: int, block: int) -> Case 
 
 
 def undefined_behaviour(libraries: Libraries, sizeof_long: int, gradient_rows=((), ())) -> Checked:
-    """The first case of undefined behaviour that `GetBlock`, `decodeBlock` and `gradientsAt` of
-    the blocks in play order, each at its stored duration, would meet, or None, and the reads of
-    `gradientsAt` that a soft delay can reach (`Checked`). `libraries` is what a `load` that
-    succeeded built; `load` checks that each event that a block names exists (cpp:2250-2262).
-    `gradient_rows` are the rows of [GRADIENTS] and [TRAP] (`Reader.gradient_rows`)."""
-    hidden: dict[int, list[tuple[float, float]]] = {}
-    case = _first_case(libraries, sizeof_long, gradient_rows, hidden)
-    return Checked(case, hidden)
+    """Every case of undefined behaviour that `GetBlock`, `decodeBlock` and `gradientsAt` of the
+    blocks in play order, each at its stored duration, would meet, and the reads of `gradientsAt`
+    that a soft delay can reach (`Checked`). `libraries` is what a `load` that succeeded built;
+    `load` checks that each event that a block names exists (cpp:2250-2262). `sizeof_long` is the
+    size of the reader's `long` in bytes (`load` gives `CHECKED_SIZEOF_LONG`). `gradient_rows` are
+    the rows of [GRADIENTS] and [TRAP] (`Reader.gradient_rows`).
 
-
-def _first_case(libraries: Libraries, sizeof_long: int, gradient_rows, hidden: dict) -> Case | None:
-    """The first case of `undefined_behaviour`. It adds to `hidden` the intervals of the reads
-    that the stored durations hide, in the blocks before the case."""
+    Each event, extension list and set of extended trapezoids of a block is checked once, and its
+    case is at the first block that plays it. A case that a block meets with an event (a
+    [GRADIENTS] row of shape 0 that it plays, an extended trapezoid of one point whose read it
+    reaches) is given once for each event, at the first such block. The extended trapezoids of a
+    block that has a case of its gradient events are not followed, since the buffer that they share
+    is then not known: the block has a case either way, and `hidden_one_point` has no interval of
+    it."""
     shapes = _Shapes(libraries.shapes)
     shape_0 = _gradients_of_shape_0(libraries, gradient_rows)
+    cases: list[Case] = []
+    hidden: dict[int, list[tuple[float, float]]] = {}
     checked_rf: dict[int, Case | None] = {}
     checked_grad: dict[int, Case | None] = {}
     checked_lists: dict[int, Case | None] = {}
     checked_traps: dict[tuple[int, ...], tuple[Case | None, dict[int, int]]] = {}
+    # The events whose case of a block (shape 0, one point) is in `cases`.
+    met: set[int] = set()
     for index, (duration_ru, rf, gx, gy, gz, _adc, ext) in enumerate(libraries.blocks.tolist()):
-        if ext > 0:
-            if ext not in checked_lists:
-                checked_lists[ext] = _check_extension_list(libraries.extension_list, ext, index)
+        if ext > 0 and ext not in checked_lists:
+            checked_lists[ext] = _check_extension_list(libraries.extension_list, ext, index)
             if checked_lists[ext]:
-                return checked_lists[ext]
-        if rf > 0:
-            if rf not in checked_rf:
-                checked_rf[rf] = _check_rf(shapes, rf, libraries.rf[rf])
+                cases.append(checked_lists[ext])
+        if rf > 0 and rf not in checked_rf:
+            checked_rf[rf] = _check_rf(shapes, rf, libraries.rf[rf])
             if checked_rf[rf]:
-                return checked_rf[rf]
+                cases.append(checked_rf[rf])
+        gradient_case = False
         for grad in (gx, gy, gz):
             if grad > 0:
                 if grad not in checked_grad:
                     checked_grad[grad] = _check_gradient(shapes, grad, libraries.grad[grad])
+                    if checked_grad[grad]:
+                        cases.append(checked_grad[grad])
                 if checked_grad[grad]:
-                    return checked_grad[grad]
-                if grad in shape_0:
-                    return _case(
-                        "ub.gradient-shape-0",
-                        f"block {index}: gradient event {grad} is a [GRADIENTS] row of shape 0, "
-                        "which the reader plays as a trapezoid with ramp and flat times that load "
-                        "never sets (cpp:1069)",
+                    gradient_case = True
+                if grad in shape_0 and grad not in met:
+                    met.add(grad)
+                    cases.append(
+                        _case(
+                            "ub.gradient-shape-0",
+                            f"block {index}: gradient event {grad} is a [GRADIENTS] row of shape "
+                            "0, which the reader plays as a trapezoid with ramp and flat times "
+                            "that load never sets (cpp:1069)",
+                        )
                     )
+        if gradient_case:
+            continue
         traps = tuple(
             grad
             for grad in (gx, gy, gz)
@@ -512,9 +539,11 @@ def _first_case(libraries: Libraries, sizeof_long: int, gradient_rows, hidden: d
             checked_traps[traps] = _extended_trapezoids(
                 shapes, events, libraries.gradient_raster_us, sizeof_long
             )
+            if checked_traps[traps][0]:
+                cases.append(checked_traps[traps][0])
         case, one_point = checked_traps[traps]
         if case:
-            return case
+            continue
         for position, time_us in sorted(one_point.items()):
             grad = traps[position]
             delay = libraries.grad[grad]["delay_us"]
@@ -526,14 +555,19 @@ def _first_case(libraries: Libraries, sizeof_long: int, gradient_rows, hidden: d
             if not start - delay < time_us:
                 continue
             if not start > duration:
-                return _case(
-                    "ub.gradient-one-point",
-                    f"block {index}: gradient event {grad} is an extended trapezoid of one point "
-                    f"at {time_us} us; gradientsAt reads past its times from {start} us "
-                    "(cpp:3639-3650)",
-                    index,
-                    start,
-                )
+                if grad not in met:
+                    met.add(grad)
+                    cases.append(
+                        _case(
+                            "ub.gradient-one-point",
+                            f"block {index}: gradient event {grad} is an extended trapezoid of "
+                            f"one point at {time_us} us; gradientsAt reads past its times from "
+                            f"{start} us (cpp:3639-3650)",
+                            index,
+                            start,
+                        )
+                    )
+                continue
             # After the stored duration: only a soft delay that reaches start meets it.
             hidden.setdefault(index, []).append((start, float(delay + time_us)))
-    return None
+    return Checked(tuple(cases), hidden)

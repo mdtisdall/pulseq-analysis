@@ -5,9 +5,11 @@ It reads a sampling mode of oversampled gradients and a path of a .seq file on e
 (separated by a tab) and writes one JSON object on a line of stdout for each:
 
 - "verdict": "not-supported", "rejected" (load, or a decodeBlock), "undefined-behaviour" (with
-  "code", and "where": [block, time] for a case that only gradientsAt meets, or [block, time,
-  actual_ru] for one that only gradientsAt with a soft delay meets), or "read" (every block
-  decodes);
+  "code", the code of the first case, "where": [block, time] for a case that only gradientsAt
+  meets, or [block, time, actual_ru] for one that only gradientsAt with a soft delay meets, and
+  "long_32_only" from `load`: true when every case is `ub.gradient-time-range` and the checks with
+  the `long` of this host, which the sanitized oracle's build has, find no case), or "read"
+  (every block decodes);
 - for "read": "points", the [block, time] and [block, time, actual_ru] lines that seqfuzz.py gives
   the sanitized oracle's `--sample`, and "values", the package's `gradients_at` there, as the hex
   of each float64.
@@ -24,6 +26,7 @@ import sys
 
 import numpy as np
 import pulseq_cpp_siemens as cs
+from pulseq_cpp_siemens import _checks
 
 # At most this many blocks are sampled, at a few times each.
 SAMPLED_BLOCKS = 24
@@ -92,6 +95,23 @@ def actual_ru_past_the_gradients(sequence: cs.Sequence, decoded: list[dict]) -> 
     return actual
 
 
+def long_32_only(path: str, oversampling: str, error: cs.UndefinedBehaviour) -> bool:
+    """Whether `load` rejects the file only for its `long` of 32 bits (`CHECKED_SIZEOF_LONG`,
+    D5.11): every case is `ub.gradient-time-range`, and the checks with the `long` of this host
+    (`_reader.SIZEOF_LONG`, 8 on Linux and macOS, where the sanitized oracle is built) find no
+    case, so that the oracle's build has no undefined behaviour on the file."""
+    if any(case.code != "ub.gradient-time-range" for case in error.cases):
+        return False
+    if cs._reader.SIZEOF_LONG == _checks.CHECKED_SIZEOF_LONG:
+        return False
+    reader = cs._reader.Reader(oversampling)
+    with open(path, "rb") as file:
+        reader.load(file.read())
+    libraries = cs.Libraries._from_reader(reader.libraries())
+    checked = _checks.undefined_behaviour(libraries, cs._reader.SIZEOF_LONG, reader.gradient_rows())
+    return not checked.cases
+
+
 def verdict(path: str, oversampling: str) -> dict:
     try:
         sequence = cs.load(path, oversampling=oversampling)
@@ -99,7 +119,12 @@ def verdict(path: str, oversampling: str) -> dict:
         return {"verdict": "not-supported"}
     except cs.UndefinedBehaviour as error:
         where = None if error.block is None else [error.block, error.time_us]
-        return {"verdict": "undefined-behaviour", "code": error.code, "where": where}
+        return {
+            "verdict": "undefined-behaviour",
+            "code": error.code,
+            "where": where,
+            "long_32_only": long_32_only(path, oversampling, error),
+        }
     except cs.Rejected:
         return {"verdict": "rejected", "stage": "load"}
     rejected = False

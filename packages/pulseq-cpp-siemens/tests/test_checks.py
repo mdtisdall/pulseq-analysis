@@ -177,7 +177,9 @@ def checked(path):
     ok, _ = reader.load(path.read_bytes())
     assert ok
     libraries = cs.Libraries._from_reader(reader.libraries())
-    return _checks.undefined_behaviour(libraries, cs._reader.SIZEOF_LONG, reader.gradient_rows())
+    return _checks.undefined_behaviour(
+        libraries, _checks.CHECKED_SIZEOF_LONG, reader.gradient_rows()
+    )
 
 
 def test_the_checks_give_the_one_point_reads_that_the_stored_duration_hides():
