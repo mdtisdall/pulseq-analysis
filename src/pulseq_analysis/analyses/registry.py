@@ -240,7 +240,7 @@ class _GradientPeaks:
         version=1,
         title="Gradient peaks",
         description=(
-            "A `GradientPeaks`: for each logical axis (x, y, z) of the range, the "
+            "A `GradientPeaks`: for each axis (x, y, z) of the range, the "
             "largest absolute amplitude (Hz/m), the largest slew (Hz/m/s) and the RMS "
             "amplitude (Hz/m), and the largest magnitude of the three-axis vector. The "
             "amplitude, the slew and the vector peak each come with a block ID and a time "
@@ -251,10 +251,14 @@ class _GradientPeaks:
             "raster time across a longer gap. The slew is the largest of the slopes of the "
             "segments (of the events, the ramps and the lines) and of the steps, each step "
             "divided by the gradient raster of the file. Each item has the credit of a "
-            "block, as docs/implementation.md gives it. When "
-            "several blocks have the largest value, the first in play order gets it. The "
-            "values are of the logical axes of the file, not of the axes of a scanner, and "
-            "they are not compared with a limit. The values are in the units of pypulseq, "
+            "block, as docs/implementation.md gives it. When several blocks have the largest "
+            "value, the first in play order gets it, except for the vector peak: its block is "
+            "the block of the earliest time with the largest value. The values are of the "
+            "axes of the gradients as the decoding gives them: the logical axes of the file "
+            "(x, y, z), each block turned by its rotation where the decoding applies it, and "
+            "turned and scaled by the field of view of the session. With the neutral session "
+            "they are not the physical axes of a scanner. They are not compared with a limit. "
+            "The values are in the units of pypulseq, "
             "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
             "T/m/s. The result is read-only. `window` is None or `(start_s, end_s)` in "
             "seconds from the start of the sequence. With a window, the values are those of "
@@ -289,7 +293,8 @@ class _GradientBlocks:
         title="Gradient values of each block",
         description=(
             "A `BlockGradientValues`: the values of `gradient.peaks` for each block, in "
-            "play order, not only the largest. For each logical axis (x, y, z) it gives the "
+            "play order, not only the largest. For each axis (x, y, z), as `gradient.peaks` "
+            "gives the axes, it gives the "
             "largest absolute amplitude (Hz/m) of the event of the block and its time, the "
             "largest slope (Hz/m/s) of a segment of that event or of its ramps and the "
             "start of that segment, and the junction (Hz/m/s): the step into the event "
@@ -477,7 +482,8 @@ class _GradientSpectrum:
             "than one raster time. Hann "
             "windows with 50 % overlap, the magnitude spectrum of each window, and the "
             "maximum over windows. The result has `frequency_hz` (from 0 up to the largest "
-            "frequency, float64), the spectrum of each logical axis (`axes`, with the keys "
+            "frequency, float64), the spectrum of each axis of the gradients as the decoding "
+            "gives them (`axes`, with the keys "
             "x, y, z) and `rss`, the root-sum-of-squares of the three axes in each window, "
             "then the maximum over windows. The values are in Hz/m/sqrt(Hz), the unit of "
             "the gradients of a `.seq` file, with no gamma. To get mT/m/sqrt(Hz), multiply "

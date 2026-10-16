@@ -2439,6 +2439,26 @@ block 1.
 **Assumptions:** The tie goes to the earliest time (the rule of the oracle). Here the earlier
 time is in the earlier block.
 
+#### `test_vector_peak_tie_goes_to_the_earliest_time_when_a_later_block_has_it`
+
+**Checks:** When two blocks have the same largest |G| and the later block in play order has
+the earlier time, the vector peak goes to the earliest time and its block, not to the first
+block in play order. This holds for the whole file and for a window that cuts the first block.
+
+**How:** The test writes a 1.5.1 file in `tmp_path` with two blocks of 20 µs. Block 1 has x at
+3e5 Hz/m from 0 to 20 µs + 0.5 ps (its time shape ends at 2.00000005 gradient rasters). Block
+2 has y at 4e5 Hz/m from 20 µs, flat for 10 µs, then down to 0. |G| is 5e5 Hz/m just after
+20 µs and just before 20 µs + 0.5 ps. Within `TIME_TOLERANCE`, the first value is credited to
+block 2 and the second to block 1. The test checks that `block_gradient_values` gives the
+vector peak 5e5 to both blocks, at 20 µs + 0.5 ps for block 1 and at 20 µs for block 2. It
+checks that `gradient_peaks` of the whole file and of the window from 10 µs to 40 µs give
+5e5 at 20 µs, credited to block 2.
+
+**Assumptions:** `spec` reads an event that ends less than 1 ps (`spec.TOLERANCE_NS`) after
+the end of its block, and it keeps the time of that end. A mutation that gives the tie to the
+first block in play order (`tied[0]` in place of the `argmin` of the times, in
+`grad_peaks._range_result`) fails the test, and the two tie tests above still pass.
+
 #### `test_axis_whose_only_event_is_zero_credits_no_block`
 
 **Checks:** An axis whose only event has amplitude 0 has a peak and a slew of 0, and no block

@@ -476,6 +476,77 @@ def test_vector_peak_time_on_a_tie_is_the_first_time_in_play_order():
     assert result.vector_peak_block == next(iter(seq.block_events))
 
 
+# Block 1 (20 us) has x at 3e5 Hz/m from 0 to 20 us + 0.5 ps: its time shape ends 5e-8 gradient
+# rasters after the end of the block, which `spec` accepts (1 ps, `spec.TOLERANCE_NS`). Block 2
+# (20 us) has y from 4e5 Hz/m at 20 us, flat for 10 us, then down to 0.
+_TIE_IN_A_LATER_BLOCK = """\
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 2 0 1 0 0 0 0
+2 2 0 0 2 0 0 0
+
+[GRADIENTS]
+1 300000 300000 300000 1 2 0
+2 400000 400000 0 3 4 0
+
+[SHAPES]
+
+shape_id 1
+num_samples 2
+1
+1
+
+shape_id 2
+num_samples 2
+0
+2.00000005
+
+shape_id 3
+num_samples 3
+1
+1
+0
+
+shape_id 4
+num_samples 3
+0
+1
+2
+"""
+
+
+def test_vector_peak_tie_goes_to_the_earliest_time_when_a_later_block_has_it(tmp_path):
+    """|G| is 5e5 Hz/m (3e5 on x, 4e5 on y) just after 20 us, where y starts, and just before
+    20 us + 0.5 ps, where x ends. Within `TIME_TOLERANCE`, the value after 20 us is credited to
+    block 2 and the value before 20 us + 0.5 ps to block 1, so block 1, the first block in play
+    order with the largest value, has the later time. The vector peak goes to the earliest time:
+    20 us, in block 2, for the whole file and for a window that cuts block 1."""
+    path = tmp_path / "tie.seq"
+    path.write_text(_TIE_IN_A_LATER_BLOCK)
+    snap = load(path)
+
+    blocks = block_gradient_values(snap)
+    assert blocks.block_id.tolist() == [1, 2]
+    assert blocks.vector_peak_hz_per_m.tolist() == [5e5, 5e5]
+    assert blocks.vector_peak_time_s[0] == pytest.approx(20e-6 + 0.5e-12, rel=0, abs=1e-14)
+    assert blocks.vector_peak_time_s[1] == pytest.approx(20e-6, rel=0, abs=1e-14)
+
+    for result in (gradient_peaks(snap), gradient_peaks(snap, window=(10e-6, 40e-6))):
+        assert result.vector_peak_hz_per_m == 5e5
+        assert result.vector_peak_time_s == pytest.approx(20e-6, rel=0, abs=1e-14)
+        assert result.vector_peak_block == 2
+
+
 def test_axis_whose_only_event_is_zero_credits_no_block():
     """A y event scaled to amplitude 0 (as a phase encode loop makes for the centre line of
     k-space), with an x trapezoid in the same block: the y axis has a peak and a slew of 0, and
