@@ -310,6 +310,14 @@ A caller moves in this order:
   `"-inf"`, before it reads the snapshot (review 2026-10-13 1.3.3). The JSON
   form of a `Series` uses these strings for a float that is not finite, so
   before, `to_series` of such a result raised `ValueError`.
+- `pns_levels` finds the largest total of each run at or above a threshold,
+  and its first sample, with NumPy over each chunk, in place of a Python loop
+  over the runs (review 2026-10-13 2.5c). The minimum of three runs in one
+  process on an Apple M1 Max, of `build_repeating` of
+  `tests/scale_sequences.py` with 1,000,000 blocks and pypulseq's example
+  hardware, with the thresholds 20, 25 and 30 MHz/T (645,361, 57,831 and
+  29,697 intervals): 11.4 s before and 10.8 s now, against 8.9 s with no
+  threshold. The output is the same, bit for bit.
 
 ### The modules
 

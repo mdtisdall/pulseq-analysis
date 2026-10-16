@@ -639,8 +639,9 @@ memory does not grow with the duration:
 
 After the last chunk, the model runs again on the one chunk of the peak, to
 find the time of the peak. Time O(S), plus O(S) for each threshold (a
-comparison, which adds a few percent), plus O(U) for the samples of the unique
-events that `block_samples` makes one time for each event (section 2.4). Memory O(chunk) for the samples (at the default `bin_s`, about
+comparison, and one `PnsInterval` for each run: about 7 % for each of 3
+thresholds inside the range of the levels, at 1,000,000 blocks), plus O(U) for
+the samples of the unique events that `block_samples` makes one time for each event (section 2.4). Memory O(chunk) for the samples (at the default `bin_s`, about
 6 MB; 34 MB for a `bin_s` of 2 s), plus the bins (at most `MAX_BINS`, 16 MB), the
 runs, and the cache of `block_samples`, which holds the samples of each unique
 event up to its last point, 8 bytes for each sample: 16 MB for 1000
