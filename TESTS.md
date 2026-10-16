@@ -11406,3 +11406,23 @@ the played gradients of the session fixture are the decoding's `gradients_at`
 (`monkeypatch`) by `load` with the session.
 
 **Assumptions:** None.
+
+#### `test_the_gradients_of_cpp_siemens_allocate_no_array_of_the_size_of_the_sequence`
+
+**Checks:** A call of `CppSiemensDecoding.gradients_at` (`CppSiemens(rotation="apply")`) with one
+read, under a session that scales the gradients (`gradient_scaling=(2, 1, 1)`), allocates nothing in
+proportion to the number of blocks (3 of 2.1 of the review of 2026-10-13, C10): in a 1.5.1 file of
+100 000 blocks, each of which plays one trapezoid of 1000 Hz/m on gx and the first of which has a
+rotation of 45 degrees about z, the peak of `tracemalloc` over the second call at 250 µs in the first
+block is below 100 kB, with `rotated` False, None and True. The values are (1000, 0, 0) Hz/m and,
+scaled and rotated, 2000·√0.5 Hz/m on x and on y and 0 on z (to 1e-2 Hz/m). A map of 8 bytes for
+each block is 800 kB.
+
+**How:** The test writes the file in `tmp_path`, calls `gradients_at` once before it starts
+`tracemalloc`, and reads the peak of `tracemalloc.get_traced_memory()` over one call. The file ends
+with a blank line, which the reader needs after its last section.
+
+**Assumptions:** The decoding builds the map of the rotations only under a session that rotates or
+scales; without one, the reader's own `gradients_at` rotates. numpy reports the memory of its
+arrays to `tracemalloc`. `test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence`
+(`test_decoding.py`) checks `spec`.
