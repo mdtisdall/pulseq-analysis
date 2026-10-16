@@ -6780,6 +6780,14 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
+#### `test_an_extension_type_id_that_is_not_positive_is_id_positive`
+
+**Checks:** spec:181, spec:472, spec:494 (decision Q4): a type ID of 0 or -1 in an `extension` header, or in the `type` column of a row of `[EXTENSIONS]`, gives one `id.positive`, with the section and the line of that ID.
+
+**How:** For each place and each of 0 and -1, the test changes one type ID of `valid_no_signature.seq` (the header `extension UNKNOWN 7`, or the type of the row `2 2 1 0`), writes the file in `tmp_path`, and compares the section and line of each `id.positive` with those of the changed line.
+
+**Assumptions:** The other violations of the file (a row of `[EXTENSIONS]` whose type no header now declares gives `ref.unresolved`) are not checked here.
+
 #### `test_the_extensions_of_a_later_revision_are_skipped_in_an_older_file`
 
 **Checks:** The version gate: in `valid_1_5_0_extensions_of_1_5_1.seq` (1.5.0), ROTATIONS and RF_SHIMS are in `skipped_extensions` (with UNKNOWN), their tables are empty, their type IDs are in `type_ids`, and the soft delay (from 1.5.0) is read. In a 1.4.1 file `extension DELAYS` is skipped and its rows are not read.

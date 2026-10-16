@@ -974,7 +974,7 @@ reader of the error sees that it is the package's choice and why.
 | `syntax.use` | spec:356-357 | an RF `use` that is not one of `e r i s p o u` |
 | `syntax.negative` | choice; D3.6 | a negative block duration, delay, rise, flat or fall time, number of samples, dwell time or trigger duration (spec:176 stores integers as unsigned, but defines negative values elsewhere) |
 | `syntax.shape` | spec:602-612; D3.11 | a shape without its `shape_id` and `num_samples` lines, a line of `[SHAPES]` outside a shape, or a shape with no blank line after it (a choice) |
-| `id.positive`, `id.unique`, `id.gradient-unique` | spec:181-183, spec:403; D3.4 | an ID that is not positive; an ID used twice in a class (for blocks a choice); a gradient ID in `[GRADIENTS]` and `[TRAP]` |
+| `id.positive`, `id.unique`, `id.gradient-unique` | spec:181-183, spec:403, spec:472, spec:494; D3.4 | an ID that is not positive, also the type ID of an extension (in an `extension` header or in `[EXTENSIONS]`); an ID used twice in a class (for blocks a choice); a gradient ID in `[GRADIENTS]` and `[TRAP]` |
 | `ref.unresolved` | spec:178-186, spec:478, spec:349, spec:395, slide 4; D4.3 | a reference to nothing; a list of extensions that does not end; time ID -1 for an RF event, or in a 1.4 file |
 | `blocks.empty`, `block.event-too-long` | spec:318 | no block; an event longer than its block |
 | `raster.adc-dwell`, `raster.gradient-delay`, `raster.gradient-end`, `raster.gradient-ramp`, `raster.gradient-flat` | spec:275, spec:290; slides 5, 10 | a time off its raster |
