@@ -3,7 +3,9 @@ import dataclasses
 import itertools
 import math
 import pickle
+import sys
 from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -262,6 +264,92 @@ def test_an_interval_of_one_sample_spans_one_sample_interval_from_its_first_samp
     assert interval.start_s == 2 * dt
     assert interval.end_s - interval.start_s == dt
     assert interval.peak_time_s == 2.5 * dt
+
+
+_NUMPY_DIR = str(Path(np.__file__).parent)
+
+
+def _numpy_calls(call) -> int:
+    """The number of NumPy calls that `call()` makes, at any depth: each call of a Python
+    function of the NumPy package, and each call of a C method of an array, a ufunc or the
+    `numpy` module (`sys.setprofile`)."""
+    count = 0
+
+    def profile(frame, event, arg):
+        nonlocal count
+        python = event == "call" and frame.f_code.co_filename.startswith(_NUMPY_DIR)
+        method = event == "c_call" and isinstance(
+            getattr(arg, "__self__", None), (np.ndarray, np.ufunc, type(np))
+        )
+        count += python or method
+
+    sys.setprofile(profile)
+    try:
+        call()
+    finally:
+        sys.setprofile(None)
+    return count
+
+
+def test_interval_finder_makes_as_many_numpy_calls_for_many_runs_as_for_one():
+    """The NumPy calls of `add_chunk` do not grow with the number of runs in the chunk: a
+    chunk with 40 runs makes as many as a chunk with 1 run (each run is one sample at 1.0,
+    between samples at 0.0, so no run touches an end of the chunk)."""
+
+    def calls(runs: int) -> int:
+        total = np.zeros(4 * runs + 1)
+        total[2::4] = 1.0
+        finder = _IntervalFinder(1.0, 0.5)
+        count = _numpy_calls(lambda: finder.add_chunk(0, total))
+        assert len(finder.finish()) == runs
+        return count
+
+    assert calls(40) == calls(1)
+
+
+def _reference_runs(total: np.ndarray, threshold: float, dt: float) -> tuple[PnsInterval, ...]:
+    """The runs of `total >= threshold` in the whole of `total`, with `itertools.groupby`,
+    each with the first sample of its largest total."""
+    runs = []
+    position = 0
+    for above, group in itertools.groupby(total >= threshold):
+        length = len(list(group))
+        if above:
+            run = total[position : position + length]
+            peak_sample = position + int(np.flatnonzero(run == run.max())[0])
+            runs.append(
+                PnsInterval(
+                    start_s=position * dt,
+                    end_s=(position + length) * dt,
+                    peak_hz_per_t=float(run.max()),
+                    peak_time_s=(peak_sample + 0.5) * dt,
+                    num_samples=length,
+                )
+            )
+        position += length
+    return tuple(runs)
+
+
+def test_interval_finder_gives_the_runs_of_a_reference_over_random_chunks():
+    """For 500 random totals, cut into random chunks (of 1 sample or more, so runs cross one
+    or more chunk boundaries), the intervals of `_IntervalFinder` equal the runs of the whole
+    totals that `_reference_runs` finds. The totals are 0, 0.5, 1 or 1.5, with a threshold of
+    1, so there are runs of one sample and ties of the largest total within a run, and some
+    totals are NaN (in no run)."""
+    dt = 1e-5
+    rng = np.random.default_rng(0)
+    for case in range(500):
+        num_samples = int(rng.integers(1, 80))
+        total = rng.integers(0, 4, num_samples) * 0.5
+        total[rng.random(num_samples) < 0.05] = np.nan
+        num_cuts = int(rng.integers(0, num_samples))
+        cuts = np.sort(rng.choice(np.arange(1, num_samples), num_cuts, replace=False))
+        finder = _IntervalFinder(dt, 1.0)
+        for start, chunk in zip(
+            np.concatenate(([0], cuts)).tolist(), np.split(total, cuts), strict=True
+        ):
+            finder.add_chunk(start, chunk)
+        assert finder.finish() == _reference_runs(total, 1.0, dt), case
 
 
 @pytest.mark.pypulseq
