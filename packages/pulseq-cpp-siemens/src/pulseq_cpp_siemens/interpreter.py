@@ -656,7 +656,8 @@ def _rotations(rotations: dict[int, tuple[float, float, float, float]]) -> np.nd
 # the offsets (s, from the delay) and the values (Hz/m) of its points.
 Points = tuple[float, np.ndarray, np.ndarray]
 
-# `CppSiemensDecoding.gradient_variants` before its first call.
+# A value that `CppSiemensDecoding` keeps (`gradient_variants`, and the rows of the rotations of
+# `gradients_at`), before its first call.
 _NOT_KEPT = object()
 
 
@@ -689,6 +690,9 @@ class CppSiemensDecoding:
         self._gradient_raster = data.rasters.gradient
         self._rotation_record: RotationRecord | None = None
         self._gradient_variants: Any = _NOT_KEPT
+        # The row of the quaternions of `rotations` of each block (-1 for none), and the
+        # quaternions, for `gradients_at`.
+        self._rotation_rows: Any = _NOT_KEPT
         blocks = data.blocks
         stored = np.asarray(blocks["duration_ticks"], dtype=np.int64)
         found = self._reading.block_soft_delays()
@@ -795,9 +799,12 @@ class CppSiemensDecoding:
         block_rows = np.zeros(block_index.size, dtype=bool)
         quaternions = np.zeros((0, 4))
         if rotate_blocks:
-            indices, table = self.rotations()
-            row = np.full(self.block_count, -1)
-            row[indices] = np.arange(indices.size)
+            if self._rotation_rows is _NOT_KEPT:
+                indices, table = self.rotations()
+                row = np.full(self.block_count, -1)
+                row[indices] = np.arange(indices.size)
+                self._rotation_rows = _frozen(row), _frozen(table)
+            row, table = self._rotation_rows
             block_rows = row[block_index] >= 0
             quaternions = table[row[block_index[block_rows]]]
         return physical_gradients(

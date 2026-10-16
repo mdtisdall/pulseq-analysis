@@ -205,6 +205,14 @@ A caller moves in this order:
   Apple M1 Max, of the played gradients of 300,000 readout blocks with a
   rotation each, under `spec`: 9.5 s before, 0.84 s now. The output is the
   same, bit for bit.
+- `SpecDecoding.gradients_at` sorts the reads by their event once, in place of
+  a scan of all the reads for each event, whose time grew as the square of the
+  number of blocks (review 2026-10-13 2.1). The decodings of `spec` and of
+  `cpp-siemens` keep the map from each block to its rotation, in place of an
+  array of the size of the sequence on each call. One run on an Apple M1 Max,
+  of one read in each block, each block with a trapezoid of its own: 0.75 s
+  before and 0.21 s now for 40,000 blocks, 6.7 s before and 0.78 s now for
+  160,000. The output is the same, bit for bit.
 - The block table (`seq.index`) gives the file's block IDs, and numbers the
   gradient events that play; two equal events with different IDs are two
   events (pypulseq's reading merged them). The spec of each analysis is not
