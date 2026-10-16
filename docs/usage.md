@@ -229,33 +229,12 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   ([implementation, section 6](implementation.md#6-argument-checks)).
 
 **The cost of each call.** The time of a call grows with the size of the
-sequence in one of two ways: with the number of blocks, or with the duration
-(the number of gradient raster samples). On an Apple M1 Max, for a GRE
-sequence of 100,000 blocks (120 s, 258 unique gradient events):
-
-| Call | Grows with | Time |
-|---|---|---|
-| `load(seq)` | the size of the sequence (pypulseq's writer) | 0.58 s |
-| `load(path)` | the size of the file | 0.07 s |
-| `sequence_index` | blocks | 18 ms |
-| `gradient_peaks(snap)`, the first gradient measurement | blocks, and unique gradient events | 46 ms |
-| `block_gradient_values`, after it | blocks | 0.5 ms |
-| `gradient_peaks(snap, window=...)`, after the first call | (almost constant) | under 1 ms |
-| `pns_levels` | duration | 0.87 s |
-| `gradient_spectrum` | duration | 0.89 s |
-
-From `sequence_index` on, each row is the time of its call after the rows above
-it, on one snapshot: the first call of `gradient_peaks` does not include the
-block table. The exception is `pns_levels`: it is the time of the model with no
-kept result. The first of `gradient_peaks(snap)` and `block_gradient_values`
-also reads the points of the unique gradient events and makes the values of each
-block, and the other one and the windows use them. A sequence with 20,002 unique
-gradient events (a new phase-encode event in each TR) takes 63 ms for the first
-call of `gradient_peaks`, 1.9 s for `load(seq)`, 0.84 s for `load(path)` and
-1.0 s for `gradient_spectrum`. These times are with `spec`; with `cpp-siemens`,
-`load(path)` takes 0.42 s and 0.61 s, and the other calls about the same.
-[Implementation, section 3](implementation.md#3-algorithms-and-cost) gives the
-algorithms, their complexity and more measured times.
+sequence: with the number of blocks, with the number of unique gradient events,
+or with the duration (the number of gradient raster samples).
+[Implementation, section 3.5](implementation.md#35-measured-times) gives the
+measured times of each call, and
+[section 3](implementation.md#3-algorithms-and-cost) the algorithms and their
+complexity.
 
 ## 3. Check the gradient limits
 
@@ -674,8 +653,10 @@ always in the result.
 for each block in play order, with the unique events of each kind numbered
 from 1 in the order of their first use. The gradient events are those that the
 measurements play: the events of the file by their IDs, and in a block whose
-gradients the decoding gives from `gradients_at` (a block that it rotates, or a
-block with an event after its end), an event of its own on each axis
+gradients the decoding gives from `gradients_at` (a block with a gradient event
+that it or the session's field of view rotates, or that the field of view
+scales, or a block with an event after its end), an event of its own on each
+axis of a rotated block, and on each axis with an event of another block
 ([implementation, section 2.5](implementation.md#25-the-block-table)).
 N is the number of blocks, and K the number of unique events of one kind.
 

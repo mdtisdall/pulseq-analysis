@@ -343,12 +343,14 @@ no `calc_duration`: the duration of a block is the one the file stores.
 **The numbers of the gradient events** (`gx`, `gy`, `gz`, `grad_first`,
 `grad_first_axis`) can differ from `0.1.0rc6` in two cases:
 
-- A block whose gradients the decoding gives from `gradients_at` has an event of
-  its own on each axis. These are a block that the decoding rotates by a
-  rotation that is not the identity (`spec` from 1.5.1; `cpp-siemens` with
-  `rotation="apply"`), a block that the session's field of view rotates or
-  scales, and a block with an event that ends after the end of the block
-  (`cpp-siemens` only; `spec` rejects such a file). These cases are new:
+- A block whose gradients the decoding gives from `gradients_at` has events of
+  its own. These are a block with a gradient event that the decoding rotates by
+  a rotation that is not the identity (`spec` from 1.5.1; `cpp-siemens` with
+  `rotation="apply"`) or that the session's field of view rotates, which has an
+  event of its own on each axis; and a block with a gradient event that the
+  field of view scales, or with an event that ends after the end of the block
+  (`cpp-siemens` only; `spec` rejects such a file), which has one on each axis
+  that has an event. These cases are new:
   `0.1.0rc6` refused a file with a rotation and had no session.
 - Two events with equal values and different IDs are two events. pypulseq's
   `read` merged them: its default is `remove_duplicates=True`.
