@@ -6,6 +6,7 @@ the reader ignored. The fixture `tests/session/scanner_session.seq` of pulseq-an
 in its `tests/test_session.py`.
 """
 
+import tracemalloc
 from pathlib import Path
 
 import numpy as np
@@ -155,3 +156,39 @@ def test_the_points_of_the_played_events_are_the_gradients_of_cpp_siemens_under_
 
     monkeypatch.setattr(test_played, "load", load_with_session)
     check_the_points_are_the_gradients(SESSION_FILE, interpreter)
+
+
+def test_the_gradients_of_cpp_siemens_allocate_no_array_of_the_size_of_the_sequence(tmp_path):
+    """A call of `gradients_at` of `cpp-siemens` (rotation "apply") with one read, under a session
+    that scales the gradients, allocates nothing in proportion to the blocks (3 of 2.1 of
+    `docs/reviews/2026-10-13-code-review.md` of pulseq-analysis, C10 of its
+    `docs/plans/remaining-review-fixes.md`): in a file of 100 000 blocks, the first of which has a
+    rotation, the peak of `tracemalloc` over the second call is below 100 kB, with `rotated`
+    False, None and True. A map of 8 bytes for each block is 800 kB."""
+    blocks = 100_000
+    rows = "".join(f"{i} 50 0 1 0 0 0 0\n" for i in range(2, blocks + 1))
+    path = tmp_path / "long.seq"
+    # A blank line ends the last section: the reader reads one with none to the end of the file,
+    # and then skips [DEFINITIONS] (`definitions.skipped`).
+    path.write_text(
+        "[VERSION]\nmajor 1\nminor 5\nrevision 1\n\n[DEFINITIONS]\nAdcRasterTime 1e-07\n"
+        "BlockDurationRaster 1e-05\nGradientRasterTime 1e-05\nRadiofrequencyRasterTime 1e-06\n\n"
+        f"[BLOCKS]\n1 50 0 1 0 0 0 1\n{rows}\n"
+        "[EXTENSIONS]\n1 1 1 0\n\nextension ROTATIONS 1\n1 0.92388 0 0 0.382683\n\n"
+        "[TRAP]\n1 1000 100 200 100 0\n\n"
+    )
+    session = Session(gradient_scaling=(2, 1, 1))
+    decoding = synth.decode(read_seqfile(path, CppSiemens(rotation="apply")), session)
+    assert decoding.block_count == blocks
+    turned = 2000 * np.sqrt(0.5)
+    for rotated in (False, None, True):
+        decoding.gradients_at([0], [250.0], rotated)
+        tracemalloc.start()
+        try:
+            values = decoding.gradients_at([0], [250.0], rotated)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        expected = [1000, 0, 0] if rotated is False else [turned, turned, 0]
+        np.testing.assert_allclose(values, [expected], rtol=0, atol=1e-2)
+        assert peak < 100e3, (rotated, peak)

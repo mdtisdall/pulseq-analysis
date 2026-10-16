@@ -162,6 +162,15 @@ class SpecDecoding:
     fov_record: FovRecord
     norot: np.ndarray
     noscale: np.ndarray
+    # The row of `rotation_quaternions` of each block, -1 for a block with no rotation: built once
+    # for `gradients_at` (`__post_init__`), read-only.
+    _rotation_rows: np.ndarray = dataclasses.field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        rows = np.full(self.block_count, -1, dtype=np.int64)
+        rows[self.rotation_blocks] = np.arange(self.rotation_blocks.size)
+        rows.flags.writeable = False
+        object.__setattr__(self, "_rotation_rows", rows)
 
     @property
     def block_count(self) -> int:
@@ -214,22 +223,32 @@ class SpecDecoding:
             raise ValueError("block_index and time_us differ in length")
         if np.isnan(time_us).any():
             raise ValueError("a time is NaN")
-        if block_index.size and (block_index.min() < 0 or block_index.max() >= self.block_count):
+        if not block_index.size:
+            return np.zeros((0, 3))
+        if block_index.min() < 0 or block_index.max() >= self.block_count:
             raise IndexError("a block index is not a block of the sequence")
         t = time_us * 1e-6
         out = np.zeros((block_index.size, 3))
         for axis, column in enumerate(_GRAD_COLUMNS):
+            # The reads in the order of their event ID, sorted once: the reads of one event are
+            # a slice of `order`, from its start to the next.
             ids = self.blocks[column][block_index]
-            for gid in np.unique(ids[ids != 0]):
-                rows = np.flatnonzero(ids == gid)
-                delay, offsets, amp = gradient_offsets(self.gradients[int(gid)])
+            order = np.argsort(ids)
+            sorted_ids = ids[order]
+            starts = np.flatnonzero(np.diff(sorted_ids, prepend=sorted_ids[:1] - 1))
+            ends = np.append(starts[1:], sorted_ids.size)
+            for start, end in zip(starts.tolist(), ends.tolist(), strict=True):
+                gid = int(sorted_ids[start])
+                if gid == 0:
+                    continue
+                rows = order[start:end]
+                delay, offsets, amp = gradient_offsets(self.gradients[gid])
                 out[rows, axis] = np.interp(t[rows] - delay, offsets, amp, left=0.0, right=0.0)
         outside = (t < 0) | (t > self.block_durations[block_index])
         out[outside] = 0.0
         if rotated is not None and not rotated:
             return out
-        row = np.full(self.block_count, -1)
-        row[self.rotation_blocks] = np.arange(self.rotation_blocks.size)
+        row = self._rotation_rows
         turned = row[block_index] >= 0
         return physical_gradients(
             out,
