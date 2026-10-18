@@ -80,6 +80,7 @@ the kinds of task here.
 | C15 | `perf/shapes-of-vectorized` | 2.5b | S | Q8; after C14 |
 | C16 | `perf/lazy-rf-adc-and-labels` | 2.4 | M | Q9; after C5, C10 |
 | C17 | `fix/spec-zero-time-trapezoid` | `TODO.md` | S | Q10 |
+| C18 | `fix/zero-length-event-plays-0` | C17 | S | Q10; after C17 |
 
 ### C1. An oversampled gradient of 0 samples in the "edge" mode (1.1.5)
 
@@ -283,6 +284,39 @@ the kinds of task here.
 Decision Q10 (from `TODO.md`): if `spec` should reject such a row, this task
 adds the rule, its record entry, and a test. If it reads it, this task is
 only the removal of the item from `TODO.md`.
+
+### C18. An event of length 0 plays 0 in the measurements (C17)
+
+The check of C17 found it; the user made it a task on 2026-10-18.
+
+- **The bug:**
+  - A gradient event whose points are all at one time (an event of length 0)
+    has no segment. `spec`'s `gradients_at` and the reader's `gradientsAt`
+    give 0 for it at each time of its block but its one time, where a
+    decoding can give another value (the reader gives the vertex of an
+    extended trapezoid of one vertex).
+  - In a block that is not read through `gradients_at`, `_played` keeps the
+    values of the decoding, and the measurements take them. Reproduced:
+    `valid_1_5_1.seq` with the `[TRAP]` row `1 1000000 0 0 0 100` alone in
+    block 2. `gradient_peaks` gives x a peak of 1 000 000 Hz/m in block 2,
+    above the vector peak of the file (500 000 Hz/m). With a rotation of the
+    field of view, the block is read through `gradients_at` and the peak is
+    gone. A window can leave it out too.
+  - The same through `cpp-siemens`, and with an extended trapezoid whose time
+    shape has one sample, which both interpreters read.
+- **The fix:** `_played` gives the values 0 to the points of each decoded
+  event whose points are all at one time, for every interpreter. It does so
+  after `_from_gradients_at`, whose plans take the steps of a block from the
+  decoded values (B6).
+- **The tests:**
+  - `test_an_event_of_length_0_plays_0_in_the_measurements_through_spec`
+    (`tests/test_played.py`): the measurements of the file equal those of the
+    same file with the amplitude 0, for a trapezoid and an extended
+    trapezoid, with and without a window and a rotation of the field of view;
+  - `test_the_played_points_of_an_event_of_length_0_are_0_through_spec`: the
+    played points are 0;
+  - the same two through `cpp-siemens` (plugin
+    `test_load_in_pulseq_analysis.py`), with the reader's 0.
 
 ## 4. Track D: the documents, their checks, and duplication
 
@@ -637,7 +671,7 @@ See Q28.
   | `synth/decoding.py` | C10, C16, D9, D10 |
   | plugin `interpreter.py` | C1, C8, D8, D10 |
   | `docs/usage.md` | D4, D5, D6, D7, D8, every task of track A |
-  | `docs/implementation.md` | D4, D5, C12, T6 |
+  | `docs/implementation.md` | D4, D5, C12, T6, C18 |
   | `tests/test_grad_peaks.py` | D7, T6, T7, T11, T12, A2, A4 |
   | `tests/test_safe.py` | T8, T9, T13 |
   | `tests/test_matlab_oracle.py` | T4, T14 |
@@ -652,6 +686,7 @@ See Q28.
   Wave 4:  C13 ||  C16 ||  D5  ||  D8  ||  T9  ||  T14
   Wave 5:  C14 ||  D6  ||  D9  ||  T11
   Wave 6:  C15 ||  D10 ||  T13 ||  C17
+  Wave 7:  C18
   Then:    A0, A1, ..., A8, one at a time
   Last:    D11, then the release 0.1.0rc7
   ```

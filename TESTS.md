@@ -1178,7 +1178,9 @@ measurements join the points with straight lines, and the decoding's `gradients_
 waveform of each interpreter. The fixtures are every file of `tests/seqfiles`. The interpreters
 are `spec` and the fake plugin `test_snapshot.Unrotated` (section 2.17); the same checks through
 `cpp-siemens` and its settings are in the plugin's tests (section 3.11), which import
-`check_the_points_are_the_gradients` and `load_or_none` from this module. The fake plugin
+`check_the_points_are_the_gradients`, `load_or_none` and the checks of an event of length 0
+(`check_an_event_of_length_0_plays_0_in_the_measurements`,
+`check_the_played_points_of_an_event_of_length_0_are_0`) from this module. The fake plugin
 `Doubled` (in this module) decodes the gradients of one block otherwise, and says so with
 `gradient_variants`, for the tests of the variants. The fake plugin `Late` (in this module) plays
 the events of one block wholly after the end of the block, or with all their points at one time.
@@ -1336,6 +1338,50 @@ and the offsets `[0, duration]`, bit for bit, then `gradient_peaks`.
 
 **Assumptions:** `Late`'s `gradients_at` is 0 in the whole of block 1, so the test does not tell
 whether the end of the block is a step; it checks the times of the points.
+
+#### `test_an_event_of_length_0_plays_0_in_the_measurements_through_spec`
+
+**Checks:** Through `spec`, a gradient event of length 0 (all its points at one time) with an
+amplitude that is not 0, alone in a block, gives the measurements of the same file with the
+amplitude 0: `gradient_peaks` and `block_gradient_values` are equal, over the whole file and in a
+window around the block, with and without a rotation of the field of view. `gradients_at` plays
+0 in the block, so the event adds nothing to the measurements.
+
+**How:** `_length_0_file` writes `valid_1_5_1.seq` to `tmp_path` with one event of length 0 at
+the delay 100 µs alone on gx in block 2 (play index 1, 300 to 800 µs), with the amplitude
+1 000 000 Hz/m and with 0. Parametrized over the kind of the event (the trapezoid 1 with rise,
+flat and fall times 0; a new extended trapezoid, the arbitrary gradient 7 with first and last 0
+and a wave shape and a time shape of one sample, 1 and 0), over no session and
+`Session(fov_rotation=...)` with 90 degrees about z, and over no window and the window 200 to
+900 µs. `check_an_event_of_length_0_plays_0_in_the_measurements` compares the two files: the
+peak of x, its block and its time, the vector peak and the whole result of `gradient_peaks`,
+then the peak of x in block 2 and the whole result of `block_gradient_values`. Without the fix,
+with no session, the peak of x is 1 000 000 Hz/m in block 2 at 400 µs, above the vector peak of
+the file (500 000 Hz/m); the file with the amplitude 0 has 282 843 Hz/m in block 5 over the
+whole file, and 0 in the window. With the session, the block is read through `gradients_at`, and
+the two files were already equal.
+
+**Assumptions:** One delay, inside the block, and one amplitude. `spec` reads both kinds of
+event. The test does not check an event of length 0 at the start or at the end of its block next
+to an event of another block.
+
+#### `test_the_played_points_of_an_event_of_length_0_are_0_through_spec`
+
+**Checks:** Through `spec`, the played points of a gradient event of length 0 with an amplitude
+that is not 0, in a block that is not read through `gradients_at`, have the delay and the
+offsets of the decoding and the values 0, the values that `gradients_at` plays in the block.
+
+**How:** Parametrized over the two kinds of `_length_0_file` (amplitude 1 000 000 Hz/m), read
+with no session. `check_the_played_points_of_an_event_of_length_0_are_0` checks that block 2
+keeps the decoded event on gx (the file ID 1 or 7), that the points of the decoding
+(`gradient_points`) are all at one time and not all 0, that `gradients_at` of the decoding is 0
+on each axis at 0, 50, 99, 101, 250 and 499 µs of the block, and that the played points
+(`played_gradients`) have the delay and the offsets of the decoding, bit for bit, and the values
+0. Without the fix, the played values are those of the decoding: 0, 1 000 000, 1 000 000 and 0
+for the trapezoid, and 0, 1 000 000 and 0 for the extended trapezoid.
+
+**Assumptions:** The probes of `gradients_at` leave out the one time of the event (100 µs),
+where `np.interp` gives the last value of the event.
 
 #### `test_blocks_with_the_same_events_and_duration_are_planned_once`
 
@@ -11640,6 +11686,36 @@ delay, and `gradient_peaks` gives a peak of 300 000 Hz/m and a slew of 3e10 Hz/m
 **Assumptions:** One delay (0), one value of `first` and `last`. `gradientsAt` plays 0 on X at
 every time of the block (cpp:3653-3678): before the delay, after it, and at the delay, where it
 returns early.
+
+#### `test_an_event_of_length_0_plays_0_in_the_measurements_through_cpp_siemens`
+
+**Checks:** Through `cpp-siemens`, a gradient event of length 0 with an amplitude that is not 0,
+alone in a block, gives the measurements of the same file with the amplitude 0, over the whole
+file and in a window around the block, with and without a rotation of the field of view.
+
+**How:** The cases and the check of
+`test_an_event_of_length_0_plays_0_in_the_measurements_through_spec` (section 2.3), with
+`cpp-siemens`. Without the fix, with no session, the peak of x is 1 000 000 Hz/m in block 2 at
+400 µs; the file with the amplitude 0 has 400 000 Hz/m in block 5 over the whole file (the
+rotations of the file are not applied), and 0 in the window.
+
+**Assumptions:** Those of the test through `spec`. The default settings of `cpp-siemens` only.
+
+#### `test_the_played_points_of_an_event_of_length_0_are_0_through_cpp_siemens`
+
+**Checks:** Through `cpp-siemens`, the played points of a gradient event of length 0 with an
+amplitude that is not 0 have the delay and the offsets of the decoding and the values 0, and the
+reader's `gradientsAt` is 0 in the block away from the one time of the event.
+
+**How:** The cases and the check of
+`test_the_played_points_of_an_event_of_length_0_are_0_through_spec` (section 2.3), with
+`cpp-siemens`, then the reader (`snap.data.reading.gradients_at`) at the same times of block 2
+(play index 1), compared exactly with 0. Without the fix, the played values are those of the
+reader's decoding: 0, 1 000 000, 1 000 000 and 0 for the trapezoid, and 1 000 000 three times for
+the extended trapezoid (the reader runs it from its one sample, whatever `first` and `last`).
+
+**Assumptions:** At the one time of the event the reader gives the value of the one vertex of the
+extended trapezoid; the test leaves that time out.
 
 #### `test_the_waveform_of_an_event_of_length_0_that_the_session_rotates_is_the_reader_s`
 

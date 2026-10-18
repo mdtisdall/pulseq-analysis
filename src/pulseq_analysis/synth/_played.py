@@ -7,7 +7,11 @@ The measurements read the gradients only through the decoding (`snapshot.Snapsho
 - **A decoded event**, by its file ID: the points that the decoding gives of the event in the
   first block and axis that play it (`Decoding.gradient_points`, not rotated). For `spec` these
   are the points of `seq_utils.gradient_offsets` of the event of `events`. A plugin gives the
-  points between which its `gradients_at` draws straight lines, in the same layout.
+  points between which its `gradients_at` draws straight lines, in the same layout. A decoded
+  event whose points are all at one time (an event of length 0, such as a trapezoid with rise,
+  flat and fall times 0) has no segment, and `gradients_at` gives 0 for it at each time but that
+  one, so its points keep their times and get the values 0, whatever values the decoding gives
+  them.
 - **A variant of a decoded event**: a plugin can decode one event otherwise in two blocks (a
   reader can decode the gradients of a block into one buffer). Its `Decoding.gradient_variants`
   then says which cells (a block and an axis) decode alike: those with the same event and the
@@ -121,9 +125,19 @@ def _played(snap: Snapshot) -> PlayedGradients:
         has_gradient |= column != 0
         too_long |= (column != 0) & (end[np.searchsorted(keys, column)] > duration + TIME_TOLERANCE)
     special = np.flatnonzero(((rotated | scaled) & has_gradient) | too_long)
+    decoded = list(points)
     if special.size:
         flags = norot.astype(np.int64) + 2 * noscale.astype(np.int64)
         _from_gradients_at(snap, special, rotated[special], flags, columns, points)
+    # A decoded event whose points are all at one time (an event of length 0) plays 0: the
+    # straight lines of `gradients_at` have no segment between its points, and are 0 before and
+    # after them. Its points keep their times. This comes after `_from_gradients_at`, whose plans
+    # take the steps of a block from the decoded values: at a step, the values just before and
+    # just after the time of such an event, not the value at that time.
+    for key in decoded:
+        delay, offsets, amp = points[key]
+        if np.size(offsets) and np.all(offsets == offsets[0]):
+            points[key] = (delay, offsets, np.zeros(np.shape(amp)))
     gx, gy, gz = _freeze(*columns)
     return PlayedGradients(gx, gy, gz, MappingProxyType(points))
 

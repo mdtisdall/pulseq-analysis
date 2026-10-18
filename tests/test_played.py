@@ -306,21 +306,42 @@ def test_an_event_that_starts_at_the_end_of_its_block_has_two_points_or_more(int
     assert np.abs(got - values).max() <= RTOL * scale
 
 
-# The rows of `valid_1_5_1.seq` that `_length_0_file` changes: the trapezoid 1 and block 2.
+# The rows of `valid_1_5_1.seq` that `_length_0_file` changes: the trapezoid 1 and block 2, and
+# the last arbitrary gradient and the end of the shapes, after which it adds a gradient and two
+# shapes.
 VALID_1_5_1 = SEQFILES / "valid_1_5_1.seq"
 TRAP_1_ROW = "1 1000000 100 200 100 100\n"
 BLOCK_2_ROW = "2  50  0  1  2  0  1  0\n"
+GRADIENT_6_ROW = "6 300000 0 0 7 -1 0\n"
+SIGNATURE_HEADER = "\n[SIGNATURE]\n"
 
 
-def _length_0_file(directory: pathlib.Path, extension: int) -> pathlib.Path:
-    """`valid_1_5_1.seq`, written in `directory`, with the trapezoid 1 of length 0 (rise, flat
-    and fall times 0, delay 100 us) alone in block 2 (play index 1), whose extension list is
-    `extension`: 0 for none, 3 for the rotation object 1 of the file (45 degrees about z)."""
+def _length_0_file(
+    directory: pathlib.Path,
+    extension: int,
+    amplitude: int = 1000000,
+    kind: str = "trapezoid",
+) -> pathlib.Path:
+    """`valid_1_5_1.seq`, written in `directory`, with one gradient event of length 0 (delay 100
+    us, amplitude `amplitude` Hz/m) alone on gx in block 2 (play index 1), whose extension list
+    is `extension`: 0 for none, 3 for the rotation object 1 of the file (45 degrees about z).
+
+    `kind` "trapezoid": the trapezoid 1 with rise, flat and fall times 0. `kind` "extended": the
+    new arbitrary gradient 7, an extended trapezoid with first and last 0, the wave shape 10 (one
+    sample, 1) and the time shape 11 (one sample, 0): its one vertex is at its delay."""
     text = VALID_1_5_1.read_text()
     assert text.count(TRAP_1_ROW) == 1 and text.count(BLOCK_2_ROW) == 1
-    text = text.replace(TRAP_1_ROW, "1 1000000 0 0 0 100\n")
-    text = text.replace(BLOCK_2_ROW, f"2  50  0  1  0  0  0  {extension}\n")
-    path = directory / "valid_1_5_1_length_0.seq"
+    assert text.count(GRADIENT_6_ROW) == 1 and text.count(SIGNATURE_HEADER) == 1
+    if kind == "trapezoid":
+        text = text.replace(TRAP_1_ROW, f"1 {amplitude} 0 0 0 100\n")
+        text = text.replace(BLOCK_2_ROW, f"2  50  0  1  0  0  0  {extension}\n")
+    else:
+        assert kind == "extended"
+        text = text.replace(GRADIENT_6_ROW, f"{GRADIENT_6_ROW}7 {amplitude} 0 0 10 11 100\n")
+        text = text.replace(BLOCK_2_ROW, f"2  50  0  7  0  0  0  {extension}\n")
+        shapes = "shape_id 10\nnum_samples 1\n1\n\nshape_id 11\nnum_samples 1\n0\n"
+        text = text.replace(SIGNATURE_HEADER, f"\n{shapes}{SIGNATURE_HEADER}")
+    path = directory / f"valid_1_5_1_length_0_{kind}_{amplitude}.seq"
     path.write_text(text)
     return path
 
@@ -390,6 +411,93 @@ def test_an_event_of_length_0_at_the_end_of_a_block_that_the_session_rotates_has
         delay, offsets, _ = played.points[int(column[1])]
         assert delay == 0.0 and np.array_equal(offsets, [0.0, duration])
     gradient_peaks(snap)
+
+
+# The kinds of the event of length 0 of `_length_0_file`, the sessions, and the ranges of
+# `gradient_peaks`: the whole file, and a window around block 2 (play index 1, 300 to 800 us)
+# with a part of each block next to it.
+LENGTH_0_KINDS = ["trapezoid", "extended"]
+LENGTH_0_SESSIONS = [
+    pytest.param(None, id="unrotated"),
+    pytest.param(Session(fov_rotation=QUARTER_Z), id="fov"),
+]
+LENGTH_0_WINDOWS = [pytest.param(None, id="whole"), pytest.param((200e-6, 900e-6), id="window")]
+# Times of block 2 (us from its start, 500 us long) away from the one time of the event (100 us).
+LENGTH_0_TIMES_US = np.array([0.0, 50.0, 99.0, 101.0, 250.0, 499.0])
+
+
+def check_an_event_of_length_0_plays_0_in_the_measurements(
+    directory: pathlib.Path, interpreter, kind: str, session, window
+) -> None:
+    """The measurements of `_length_0_file` of `kind` (written in `directory`) through
+    `interpreter` with `session` are those of the same file with the amplitude 0:
+    `gradient_peaks` with `window` (the peak of x, its block and its time, the vector peak, then
+    the whole result), and `block_gradient_values` (the peak of x in block 2, then the whole
+    result). A warning of the scanner settings (an interpreter that leaves the rotations of the
+    file unapplied) is ignored."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ScannerSettingWarning)
+        snap = load(_length_0_file(directory, 0, kind=kind), interpreter, session=session)
+        zero = load(_length_0_file(directory, 0, 0, kind), interpreter, session=session)
+    peaks, expected = gradient_peaks(snap, window=window), gradient_peaks(zero, window=window)
+    x, x_zero = peaks.axes["x"], expected.axes["x"]
+    assert (x.peak_hz_per_m, x.peak_block, x.peak_time_s) == (
+        x_zero.peak_hz_per_m,
+        x_zero.peak_block,
+        x_zero.peak_time_s,
+    )
+    assert peaks.vector_peak_hz_per_m == expected.vector_peak_hz_per_m
+    assert peaks == expected
+    values, expected_values = block_gradient_values(snap), block_gradient_values(zero)
+    assert values.peak_hz_per_m["x"][1] == expected_values.peak_hz_per_m["x"][1]
+    assert values == expected_values
+
+
+def check_the_played_points_of_an_event_of_length_0_are_0(
+    directory: pathlib.Path, interpreter, kind: str
+):
+    """With no session, block 2 of `_length_0_file` of `kind` (written in `directory`) keeps the
+    decoded event of `interpreter` on gx, whose points are all at one time and not all 0. The
+    decoding's `gradients_at` is 0 on each axis at `LENGTH_0_TIMES_US` of the block, and the
+    played points of the event have the delay and the offsets of the decoding and the values 0.
+    Returns the snapshot. A warning of the scanner settings is ignored."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ScannerSettingWarning)
+        snap = load(_length_0_file(directory, 0, kind=kind), interpreter)
+    event = 1 if kind == "trapezoid" else 7
+    played = played_gradients(snap)
+    assert int(played.gx[1]) == event
+    delay, offsets, amp = snap.decoding.gradient_points(event, 1, 0)
+    assert np.all(offsets == offsets[0]) and np.any(amp != 0)
+    blocks = np.ones(LENGTH_0_TIMES_US.size, dtype=np.int64)
+    assert np.array_equal(snap.decoding.gradients_at(blocks, LENGTH_0_TIMES_US), np.zeros((6, 3)))
+    played_delay, played_offsets, played_amp = played.points[event]
+    assert played_delay == delay and np.array_equal(played_offsets, offsets)
+    assert np.array_equal(played_amp, np.zeros(amp.size)), played_amp
+    return snap
+
+
+@pytest.mark.parametrize("window", LENGTH_0_WINDOWS)
+@pytest.mark.parametrize("session", LENGTH_0_SESSIONS)
+@pytest.mark.parametrize("kind", LENGTH_0_KINDS)
+def test_an_event_of_length_0_plays_0_in_the_measurements_through_spec(
+    tmp_path, kind, session, window
+):
+    """Through `spec`, a gradient event of length 0 with an amplitude that is not 0 (a trapezoid
+    with rise, flat and fall times 0, or an extended trapezoid of one vertex) alone in a block
+    gives the measurements of the same file with the amplitude 0, over the whole file and in a
+    window around the block, with and without a rotation of the field of view
+    (`check_an_event_of_length_0_plays_0_in_the_measurements`)."""
+    check_an_event_of_length_0_plays_0_in_the_measurements(tmp_path, "spec", kind, session, window)
+
+
+@pytest.mark.parametrize("kind", LENGTH_0_KINDS)
+def test_the_played_points_of_an_event_of_length_0_are_0_through_spec(tmp_path, kind):
+    """Through `spec`, the played points of a gradient event of length 0 with an amplitude that
+    is not 0, decoded in a block that is not read through `gradients_at`, are 0 at the times of
+    the decoding, as `gradients_at` plays the block
+    (`check_the_played_points_of_an_event_of_length_0_are_0`)."""
+    check_the_played_points_of_an_event_of_length_0_are_0(tmp_path, "spec", kind)
 
 
 # Five readouts with the same events and duration (the trapezoid 1 on gx and the ADC 1, 400 us),
