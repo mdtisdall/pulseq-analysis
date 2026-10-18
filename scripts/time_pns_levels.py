@@ -5,8 +5,8 @@ Builds `build_repeating` of `tests/scale_sequences.py` with about 10^6 blocks, a
 `pns_levels` would give the kept result, so each repeat would not run the model) with
 pypulseq's example hardware, which is not a real scanner (`pns_levels` has no default
 hardware, so the script gives
-`(safe_example_hw(), "pypulseq example hardware (not a real scanner)")`), `--repeat`
-times in this process. The script checks the hardware, the thresholds and the bin
+`SafeHardware.from_namespace(safe_example_hw(), "pypulseq example hardware (not a real
+scanner)")`), `--repeat` times in this process. The script checks the hardware, the thresholds and the bin
 (`BIN_S`) as `pns_levels` does, and gives `_compute_levels` the checked values. The result
 is the minimum time. With `--thresholds-hz-per-t T [T ...]` (in Hz/T) the call also has
 those thresholds, and without it the default of `pns_levels` is used (no threshold). The
@@ -120,6 +120,7 @@ def main() -> None:
         _compute_levels,
         _validated_thresholds,
     )
+    from pulseq_analysis.analyses.safe import SafeHardware
 
     if args.blocks < TR_BLOCKS:
         parser.error(f"--blocks must be at least {TR_BLOCKS}, one TR")
@@ -140,7 +141,9 @@ def main() -> None:
     load_seq_s, load_path_s, snap = load_times(seq, args.interpreter)
     print(f"load(seq) {load_seq_s:.2f} s, load(path) {load_path_s:.2f} s (not part of the result)")
 
-    hardware = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
+    hardware = SafeHardware.from_namespace(
+        safe_example_hw(), "pypulseq example hardware (not a real scanner)"
+    )
     _check_hardware(hardware)
     seconds = []
     for i in range(args.repeat):

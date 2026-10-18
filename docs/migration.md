@@ -39,7 +39,7 @@ where this guide gives the details.
 | `ctx.sequence` of a check | It becomes the snapshot. The snapshot has no `sequence`: use `snap.data` and `snap.decoding`. | [5](#5-the-snapshot) |
 | A file that breaks a rule: the check `timing.rasters` | `load` raises `SeqFileError` (a `ValueError`) with `violations`, each a `Violation(rule, section, line, message)`. `definitions.raster-missing` and `definitions.raster-invalid` are the codes of a missing and an invalid raster. | [4](#4-load) |
 | RF, ADC and soft-delay timing: the check `timing.pypulseq` runs pypulseq's `check_timing` on its own read | Unchanged, so pulseq-checks depends on pypulseq (or on the extra). For checks of its own, the package gives `decode_rf`, `decode_adc`, `snap.data.rasters`, `snap.data.extensions` and the block table. | [2](#2-install-and-dependencies), [6](#6-the-events) |
-| SAFE hardware as a `SimpleNamespace` in the form of `asc_to_hw`; `asc.read_gradient_asc` and `asc.hardware_name` | `SafeHardware` (`asc.safe_hardware(asc)` in place of `asc_to_hw`). The namespace still works. The two `asc` functions keep their names. | [8](#8-safe-hardware-and-asc-files) |
+| SAFE hardware as the pair `(namespace, label)`, the namespace in the form of `asc_to_hw`; `asc.read_gradient_asc` and `asc.hardware_name` | `hardware=SafeHardware.from_namespace(namespace, label)`: a `SafeHardware`, whose `name` is the label (`asc.safe_hardware(asc)` in place of `asc_to_hw`). The pair raises `TypeError`. The two `asc` functions keep their names. | [8](#8-safe-hardware-and-asc-files) |
 | `limits_from_sequence` and the `gamma` of a `pp.Sequence` | Unchanged: they stay in pulseq-checks. The model has no gamma. | |
 
 **pulseq-reports.**
@@ -375,21 +375,32 @@ in the same way, so the second case changes them too.
 
 | | `0.1.0rc6` | `0.1.0rc7` |
 |---|---|---|
-| `asc.hardware_from_asc(path)` | `(SimpleNamespace, label)`, made by pypulseq's `asc_to_hw` | `(SafeHardware, label)`. `SafeHardware` has the attributes `name`, `x`, `y` and `z`, as the namespace had, and is checked when it is made. |
-| `hardware.name` of a scanner `.asc` file | `"unknown"` (pypulseq's `asc_to_hw` read only `asCOMP.tName`) | `hardware_name(asc)`: `asCOMP[0].tName` or `asCOMP.tName`. The label of the pair was already this. |
+| `asc.hardware_from_asc(path)` | `(SimpleNamespace, label)`, made by pypulseq's `asc_to_hw` | a `SafeHardware`, whose `name` is the label of `0.1.0rc6`. `SafeHardware` has the attributes `name`, `x`, `y` and `z`, as the namespace had, and is checked when it is made. `hardware=hardware_from_asc(path)` does not change. |
+| `hardware.name` of a scanner `.asc` file | `"unknown"` (pypulseq's `asc_to_hw` read only `asCOMP.tName`) | `hardware_name(asc)`: `asCOMP[0].tName` or `asCOMP.tName`. The label of the pair was already this, so the label of a result does not change. |
 | A file with no gradient scale factors | a printed warning, and 1/pi assumed | `ValueError` that names the field |
 | pypulseq's `asc_to_hw(asc)` | the way to a hardware struct | `asc.safe_hardware(asc)` |
 | `asc.read_gradient_asc(path)` | pypulseq's `readasc` and the `$INCLUDE` rule | an own reader that gives the same fields; a line that it cannot read raises `ValueError` with the file and the line (`readasc` raised `RuntimeError`) |
-| `pns_levels(snap, hardware=...)` | the pair `(namespace, label)` | the pair `(struct, label)`, where `struct` is a `SafeHardware` or the old namespace. `SafeHardware.from_namespace(ns)` converts it. |
+| `pns_levels(snap, hardware=...)`, `PNS_SAFE_LEVELS.compute` | the pair `(namespace, label)` | a `SafeHardware`, whose `name` is the label: `hardware=(ns, label)` becomes `hardware=SafeHardware.from_namespace(ns, label)`. The pair raises `TypeError`, whose message names `SafeHardware.from_namespace`. `PnsLevels.hardware` and the `meta` key `hardware` of `pns_total` are the name, the value that the label had. |
 | `pns_levels.SAFE_FIELDS` | in `pns_levels` | in `analyses.safe` |
 | `seq_utils.gradient_offsets(g)` | a pypulseq event | an `events.Trapezoid` or `events.ArbitraryGradient` |
 
 A `SimpleNamespace` in the form of `asc_to_hw`, such as the one pulseq-checks
-builds with `safe_model.hw_from_dict`, is accepted: `pns_levels` converts it
-with `SafeHardware.from_namespace`. The PNS values do not change: the package
-has its own port of the SAFE code (`analyses.safe`), with the notices of the
-licenses of pypulseq's. `pns_levels` raises `TypeError` or `ValueError` for a
-hardware that is not valid, as before.
+builds with `safe_model.hw_from_dict`, is given with its label as
+`SafeHardware.from_namespace(ns, label)`:
+
+```python
+# 0.1.0rc6
+levels = pns_levels(snap, hardware=(ns, label))
+# 0.1.0rc7
+levels = pns_levels(snap, hardware=SafeHardware.from_namespace(ns, label))
+```
+
+The PNS values do not change: the package has its own port of the SAFE code
+(`analyses.safe`), with the notices of the licenses of pypulseq's. A hardware
+that is not valid raises the `TypeError` or `ValueError` of `0.1.0rc6`, but
+when its `SafeHardware` is made, not in `pns_levels`. A label `"nan"`, `"inf"`
+or `"-inf"` raises `ValueError` when the `SafeHardware` is made: in `0.1.0rc6`,
+`to_series` of its result raised `ValueError`.
 
 ## 9. The values that changed
 

@@ -95,12 +95,13 @@ else:
     print(f"{fraction:.0%} of the stimulation limit at {levels.peak_time_s:.4f} s")
 ```
 
-The hardware is necessary: the model has no default. It is a pair of the
-SAFE parameters and a name. `hardware_from_asc` reads the Siemens gradient
-`.asc` file of the scanner. For pypulseq's example hardware, which is not a
-real scanner, pass `hardware=(safe_example_hw(), "a label")`
-(`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`, so it needs the
-extra `pypulseq`).
+The hardware is necessary: the model has no default. It is a `SafeHardware`:
+the SAFE parameters and a name, which is the label of the result.
+`hardware_from_asc` reads it from the Siemens gradient `.asc` file of the
+scanner. For pypulseq's example hardware, which is not a real scanner, pass
+`hardware=SafeHardware.from_namespace(safe_example_hw(), "a label")`
+(`SafeHardware` is in `pulseq_analysis.analyses.safe`; `safe_example_hw` is in
+`pypulseq.utils.safe_pns_prediction`, so it needs the extra `pypulseq`).
 The PNS values are in Hz/T, so the example divides the peak by |γ| to get the
 fraction of the stimulation limit.
 [`docs/usage.md`](docs/usage.md) shows the other tasks and values.

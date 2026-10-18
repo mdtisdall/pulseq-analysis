@@ -64,9 +64,11 @@
 
 A `SafeHardware` is the nine parameters of each gradient axis (`SAFE_FIELDS`) and a name. It
 is immutable and checked when it is made, so a function that takes one needs no further check:
-every field is a finite real number, `stim_limit` is above 0, and `a1 + a2 + a3` of each axis
-is within 0.001 of 1. `asc.safe_hardware` makes one from a Siemens gradient `.asc` file, and
-`SafeHardware.from_namespace` from a `types.SimpleNamespace` in the form of pypulseq's
+every field is a finite real number, `stim_limit` is above 0, `a1 + a2 + a3` of each axis is
+within 0.001 of 1, and the name is a `str` that the `meta` of a `series.Series` takes (not
+"nan", "inf" or "-inf"). It is the `hardware` of `pns_levels`, whose label is its name.
+`asc.hardware_from_asc` and `asc.safe_hardware` make one from a Siemens gradient `.asc` file,
+and `SafeHardware.from_namespace` from a `types.SimpleNamespace` in the form of pypulseq's
 `asc_to_hw` and `safe_example_hw`. This module does not import pypulseq.
 
 The units of the fields are those of `safe_example_hw` of pypulseq: `tau1`, `tau2` and `tau3`
@@ -80,6 +82,7 @@ import numpy as np
 from scipy.signal import lfilter
 
 from .._validate import real
+from .series import _NON_FINITE
 
 __all__ = ["SAFE_FIELDS", "SafeAxis", "SafeHardware"]
 
@@ -141,8 +144,12 @@ class SafeAxis:
 class SafeHardware:
     """The SAFE hardware: `name` (a `str`) and the `SafeAxis` of `x`, `y` and `z`. The same
     attributes as the `types.SimpleNamespace` of pypulseq's `asc_to_hw`, so a function that
-    reads `hardware.x.tau1` takes either. Construction raises `TypeError` when `name` is not
-    a `str` or an axis is not a `SafeAxis`."""
+    reads `hardware.x.tau1` takes either. It is the `hardware` of `pns_levels.pns_levels`, and
+    `name` is the label that `PnsLevels.hardware` gives. Construction raises `TypeError` when
+    `name` is not a `str` or an axis is not a `SafeAxis`, and `ValueError` when `name` is
+    "nan", "inf" or "-inf": the `meta` of a `series.Series` refuses these strings, which its
+    JSON form uses for a float that is not finite, and `to_series` of `pns.safe.levels` puts
+    the name into the meta."""
 
     name: str
     x: SafeAxis
@@ -152,6 +159,11 @@ class SafeHardware:
     def __post_init__(self) -> None:
         if not isinstance(self.name, str):
             raise TypeError(f"SafeHardware.name must be a str, not {self.name!r}")
+        if self.name in _NON_FINITE:
+            raise ValueError(
+                f"SafeHardware.name {self.name!r} is not valid: the JSON form of a Series uses "
+                "it for a float that is not finite"
+            )
         for axis in _AXES:
             if not isinstance(getattr(self, axis), SafeAxis):
                 raise TypeError(
@@ -162,13 +174,15 @@ class SafeHardware:
     def from_namespace(cls, ns: object, name: str | None = None) -> "SafeHardware":
         """The `SafeHardware` of `ns`, an object with `.x`, `.y` and `.z`, each with the
         fields of `SAFE_FIELDS` (the `SimpleNamespace` of pypulseq's `asc_to_hw` or
-        `safe_example_hw()`). `name` is the name of the result; without it, it is `ns.name`,
-        or "unknown" when `ns` has none. An extra field of `ns` is ignored.
+        `safe_example_hw()`). `name` is the name of the result, the label of `pns_levels`;
+        without it, it is `ns.name`, or "unknown" when `ns` has none. An extra field of `ns` is
+        ignored.
 
         Raises `ValueError` when `ns` has no `x`, `y` or `z`, or an axis has no field of
         `SAFE_FIELDS` (the message names it, for example "'x.stim_thresh' missing in the
-        hardware struct"), and the errors of `SafeAxis` for a field that is not valid, with
-        the name of the axis in the message."""
+        hardware struct"), the errors of `SafeAxis` for a field that is not valid, with the
+        name of the axis in the message, and the errors of the constructor for a name that is
+        not valid."""
         axes = {}
         for axis in _AXES:
             axis_ns = getattr(ns, axis, None)

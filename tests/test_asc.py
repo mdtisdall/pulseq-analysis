@@ -237,21 +237,20 @@ def test_read_gradient_asc_raises_for_a_line_it_cannot_read(tmp_path, line, mess
 def test_hardware_from_asc_gives_the_safe_hardware_and_the_name_of_the_file(
     write_gradient_asc, split
 ):
-    """`hardware_from_asc(path)` is the pair `(safe_hardware(asc), hardware_name(asc))` of
-    `asc = read_gradient_asc(path)`, for the plain layout and for the layout of a scanner file
-    (a main file that includes the PNS parameters with `$INCLUDE`). The `SafeHardware` has the
-    name of the file and the fields of pypulseq's example hardware, which the fixture writes."""
+    """`hardware_from_asc(path)` is the `SafeHardware` `safe_hardware(asc)` of
+    `asc = read_gradient_asc(path)`, whose name (the label of `pns_levels`) is
+    `hardware_name(asc)`, for the plain layout and for the layout of a scanner file (a main
+    file that includes the PNS parameters with `$INCLUDE`). The `SafeHardware` has the name of
+    the file and the fields of pypulseq's example hardware, which the fixture writes."""
     path = write_gradient_asc(split=split)
     asc = read_gradient_asc(path)
 
     hardware = hardware_from_asc(path)
-    assert isinstance(hardware, tuple)
-    struct, label = hardware
-    assert isinstance(struct, SafeHardware)
-    assert label == hardware_name(asc) == struct.name == "MP_GPA_TEST"
-    assert struct == safe_hardware(asc)
+    assert isinstance(hardware, SafeHardware)
+    assert hardware.name == hardware_name(asc) == "MP_GPA_TEST"
+    assert hardware == safe_hardware(asc)
     for axis, fields in _example_fields().items():
-        assert dataclasses.asdict(getattr(struct, axis)) == fields
+        assert dataclasses.asdict(getattr(hardware, axis)) == fields
 
 
 @pytest.mark.pypulseq
@@ -264,7 +263,7 @@ def test_hardware_from_asc_has_the_fields_of_pypulseqs_asc_to_hw(write_gradient_
     path = write_gradient_asc(split=split)
     expected = asc_to_hw(read_gradient_asc(path))
 
-    struct, _ = hardware_from_asc(path)
+    struct = hardware_from_asc(path)
     assert vars(struct).keys() == vars(expected).keys()
     for axis in "xyz":
         assert dataclasses.asdict(getattr(struct, axis)) == vars(getattr(expected, axis))

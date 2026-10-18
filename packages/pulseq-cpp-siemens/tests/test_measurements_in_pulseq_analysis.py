@@ -38,10 +38,10 @@ from gap_sequences import (
 from oracles import grad_spectrum as spectrum_oracle
 from oracles import waveform as oracle
 from oracles.blocks import sequence_of
+from pns_hardware import EXAMPLE_HW
 from pulseq_cpp_siemens.interpreter import CppSiemens
 from random_gaps import random_gap_sequence
 from synthetic import (
-    EXAMPLE_HW,
     GAMMA_1H,
     RASTER_4US,
     RASTER_4US_JUNCTION,

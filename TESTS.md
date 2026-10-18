@@ -152,8 +152,8 @@ starts, after its docstring, with `pytestmark = pytest.mark.pypulseq` and
 `pytest.importorskip("pypulseq")`, before its other imports: without pypulseq,
 the module is skipped. `tests/conftest.py`, `tests/pns_hardware.py` and the
 constants of `synthetic.py` do not need pypulseq: the example SAFE hardware of
-the tests is `synthetic.safe_example_hw()`, `synthetic.EXAMPLE_HW` and
-`pns_hardware.EXAMPLE_HARDWARE`, with the numbers of pypulseq's
+the tests is `synthetic.safe_example_hw()` and `pns_hardware.EXAMPLE_HW` (its
+`SafeHardware`, with a label as its name), with the numbers of pypulseq's
 `safe_example_hw()`, which a test of section 2.21 checks. Without pypulseq,
 `synthetic.SYSTEM` is a stand-in too. The modules of the C++ oracle have the
 marker `cpp_oracle`.
@@ -401,16 +401,17 @@ and gives a new object. Where such a test has two results of the same arguments,
 that they are not the same object (`first is not second`): with `pns_levels` the second
 result would be the first and the test could not fail.
 
-`pns_levels` takes the hardware of the SAFE model as a pair `(struct, label)` (`hardware`),
-which is necessary and keyword-only; `struct` is a `safe.SafeHardware` or a SAFE hardware
-struct in the form of pypulseq's `asc_to_hw`. The tests give pypulseq's example hardware as the pair `EXAMPLE_HW`
-of `tests/synthetic.py` (`safe_example_hw()` and a label), and the hardware of a gradient
-`.asc` file as `hardware_from_asc(path)`. The tests of `hardware` in this section check
-a `hardware` with the struct of `safe_example_hw()` and a `hardware` from a gradient
-`.asc` file against `EXAMPLE_HW`. They compare the results exactly: the same struct
-values give the same float operations. The refusal of a missing `hardware`, of a
-`hardware` that is not a pair and of a struct that `_check_hardware` refuses is tested in
-section 2.7.
+`pns_levels` takes the hardware of the SAFE model as a `safe.SafeHardware` (`hardware`),
+which is necessary and keyword-only; its name is the label of the result. The tests give
+pypulseq's example hardware as `EXAMPLE_HW` of `tests/pns_hardware.py`
+(`SafeHardware.from_namespace` of `safe_example_hw()`, with a label as its name), and the
+hardware of a gradient `.asc` file as `hardware_from_asc(path)`. The tests of `hardware` in
+this section check a `SafeHardware` of `safe_example_hw()` with another name and one from a
+gradient `.asc` file against `EXAMPLE_HW`. They compare the results exactly: the same field
+values give the same float operations. The refusal of the pair `(struct, label)` of the
+earlier interface is tested in this section, and the refusal of a missing `hardware` and of
+a `hardware` that is not a `SafeHardware` in section 2.7. The checks of the fields and the
+name of a `SafeHardware`, when it is made, are tested in section 2.21.
 
 #### `test_summary_is_the_safe_model_of_the_oracle_samples`
 
@@ -714,20 +715,6 @@ the reference, every field.
 The test checks that the long sequence has more than `3 * _CHUNK_SAMPLES` samples and
 that the result of the short blocks has an interval. `assert_levels_equal` (`tests/asserts.py`) compares
 every field. The samples of a delay are 0 in both, so the totals are equal.
-
-**Assumptions:** None.
-
-#### `test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly`
-
-**Checks:** `hardware=(SafeHardware.from_namespace(struct), label)` gives the same result as
-`hardware=(struct, label)`, every field exactly equal, for the example hardware.
-
-**How:** Parametrized over the five sequences of
-`test_summary_is_the_safe_model_of_the_oracle_samples`. The test calls `_compute` (no keep)
-with the namespace pair `EXAMPLE_HW` and with the `SafeHardware`
-pair, with one threshold of half of `_LIMIT`, checks that the peak is above 0, and compares the
-two results with `assert_levels_equal` and `ignore=()` (`numpy.array_equal` for the arrays,
-`==` for the rest, so the intervals of the threshold are also compared).
 
 **Assumptions:** None.
 
@@ -1066,11 +1053,12 @@ not be equal:
 
 **Assumptions:** None.
 
-#### `test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair`
+#### `test_another_safe_hardware_of_the_example_struct_gives_the_levels_of_the_example_hardware`
 
-**Checks:** `pns_levels(snap, hardware=(safe_example_hw(), label))` gives the levels of
-`pns_levels(snap, hardware=EXAMPLE_HW)` (another struct object and another label), except `hardware`, which is the label, and each
-other field is exactly equal.
+**Checks:** `pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(),
+"LABEL"))` gives the levels of `pns_levels(snap, hardware=EXAMPLE_HW)` (another
+`SafeHardware` object with the same fields and another name), except `hardware`, which is
+the name, and each other field is exactly equal.
 
 **How:** For `spin_echo_sequence()` (on the raster) and for a sequence with a block off
 the raster, the test calls both and compares each field of the `PnsLevels` but
@@ -1137,26 +1125,6 @@ text.
 
 **Assumptions:** The other values of `hardware` that are not a `SafeHardware` (a struct
 that is not one, a path, `None`) are cases of a test of `test_pns_levels_kept.py`.
-
-#### `test_pns_levels_refuses_a_hardware_label_that_a_series_refuses_before_the_snapshot_type`
-
-**Checks:** `pns_levels` raises `ValueError` for a hardware label that the `meta` of a
-`Series` refuses: `"nan"`, `"inf"` and `"-inf"`, the strings that the JSON form of a
-`Series` uses for a float that is not finite. `to_series` puts the label into `meta`, so
-such a label would otherwise give a result whose series cannot be made. It does so before
-any work: before the type of the first argument is checked.
-
-**How:** Parametrized over the three strings. The test calls
-`pns_levels("sequence.seq", hardware=(safe_example_hw(), label))` inside
-`pytest.raises(ValueError, match="label")`. The first argument is a path, which is not a
-snapshot and would raise the `TypeError` that names `load`, so the error is still the one
-of the label.
-
-**Assumptions:**
-
-- The label is the second item of the `hardware` pair, which `PnsLevels.hardware` gives.
-- The `meta` of a `Series` refuses these three strings only, in lower case: `"NaN"` or
-  `"Inf"` is a valid label, and is not a case.
 
 #### `test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot`
 
@@ -3243,17 +3211,19 @@ sequence: the summary fields (`reason`, `hardware`, `peak_hz_per_t`,
 result that is not kept; a test that counts the runs of the model replaces `_compute_levels`
 of `pulseq_analysis.analyses.pns_levels` with a wrapper that counts its calls.
 `pns_levels` keeps one `PnsLevels` for each (snapshot, hardware, thresholds, `bin_s`),
-the hardware being a pair `(struct, label)` (its key is the label and the 24 values of
-the struct without `stim_thresh`, so two pairs with the same label and values are one
-hardware, whatever their structs are or where they came from), so that a caller that needs
+the hardware being a `SafeHardware` (its key is the name and the 24 values of the axes
+without `stim_thresh`, so two `SafeHardware`s with the same name and values are one
+hardware, whatever objects they are or where they came from), so that a caller that needs
 the PNS of one sequence more than once runs the SAFE model once. A snapshot never changes, so a kept result is
 never old (section 2.12). Each test makes its snapshot with `analyses.load`. The thresholds of the key are the tuple of
 `float(t)`, so an `int` threshold and the equal `float` are one key, and the default `()`
 is its own key. A PNS value is in Hz/T (the fraction of the stimulation limit times the
 magnitude of gamma). The test file defines `_LIMIT = GAMMA_1H`, the stimulation limit for
-1H in Hz/T (a fraction of 1 times `GAMMA_1H`). The `hardware` pair is necessary: without
-it, `pns_levels` raises `TypeError`. The tests give pypulseq's example hardware, which is not a real scanner, as the pair `EXAMPLE_HW` of
-`tests/synthetic.py`.
+1H in Hz/T (a fraction of 1 times `GAMMA_1H`). The `hardware` is necessary: without it,
+`pns_levels` raises `TypeError`. The tests give pypulseq's example hardware, which is not a
+real scanner, as `EXAMPLE_HW` of `tests/pns_hardware.py`, and other hardware as
+`SafeHardware.from_namespace(struct, name)` of a namespace in the form of pypulseq's
+`safe_example_hw()`.
 
 The real `.asc` files are confidential, so the tests write a test `.asc` file
 with the PNS parameters of pypulseq's example hardware, with the
@@ -3319,81 +3289,71 @@ must be no call of `sample` and at least one call of `block_samples`.
   `test_pns_levels.py` and `test_sampling.py` test `block_samples` and its agreement with `sample`
   and the oracle directly; this test only checks that the fast path is taken from `pns_levels`.
 
-#### `test_pns_levels_keeps_one_result_for_equal_hardware_pairs`
+#### `test_pns_levels_keeps_one_result_for_equal_safe_hardwares`
 
-**Checks:** Two `hardware` pairs with the same label and the same field values, with two
-different struct objects, are one hardware: the second call runs no model and gives the
-kept result.
+**Checks:** Two `SafeHardware`s with the same name and the same field values, two
+different objects, are one hardware: the second call runs no model and gives the kept
+result.
 
 **How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(snap,
-hardware=(safe_example_hw(), "LABEL"))` two times, each with a new struct. It checks
-that there was 1 call and that the second result `is` the first.
+hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL"))` two times, each with a
+new `SafeHardware`. It checks that there was 1 call and that the second result `is` the
+first.
 
 **Assumptions:** None.
 
 #### `test_pns_levels_computes_again_for_another_label_or_value`
 
-**Checks:** A `hardware` pair with another label, or with one other field value, runs
-the model; going back to an earlier pair does not run it again.
+**Checks:** A `SafeHardware` with another name (the label), or with one other field value,
+runs the model; going back to an earlier hardware does not run it again.
 
-**How:** The test counts the calls of `_compute_levels` as above and calls with the pairs a, a, b (the
-label "B"), c (`z.stim_limit` plus 1), a, c, each with a new struct where the values are
-the same. It checks the call count after each change: 1, 1, 2, 3, 3.
+**How:** The test counts the calls of `_compute_levels` as above and calls with the
+`SafeHardware`s a, a, b (the name "B"), c (`z.stim_limit` plus 1), a, c, each a new
+`SafeHardware` where the values are the same. It checks the call count after each change: 1,
+1, 2, 3, 3.
 
 **Assumptions:** None.
 
 #### `test_pns_levels_keys_the_hardware_on_each_field_of_each_axis`
 
-**Checks:** Each field of the key of a hardware (`_HW_FIELDS`, on each axis) is in the key: a pair
-with the same label and one field of one axis changed runs the model, and the unchanged pair still
-gives its kept result.
+**Checks:** Each field of the key of a hardware (`_HW_FIELDS`, on each axis) is in the key: a
+`SafeHardware` with the same name and one field of one axis changed runs the model, and the
+unchanged one still gives its kept result.
 
 **How:** Parametrized over the 8 fields of `_HW_FIELDS` and the axes x, y and z (24 cases). The
 test changes one field of one axis of `safe_example_hw()`: `a1`, `a2` or `a3` by 0.0005, so the sum
 stays within the tolerance of 1, and each other field to 1.1 times its value. It checks that the
-result of the changed pair is not the kept result of the unchanged pair, and that the unchanged pair
-then gives its kept object again.
+result of the changed hardware is not the kept result of the unchanged one, and that the
+unchanged one then gives its kept object again.
 
 **Assumptions:** None.
 
 #### `test_pns_levels_ignores_stim_thresh_in_the_hardware_key`
 
-**Checks:** Two `hardware` pairs with the same label that differ only in `stim_thresh`
-are one hardware.
+**Checks:** Two `SafeHardware`s with the same name that differ only in `stim_thresh` are one
+hardware.
 
 **How:** The test counts the calls of `_compute_levels` as above. It calls `pns_levels` with
-a pair and with a second pair where `z.stim_thresh` is 1 higher, both with the label "A". It
+a `SafeHardware` and with a second one where `z.stim_thresh` is 1 higher, both with the name
+"A". It
 checks that there was 1 call and that the second result `is` the first.
 
 **Assumptions:** The model does not use `stim_thresh`, and `PnsLevels.hw` does not keep it.
 
-#### `test_pns_levels_keeps_one_result_for_a_safe_hardware_and_its_namespace`
-
-**Checks:** A `SafeHardware` and the namespace with the same values, with the same label, are
-one hardware: the second call gives the kept result. The same values with another label are
-another hardware.
-
-**How:** The test counts the calls of `_compute_levels` as above. It calls `pns_levels` with
-`(safe_example_hw(), "A")`, then with `(SafeHardware.from_namespace(safe_example_hw()), "A")`,
-and checks that the second result is the first (`is`) and that there was 1 call. It then calls
-with the `SafeHardware` and the label "B" and checks that the result is not the first and that
-there were 2 calls.
-
-**Assumptions:** None.
-
 #### `test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values`
 
-**Checks:** The key of a pair from a file is its label and its values, as for any pair:
-the pair of `hardware_from_asc`, a second call of `hardware_from_asc`, and a pair made by
-hand from the same file are one hardware; the same values with another label are another
-hardware, and `EXAMPLE_HW` (the same values, another label) is a third. Each runs the
+**Checks:** The key of a `SafeHardware` from a file is its name and its values, as for any
+`SafeHardware`: the one of `hardware_from_asc`, a second call of `hardware_from_asc`, and one
+made by hand from the same file are one hardware; the same values with another name are
+another hardware, and `EXAMPLE_HW` (the same values, another name) is a third. Each runs the
 model one time.
 
-**How:** The test counts the calls of `_compute_levels` as above, calls `pns_levels` with the pair
-of the file, and then two times with `hardware_from_asc(path)` and with
-`(asc_to_hw(asc), hardware_name(asc))`; each result must be the first one (`is`) and the
-call count 1. It then calls two times the pair `(struct of the file, "OTHER")` and
-`EXAMPLE_HW`, and checks that there were 3 calls.
+**How:** The test counts the calls of `_compute_levels` as above, calls `pns_levels` with the
+`SafeHardware` of the file, and then two times with `hardware_from_asc(path)` and with
+`SafeHardware.from_namespace(asc_to_hw(asc), hardware_name(asc))`; each result must be the
+first one (`is`) and the call count 1. It then calls two times with the `SafeHardware` of
+the file with the name `"OTHER"` (`dataclasses.replace`) and with `EXAMPLE_HW`, and checks
+that there were 3 calls.
 
 **Assumptions:** None.
 
@@ -3404,42 +3364,6 @@ call count 1. It then calls two times the pair `(struct of the file, "OTHER")` a
 
 **How:** The test calls `pns_levels(spin_echo_sequence())` in
 `pytest.raises(TypeError, match="hardware")`.
-
-**Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients`
-
-**Checks:** The bad structs of the test above raise the same errors, with the same
-messages, for a sequence with no gradient event, which gives a `NO_GRADIENTS` result for
-a good struct.
-
-**How:** Parametrized on `BAD_STRUCTS`. The test calls
-`pns_levels(empty_sequence(), hardware=(struct, "BAD"))` in
-`pytest.raises(error, match=match)`, with the real sequence.
-
-**Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients`
-
-**Checks:** A struct whose `x.a1 + x.a2 + x.a3` is 0.9 raises `ValueError` (the message
-names `x.a1 + x.a2 + x.a3 must be 1`) for a sequence with no gradient event. The check is
-of the distance from 1, not of the signed difference.
-
-**How:** `safe_example_hw()` with `x.a1` lowered by 0.1. The test checks that the sum is
-about 0.9, then calls `pns_levels(empty_sequence(), hardware=(struct, "BAD"))` inside
-`pytest.raises`.
-
-**Assumptions:** None.
-
-#### `test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005`
-
-**Checks:** A struct whose `a1 + a2 + a3` is 1.005 on one axis raises `ValueError` that names that
-axis, for a sequence with no gradient event. 1.005 is outside the tolerance of 0.001, and inside a
-tolerance of 0.01.
-
-**How:** Parametrized over the axes x, y and z. `safe_example_hw()` with `a1` of that axis raised
-until the sum is 1.005, then `pns_levels(empty_sequence(), hardware=(struct, "BAD"))` inside
-`pytest.raises`.
 
 **Assumptions:** None.
 
@@ -3493,36 +3417,20 @@ object, with arrays equal to the copies.
 
 **Assumptions:** None.
 
-#### `test_pns_levels_refuses_a_bad_struct_before_the_snapshot_type`
+#### `test_pns_levels_refuses_a_hardware_that_is_not_a_safe_hardware_before_the_snapshot_type`
 
-**Checks:** `pns_levels` with a pair whose struct is bad raises the error of the
-defect, with a message that names it, before the type of the first argument is
-checked: `ValueError` for a struct with no `x`, with no `x.stim_thresh`, with
-`x.a1 = 5.0` and with `x.stim_limit = 0.0`, and for `x.tau1 = nan`; `TypeError` for
-`x.tau1 = "0.2"`. Without the check, the missing field gave `AttributeError` from
-`_hardware_key`.
+**Checks:** `pns_levels` with a `hardware` that is not a `SafeHardware` raises `TypeError`
+(the message starts `hardware must be a safe.SafeHardware`), before the type of the first
+argument is checked, and also for a sequence with no gradient event, which gives a
+`NO_GRADIENTS` result for a `SafeHardware`.
 
-**How:** Parametrized on `BAD_STRUCTS` of `tests/pns_hardware.py`: each is `safe_example_hw()` with
-one defect. The test calls
-`pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))` in
-`pytest.raises(error, match=match)`. The first argument is a `pp.Sequence`, which is not a
+**How:** Parametrized on `NOT_A_SAFE_HARDWARE` of `tests/pns_hardware.py` (a namespace in the
+form of pypulseq's `asc_to_hw`, the pair `(struct, label)` of the earlier interface with a
+namespace and with a `SafeHardware`, a list, a path and `None`). The test calls
+`pns_levels(spin_echo_sequence(), hardware=hardware)` and
+`pns_levels(load(empty_sequence()), hardware=hardware)`, each in `pytest.raises(TypeError)`
+with that text. The first argument of the first call is a `pp.Sequence`, which is not a
 snapshot and would raise the `TypeError` that names `load`.
-
-**Assumptions:** The rule of the check is that of `pns_levels._check_hardware`, as in the
-tests of section 2.2.
-
-#### `test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_the_snapshot_type`
-
-**Checks:** `pns_levels` with a `hardware` that is not a tuple of two items with a
-`str` second item raises `TypeError` (the message names `hardware`), before the type of the
-first argument is checked.
-
-**How:** Parametrized on `NOT_A_PAIR` of `tests/pns_hardware.py` (a struct alone, also a
-`SafeHardware` alone, a list, a tuple of three items, a label that is not a `str`, a path and
-`None`). The test calls
-`pns_levels(spin_echo_sequence(), hardware=hardware)` in
-`pytest.raises(TypeError, match="hardware")`. The first argument is a `pp.Sequence`, which is
-not a snapshot and would raise the `TypeError` that names `load`.
 
 **Assumptions:** None.
 
@@ -3537,8 +3445,9 @@ absolute path. For each order of the two, it makes a new snapshot of a synthetic
 sequence, calls `pns_levels` with the first and with the second, and checks that the results are
 the same object (`is`).
 
-**Assumptions:** The label of the pair is the component name in the file, with no path in it
-(the docstring of `hardware_from_asc`), so the two spellings give equal pairs.
+**Assumptions:** The name of the `SafeHardware` is the component name in the file, with no
+path in it (the docstring of `hardware_from_asc`), so the two spellings give equal
+`SafeHardware`s.
 
 ### 2.8 Series (`test_series.py`)
 
@@ -3745,7 +3654,7 @@ empty sequence gives no series.
 
 **How:** Parametrized over the sequence and the case of thresholds and bin. The body is
 `check_the_series_of_pns_safe_levels_are_valid`, which the test of section 3.10 calls too: it runs
-the analysis with `synthetic.EXAMPLE_HW`, calls `to_series`, checks the names, and checks
+the analysis with `pns_hardware.EXAMPLE_HW`, calls `to_series`, checks the names, and checks
 that each series equals its round trip through the strict JSON text. Constructing a
 series that is not valid would raise.
 
@@ -4563,9 +4472,10 @@ raises `AssertionError` when the code reads any attribute of it.
 
 **Checks:** `PNS_SAFE_LEVELS.compute(snap)` without `hardware` raises Python's own
 `TypeError` (a missing required keyword-only argument `hardware`), also with
-`thresholds_hz_per_t=(_LIMIT,)`. A `hardware` that is not a tuple of two items with a `str`
-second item (`None`, the bare struct, a 1-tuple, a pair with a label that is not a `str`, a
-list, a 3-tuple) raises `TypeError` with a message that contains
+`thresholds_hz_per_t=(_LIMIT,)`. A `hardware` that is not a `SafeHardware` (`None`, a
+namespace in the form of pypulseq's `asc_to_hw`, the pair `(struct, label)` of the earlier
+interface with a namespace and with a `SafeHardware`, a list) raises `TypeError` with a
+message that contains
 `asc.hardware_from_asc(path)` (the test checks only
 that text). Both happen before the sequence is read.
 
@@ -5705,12 +5615,12 @@ ends of the axis, where `waveforms()` has no extra point.
 files that it includes with `$INCLUDE` into nested fields (the package's own reader; the tests
 compare it with pypulseq's `readasc`, which it replaces); `hardware_name`, which takes the
 name of the hardware from the fields; `safe_hardware`, which makes the `SafeHardware` of the
-fields; and `hardware_from_asc`, which gives the pair `(SafeHardware, label)` that
+fields; and `hardware_from_asc`, which gives the `SafeHardware` of a file, which
 `pns_levels` takes. The real `.asc` files are confidential, so the tests
 that need a file with the PNS parameters write one with the `write_gradient_asc` fixture of
 `tests/conftest.py` (the PNS parameters of pypulseq's example hardware, in the plain layout or in
 the layout of a scanner file). The tests of the include rules write small files in `tmp_path`.
-That `pns_levels` keeps its result for a pair from a file is tested in section 2.7.
+That `pns_levels` keeps its result for the `SafeHardware` of a file is tested in section 2.7.
 
 #### `test_asc_file_with_a_missing_include`
 
@@ -5886,17 +5796,17 @@ reads it. The message must match `main.asc, line 2: ` and the reason.
 
 #### `test_hardware_from_asc_gives_the_safe_hardware_and_the_name_of_the_file`
 
-**Checks:** `hardware_from_asc(path)` is the pair `(safe_hardware(asc), hardware_name(asc))` of
-`asc = read_gradient_asc(path)`, for the plain layout and for the layout of a scanner file (a
-main file that includes the PNS parameters with `$INCLUDE`). The `SafeHardware` has the name of
-the file, also for the scanner layout, and the nine fields of each axis of pypulseq's example
+**Checks:** `hardware_from_asc(path)` is the `SafeHardware` `safe_hardware(asc)` of
+`asc = read_gradient_asc(path)`, whose name (the label of `pns_levels`) is
+`hardware_name(asc)`, for the plain layout and for the layout of a scanner file (a main file
+that includes the PNS parameters with `$INCLUDE`). The `SafeHardware` has the name of the
+file, also for the scanner layout, and the nine fields of each axis of pypulseq's example
 hardware, which the fixture writes.
 
 **How:** Parametrized on `split`. The `write_gradient_asc` fixture of `tests/conftest.py` writes
-the file. The test checks that the result is a tuple, that the struct is a `SafeHardware`, that
-the label, `hardware_name(asc)` and `struct.name` are `"MP_GPA_TEST"`, that the struct equals
-`safe_hardware(asc)`, and that `dataclasses.asdict` of each axis equals the fields of
-`safe_example_hw()`.
+the file. The test checks that the result is a `SafeHardware`, that its name and
+`hardware_name(asc)` are `"MP_GPA_TEST"`, that it equals `safe_hardware(asc)`, and that
+`dataclasses.asdict` of each axis equals the fields of `safe_example_hw()`.
 
 **Assumptions:** None.
 
@@ -7854,7 +7764,8 @@ for the samples of one chunk or of the next.
 
 **Checks:** `synthetic.safe_example_hw()` has the attributes and values of pypulseq's
 `safe_example_hw()` (the name, `checksum`, `dependency` and the nine fields of each axis), and
-`pns_hardware.EXAMPLE_HARDWARE` equals `SafeHardware.from_namespace` of pypulseq's.
+`pns_hardware.EXAMPLE_HW` equals `SafeHardware.from_namespace` of pypulseq's, with the name
+of `EXAMPLE_HW`.
 
 **How:** Marker `pypulseq`, and `pytest.importorskip` of pypulseq's module; the test compares
 the `vars` of the namespaces and their axes with `==`.
@@ -9498,7 +9409,7 @@ found (`test_without_pypulseq.py` runs the functions).
 checks it), then loads each `.seq` file of `tests/seqfiles/oracle/` with `load(path)`, skips a
 file that `spec` rejects (`SeqFileError` or `NotSupported`), runs `compute` and then
 `to_series` of each analysis of `registry()` on each snapshot (`pns.safe.levels` with the
-hardware `(pns_hardware.EXAMPLE_HARDWARE, label)`, the others with their defaults), and calls
+hardware `pns_hardware.EXAMPLE_HW`, the others with their defaults), and calls
 `read_pypulseq(object())`. It prints what it loaded and ran as JSON; the module fixture runs it
 one time, and each test reads its output.
 

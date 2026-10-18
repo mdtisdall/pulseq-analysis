@@ -12,12 +12,12 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from pns_hardware import hardware_for_peak
+from pns_hardware import EXAMPLE_HW, hardware_for_peak
 from synthetic import (
-    EXAMPLE_HW,
     GAMMA_1H,
     empty_sequence,
     gre_sequence,
+    safe_example_hw,
     spin_echo_sequence,
 )
 
@@ -628,8 +628,9 @@ def test_compute_of_seq_index_and_gradient_blocks_gives_the_kept_result():
 
 def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_is_read():
     """`PNS_SAFE_LEVELS.compute(snap)` without `hardware` raises Python's own `TypeError`
-    (a required keyword-only argument), and a `hardware` that is not a pair raises
-    `TypeError` with the message that says how to make one. Both do so for an object that
+    (a required keyword-only argument), and a `hardware` that is not a `SafeHardware` (also
+    the pair `(struct, label)` of the earlier interface) raises `TypeError` with the message
+    that says how to make one. Both do so for an object that
     raises when the code reads any attribute of it, so the check comes before the sequence
     is read, also with thresholds."""
 
@@ -641,8 +642,8 @@ def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_
         PNS_SAFE_LEVELS.compute(Unreadable())
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'hardware'"):
         PNS_SAFE_LEVELS.compute(Unreadable(), thresholds_hz_per_t=(_LIMIT,))
-    struct = EXAMPLE_HW[0]
-    for bad in (None, struct, (struct,), (struct, 3), [struct, "label"], (struct, "label", 1)):
+    struct = safe_example_hw()
+    for bad in (None, struct, (struct, "label"), (EXAMPLE_HW, "label"), [EXAMPLE_HW]):
         with pytest.raises(TypeError, match=re.escape("asc.hardware_from_asc(path)")):
             PNS_SAFE_LEVELS.compute(Unreadable(), hardware=bad)
 

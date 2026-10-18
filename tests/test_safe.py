@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from pns_hardware import EXAMPLE_HARDWARE
+from pns_hardware import EXAMPLE_HW
 from synthetic import EXAMPLE_AXES, safe_example_hw
 
 from pulseq_analysis.analyses.safe import (
@@ -336,7 +336,8 @@ def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
 @pytest.mark.pypulseq
 def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
     """`synthetic.safe_example_hw()` has the attributes and values of pypulseq's
-    `safe_example_hw()`, and `EXAMPLE_HARDWARE` is its `SafeHardware`."""
+    `safe_example_hw()`, and `EXAMPLE_HW` is its `SafeHardware`, with the label of the tests
+    as its name."""
     module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
     hardware = module.safe_example_hw()
     own = safe_example_hw()
@@ -346,7 +347,7 @@ def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
             assert vars(getattr(own, key)) == vars(value)
         else:
             assert getattr(own, key) == value
-    assert SafeHardware.from_namespace(hardware) == EXAMPLE_HARDWARE
+    assert SafeHardware.from_namespace(hardware, EXAMPLE_HW.name) == EXAMPLE_HW
 
 
 @pytest.mark.parametrize("dt_id", CHUNK_DTS)

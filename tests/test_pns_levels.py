@@ -12,9 +12,8 @@ import numpy as np
 import pytest
 from asserts import assert_levels_equal
 from optional_pypulseq import pp
-from pns_hardware import hardware_for_peak
+from pns_hardware import EXAMPLE_HW, hardware_for_peak
 from synthetic import (
-    EXAMPLE_HW,
     GAMMA_1H,
     SYSTEM,
     arbitrary_gradient_sequence,
@@ -174,7 +173,7 @@ def test_summary_is_the_safe_model_of_the_oracle_samples(build):
     axis_values, total = _oracle_model(snap, levels)
 
     assert levels.reason is None
-    assert levels.hardware == EXAMPLE_HW[1]
+    assert levels.hardware == EXAMPLE_HW.name
     assert levels.dt_s == seq.grad_raster_time
     assert levels.on_raster is True
     _assert_summary_is_the_model(levels, axis_values, total)
@@ -650,27 +649,12 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
 
 
 @pytest.mark.pypulseq
-@pytest.mark.parametrize("build", _SEQUENCES.values(), ids=_SEQUENCES.keys())
-def test_a_safe_hardware_gives_the_levels_of_the_equal_namespace_exactly(build):
-    """`hardware=(SafeHardware.from_namespace(struct), label)` gives every field of the
-    result (the level arrays, the summary and the intervals of a threshold) exactly equal to
-    `hardware=(struct, label)`, for the example hardware."""
-    snap = load(build())
-    safe_pair = (SafeHardware.from_namespace(EXAMPLE_HW[0]), EXAMPLE_HW[1])
-    thresholds = (0.5 * _LIMIT,)
-    expected = _compute(snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=thresholds)
-    levels = _compute(snap, hardware=safe_pair, thresholds_hz_per_t=thresholds)
-    assert levels.peak_hz_per_t > 0
-    assert_levels_equal(levels, expected, ignore=())
-
-
-@pytest.mark.pypulseq
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
     bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware."""
     levels = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW)
     assert levels.reason == NO_GRADIENTS
-    assert levels.hardware == EXAMPLE_HW[1]
+    assert levels.hardware == EXAMPLE_HW.name
     assert levels.level_min_hz_per_t.shape == (0,)
     assert levels.level_max_hz_per_t.shape == (0,)
     assert levels.peak_hz_per_t == 0.0
@@ -1123,19 +1107,6 @@ def test_pns_levels_refuses_a_pair_of_a_struct_and_a_label_with_the_name_of_from
         pns_levels("sequence.seq", hardware=(struct(), "LABEL"))
 
 
-@pytest.mark.parametrize("label", ["nan", "inf", "-inf"])
-def test_pns_levels_refuses_a_hardware_label_that_a_series_refuses_before_the_snapshot_type(
-    label,
-):
-    """`pns_levels` with a hardware label that the meta of a `Series` refuses ("nan", "inf"
-    and "-inf", the strings of the JSON form for a float that is not finite) raises
-    `ValueError` ("label"), before any work: the first argument is a path, which is not a
-    snapshot and would raise the `TypeError` that names `load`, and the error is still the one
-    of the label. `to_series` puts the label into `meta`, so it would fail there instead."""
-    with pytest.raises(ValueError, match="label"):
-        pns_levels("sequence.seq", hardware=(safe_example_hw(), label))
-
-
 @pytest.mark.parametrize(
     "source",
     [
@@ -1239,14 +1210,15 @@ def test_levels_compare_by_value():
 
 
 @pytest.mark.pypulseq
-def test_hardware_with_the_example_struct_gives_the_levels_of_the_example_pair():
-    """`hardware=(safe_example_hw(), label)` gives the levels of the call with `EXAMPLE_HW`
-    (another struct object, another label), exactly, except the hardware name, which is the
-    label, for a sequence on the raster and for one off it."""
+def test_another_safe_hardware_of_the_example_struct_gives_the_levels_of_the_example_hardware():
+    """`hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL")` gives the levels of
+    the call with `EXAMPLE_HW` (another `SafeHardware` object of the same fields, another
+    name), exactly, except the hardware name, which is the label, for a sequence on the raster
+    and for one off it."""
     for build in (spin_echo_sequence, _off_raster_sequence):
         snap = load(build())
         default = pns_levels(snap, hardware=EXAMPLE_HW)
-        levels = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
+        levels = pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL"))
         assert levels.hardware == "LABEL"
         assert_levels_equal(levels, default, ignore=("hardware",))
 

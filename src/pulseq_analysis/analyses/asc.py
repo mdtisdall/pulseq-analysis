@@ -1,8 +1,8 @@
 """The optional reader of a Siemens gradient system .asc file (MP_GPA_*.asc, or
 MP_GradSys_*.asc on newer software) into the SAFE hardware that the SAFE PNS functions take:
-`hardware_from_asc` makes the pair `(SafeHardware, label)` for `hardware=`, and
-`read_gradient_asc`, `safe_hardware` and `hardware_name` are the parts that it uses. The PNS
-functions take only the pair, never a file path. This module does not import pypulseq."""
+`hardware_from_asc` makes the `SafeHardware` for `hardware=`, and `read_gradient_asc`,
+`safe_hardware` and `hardware_name` are the parts that it uses. The PNS functions take only a
+`SafeHardware`, never a file path. This module does not import pypulseq."""
 
 import re
 from pathlib import Path
@@ -152,15 +152,15 @@ def _set_field(fields: dict, keys: list[str | int], value: str | float) -> None:
     node[keys[-1]] = value
 
 
-def hardware_from_asc(path: str | Path) -> tuple[SafeHardware, str]:
-    """The `hardware` pair of the .asc file `path`, for
-    `pns_levels.pns_levels(seq, hardware=...)`: `(safe_hardware(asc), hardware_name(asc))`,
-    where `asc` is `read_gradient_asc(path)` (with its `$INCLUDE` rule). The label is the
-    component name in the file, so a pair has no path in it: two spellings of the path of
-    one file give equal pairs. Raises `ValueError` for a file with no gradient scale factors
-    (see `safe_hardware`)."""
-    asc = read_gradient_asc(path)
-    return safe_hardware(asc), hardware_name(asc)
+def hardware_from_asc(path: str | Path) -> SafeHardware:
+    """The `hardware` of the .asc file `path`, for
+    `pns_levels.pns_levels(snap, hardware=...)`: `safe_hardware(asc)`, where `asc` is
+    `read_gradient_asc(path)` (with its `$INCLUDE` rule). Its name, the label of the result
+    of `pns_levels`, is `hardware_name(asc)`, the component name in the file, so it has no
+    path in it: two spellings of the path of one file give equal `SafeHardware`s. Raises
+    `ValueError` for a file with no gradient scale factors (see `safe_hardware`), and for a
+    component name that a `SafeHardware` refuses ("nan", "inf" or "-inf")."""
+    return safe_hardware(read_gradient_asc(path))
 
 
 def _merge(into: dict, fields: dict) -> None:
@@ -195,7 +195,8 @@ def safe_hardware(asc: dict) -> SafeHardware:
     Raises `ValueError` that names the field when `asc` has no field of the list. There is no
     default for the gradient scale factors: the SAFE model multiplies each PNS value by the
     factor of its axis, so a file without it gives no hardware. Raises the errors of
-    `SafeAxis` for a value that is not valid."""
+    `SafeAxis` for a value that is not valid, and those of `SafeHardware` for a name that is
+    not valid."""
     if "GradPatSup" in asc:
         prefix, pns = (
             "GradPatSup.Phys.PNS.",

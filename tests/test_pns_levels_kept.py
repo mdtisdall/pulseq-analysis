@@ -1,3 +1,6 @@
+import dataclasses
+import re
+
 import pytest
 
 pytestmark = pytest.mark.pypulseq
@@ -5,11 +8,10 @@ pytest.importorskip("pypulseq")
 
 import numpy as np
 import pypulseq as pp
-from pns_hardware import BAD_STRUCTS, NOT_A_PAIR
+from pns_hardware import EXAMPLE_HW, NOT_A_SAFE_HARDWARE
 from pypulseq.utils.safe_pns_prediction import safe_example_hw
 from pypulseq.utils.siemens.asc_to_hw import asc_to_hw
 from synthetic import (
-    EXAMPLE_HW,
     GAMMA_1H,
     SYSTEM,
     block_pulse,
@@ -92,37 +94,36 @@ def _count_pns_levels_calls(monkeypatch) -> list:
     return calls
 
 
-def test_pns_levels_keeps_one_result_for_equal_hardware_pairs(monkeypatch):
-    """Two `hardware` pairs with the same label and the same field values, with two
-    different struct objects, are one hardware: the second call runs no model and gives
-    the kept result."""
+def test_pns_levels_keeps_one_result_for_equal_safe_hardwares(monkeypatch):
+    """Two `SafeHardware`s with the same name and the same field values, two different
+    objects, are one hardware: the second call runs no model and gives the kept result."""
     calls = _count_pns_levels_calls(monkeypatch)
     snap = load(spin_echo_sequence())
 
-    first = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
-    second = pns_levels(snap, hardware=(safe_example_hw(), "LABEL"))
+    first = pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL"))
+    second = pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL"))
     assert len(calls) == 1
     assert second is first
 
 
 def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
-    """A `hardware` pair with another label, or with one other field value, is another
-    hardware and runs the model; going back to an earlier pair does not run it again (the
-    calls for pairs a, a, b (label), c (value), a, c give 3)."""
+    """A `SafeHardware` with another name (the label), or with one other field value, is
+    another hardware and runs the model; going back to an earlier hardware does not run it
+    again (the calls for the hardwares a, a, b (name), c (value), a, c give 3)."""
     calls = _count_pns_levels_calls(monkeypatch)
     snap = load(spin_echo_sequence())
     other_value = safe_example_hw()
     other_value.z.stim_limit += 1.0
 
-    pns_levels(snap, hardware=(safe_example_hw(), "A"))
-    pns_levels(snap, hardware=(safe_example_hw(), "A"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "A"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "A"))
     assert len(calls) == 1
-    pns_levels(snap, hardware=(safe_example_hw(), "B"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "B"))
     assert len(calls) == 2
-    pns_levels(snap, hardware=(other_value, "A"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(other_value, "A"))
     assert len(calls) == 3
-    pns_levels(snap, hardware=(safe_example_hw(), "A"))
-    pns_levels(snap, hardware=(other_value, "A"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "A"))
+    pns_levels(snap, hardware=SafeHardware.from_namespace(other_value, "A"))
     assert len(calls) == 3
 
 
@@ -130,7 +131,7 @@ def test_pns_levels_computes_again_for_another_label_or_value(monkeypatch):
 @pytest.mark.parametrize("field", pns_levels_module._HW_FIELDS)
 def test_pns_levels_keys_the_hardware_on_each_field_of_each_axis(default_snap, axis, field):
     """A struct that differs from the example struct in one field of one axis (`_HW_FIELDS`,
-    each of the 8 fields of each of the 3 axes), with the same label, is another hardware: the
+    each of the 8 fields of each of the 3 axes), with the same name, is another hardware: the
     call gives a new result and not the kept result of the example struct. The value is valid:
     `a1`, `a2` or `a3` is 0.0005 more (the sum of the three stays within 0.001 of 1), and
     another field is 1.1 times its value (`stim_limit` stays above 0). A key that left out
@@ -142,63 +143,57 @@ def test_pns_levels_keys_the_hardware_on_each_field_of_each_axis(default_snap, a
     assert new != old
     setattr(axis_struct, field, new)
 
-    kept = pns_levels(default_snap, hardware=(safe_example_hw(), "LABEL"))
-    changed = pns_levels(default_snap, hardware=(struct, "LABEL"))
+    kept = pns_levels(
+        default_snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL")
+    )
+    changed = pns_levels(default_snap, hardware=SafeHardware.from_namespace(struct, "LABEL"))
     assert changed is not kept
-    assert pns_levels(default_snap, hardware=(safe_example_hw(), "LABEL")) is kept
+    assert (
+        pns_levels(default_snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "LABEL"))
+        is kept
+    )
 
 
 def test_pns_levels_ignores_stim_thresh_in_the_hardware_key(monkeypatch):
-    """Two `hardware` pairs with the same label that differ only in `z.stim_thresh` are one
+    """Two `SafeHardware`s with the same name that differ only in `z.stim_thresh` are one
     hardware: the second call runs no model and gives the kept result."""
     calls = _count_pns_levels_calls(monkeypatch)
     snap = load(spin_echo_sequence())
     other_thresh = safe_example_hw()
     other_thresh.z.stim_thresh += 1.0
 
-    first = pns_levels(snap, hardware=(safe_example_hw(), "A"))
-    second = pns_levels(snap, hardware=(other_thresh, "A"))
+    first = pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "A"))
+    second = pns_levels(snap, hardware=SafeHardware.from_namespace(other_thresh, "A"))
     assert len(calls) == 1
     assert second is first
-
-
-def test_pns_levels_keeps_one_result_for_a_safe_hardware_and_its_namespace(monkeypatch):
-    """A `SafeHardware` and the namespace with the same values, with the same label, are one
-    hardware: the call with the namespace runs the model one time, and the call with the
-    `SafeHardware` gives the kept result (`is`). The same values with another label are
-    another hardware."""
-    calls = _count_pns_levels_calls(monkeypatch)
-    snap = load(spin_echo_sequence())
-    namespace_pair = (safe_example_hw(), "A")
-    safe_pair = (SafeHardware.from_namespace(safe_example_hw()), "A")
-
-    first = pns_levels(snap, hardware=namespace_pair)
-    assert pns_levels(snap, hardware=safe_pair) is first
-    assert len(calls) == 1
-    assert pns_levels(snap, hardware=(safe_pair[0], "B")) is not first
-    assert len(calls) == 2
 
 
 def test_pns_levels_keys_a_hardware_from_an_asc_file_by_its_label_and_values(
     monkeypatch, write_gradient_asc
 ):
-    """The key of a pair from a file is its label and its values, as for any pair: the
-    pair of `hardware_from_asc`, a pair made again by hand from the same file, and a pair
-    from the file read again are one hardware; the same values with another label are
-    another, and so is `EXAMPLE_HW` (the same values, another label). Each of the two
+    """The key of a `SafeHardware` from a file is its name and its values, as for any
+    `SafeHardware`: the one of `hardware_from_asc`, one made again by hand from the same file
+    (`SafeHardware.from_namespace` of pypulseq's `asc_to_hw`, with `hardware_name`), and one
+    from the file read again are one hardware; the same values with another name are
+    another, and so is `EXAMPLE_HW` (the same values, another name). Each of the two
     hardwares runs the model one time, in two rounds."""
     calls = _count_pns_levels_calls(monkeypatch)
     snap = load(spin_echo_sequence())
     path = write_gradient_asc()
     asc = read_gradient_asc(path)
     from_file = hardware_from_asc(path)
-    relabelled = (from_file[0], "OTHER")
+    relabelled = dataclasses.replace(from_file, name="OTHER")
 
     first = pns_levels(snap, hardware=from_file)
     assert len(calls) == 1
     for _ in range(2):
         assert pns_levels(snap, hardware=hardware_from_asc(path)) is first
-        assert pns_levels(snap, hardware=(asc_to_hw(asc), hardware_name(asc))) is first
+        assert (
+            pns_levels(
+                snap, hardware=SafeHardware.from_namespace(asc_to_hw(asc), hardware_name(asc))
+            )
+            is first
+        )
     assert len(calls) == 1
 
     for _ in range(2):
@@ -214,57 +209,19 @@ def test_pns_levels_needs_hardware():
         pns_levels(spin_echo_sequence())  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("hardware", NOT_A_PAIR)
-def test_pns_levels_refuses_a_hardware_that_is_not_a_pair_before_the_snapshot_type(hardware):
-    """`pns_levels` with a `hardware` that is not a tuple of two items with a `str`
-    second item raises `TypeError` ("hardware"), before the type of the first argument is
+@pytest.mark.parametrize("hardware", NOT_A_SAFE_HARDWARE)
+def test_pns_levels_refuses_a_hardware_that_is_not_a_safe_hardware_before_the_snapshot_type(
+    hardware,
+):
+    """`pns_levels` with a `hardware` that is not a `SafeHardware` raises `TypeError`
+    ("hardware must be a safe.SafeHardware"), before the type of the first argument is
     checked: the first argument is a `pp.Sequence`, which is not a snapshot and would raise the
-    `TypeError` that names `load`, and the error is still the one of `hardware`."""
-    with pytest.raises(TypeError, match="hardware"):
+    `TypeError` that names `load`, and the error is still the one of `hardware`. The same
+    holds for a sequence with no gradient event, which gives a result for a `SafeHardware`."""
+    with pytest.raises(TypeError, match=re.escape("hardware must be a safe.SafeHardware")):
         pns_levels(spin_echo_sequence(), hardware=hardware)
-
-
-@pytest.mark.parametrize(("struct", "error", "match"), BAD_STRUCTS)
-def test_pns_levels_refuses_a_bad_struct_before_the_snapshot_type(struct, error, match):
-    """`pns_levels` with a pair whose struct has no `x`, no `x.stim_thresh`,
-    `x.a1 = 5.0`, `x.stim_limit = 0.0`, `x.tau1 = nan` or `x.tau1 = "0.2"` raises the error
-    of that defect, with its message, before the type of the first argument is checked: the
-    first argument is a `pp.Sequence`, which is not a snapshot."""
-    with pytest.raises(error, match=match):
-        pns_levels(spin_echo_sequence(), hardware=(struct, "BAD"))
-
-
-@pytest.mark.parametrize(("struct", "error", "match"), BAD_STRUCTS)
-def test_pns_levels_refuses_a_bad_struct_for_a_sequence_without_gradients(struct, error, match):
-    """The bad structs of `BAD_STRUCTS` raise the same errors for a sequence with no
-    gradient event, which gives a result for a good struct."""
-    with pytest.raises(error, match=match):
-        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
-
-
-def test_pns_levels_refuses_a_sum_of_the_a_fields_below_1_for_a_sequence_without_gradients():
-    """A struct whose `x.a1 + x.a2 + x.a3` is 0.9, more than 0.001 below 1, raises
-    `ValueError` (the message names `a1 + a2 + a3`) for a sequence with no gradient event:
-    the check is of the distance from 1, not of the signed difference."""
-    struct = safe_example_hw()
-    struct.x.a1 -= 0.1
-    assert struct.x.a1 + struct.x.a2 + struct.x.a3 == pytest.approx(0.9)
-    with pytest.raises(ValueError, match=r"x\.a1 \+ x\.a2 \+ x\.a3 must be 1"):
-        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
-
-
-@pytest.mark.parametrize("axis", "xyz")
-def test_pns_levels_refuses_a_sum_of_the_a_fields_that_is_1_005(axis):
-    """A struct whose `a1 + a2 + a3` on one axis is 1.005, more than 0.001 above 1, raises
-    `ValueError` (the message names `a1 + a2 + a3` of that axis) for a sequence with no
-    gradient event. The sum 0.9 of the test above is far from the limit: this one is 0.004
-    beyond it, so a limit of 0.01 would accept it."""
-    struct = safe_example_hw()
-    axis_struct = getattr(struct, axis)
-    axis_struct.a1 += 1.005 - (axis_struct.a1 + axis_struct.a2 + axis_struct.a3)
-    assert axis_struct.a1 + axis_struct.a2 + axis_struct.a3 == pytest.approx(1.005, abs=1e-12)
-    with pytest.raises(ValueError, match=rf"{axis}\.a1 \+ {axis}\.a2 \+ {axis}\.a3 must be 1"):
-        pns_levels(load(empty_sequence()), hardware=(struct, "BAD"))
+    with pytest.raises(TypeError, match=re.escape("hardware must be a safe.SafeHardware")):
+        pns_levels(load(empty_sequence()), hardware=hardware)
 
 
 def test_pns_levels_keeps_one_result_for_each_tuple_of_thresholds(monkeypatch):

@@ -40,9 +40,6 @@ def safe_example_hw() -> SimpleNamespace:
     )
 
 
-# The example SAFE hardware. The package has no default hardware: the tests give this pair.
-EXAMPLE_HW = (safe_example_hw(), "pypulseq example hardware (not a real scanner)")
-
 if HAVE_PYPULSEQ:
     SYSTEM = pp.Opts(
         max_grad=28,
