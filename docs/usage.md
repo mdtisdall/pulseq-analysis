@@ -843,7 +843,8 @@ point that does not load.
 **The decoding.** `decoding.decode(data, session=None)` (also `synth.decode`)
 decodes a model by its interpreter, under the scanner session `session` (the
 neutral `Session()` for None). For `spec` it gives a `decoding.SpecDecoding` with the
-events of the model by file ID: `events.decode_rf`, `events.decode_gradients`
+gradient events of the model by file ID (`gradients`, from `events.decode_gradients`).
+The events of the model come from `events.decode_rf`, `events.decode_gradients`
 and `events.decode_adc`, into `events.RfEvent`, `events.Trapezoid`,
 `events.ArbitraryGradient` (together `events.GradEvent`) and `events.AdcEvent`.
 These three refuse the model of a plugin (`TypeError`); [The events](#the-events)
@@ -1304,9 +1305,10 @@ mapping (`types.MappingProxyType`) from the **ID of the file** to the event. The
 give every row of the table, whether a block uses it or not, in the order of the
 table; `decode_gradients` gives the rows of `[GRADIENTS]` first, then those of
 `[TRAP]`, as the two share one ID space. The decoding of the snapshot has the
-same events: `snap.decoding.rf`, `snap.decoding.gradients` and
-`snap.decoding.adc` are equal to the three results, and `load` made them once
-(each call of a `decode_*` function decodes again).
+same gradient events: `snap.decoding.gradients` is equal to the result of
+`decode_gradients`, and `load` made it once (each call of a `decode_*` function
+decodes again). `load` decodes no RF or ADC event, which no measurement reads:
+`decode_rf` and `decode_adc` decode them.
 
 ```python
 from pulseq_analysis.analyses import load

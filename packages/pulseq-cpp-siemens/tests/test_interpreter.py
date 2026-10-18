@@ -442,9 +442,9 @@ def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
         decoding.gradients_at(np.ones(4, int), times),
         data.reading.gradients_at(np.ones(4, int), times),
     )
-    spec = synth.decode(read_seqfile(path, "spec"))
-    assert isinstance(spec, synth.SpecDecoding)
-    assert set(spec.rf) == {1}
+    spec_data = read_seqfile(path, "spec")
+    assert isinstance(synth.decode(spec_data), synth.SpecDecoding)
+    assert set(synth.events.decode_rf(spec_data)) == {1}
     with pytest.raises(TypeError, match="synth.decode"):
         synth.events.decode_rf(data)
 

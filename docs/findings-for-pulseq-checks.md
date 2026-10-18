@@ -199,10 +199,12 @@ reader's own MD5 check.
 ### 2.3 The decoding of `spec`
 
 `synth.decode(data, session=None)` of a `spec` model gives
-`synth.SpecDecoding` (`interpreter`, `session`, and `rf`, `gradients`, `adc`:
-the events of the model by file ID; `blocks`, the block table of the model;
+`synth.SpecDecoding` (`interpreter`, `session`, and `gradients`: the gradient
+events of the model by file ID; `blocks`, the block table of the model;
 `block_durations` and `stored_block_durations` in s, in play order from 0;
-`norot` and `noscale`, the flags of the field of view, 2.8). The events are in module `synth.events`:
+`norot` and `noscale`, the flags of the field of view, 2.8). The decoding does
+not build the RF and ADC events: they are `decode_rf(snap.data)` and
+`decode_adc(snap.data)`. The events are in module `synth.events`:
 
 - `RfEvent`: `id`, `amplitude`, `mag_id`, `phase_id`, `time_id`, `magnitude`,
   `phase`, `t`, `dwell` (None for a pulse of points, D2.10, D2.11), `shape_dur`,

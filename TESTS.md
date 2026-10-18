@@ -7879,9 +7879,9 @@ with the values.
 #### `test_synth_decode_gives_the_events_of_spec`
 
 **Checks:** `synth.decode` of the model of `spec` is a `SpecDecoding` whose interpreter is `Spec()` and whose
-`rf`, `gradients` and `adc` equal the results of `decode_rf`, `decode_gradients` and `decode_adc`.
+`gradients` equal the result of `decode_gradients`.
 
-**How:** The test reads `valid_1_5_1.seq` and compares the four fields.
+**How:** The test reads `valid_1_5_1.seq` and compares the two fields.
 
 **Assumptions:** The decoding of a plugin interpreter is tested with the plugin (`cpp-siemens`: `test_interpreter.py`,
 section 3.8; a fake plugin: `test_interpreters.py`, section 2.27).
@@ -7985,6 +7985,35 @@ is below 100 kB, with `rotated` False, None and True. The values are (1000, 0, 0
 
 **Assumptions:** numpy reports the memory of its arrays to `tracemalloc`. A decoding may build what
 it keeps on its first call, so the test measures the second one.
+
+#### `test_load_decodes_no_rf_event`
+
+**Checks:** `load` builds no `RfEvent` and no `AdcEvent` (2.4 of the review of 2026-10-13, C16): no
+analysis reads them, and a caller decodes them with `decode_rf(snap.data)` and
+`decode_adc(snap.data)`. Of the file of `time_shaped` (3 RF and 2 ADC events), those two calls after
+`load` give the RF IDs 1 to 3 and the ADC IDs 1 and 2, and build each event once.
+
+**How:** The test writes the file in `tmp_path` and replaces `RfEvent` and `AdcEvent` in
+`synth.events`, the names that `decode_rf` and `decode_adc` call, with functions that record each
+event they build and then build it. The second part shows that the replacement sees each event that
+the decoder builds.
+
+**Assumptions:** `decode_rf` and `decode_adc` build their events through the names `RfEvent` and
+`AdcEvent` of `synth.events`.
+
+#### `test_spec_walks_the_lists_only_for_the_labels_of_the_field_of_view`
+
+**Checks:** `spec`'s decoding walks the extension lists for the LABELSET objects NOROT and NOSLC only
+(2.4 of the review of 2026-10-13, C16). In a 1.5.1 file of four blocks with the LABELSET objects
+1 (LIN 1) and 2 (LIN 2) in the list of blocks 1 and 3, and 3 (LIN 1) in the list of block 2, it walks
+no list for LABELSET, and every flag NOROT and NOSLC is False. When object 3 is NOROT 1, the one walk
+for LABELSET gives (block 2, object 3) alone, and NOROT is set in blocks 2 and 3.
+
+**How:** The test writes the two files in `tmp_path` and replaces `decoding._extension_objects`, the
+walk of the extension lists, with a function that records the extension and the result of each walk.
+The second file shows that the replacement sees the walk.
+
+**Assumptions:** The decoding walks the lists with `decoding._extension_objects`.
 
 ### 2.23 The decoding against the C++ oracle (`test_cpp_oracle_decode.py`)
 
@@ -10326,8 +10355,8 @@ the same lines in these files.
 
 **Checks:** `synth.decode` gives a `CppSiemensDecoding` for `cpp-siemens`, with the interpreter,
 the number of blocks, each block in play order, and the reader's `gradients_at`; and a
-`SpecDecoding` with the events for `spec`. `events.decode_rf` refuses the model of
-`cpp-siemens` with `TypeError` that names `synth.decode`.
+`SpecDecoding` for `spec`. `events.decode_rf` gives the RF event of the model of `spec` (ID 1),
+and refuses the model of `cpp-siemens` with `TypeError` that names `synth.decode`.
 
 **How:** The test decodes `valid_1_5_1.seq` with both interpreters.
 

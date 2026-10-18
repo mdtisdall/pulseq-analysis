@@ -1,14 +1,15 @@
 """The decoding of a file by its interpreter (stage 2 of section 7.2 of
 `docs/plans/parser-redesign.md`): `decode(data)` picks the decoder from `data.interpreter`.
 
-- `spec`: the package's decoder of the events (`events`), `SpecDecoding`: each event of the
-  model by its ID, and `gradients_at`, each block's gradients as the straight lines between the
-  points of its events (`seq_utils.gradient_offsets`). From version 1.5.1 `gradients_at` rotates
-  the gradients of each block that has a rotation (ROTATIONS, D2.18) by its quaternion, which the
-  model has divided by its norm: `spec` applies this content of the file from the revision that
-  introduced it (P20, rule 2), with the package's own rotation (`rotate`). It has no setting for
-  it, and nothing to warn about (rule 4). In an older file ROTATIONS is an unknown extension,
-  ignored and recorded (`SequenceData.records`).
+- `spec`: the package's decoder of the events (`events`), `SpecDecoding`: each gradient event of
+  the model by its ID, and `gradients_at`, each block's gradients as the straight lines between
+  the points of its events (`seq_utils.gradient_offsets`). From version 1.5.1 `gradients_at`
+  rotates the gradients of each block that has a rotation (ROTATIONS, D2.18) by its quaternion,
+  which the model has divided by its norm: `spec` applies this content of the file from the
+  revision that introduced it (P20, rule 2), with the package's own rotation (`rotate`). It has no
+  setting for it, and nothing to warn about (rule 4). In an older file ROTATIONS is an unknown
+  extension, ignored and recorded (`SequenceData.records`). The RF and ADC events are
+  `events.decode_rf` and `events.decode_adc` of the model, which the decoding does not build.
 - A plugin interpreter (`seqfile.interpreters.Plugin`): its own decoding, which its `decode`
   method gives (P21). It has the methods of the protocol `Decoding`, which is what the package
   uses of a decoding.
@@ -27,7 +28,7 @@ methods `gradient_points` and `gradient_variants` of the protocol (`_played`).
 """
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Container, Mapping
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -138,20 +139,21 @@ def rotate(quaternions: np.ndarray, vectors: np.ndarray) -> np.ndarray:
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False)
 class SpecDecoding:
-    """The decoding of a file that the `spec` interpreter read: its events (`events`) by file
-    ID, and its blocks: `blocks` is the block table of the model, `block_durations` the actual
-    duration of each block (s) under the session and `stored_block_durations` the duration that
-    the file stores, in play order from 0.
+    """The decoding of a file that the `spec` interpreter read: its gradient events
+    (`events.decode_gradients`) by file ID, and its blocks: `blocks` is the block table of the
+    model, `block_durations` the actual duration of each block (s) under the session and
+    `stored_block_durations` the duration that the file stores, in play order from 0.
 
     `rotation_blocks` and `rotation_quaternions` are the rotation of each block (`rotations`).
     Both are empty for a file older than 1.5.1. `norot` and `noscale` are the flags NOROT and
     NOSLC of each block (`fov_flags`), all False for a file older than 1.4.1. The arrays are
-    read-only."""
+    read-only.
+
+    No measurement reads the RF and ADC events, so the decoding does not build them: they are
+    `events.decode_rf(data)` and `events.decode_adc(data)` of the model."""
 
     interpreter: Spec
-    rf: Mapping[int, events.RfEvent]
     gradients: Mapping[int, events.GradEvent]
-    adc: Mapping[int, events.AdcEvent]
     blocks: np.ndarray
     block_durations: np.ndarray
     stored_block_durations: np.ndarray
@@ -299,7 +301,9 @@ def decode(data: SequenceData, session: Session | None = None) -> Decoding:
     )
     flagged = data.version >= (1, 4, 1)
     norot, noscale = fov_flags(
-        data.blocks.size, _label_sets(data) if flagged else (), "NOSLC" if flagged else None
+        data.blocks.size,
+        _label_sets(data, ("NOROT", "NOSLC")) if flagged else (),
+        "NOSLC" if flagged else None,
     )
     norot.flags.writeable = False
     noscale.flags.writeable = False
@@ -309,9 +313,7 @@ def decode(data: SequenceData, session: Session | None = None) -> Decoding:
     stored_durations.flags.writeable = False
     return SpecDecoding(
         interpreter=data.interpreter,
-        rf=events.decode_rf(data),
         gradients=events.decode_gradients(data),
-        adc=events.decode_adc(data),
         blocks=data.blocks,
         block_durations=durations,
         stored_block_durations=stored_durations,
@@ -330,10 +332,13 @@ def _pure_delay(blocks: np.ndarray) -> np.ndarray:
     return np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
 
 
-def _extension_objects(data: SequenceData, string_id: str) -> list[tuple[int, int]]:
+def _extension_objects(
+    data: SequenceData, string_id: str, refs: Container[int] | None = None
+) -> list[tuple[int, int]]:
     """The (play index, object ID) of each object of the extension `string_id` in the extension
     list of each block, in play order and in the order of each list; empty when the file has no
-    such extension. `spec` rejects a list that does not end and a reference to no object."""
+    such extension. `refs` keeps only the objects whose ID it contains (None keeps them all).
+    `spec` rejects a list that does not end and a reference to no object."""
     type_id = data.extensions.type_ids.get(string_id)
     if type_id is None:
         return []
@@ -348,7 +353,7 @@ def _extension_objects(data: SequenceData, string_id: str) -> list[tuple[int, in
             found, entry = [], head
             while entry:
                 kind, ref, entry = by_id[entry]
-                if kind == type_id:
+                if kind == type_id and (refs is None or ref in refs):
                     found.append(ref)
             lists[head] = found
         return lists[head]
@@ -376,15 +381,18 @@ def _soft_delays(data: SequenceData) -> list[SoftDelay]:
     ]
 
 
-def _label_sets(data: SequenceData) -> list[tuple[int, str, int]]:
-    """The (play index, name, value) of each LABELSET object of each block's extension list."""
+def _label_sets(data: SequenceData, names: tuple[str, ...]) -> list[tuple[int, str, int]]:
+    """The (play index, name, value) of each LABELSET object of a name of `names` in each block's
+    extension list. The walk of the lists keeps only those objects, and a file with none of them
+    walks no list (2.4 of `docs/reviews/2026-10-13-code-review.md`)."""
     table = data.extensions.labelset
-    if not table.size:
+    ids, labels = table["id"].tolist(), table["name"].tolist()
+    row = {i: r for r, (i, name) in enumerate(zip(ids, labels, strict=True)) if name in names}
+    if not row:
         return []
-    row = {int(i): r for r, i in enumerate(table["id"])}
     return [
         (block, str(table["name"][row[ref]]), int(table["value"][row[ref]]))
-        for block, ref in _extension_objects(data, "LABELSET")
+        for block, ref in _extension_objects(data, "LABELSET", row.keys())
     ]
 
 
