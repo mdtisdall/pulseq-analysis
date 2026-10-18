@@ -1170,11 +1170,12 @@ than 0 as `True`, so one array always gives the same text.
 
 ## 9. The oracles of the tests
 
-Some tests compare the package with another reader of Pulseq files, or with
-values that another program gave. These readers and values are the oracles.
-Two are programs that Nix builds from pulseq/pulseq at commit
-`c7469123c2f381f065986e6cc3a7d09730ed16ef` (`flake.nix`; the source is not
-copied into this repository). The third is a file of stored values.
+Some tests compare the package with another reader of Pulseq files, with
+another program of the SAFE model, or with values that another program gave.
+These readers, programs and values are the oracles. Three are programs that Nix
+builds from pulseq/pulseq at commit `c7469123c2f381f065986e6cc3a7d09730ed16ef`,
+the third with the original SAFE package too (`flake.nix`; the sources are not
+copied into this repository). The fourth is a file of stored values.
 
 ### 9.1 The C++ driver
 
@@ -1222,7 +1223,37 @@ command or a changed file reads again, and a run with the same files and the
 same command does not start Octave. The oracle starts Octave at most one time
 in a test session, for all the files that the cache does not have.
 
-### 9.3 The golden values
+### 9.3 The original SAFE package under Octave
+
+`pulseq-safe-oracle` runs the SAFE package of Szczepankiewicz and Witzel
+(filip-szczepankiewicz/safe_pns_prediction, BSD-3-Clause, at commit
+`152ab67c086170c40c1988ebba9002e018a0652c`), the package that `calcPNS` of
+MATLAB Pulseq calls and that pypulseq's SAFE model translates, under GNU
+Octave, with `tests/safe_oracle/dump_safe.m`. It has two modes, each one
+Octave process (`tests/safe_oracle/README.md`):
+
+| Call | What it does |
+|---|---|
+| `pulseq-safe-oracle filter REQUEST.json OUT_DIR` | `safe_gwf_to_pns` of each waveform of the request with its raster and hardware, with no padding, and `safe_hw_check` of each hardware struct of the request. |
+| `pulseq-safe-oracle calcpns FILE.asc OUT_DIR FILE.seq...` | `calcPNS` of MATLAB Pulseq for each file with the hardware of the `.asc` file: the axes and the total of each sample. |
+
+`tests/test_safe_oracle.py` compares the package with it: the SAFE filter
+(`safe._safe_gwf_to_pns_chunk`, in one chunk and in chunks) to 1e-14 of the
+largest value, the hardware check (`SafeHardware.from_namespace`), and
+`pns_levels` of the files of `tests/seqfiles/oracle/` that `spec` accepts, with
+`asc.hardware_from_asc`, to 1e-10 of the peak. `calcPNS` gives each sample the
+time one raster time before the time of the same sample of the package: its
+row of the time `t_axis(j)` is the slew from `t_axis(j)` to `t_axis(j + 1)`.
+So the test compares the sample of `calcPNS` at `(m + 0.5) * dt` with the
+sample `m + 1` of the package. As `pulseq-matlab-oracle`, only the default
+devShell has the command, and `.github/workflows/matlab-oracle.yml` runs these
+tests in CI on a change to what they read.
+[tests/oracles/safe.py](../tests/oracles/safe.py) keeps the output of
+`calcPNS` of each file in the pytest cache folder (`safe-oracle`), with a key
+of the store path of the command and of the SHA-256 of the `.asc` file and of
+the `.seq` file, as `tests/oracles/matlab.py` does.
+
+### 9.4 The golden values
 
 `tests/golden/safe_fork.npz` holds the outputs of two functions that only the
 pypulseq fork has: the SAFE PNS filter in chunks (`_safe_gwf_to_pns_chunk`) and
@@ -1235,7 +1266,7 @@ fork pinned at one commit, from the inputs that `tests/test_safe.py` and
 the steps to make the file again. The values were written on macOS, so the
 tests compare floats within a tolerance of a few ulp.
 
-### 9.4 The markers and the skips
+### 9.5 The markers and the skips
 
 `pyproject.toml` declares two markers, and pytest runs with `--strict-markers`:
 
@@ -1252,6 +1283,7 @@ A test skips, and does not fail, in these cases:
 |---|---|
 | No `pulseq-cpp-oracle` or `pulseq-cpp-oracle-sanitized` on the PATH (outside the Nix devShell) | The three modules of the C++ oracle, each by the program it needs. In `packages/pulseq-cpp-siemens/tests`, `test_driver_parity.py` skips without `pulseq-cpp-oracle`, and the checks of undefined behaviour use the sanitized program only when it is there. |
 | No `pulseq-matlab-oracle` on the PATH (the `ci` devShell, or outside Nix) | `tests/test_matlab_oracle.py`. A file that `spec` rejects, or whose version is outside 1.4.0 to 1.5.x, skips its test too, and so does a file that MATLAB Pulseq cannot read and the module lists with its reason. |
+| No `pulseq-safe-oracle` on the PATH (the `ci` devShell, or outside Nix) | `tests/test_safe_oracle.py`. A file that `spec` rejects skips its comparison with `calcPNS` too. |
 | No pypulseq | A module whose tests all need pypulseq is skipped by `pytest.importorskip("pypulseq")`. Another test with the `pypulseq` marker is left out by `-m "not pypulseq"`. The helpers take `pp` from `tests/optional_pypulseq.py`, so the other tests still run. |
 
 The plugin `cpp-siemens` is not installed in the environment of the tests of

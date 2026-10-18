@@ -652,8 +652,9 @@ These choices are pulseq-checks':
 
 ## 6. The test oracles of the flake
 
-The flake of this repository (`flake.nix`) builds three programs from
-pulseq/pulseq at `c7469123c2f381f065986e6cc3a7d09730ed16ef`. Each is an output
+The flake of this repository (`flake.nix`) builds four programs from
+pulseq/pulseq at `c7469123c2f381f065986e6cc3a7d09730ed16ef` (the last one with
+safe_pns_prediction at `152ab67c086170c40c1988ebba9002e018a0652c`). Each is an output
 `packages.<system>.<name>`, so a consumer can run it from a flake reference,
 for example
 `nix run github:mdtisdall/pulseq-analysis#pulseq-cpp-oracle -- --dump FILE`
@@ -665,6 +666,7 @@ a release.
 | `pulseq-cpp-oracle` | The C++ reader with a small driver, built with `-fsigned-char -ffp-contract=off` (the `char` and arithmetic of the scanner's x86_64 build on each system). `FILE`: the verdict as the exit status (0 reads, 1 rejects, 70 crashes). `--dump FILE`: what the reader holds after `load` and `decodeBlock`, as JSON. `--sample FILE`: `SeqBlock::gradientsAt` for lines `block_index time_us` on stdin. `--oversampling=center\|edge\|preserve` sets the reader's mode. | [`tests/cpp_oracle/README.md`](../tests/cpp_oracle/README.md) |
 | `pulseq-cpp-oracle-sanitized` | The same reader and driver with AddressSanitizer, UndefinedBehaviorSanitizer and the standard library's assertions (clang of LLVM 22). Exit status 3: the reader has undefined behaviour on the file, whatever an ordinary build does. | the same README, "The sanitized build" |
 | `pulseq-matlab-oracle OUT_DIR FILE.seq...` | MATLAB Pulseq run under GNU Octave: `read`, `getBlock` and `waveforms_and_times(true)` of each file, as JSON. About 2.5 GiB of closure; only in the default devShell. | [`tests/matlab_oracle/README.md`](../tests/matlab_oracle/README.md) |
+| `pulseq-safe-oracle filter REQUEST.json OUT_DIR`, `pulseq-safe-oracle calcpns FILE.asc OUT_DIR FILE.seq...` | The original SAFE package (safe_pns_prediction, BSD-3-Clause) under GNU Octave: `safe_gwf_to_pns` and `safe_hw_check` of given waveforms and hardware, and MATLAB Pulseq's `calcPNS` of each file with an `.asc` file, in float64 binary files and JSON. Only in the default devShell. | [`tests/safe_oracle/README.md`](../tests/safe_oracle/README.md) |
 
 `cpp-siemens` gives the same values in the process: its `decode_block` has the
 fields of `--dump`, and its `gradients_at` those of `--sample`, bit for bit on

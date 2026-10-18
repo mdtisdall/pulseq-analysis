@@ -1,7 +1,8 @@
 """Tests of `safe.py`: `SafeAxis`, `SafeHardware`, and the chunked SAFE filter. The tests that
 compare with the functions of the pypulseq fork compare with golden values
-(`golden/safe_fork.npz`), within an ulp-level tolerance; the two tests that need pypulseq have
-the `pypulseq` marker."""
+(`golden/safe_fork.npz`), within an ulp-level tolerance; the test that needs pypulseq has the
+`pypulseq` marker. `test_safe_oracle.py` compares the filter, the hardware check and
+`pns_levels` with the original SAFE package."""
 
 import ast
 import dataclasses
@@ -10,13 +11,9 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import synthetic
 from pns_hardware import EXAMPLE_HARDWARE
 from synthetic import EXAMPLE_AXES, safe_example_hw
 
-from pulseq_analysis.analyses import load
-from pulseq_analysis.analyses import pns_levels as pns_levels_module
-from pulseq_analysis.analyses.pns_levels import BIN_S, PnsLevels, _compute_levels
 from pulseq_analysis.analyses.safe import (
     SAFE_FIELDS,
     SafeAxis,
@@ -266,7 +263,8 @@ def _scaled_namespace() -> SimpleNamespace:
 # The outputs of the pinned fork's functions (`_safe_gwf_to_pns_chunk` and `safe_hw_check`,
 # which no pypulseq release has as they are in the fork) for the inputs of the tests below,
 # written by `golden/make_golden.py` (`golden/README.md` gives the fork commit). The constants
-# that follow are the inputs; `make_golden.py` reads them.
+# that follow are the inputs; `make_golden.py` reads them, and `test_safe_oracle.py` gives them
+# to the original SAFE package.
 _GOLDEN = Path(__file__).resolve().parent / "golden" / "safe_fork.npz"
 
 CHUNK_NAMESPACES = {"example": _namespace, "other-numbers": _scaled_namespace}
@@ -289,53 +287,14 @@ HW_CHECK_CASES = {
     "no-g-scale": lambda: _namespace_without("z", "g_scale"),
 }
 
-# The names of the builders of `synthetic.py`, which need pypulseq.
-SEQUENCES = {
-    "spin_echo": "spin_echo_sequence",
-    "gre": "gre_sequence",
-    "arbitrary_gradient": "arbitrary_gradient_sequence",
-    "border": "border_sequence",
-}
-BINS = {"default-bin": BIN_S, "one-sample-bins": 1e-5}
-THRESHOLDS = (1e5, 1e6)
-
-
-def levels_arrays(levels: PnsLevels) -> dict[str, np.ndarray]:
-    """The fields of `levels` that the SAFE filter gives, as arrays: the level, the summary
-    and the intervals above each threshold (a `peak_time_s` of None is NaN)."""
-    arrays = {
-        "num_samples": np.array(levels.num_samples),
-        "bin_samples": np.array(levels.bin_samples),
-        "level_min_hz_per_t": levels.level_min_hz_per_t,
-        "level_max_hz_per_t": levels.level_max_hz_per_t,
-        "peak_hz_per_t": np.array(levels.peak_hz_per_t),
-        "peak_time_s": np.array(np.nan if levels.peak_time_s is None else levels.peak_time_s),
-        "axis_peaks_hz_per_t": np.array([levels.axis_peaks_hz_per_t[a] for a in "xyz"]),
-        "on_raster": np.array(levels.on_raster),
-    }
-    for threshold, intervals in levels.above.items():
-        arrays[f"above/{threshold!r}"] = np.array(
-            [
-                (i.start_s, i.end_s, i.peak_hz_per_t, i.peak_time_s, i.num_samples)
-                for i in intervals
-            ],
-            dtype=float,
-        ).reshape(-1, 5)
-    return arrays
-
-
 # The tolerance of a comparison with the golden values, relative, by dtype. The golden values
 # were written on one platform; another platform's numpy and scipy can round the same float
-# operations differently in the last bit (1 to 2 ulp of a float64 on Linux against macOS). A float32
-# level is the outward cast of a float64 total, so a float64 difference of one ulp can move it by
-# one float32 ulp. The tolerance is of the largest magnitude of the array as well as of each value:
-# a value that comes out of a cancellation (a state `zi` of -4.9e4 in an array whose largest value
-# is 3.5e8) carries the rounding of the large terms (on Linux, 1e-8 absolute there: 2e-13 of the
-# value, 3e-17 of the array). A change of the filter itself is far above these.
-_GOLDEN_RTOL = {
-    np.dtype(np.float64): 1e-14,
-    np.dtype(np.float32): 2 * float(np.finfo(np.float32).eps),
-}
+# operations differently in the last bit (1 to 2 ulp of a float64 on Linux against macOS). The
+# tolerance is of the largest magnitude of the array as well as of each value: a value that comes
+# out of a cancellation (a state `zi` of -4.9e4 in an array whose largest value is 3.5e8) carries
+# the rounding of the large terms (on Linux, 1e-8 absolute there: 2e-13 of the value, 3e-17 of the
+# array). A change of the filter itself is far above these.
+_GOLDEN_RTOL = {np.dtype(np.float64): 1e-14}
 
 
 @pytest.fixture(scope="module")
@@ -404,30 +363,6 @@ def test_the_hardware_check_accepts_and_refuses_what_the_forks_safe_hw_check_doe
     else:
         own_accepts = True
     assert own_accepts is bool(golden[f"hw_check/{case_id}"])
-
-
-@pytest.mark.pypulseq
-@pytest.mark.parametrize("seq_id", SEQUENCES)
-@pytest.mark.parametrize("bin_id", BINS)
-def test_pns_levels_equals_the_levels_with_the_forks_chunk_function(
-    golden, monkeypatch, seq_id, bin_id
-):
-    """`_compute_levels` with the package's SAFE filter gives the same fields of `PnsLevels`
-    (`levels_arrays`: the arrays by dtype, shape and values, within `_GOLDEN_RTOL`) as with the
-    pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden values), for the example
-    hardware, with
-    thresholds (so that the intervals are compared) and a chunk size of 1000 samples (so that
-    the state passes from chunk to chunk)."""
-    snap = load(getattr(synthetic, SEQUENCES[seq_id])())
-    monkeypatch.setattr(pns_levels_module, "_CHUNK_SAMPLES", 1000)
-    own = _compute_levels(snap, synthetic.EXAMPLE_HW, THRESHOLDS, BINS[bin_id])
-    assert own.peak_hz_per_t > 0
-    assert any(own.above.values())
-    arrays = levels_arrays(own)
-    prefix = f"levels/{seq_id}/{bin_id}/"
-    assert sorted(arrays) == sorted(k.removeprefix(prefix) for k in golden if k.startswith(prefix))
-    for name, value in arrays.items():
-        _assert_golden(value, golden[prefix + name], name)
 
 
 def test_no_module_imports_pypulseq():
