@@ -560,21 +560,21 @@ def test_the_spec_of_each_analysis_of_the_package_passes_the_checks(analysis):
 @pytest.mark.pypulseq
 @pytest.mark.parametrize("fractions", [(0.0, 0.5), (0.25, 0.5), (0.5, 1.0)])
 def test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window(fractions):
-    """`GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`, and it
+    """`GRADIENT_PEAKS.compute(snap, range_s=w)` equals `gradient_peaks(snap, range_s=w)`, and it
     is not the result of the whole sequence: the window reaches the function."""
     snap = load(gre_sequence(num_trs=4))
     end_s = sequence_index(snap).end_s
     window = (fractions[0] * end_s, fractions[1] * end_s)
 
-    result = GRADIENT_PEAKS.compute(snap, window=window)
+    result = GRADIENT_PEAKS.compute(snap, range_s=window)
 
-    assert result == gradient_peaks(snap, window=window)
+    assert result == gradient_peaks(snap, range_s=window)
     assert result != gradient_peaks(snap)
 
 
 @pytest.mark.pypulseq
 def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
-    """`GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object (`is`) that
+    """`GRADIENT_PEAKS.compute(snap)` and `compute(snap, range_s=None)` are the object (`is`) that
     `gradient_peaks(snap)` keeps, and a result with a window is not that object and not kept."""
     snap = load(gre_sequence(num_trs=4))
     end_s = sequence_index(snap).end_s
@@ -583,11 +583,11 @@ def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
     whole = GRADIENT_PEAKS.compute(snap)
 
     assert whole is gradient_peaks(snap)
-    assert GRADIENT_PEAKS.compute(snap, window=None) is whole
-    first = GRADIENT_PEAKS.compute(snap, window=window)
+    assert GRADIENT_PEAKS.compute(snap, range_s=None) is whole
+    first = GRADIENT_PEAKS.compute(snap, range_s=window)
     assert first is not whole
-    assert first == gradient_peaks(snap, window=window)
-    assert first is not GRADIENT_PEAKS.compute(snap, window=window)
+    assert first == gradient_peaks(snap, range_s=window)
+    assert first is not GRADIENT_PEAKS.compute(snap, range_s=window)
     assert GRADIENT_PEAKS.compute(snap) is whole
 
 

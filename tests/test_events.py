@@ -206,21 +206,21 @@ def test_event_points_are_the_same_object_for_one_snapshot_and_equal_arrays_for_
 
 def test_a_windowed_gradient_peaks_is_a_new_object_for_each_call_and_is_not_kept():
     """Two calls with one window give equal results that are two objects, and a call with a
-    window does not change the kept result of `window=None`: before and after the windowed
+    window does not change the kept result of `range_s=None`: before and after the windowed
     calls, `gradient_peaks(snap)` is one object. A windowed result is not the whole-file
     result."""
     snap = load(spin_echo_sequence())
     window = (0.0, sequence_index(snap).end_s / 2)
     whole = gradient_peaks(snap)
-    first = gradient_peaks(snap, window=window)
-    second = gradient_peaks(snap, window=window)
+    first = gradient_peaks(snap, range_s=window)
+    second = gradient_peaks(snap, range_s=window)
     assert first is not second
     assert first == second
     assert first is not whole
     assert gradient_peaks(snap) is whole
 
     fresh = load(spin_echo_sequence())
-    windowed_first = gradient_peaks(fresh, window=window)
+    windowed_first = gradient_peaks(fresh, range_s=window)
     assert gradient_peaks(fresh) is not windowed_first
 
 
@@ -238,9 +238,9 @@ def test_a_windowed_gradient_peaks_uses_the_kept_per_event_values(monkeypatch):
     monkeypatch.setattr(grad_peaks, "_event_values", counting)
     snap = load(spin_echo_sequence())
     end_s = sequence_index(snap).end_s
-    gradient_peaks(snap, window=(0.0, end_s / 2))
+    gradient_peaks(snap, range_s=(0.0, end_s / 2))
     assert len(calls) == 1
-    gradient_peaks(snap, window=(end_s / 4, end_s))
+    gradient_peaks(snap, range_s=(end_s / 4, end_s))
     gradient_peaks(snap)
     block_gradient_values(snap)
     assert len(calls) == 1

@@ -35,6 +35,9 @@ A caller moves in this order:
    `hardware=(ns, label)` becomes
    `hardware=SafeHardware.from_namespace(ns, label)`. The pair raises
    `TypeError`.
+7. Give the time range of `gradient_peaks` and of `GRADIENT_PEAKS.compute` as
+   `range_s=(start_s, end_s)`, in place of `window=(start_s, end_s)`. The old
+   name raises `TypeError`.
 
 ### Reading files and the interpreters
 
@@ -433,6 +436,23 @@ has an `__all__`, that each name that the documents give with a public module
 is in its `__all__`, that each name of an `__all__` is in the documents, and
 that the `__all__` of a module that is not a package has no name of another
 public module.
+
+### The gradient peaks
+
+- The argument `window` of `gradient_peaks` is `range_s`, the name of the
+  result field `GradientPeaks.range_s` (review 2026-10-13 6: `window` was a
+  time range here and `window_s` a length in `gradient_spectrum`). The
+  parameter of the analysis `gradient.peaks` follows: its `spec.params` is
+  `("range_s",)`, its `spec.defaults` is `(("range_s", None),)`, and
+  `GRADIENT_PEAKS.compute` takes `range_s`. `window=` raises `TypeError`, and
+  the messages of a bad range name `range_s`. The values and `spec.version`
+  (1) do not change, and `window_s` of `gradient_spectrum`, the length of a
+  Hann window, keeps its name.
+
+  | `0.1.0rc6` | Now |
+  |---|---|
+  | `gradient_peaks(snap, window=(start_s, end_s))` | `gradient_peaks(snap, range_s=(start_s, end_s))` |
+  | `GRADIENT_PEAKS.compute(snap, window=(start_s, end_s))` | `GRADIENT_PEAKS.compute(snap, range_s=(start_s, end_s))` |
 
 ### Dependencies
 

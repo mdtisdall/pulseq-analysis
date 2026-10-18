@@ -232,12 +232,12 @@ The step or the line into an event is before the segments of that event.
 
 ### 1.7 A range
 
-A range is `[lo, hi]` (the whole file, or a window of `gradient_peaks`). A
+A range is `[lo, hi]` (the whole file, or the `range_s` of `gradient_peaks`). A
 segment that crosses an edge of the range is cut at the edge. The value at the
 edge is found by linear interpolation. A step is in the range when
 `lo <= t < hi` and `t < end_s - TIME_TOLERANCE`, with `end_s` the end of the
-sequence. So a step at the start of a window is in it, and a step at the end of
-a window is not. The step after the last point of the axis is at the time of
+sequence. So a step at the start of a range is in it, and a step at the end of
+a range is not. The step after the last point of the axis is at the time of
 that point. When that point is within `TIME_TOLERANCE` of the end of the
 sequence, no range has the step: the whole file does not have it. The result
 does not depend on whether `(start + delay) + shape_dur` rounds to `end_s` or to
@@ -275,7 +275,7 @@ package, with the units of [`docs/usage.md`, section 9](usage.md#9-units-and-gam
 ### 2.1 `gradient_peaks` and `block_gradient_values`
 
 The values are the largest values of the waveform of section 1, over the
-whole file, over a window, or for each block:
+whole file, over a range, or for each block:
 
 - The peak is the largest absolute amplitude.
 - The slew is the largest of the slopes of the segments (of the events, the
@@ -303,8 +303,8 @@ rules of the largest value and of the credit hold as they are.
 - So the peak, the slew, the RMS and the vector peak of a range with a NaN are
   NaN. The first block in play order with the NaN gets the credit (for the
   vector peak, the block of the earliest time), at the time of its first NaN.
-  In a window, that time can be an end of the range, where the range cuts a
-  NaN segment.
+  In a range given as `range_s`, that time can be an end of the range, where
+  the range cuts a NaN segment.
 
 The values of a range with no NaN do not change.
 
@@ -315,25 +315,26 @@ the block of the event of the segment; the later block for a step, a line and
 a ramp from 0; the earlier block for a ramp to 0; and the block of the last
 event for the step after the last point of the axis.
 
-**A window.** `range_s` is the window with each end clipped to `(0.0, end_s)`
-of the sequence, so its start is never after its end. A window that is past an
-end of the sequence by less than `seq_utils.TIME_TOLERANCE` has the range
+**A range of `gradient_peaks`.** The field `GradientPeaks.range_s` is the
+argument `range_s` with each end clipped to `(0.0, end_s)` of the sequence, so
+its start is never after its end. A range that is past an end of the sequence
+by less than `seq_utils.TIME_TOLERANCE` has the range
 `(end_s, end_s)` (or `(0.0, 0.0)`), of length 0, with the `reason`
 `seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values. A segment that crosses
-an end of the window is cut there, and a step is in the window by the rule of
+an end of the range is cut there, and a step is in the range by the rule of
 section 1.7. The `reason` is `None` when the range has a part of a gradient
 event, or a ramp, a line or a step with a value that is not 0.
 
-A call with a window uses the values of each block that the snapshot
+A call with a range uses the values of each block that the snapshot
 keeps (the peak, the slew, the junction, the RMS integral and the vector peak,
-with their times) for the blocks that are whole in the window. It makes the
-other blocks of an edge of the window from the exact waveform. The time range
+with their times) for the blocks that are whole in the range. It makes the
+other blocks of an edge of the range from the exact waveform. The time range
 of a block is the span of the block and of its items on the three axes: its
 event, its ramps, the line into it and the step after the last point of the
 axis. The line across a short gap starts at the last point of the earlier
 event, up to `dt + TIME_TOLERANCE` before the event, and can cross blocks that
 are shorter than `dt`. A ramp to 0 ends half a raster time after its event. A
-block whose time range an edge of the window crosses is made from the exact
+block whose time range an edge of the range crosses is made from the exact
 waveform, so an edge is not limited to one or two blocks.
 
 **The values of each block.** In `BlockGradientValues`:
@@ -467,7 +468,7 @@ These arguments of pypulseq are not arguments here:
 - `combine_mode` and `use_derivative`. They change what a value is, for
   example a spectrum of the slew rate. A later quantity gets its own function.
 - `time_range`. The spectrum is of the whole sequence, as `gradient_peaks`
-  without `window`.
+  without `range_s`.
 - `acoustic_resonances`. The resonances are data of a target, not of a
   sequence.
 
@@ -607,7 +608,7 @@ first two rows of the table of section 3.5.
 
 **`gradient_peaks(snap)` and `block_gradient_values(snap)`.** The first call
 makes the values of each block, and keeps them for the two functions and for
-all windows:
+all ranges:
 
 1. The peak, the slew and the RMS integral of each unique event, from its
    points. Vectorised over the pooled points of the K events (a `reduceat` over
@@ -625,13 +626,13 @@ all windows:
 `block_gradient_values` then copies the arrays of the blocks, in time O(B).
 Time of the first call O(K + B + P_play log P_play), memory O(B + P_play).
 
-**`gradient_peaks(snap, window=...)`.** A binary search finds the blocks of the
-window in the kept arrays. The blocks that are whole in the window give their
+**`gradient_peaks(snap, range_s=...)`.** A binary search finds the blocks of
+the range in the kept arrays. The blocks that are whole in the range give their
 kept values (a vectorised largest value and sum over them). The blocks whose
-time range an edge of the window crosses (section 2.1) are made from the exact
-polyline of their events. Time O(log B + blocks in the window), with no term
+time range an edge of the range crosses (section 2.1) are made from the exact
+polyline of their events. Time O(log B + blocks in the range), with no term
 for K or for the blocks of the file. The work at the edges is most of the
-time: a window of 5000 blocks takes about the time of a window of one TR.
+time: a range of 5000 blocks takes about the time of a range of one TR.
 
 **`GradientSampler.sample(axis, t)`.** A binary search finds the blocks from
 `t[0]` to `t[-1]`. The points of their events, with the ramps of the long gaps,
@@ -720,7 +721,7 @@ points of the installed packages. An analysis `compute` is its function.
 | `sequence_index` (with the played gradients) | O(B log B + K + P) | O(B + P) | blocks, unique events |
 | First gradient measurement (the block table, the played gradients and the points of the unique events) | O(B log B + K + P) | O(B + P) | blocks, unique events |
 | `gradient_peaks(snap)`, `block_gradient_values` | O(K + B + P_play log P_play) | O(B + P_play) | blocks |
-| `gradient_peaks(snap, window=...)` | O(log B + blocks in the window) | O(blocks in the window) | (almost constant) |
+| `gradient_peaks(snap, range_s=...)` | O(log B + blocks in the range) | O(blocks in the range) | (almost constant) |
 | `GradientSampler.sample` | O(log B + points in the range + Q); the first call on an axis of a new sampler also O(B) | O(Q + points in the range) | times asked |
 | `pns_levels` | O(S + U) | O(chunk + bins + samples of the U events) | duration, and unique events |
 | `gradient_spectrum` | O(S · oversampling · log nfft) | O(256 · nfft) | duration |
@@ -780,13 +781,13 @@ result is never old.
 |---|---|
 | `sequence_index` | the snapshot |
 | `_played.played_gradients` | the snapshot |
-| `gradient_peaks` | the snapshot, for `window=None` only |
+| `gradient_peaks` | the snapshot, for `range_s=None` only |
 | `block_gradient_values` | the snapshot |
 | `pns_levels` | the snapshot, hardware, tuple of thresholds (in its order) and `bin_s` |
 | `gradient_spectrum` | the snapshot and tuple of its three arguments |
 
 A second call with the same arguments gives the same object. A result with a
-window is not kept, because a caller can ask for many windows, but it uses the
+range is not kept, because a caller can ask for many ranges, but it uses the
 kept values of each block. The points of the unique gradient events are kept
 too, and all the gradient measurements share them. The gaps of each axis are
 kept with the points, but only `GradientSampler.block_samples` (so
@@ -851,7 +852,7 @@ checks the order of the keys of its dicts. Make a copy to change one:
 ## 6. Argument checks
 
 **Number arguments.** A number argument (a threshold, `bin_s`, the arguments
-of the spectrum, the ends of a `window`, a coordinate of a `Series`) is a real
+of the spectrum, the ends of a `range_s`, a coordinate of a `Series`) is a real
 number (`numbers.Real`: an `int`, a `float`, a `fractions.Fraction` or a numpy
 real scalar; not a `bool`). A value of another type raises `TypeError`. A value
 that is too large for a float, not finite or out of range raises `ValueError`.
@@ -859,12 +860,12 @@ Each function checks its arguments before it reads the snapshot and before it
 looks up a kept result. A first argument that is not a `Snapshot` raises
 `TypeError` that names `load`.
 
-**`gradient_peaks`, `window`.** A tuple or a list of two real numbers, in the
+**`gradient_peaks`, `range_s`.** A tuple or a list of two real numbers, in the
 sequence (each end within `seq_utils.TIME_TOLERANCE`), with `start_s < end_s`.
-`TypeError` for a window that is not a pair, and for an end that is a `bool`
+`TypeError` for a range that is not a pair, and for an end that is a `bool`
 or not a real number. `ValueError` for an end that is NaN or an infinity (the
-message says "finite"), for a window with no start before its end, and for a
-window that is not in the sequence.
+message says "finite"), for a range with no start before its end, and for a
+range that is not in the sequence. The old name `window` raises `TypeError`.
 
 **`pns_levels`, `hardware`.** A required keyword argument: a call without it
 raises Python's own `TypeError`. A value that is not a `safe.SafeHardware`
