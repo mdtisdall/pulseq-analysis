@@ -70,6 +70,7 @@ decoding is `synth.events`.
 condition is the same (section 5.4 of the plan).
 """
 
+import bisect
 import dataclasses
 import hashlib
 from collections import Counter
@@ -936,6 +937,13 @@ def _shapes_of(
     lines, kind, index = lines[order], kind[order], index[order]
     blanks = np.array(sorted(b.number for b in section.blank), np.int64)
     covered = np.zeros(len(lines), bool)
+    # The positions of the data lines that are not a sample of one finite number, the head lines
+    # among them, in order. `index` is negative for the head lines, so only the rows (kind 0)
+    # index `good`.
+    rows_at = kind == 0
+    sample_ok = np.zeros(len(lines), bool)
+    sample_ok[rows_at] = good[index[rows_at]]
+    not_samples = np.flatnonzero(~sample_ok).tolist()
 
     def text(p: int) -> str:
         i = int(index[p])
@@ -985,7 +993,9 @@ def _shapes_of(
             continue
         positions = np.arange(p + 2, q)
         stored: Any = None
-        bad = [i for i in positions.tolist() if kind[i] != 0 or not good[index[i]]]
+        bad = not_samples[
+            bisect.bisect_left(not_samples, p + 2) : bisect.bisect_left(not_samples, q)
+        ]
         for i in bad:
             sample = text(i).strip()
             value = as_written._parse("float", sample)

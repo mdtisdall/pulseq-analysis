@@ -89,6 +89,12 @@ A caller moves in this order:
   package's limit of memory, which the specification does not state; the
   message says so (review 2026-10-13 1.2.4d). Before, it was `shape.length`, a
   rule of the specification (spec:626).
+- `spec` checks the samples of a shape with no Python loop over them (review
+  2026-10-13 2.5b). One run on an Apple M1 Max, of `read_seqfile` of a file of
+  4,000,000 shape samples (40 shapes of 100,000): 1.70 s before and 1.05 s
+  now, of which the reading of `[SHAPES]` (`spec._shapes_of`) took 0.69 s
+  before and 0.052 s now. A file of 100,000 shapes of 3 samples: 2.65 s before
+  and 2.59 s now. The output is the same, bit for bit.
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package
