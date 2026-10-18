@@ -112,6 +112,14 @@ from ..synth.seq_index import NO_GRADIENTS, NO_GRADIENTS_IN_WINDOW, SequenceInde
 from ..synth.seq_utils import _AXES, _GRAD_COLUMNS, TIME_TOLERANCE
 from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 
+__all__ = [
+    "AxisResult",
+    "BlockGradientValues",
+    "GradientPeaks",
+    "block_gradient_values",
+    "gradient_peaks",
+]
+
 
 @dataclass(frozen=True)
 class AxisResult:

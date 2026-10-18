@@ -56,6 +56,19 @@ import numpy as np
 from .._equality import _freeze, values_equal
 from .interpreters import Interpreter
 
+__all__ = [
+    "TABLE_DTYPES",
+    "TIME_TOLERANCE",
+    "Extensions",
+    "Rasters",
+    "Record",
+    "SequenceData",
+    "Shape",
+    "Signature",
+    "decompress_shape",
+    "rf_time_step",
+]
+
 # The dtype of each table of the model, by field name of `SequenceData` or `Extensions`.
 # `Extensions.labelset`, `Extensions.labelinc` and `Extensions.soft_delays` have a text field
 # (`name`, `hint`) whose width is that of the longest text in the table, at least 1.

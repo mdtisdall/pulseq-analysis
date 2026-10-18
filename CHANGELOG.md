@@ -391,6 +391,24 @@ import-linter contract checks it.
 The entry points of the five analyses name `pulseq_analysis.analyses.registry`;
 their group stays `pulseq_analysis.analyses`.
 
+Each public module has an `__all__`, its names of the interface (review
+2026-10-13 6). Before, `analyses.asc`, `analyses.grad_peaks`,
+`analyses.grad_spectrum`, `analyses.pns_levels`, `analyses.registry`,
+`analyses.safe`, `seqfile.model`, `synth.events`, `synth.sampling`,
+`synth.seq_index` and `synth.seq_utils` had none. A name that a module only
+imports from another public module is not in its `__all__`, and is not part of
+the interface, although it still imports: `NO_GRADIENTS` is in the `__all__`
+of `synth.seq_index` only, not of `analyses.grad_peaks`,
+`analyses.grad_spectrum`, `analyses.pns_levels` or `analyses.registry`, and
+`SAFE_FIELDS` is in the `__all__` of `analyses.safe` only, not of
+`analyses.pns_levels`. The `__all__` of `seqfile.spec` now also has
+`TOLERANCE_NS`, `FIRST_TIME_TOLERANCE` and `RATIO_TOLERANCE`, which
+`docs/usage.md` gives. `tests/test_interface.py` checks that each public module
+has an `__all__`, that each name that the documents give with a public module
+is in its `__all__`, that each name of an `__all__` is in the documents, and
+that the `__all__` of a module that is not a package has no name of another
+public module.
+
 ### Dependencies
 
 - pypulseq is optional. The dependencies of the package are numpy and scipy;

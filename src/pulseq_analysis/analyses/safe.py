@@ -81,6 +81,8 @@ from scipy.signal import lfilter
 
 from .._validate import real
 
+__all__ = ["SAFE_FIELDS", "SafeAxis", "SafeHardware"]
+
 # The nine fields of each axis of a SAFE hardware, in the order of `safe_example_hw` and
 # `asc_to_hw` of pypulseq.
 SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thresh", "g_scale")

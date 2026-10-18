@@ -64,6 +64,16 @@ from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
 from .series import _NON_FINITE
 
+__all__ = [
+    "BIN_S",
+    "MAX_BINS",
+    "PEAK_TOLERANCE",
+    "PnsInterval",
+    "PnsLevels",
+    "bin_samples_for",
+    "pns_levels",
+]
+
 # The default bin of the level, in seconds: 5 ms (500 samples at the 10 us raster). A caller
 # that needs another bin gives `bin_s`. It changes only the bin size, not the summary or the
 # intervals.

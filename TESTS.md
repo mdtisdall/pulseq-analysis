@@ -6151,27 +6151,70 @@ path.
 
 ### 2.18 The names of the interface (`test_interface.py`)
 
-The tests read the backtick spans and the code blocks of `README.md`, `docs/usage.md` and
-`docs/implementation.md`. A dotted name that starts (after an optional `pulseq_analysis.`) with
-the path of a module or subpackage of the package (the longest one, for example
-`synth.snapshot`), or with the last part of the path of a module (`snapshot`), is a name with a
-module, and so is each name of a `from pulseq_analysis.module import ...` line of a Python code
-block. A bare name in a span or a block is a name of any module.
+The `__all__` of each public module is its contract: the names that the documents give. A module
+is public when no part of its path starts with `_` (`_equality`, `_validate`, `synth._events` and
+`synth._played` are not). The tests read the backtick spans and the code blocks of `README.md`,
+`docs/usage.md` and `docs/implementation.md`. A dotted name that starts (after an optional
+`pulseq_analysis.`) with the path of a module or subpackage of the package (the longest one, for
+example `synth.snapshot`), or with the last part of the path of a module (`snapshot`), is a name
+with a module, and so is each name of a `from pulseq_analysis.module import ...` line of a Python
+code block. A bare name in a span or a block is a name of any module.
 
-#### `test_each_name_that_the_documents_give_with_a_module_can_be_imported`
+#### `test_each_public_module_has_an_all`
 
-**Checks:** Each module and each name that the documents give with a module
-(`registry.registry`, `series.FrozenDict`, `pulseq_analysis.synth.snapshot`, the names of the
-imports of the code blocks) exists in the package.
+**Checks:** Each public module and subpackage of the package has an `__all__`.
+
+**How:** The test walks the modules of the package, checks that the walk found `analyses`,
+`synth.seq_index` and `seqfile.spec`, and collects each public module with no `__all__`.
+
+**Assumptions:** The package `pulseq_analysis` itself defines and imports no name, and is not
+read.
+
+#### `test_each_name_that_the_documents_give_with_a_public_module_is_in_its_all`
+
+**Checks:** Each name that the documents give with a public module (`registry.registry`,
+`series.FrozenDict`, the names of the imports of the code blocks) is in the `__all__` of that
+module, so a document does not give a name that was removed or renamed, or a name through a module
+that only imports it (`pns_levels.SAFE_FIELDS`, whose module is `analyses.safe`). A name with a `_`
+at the start (`spec._shapes_of`), or of a module that is not public (`_events.axis_events`),
+exists in its module. Each module that the documents give imports.
 
 **How:** The test reads the dotted names and the imports of the documents, checks that it found
 `series.FrozenDict`, the subpackage `analyses` and the import of `gradient_peaks` (so the reading
-is not empty), imports each module, and collects each name that the module does not have.
+is not empty), imports each module, and collects each name that is not in the `__all__` of the
+module (or, for a private name, that the module does not have).
 
 **Assumptions:** A further part of a dotted name (a method, as in `Series.to_obj`) is not read.
-A name that a document gives in a private module (for example `_events._read_points`) is also
-checked. The last parts of the paths of the modules are unique (the test asserts it), so a short
-name gives one module.
+The last parts of the paths of the modules are unique (the test asserts it), so a short name gives
+one module.
+
+#### `test_each_name_of_an_all_is_in_the_documents`
+
+**Checks:** Each name of the `__all__` of a public module exists in the module, and the documents
+give it.
+
+**How:** The test loops over the `__all__` of each public module and looks each name up in the
+module and in the names of the spans and code blocks.
+
+**Assumptions:** A bare name counts for any module, so the test does not tell which module a
+document means; the test of the names with a module and the next test cover that.
+
+#### `test_an_all_gives_no_name_of_another_public_module`
+
+**Checks:** The `__all__` of a public module that is not a package has only the names that the
+module defines and the names that it imports from a module that is not public (`series.FrozenDict`
+of `_equality`), so a name that the module imports from another public module (`NO_GRADIENTS` of
+`synth.seq_index` in `analyses.pns_levels`) is in the `__all__` of that module only. The `__all__`
+of a package (`analyses`, `seqfile`, `synth`) has only names that it imports from its own modules.
+
+**How:** The test reads the `from ... import` lines of the top level of the source of each module,
+with the path of the module that each name comes from (a relative import resolved against the
+package), checks that it finds `NO_GRADIENTS` from `synth.seq_index` in `analyses.pns_levels`,
+`FrozenDict` from `_equality` in `analyses.series` and `Session` from `synth.scanner` in `synth`,
+and compares each name of each `__all__` with the names that the module defines and imports.
+
+**Assumptions:** A module defines a name with a def, a class or an assignment of its top level. An
+import under a condition (`if TYPE_CHECKING:`) is not read.
 
 #### `test_the_interface_names_of_the_review_are_in_the_documents`
 
@@ -6184,23 +6227,22 @@ the object and the `__module__` of each.
 
 **Assumptions:** None.
 
-#### `test_each_public_name_of_a_module_is_in_the_documents_or_an_exception`
+#### `test_each_public_name_of_a_module_is_in_its_all_or_an_exception`
 
-**Checks:** Each name that a public module defines (a module without a `_` at the start of the
-last part of its path, a name without a `_` at the start) is in the documents, or is in
-`EXCEPTIONS` of the test.
+**Checks:** Each name that a public module defines (a name without a `_` at the start) is in its
+`__all__`, or is in `EXCEPTIONS` of the test. With the test of the names of an `__all__`, each such
+name is in the documents.
 
 **How:** The test takes the names of the top level of the source of each module (def, class and
-assignment, so an imported name such as `np` does not count), and compares those that no span or
-code block of the documents gives with `EXCEPTIONS`.
+assignment, so an imported name such as `np` does not count), and compares those that are not in
+the `__all__` of the module with `EXCEPTIONS`.
 
-**Assumptions:** A bare name counts for any module. The modules `_equality`, `_events` and
-`_validate` are not read.
+**Assumptions:** None.
 
-#### `test_each_exception_is_a_public_name_that_no_document_gives`
+#### `test_each_exception_is_a_public_name_outside_the_all`
 
-**Checks:** Each entry of `EXCEPTIONS` is a name that its module defines, that no document gives,
-and has a reason.
+**Checks:** Each entry of `EXCEPTIONS` is a name that a public module defines and leaves out of
+its `__all__`, and has a reason.
 
 **How:** The test loops over `EXCEPTIONS`. It passes with no entry.
 

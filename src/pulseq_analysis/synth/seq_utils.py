@@ -9,6 +9,8 @@ import numpy as np
 
 from .events import Trapezoid
 
+__all__ = ["TIME_TOLERANCE", "gradient_offsets", "gradient_points"]
+
 # The tolerance of a comparison of two times. A segment shorter than this has no slope.
 TIME_TOLERANCE = 1e-9  # s
 # The names of the three gradient axes, as the keys of the per-axis results.

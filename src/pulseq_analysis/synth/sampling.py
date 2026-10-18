@@ -56,6 +56,14 @@ from .seq_index import SequenceIndex, sequence_index
 from .seq_utils import _GRAD_COLUMNS, TIME_TOLERANCE
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
+__all__ = [
+    "ON_RASTER_TOLERANCE",
+    "GradientSampler",
+    "gradient_sampler",
+    "raster_block_lengths",
+    "sequence_samples",
+]
+
 
 @dataclass(frozen=True, eq=False)
 class _AxisGaps:

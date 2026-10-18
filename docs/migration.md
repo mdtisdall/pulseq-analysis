@@ -136,6 +136,17 @@ The new modules: `seqfile` (`read_seqfile`, `read_pypulseq`, `read_as_written`,
 `synth.decoding` (`decode`), `synth.scanner` (`Session` and its records) and
 `analyses.safe`. [The new names](#10-the-new-names) index them.
 
+**The names of a module.** Each public module has an `__all__`: the names of
+the interface that it gives. In `0.1.0rc6`, only `series` had one. A name that
+a module only imports from another module still imports, but it is not in the
+`__all__` and is not part of the interface, so it can change in any release.
+Import it from the module whose `__all__` gives it, for example:
+
+| Imported from | Not part of the interface | Import it from |
+|---|---|---|
+| `analyses.grad_peaks`, `analyses.grad_spectrum`, `analyses.pns_levels`, `analyses.registry` | `NO_GRADIENTS` | `synth.seq_index` |
+| `analyses.pns_levels` | `SAFE_FIELDS` | `analyses.safe` |
+
 ## 4. `load`
 
 | | `0.1.0rc6` | `0.1.0rc7` |
