@@ -956,8 +956,8 @@ def test_matches_oracle_on_the_sequences_of_the_oracle_tests(build):
     """`gradient_peaks` matches the oracle on the whole file and on 40 windows that cut the
     gradients, for each sequence of `gap_sequences.py` that `spec` reads: a zero gap with a step, a
     long gap, a first and a last value that are not 0, and one block with two axes. The test of
-    the same name of the `cpp-siemens` plugin has the others (the two sequences of
-    pypulseq-issues 12 and a short gap), which `spec` rejects."""
+    the same name of the `cpp-siemens` plugin has the others (`delayed_sequence`,
+    `early_end_sequence` and a short gap), which `spec` rejects."""
     snap = load(build())
     windows = _oracle_windows(snap, np.random.default_rng(20261007), 40)
     _assert_matches_oracle_on_windows(snap, windows)

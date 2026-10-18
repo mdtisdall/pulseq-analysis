@@ -320,8 +320,10 @@ gamma). IDs are those of the file. Fields:
 
 - `version`: `(major, minor, revision)`.
 - `definitions`: `MappingProxyType[str, tuple[str, ...]]`, the tokens of each
-  line as text (no float conversion: the signature lesson of pypulseq-issues
-  09). `rasters`: a frozen dataclass of the four required rasters as floats.
+  line as text (no float conversion: a float loses a `[SIGNATURE]` hash that
+  looks like a number, so the pinned fork reads that section as text,
+  pypulseq `Sequence/read_seq.py:95-97`). `rasters`: a frozen dataclass of
+  the four required rasters as floats.
   `required_extensions`: a tuple of STRING_IDs.
 - `blocks`: a structured array in file order, which is play order: `id`,
   `duration_ticks` (int, in `BlockDurationRaster` units), `rf`, `gx`, `gy`,
@@ -676,7 +678,7 @@ items 1 to 3, 6 and 7 are task 5a (section 7 there), and items 4 and 5 are task
 |---|---|---|
 | D1 | A comparison of a time with a raster is in integer nanoseconds where the file gives µs integers, and with an absolute tolerance of 1 ps for the ns floats (dwell). | The units of the file; the reference implementation uses 1e-12 s. |
 | D2 | `shape.range` allows [-1 - ε, 1 + ε], with ε the largest error of decompression found on the oracle corpus, rounded up; no oracle file may fail it. | The text has 9 significant digits and decompression adds. |
-| D3 | Where the prose of the specification contradicts its tables and examples (pypulseq-issues 13), the tables and examples decide. | They agree with each other and with MATLAB's files. |
+| D3 | Where the prose of the specification contradicts its tables and examples (for example, `doc/specification.tex` line 334 at `c746912` gives an RF event "seven numbers", and its table has twelve fields), the tables and examples decide. | They agree with each other and with MATLAB's files. |
 | D4 | The signature is checked and reported (`matches`), not a rule: the specification has no "must" to verify it. | Section 2.4 of the specification. |
 | D5 | Rules phrased "need to" or "can be specified" are enforced as "must" (`gradient.nonzero-end-align`, `extension.per-block`). | The user's decision U2 of the study; they state the format, not a preference. |
 | D6 | `SeqFileError(ValueError)` has `violations: tuple[Violation, ...]`, and `Violation` has `rule` (the ID of section 3.3), `section`, `line` (or `None`), `message`. | pulseq-checks shows them as findings. |

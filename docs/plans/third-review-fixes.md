@@ -122,8 +122,8 @@ breaks them.
      the gradient is "0 before the first point and after the last" of each
      event, block by block, with no ramp.
 6. **The gradient between two events** (verified at pypulseq `f2c582b`, at the
-   pinned fork `3c3bd85`, and at MATLAB Pulseq `c746912`. pypulseq-issues 12
-   gives the examples):
+   pinned fork `3c3bd85`, and at MATLAB Pulseq `c746912`. The two sequences
+   of section 6.9 are the examples):
    - The specification (`doc/specification.tex` line 420 at `c746912`) says
      that a gradient that starts at a value that is not 0 must have the delay
      0, and that a gradient that ends at a value that is not 0 must end at the
@@ -132,7 +132,9 @@ breaks them.
    - `add_block` of pypulseq and `setBlock` of MATLAB Pulseq refuse these two
      cases only above `max_slew * grad_raster_time`.
    - pypulseq's `waveforms()`, and thus `get_gradients()`, `calculate_pns`
-     and `calculate_gradient_spectrum`, draw a straight line across each gap.
+     and `calculate_gradient_spectrum`, draw a straight line across each gap:
+     `waveforms()` joins the points of the events of an axis with nothing at
+     a gap (`Sequence/sequence.py:1683-1691` at `3c3bd85`).
    - MATLAB Pulseq's `waveforms_and_times()` (`Sequence.m` lines 2113 to 2135
      at `c746912`) draws a line across a gap of one gradient raster time or
      less. Across a longer gap, it adds a ramp to 0 in half a raster time after
@@ -173,7 +175,7 @@ The user made U1 to U5 on 2026-10-07.
 | U2 | The release | All the work goes into `0.1.0rc6`. Task 2.6 of this plan replaces task 2.5 of the second plan. | `0.1.0rc6` now, then `0.1.0rc7` for this plan. |
 | U3 | The interface of section 6 of the review | All four: a rule for `rasters` (6.1), a public way to make a sampler (6.2), no `whole_rms_hz_per_m` (6.4), and runs at the edges of the samples (6.5). | Fewer of them. |
 | U4 | The tests | Correct the tests of review 5.1 and 5.2, and delete the tests and the test code of review 5.3 and 5.4. The tests of pypulseq's `write` and `read` stay, and `TESTS.md` says that they check the pin. | (a) Corrections only. (b) Also delete the tests that call no code of the package. |
-| U5 | The discrepancy of pypulseq | A new draft issue in pypulseq-issues (12). | No report. |
+| U5 | The discrepancy of pypulseq | A new private draft of an upstream report. | No report. |
 
 ### 3.2 Decisions of this plan
 
@@ -497,8 +499,10 @@ give one kept result.
 
 D1 to D8 (section 5.1). Worker O first: `tests/oracles/waveform.py` (D8), its
 own tests on hand-computed polylines, and the sequences of fact 8 with the
-values of MATLAB Pulseq. The values of the two sequences of pypulseq-issues 12
-are `[0, a, a, 0, 0, a, 0]` at `[0, 100, 200, 205, 295, 300, 400]` us. Then
+values of MATLAB Pulseq. The two sequences of the example are a second
+gradient that starts at a after a delay of 100 us, and a first gradient that
+ends at a, 100 us before the end of its block. Their values are
+`[0, a, a, 0, 0, a, 0]` at `[0, 100, 200, 205, 295, 300, 400]` us. Then
 worker W (`grad_peaks.py`, `test_grad_peaks.py`) and worker Q (`sampling.py`,
 `pns_levels.py`, `grad_spectrum.py`, `_events.py`, `test_sampling.py`,
 `test_pns_levels.py`, `test_grad_spectrum.py`).
@@ -507,7 +511,7 @@ worker W (`grad_peaks.py`, `test_grad_peaks.py`) and worker Q (`sampling.py`,
   `calculate_gradient_spectrum`) keep the sequences with no end that is not 0
   next to a gap. For the sequences of fact 8 they compare with the oracle.
 - `docs/usage.md` gets a section "The gradient waveform", with section 5.1,
-  and the difference from pypulseq (pypulseq-issues 12). The module
+  and the difference from pypulseq (fact 6). The module
   docstrings of `grad_peaks`, `sampling`, `pns_levels` and `grad_spectrum`
   refer to it.
 - The descriptions of `gradient.peaks`, `gradient.blocks`,
@@ -572,7 +576,7 @@ Before the tag, X checks:
 
 1. `nix develop --command scripts/check` passes on `main`.
 2. Each mutation of section 6.2 fails a test.
-3. The values of the sequences of pypulseq-issues 12 are those of section
+3. The values of the two sequences of the example are those of section
    6.9, in `gradient_peaks`, `block_gradient_values`,
    `GradientSampler.sample` and `block_samples`.
 4. A sequence of `tests/synthetic.py` gives the values of `0.1.0rc5`, except
@@ -608,9 +612,9 @@ Before the tag, X checks:
 
 ## 9. Later
 
-- Report pypulseq-issues 12 upstream, and a fix of `waveforms()` in the fork
-  if the maintainers agree. Then the tests of task 2.1 can compare with
-  `get_gradients` for each sequence.
-- The question of pypulseq-issues 12 for both toolboxes: should `add_block`
+- Report the line across a gap (fact 6) upstream, and a fix of `waveforms()`
+  in the fork if the maintainers agree. Then the tests of task 2.1 can compare
+  with `get_gradients` for each sequence.
+- The question of fact 6 for both toolboxes: should `add_block`
   refuse an end that is not 0 next to a gap for any value, as the
   specification says?

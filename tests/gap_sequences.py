@@ -13,7 +13,7 @@ from synthetic import SYSTEM
 DT = SYSTEM.grad_raster_time  # 10 us
 U = 1e4  # Hz/m. Every value of the sequences below is a multiple of U, or A.
 # The largest end value that `add_block` accepts next to a gap: max_slew * DT = 63864 Hz/m.
-# The sequences of pypulseq-issues 12 use half of it.
+# `delayed_sequence` and `early_end_sequence` use half of it.
 A = 0.5 * SYSTEM.max_slew * SYSTEM.grad_raster_time
 
 
@@ -31,8 +31,9 @@ def sequence(*blocks):
 
 
 def delayed_sequence():
-    """The first sequence of pypulseq-issues 12: the second gradient starts at A after
-    a delay of 100 us."""
+    """The second gradient starts at A after a delay of 100 us. Across the gap pypulseq
+    draws a line at A (pypulseq `Sequence/sequence.py:1683-1691`, at the fork commit `3c3bd85`
+    that uv.lock pins), and MATLAB Pulseq ramps to 0 and from 0."""
     return sequence(
         [extended([0, 100e-6, 200e-6], [0, A, A])],
         [extended([0, 100e-6], [A, 0], delay=100e-6)],
@@ -40,8 +41,9 @@ def delayed_sequence():
 
 
 def early_end_sequence():
-    """The second sequence of pypulseq-issues 12: the first gradient ends at A, 100 us
-    before the end of its block."""
+    """The first gradient ends at A, 100 us before the end of its block. Across the gap
+    pypulseq draws a line at A, as for `delayed_sequence`, and MATLAB Pulseq ramps to 0 and
+    from 0."""
     return sequence(
         [extended([0, 100e-6, 200e-6], [0, A, A]), pp.make_delay(300e-6)],
         [extended([0, 100e-6], [A, 0])],

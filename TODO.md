@@ -10,7 +10,8 @@
   `_safe_gwf_to_pns_chunk`), the `get_block` fix for oversampled arbitrary
   gradients (upstream PR #424), the read fix of upstream #359, `read` of the
   `[SIGNATURE]` values as text (the hash was a float when the hex digest
-  looked like a number; draft 09 of `mdtisdall/pypulseq-issues`), and
+  looked like a number; the fork reads them with `numeric=False`,
+  `Sequence/read_seq.py:97`), and
   `signature_file` set to `'text'` by `read`, as `write` does (upstream PR
   #428). This package no longer reads the `[SIGNATURE]` hash, so it does
   not need the last two. They stay while the three repositories pin one

@@ -22,9 +22,11 @@ the long gap, and the ramp points) is in `_events` (`axis_events`, `gap_kinds`, 
 and `polyline`), where `grad_peaks` uses it too.
 
 pypulseq's `Sequence.get_gradients()` draws a straight line across each gap, also across
-a long gap (pypulseq-issues 12). The two waveforms differ where an event starts or ends at
-a value that is not 0 next to a long gap, and at the step of a zero gap (pypulseq's line
-starts at `last` and ends at the second point of the later event).
+a long gap: `waveforms()` joins the points of the events of an axis with nothing at a gap
+(pypulseq `Sequence/sequence.py:1683-1691`, at the fork commit `3c3bd85` that uv.lock pins).
+The two waveforms differ where an event starts or ends at a value that is not 0 next to a long
+gap, and at the step of a zero gap (pypulseq's line starts at `last` and ends at the second
+point of the later event).
 
 `GradientSampler.block_samples` gives the same waveform for the SAFE PNS model
 (`pns_levels.pns_levels`), in a second form: each block on its own, at the local times

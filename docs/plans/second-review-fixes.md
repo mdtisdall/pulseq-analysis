@@ -163,12 +163,15 @@ breaks them.
 10. **The new pin.** The fork tag `pulseq-reports-pin-2` (commit
     `3c3bd85`, pushed to `mdtisdall/pypulseq`) is `a74ab06` with two
     commits: `read` keeps the `[SIGNATURE]` values as text (the hash was a
-    float when the hex digest looked like a number, pypulseq-issues 09),
-    and `read` sets `signature_file` to `'text'`, as `write` does
-    (pypulseq-issues 10b).
+    float when the hex digest looked like a number;
+    `Sequence/read_seq.py:95-97`), and `read` sets `signature_file` to
+    `'text'`, as `write` does (`Sequence/read_seq.py:102`).
 11. **The hash of a sequence** (verified at `3c3bd85` and at upstream
     `f2c582b`). `read` does not check the hash against the file. The
-    hash stays on the object after the object changes (pypulseq-issues 11):
+    hash stays on the object after the object changes (pypulseq sets the
+    signature fields only in `__init__`, in `write` and for a `[SIGNATURE]`
+    section in `read`: `Sequence/sequence.py:92-94` and `1803-1805`, and
+    `Sequence/read_seq.py:98-102` at `3c3bd85`):
 
     | Case | `seq.signature_value` |
     |---|---|
@@ -181,8 +184,10 @@ breaks them.
 
 12. **The sequences of the tests.** `pp.Sequence(` is in the tests 67
     times, 7 of them in `tests/synthetic.py`. pypulseq's `write` fails for
-    an oversampled arbitrary gradient (pypulseq-issues 04), so `write`
-    cannot sign each test sequence.
+    an oversampled arbitrary gradient (`remove_duplicates` maps its time
+    shape ID -1, a flag, as a shape ID, and raises `KeyError`:
+    `Sequence/sequence.py:1167` at `3c3bd85`), so `write` cannot sign each
+    test sequence.
 
 ## 3. Decisions
 
@@ -201,7 +206,7 @@ The user made U1 to U6 on 2026-10-05.
 | U7 | The pypulseq pin | The fork tag `pulseq-reports-pin-2` (`3c3bd85`). | Stay at `pulseq-reports-pin-1`. |
 | U8 | A sequence with no hash | Each measurement refuses it, `sequence_index` too. | (a) The measurements but not `sequence_index`. (b) Only the callers, which read the files. |
 | U9 | The check of the hash | Presence only: the package does not compute the hash again. | The fork computes the MD5 of the file in `read` and refuses a mismatch. |
-| U10 | The stale hash (fact 11) | Pin `pulseq-reports-pin-2`, document the two stale cases here, and report them (pypulseq-issues 11). | A fork fix first, and a pin of a third tag. |
+| U10 | The stale hash (fact 11) | Pin `pulseq-reports-pin-2`, document the two stale cases here, and report them upstream. | A fork fix first, and a pin of a third tag. |
 | U11 | The oracle of `grad_peaks` (task 1.4) | It stays the earlier implementation, with no junction steps. The tests of a delayed junction check hand-computed values. | The oracle gets the rule of D4. |
 
 ### 3.2 Decisions of this plan
@@ -699,7 +704,7 @@ Checks of X:
 - [ ] `uv.lock` has pypulseq at `3c3bd85`, and `uv lock --check` passes.
 - [ ] `nix develop --command scripts/check` passes, with no change to a
       test.
-- [ ] A file whose hash looks like a number (pypulseq-issues 09) gives that
+- [ ] A file whose hash looks like a number (`Sequence/read_seq.py:95-97`) gives that
       hash as a `str` after `read` (a check in the scratchpad, not a test of
       this package).
 
@@ -810,7 +815,7 @@ are at the commits of section 2, fact 4.
   user.
 - **A kept result for each window** of `gradient_peaks`, with a limit of
   size, if a caller asks for the same windows again.
-- **The stale hash** (fact 11, pypulseq-issues 11). When the fork clears
+- **The stale hash** (fact 11). When the fork clears
   the signature fields in `read`, `add_block` and `set_block`, pin that
   tag; then the check of D20 has no stale case, and the stamp of `_kept`
   can use the hash.

@@ -403,8 +403,8 @@ Its parts:
    drift tests (`TESTS.md`, section of `test_sources.py`) check them, and the
    pin move of `TODO.md` runs them (D3, D8).
 
-The section gives no `pypulseq-issues` reference (user documents do not cite
-it).
+The section cites no private draft of an upstream report (user documents do
+not cite them).
 
 ### 5.3 The corrections of the documents
 

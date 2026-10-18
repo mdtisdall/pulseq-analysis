@@ -33,9 +33,11 @@ with `SafeHardware.from_namespace(ns, "<a label>")`.
 The gradient waveform is the model of MATLAB Pulseq (`sampling`, `docs/implementation.md` "The
 gradient waveform"): a line across a gap of one raster time or less between two events, a
 ramp to 0 and from 0 (half a raster time each) across a longer gap, and a step at a block
-junction. pypulseq's `calculate_pns` draws a line across each gap (pypulseq-issues 12), so it
-gives other values for a sequence with an event that starts or ends at a value that is not 0
-next to a gap, or with a step at a junction.
+junction. pypulseq's `calculate_pns` draws a line across each gap: its gradients are those of
+`get_gradients()`, from `waveforms()`, which joins the points of the events of an axis with
+nothing at a gap (pypulseq `Sequence/calc_pns.py:50` and `Sequence/sequence.py:1683-1691`, at
+the fork commit `3c3bd85` that uv.lock pins). So it gives other values for a sequence with an
+event that starts or ends at a value that is not 0 next to a gap, or with a step at a junction.
 
 The samples of each block start at the start of that block, not at a time summed over the
 earlier blocks. Thus a block gives the same samples wherever it is in the sequence (apart

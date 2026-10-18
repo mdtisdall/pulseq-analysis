@@ -32,6 +32,20 @@ Terms used below:
 - **Synthetic sequences** are the small sequences in `tests/synthetic.py`,
   built with pypulseq only. They use the system limits 28 mT/m and
   150 T/m/s, RF dead time 100 µs, RF ringdown 20 µs and ADC dead time 10 µs.
+- **pypulseq lines** such as `Sequence/sequence.py:1683-1691` are lines of
+  the pypulseq fork that `uv.lock` pins, at commit `3c3bd85` (`Sequence/` is a
+  folder of the package `pypulseq`). At those lines `waveforms()` joins the
+  points of the gradient events of an axis. It adds nothing at a gap, so
+  `get_gradients()`, and `calculate_pns` and `calculate_gradient_spectrum`,
+  which use it, draw a line across each gap. When an event starts at the time
+  where the earlier event ends, it drops the first point of the later event,
+  so they have no step at a junction.
+- **Pulseq lines** such as `matlab/+mr/@Sequence/Sequence.m:2114-2135` are
+  lines of pulseq/pulseq at commit `c7469123`, which `flake.nix` pins. At
+  those lines MATLAB Pulseq's `waveforms_and_times`, across a gap of more than
+  one raster time, ramps to 0 in half a raster time after an event that ends
+  at a value that is not 0, and from 0 in half a raster time before an event
+  that starts at a value that is not 0.
 
 Contents:
 
@@ -484,7 +498,8 @@ of about 1e-16 of the peak where one of the two paths holds the last point of a 
 that is not exactly 0).
 
 **Assumptions:** `calculate_pns` is not the reference, because it draws a line across each gap
-(pypulseq-issues 12). `spec` reads a block duration raster of 1 µs (`_add_a_delay`).
+(pypulseq `Sequence/calc_pns.py:50` and `Sequence/sequence.py:1683-1691`). `spec` reads a
+block duration raster of 1 µs (`_add_a_delay`).
 
 #### `test_cast_outward_bounds_every_input_value`
 
@@ -1720,8 +1735,9 @@ tests of blocks off the raster use a sample raster `dt` that is not a divisor of
 is the gradient waveform of MATLAB Pulseq (`docs/implementation.md`, section 1). The reference is the
 oracle waveform of `tests/oracles/waveform.py` (section 2.15), read from `sequence_of(snap)`
 (`tests/oracles/blocks.py`). pypulseq's `seq.get_gradients()` is not a reference: it draws a line
-across each gap and has no step at a junction (pypulseq-issues 12). The snapshot has no pypulseq
-object. `_assert_matches_oracle` compares `sample(axis, t)` with `oracle.sample`, with a relative
+across each gap and has no step at a junction (pypulseq `Sequence/sequence.py:1683-1691`). The
+snapshot has no pypulseq object. `_assert_matches_oracle` compares `sample(axis, t)` with
+`oracle.sample`, with a relative
 1e-12 and an absolute 1e-12 times the largest |value| of the reference. The oracle makes its points
 with the same sums as the sampler, so the difference is the rounding of the interpolation formula
 only. The oracle comparisons of the synthetic sequences (`test_sample_equals_the_oracle_for_the_whole_sequence`
@@ -1745,7 +1761,7 @@ the second ramp. A ramp is half a raster time long. The test checks that the ram
 
 **Assumptions:** The model of MATLAB Pulseq: a gap of more than one raster time has a ramp to 0
 and a ramp from 0, each half a raster time long. pypulseq draws a line across it
-(pypulseq-issues 12).
+(pypulseq `Sequence/sequence.py:1683-1691`).
 
 #### `test_range_across_a_step_and_a_ramp_equals_the_same_slice_of_the_whole_grid`
 
@@ -1837,9 +1853,10 @@ with `_assert_matches_oracle`.
 **Checks:** `sample` gives the correct waveform for a file with an oversampled
 arbitrary gradient (`make_arbitrary_grad(oversampling=True)`). The reference is not
 `seq.get_gradients()`: pypulseq's `waveforms()` leaves out the first and the last point
-of an oversampled gradient (draft 03 of `github.com/mdtisdall/pypulseq-issues`). The
-reference is instead the polyline of the added events (the objects `make_*` returns,
-before `add_block`), which does not depend on that.
+of an oversampled gradient: its times are not at the centres of the raster, so `waveforms()`
+takes the branch of an extended trapezoid, which has no `first` and no `last` (pypulseq
+`Sequence/sequence.py:1582-1614`). The reference is instead the polyline of the added
+events (the objects `make_*` returns, before `add_block`), which does not depend on that.
 
 **How:** Builds three blocks with `SYSTEM` of `synthetic.py`: an oversampled ramp
 (`make_arbitrary_grad("x", ..., oversampling=True)`, 21 samples at 50 % of `max_slew`
@@ -1941,7 +1958,7 @@ MATLAB Pulseq), with no time drift from the block start sums, except in a gap.
 
 **Checks:** `GradientSampler.sample` equals `oracle.sample` on a grid across each sequence of
 the model. The sequences cover each gap rule: a zero gap, a short gap, a long gap, the first and
-the last value not 0, the two sequences of pypulseq-issues 12, a step followed by a gap, an event
+the last value not 0, `delayed_sequence` and `early_end_sequence`, a step followed by a gap, an event
 that is not on a raster edge, and the synthetic spin echo, GRE and arbitrary-gradient sequences.
 They also cover negative end values, a gap between one and two raster times, a short gap
 with an end of 0, and random sequences with blocks of zero duration.
@@ -2759,8 +2776,8 @@ are the oracle's, or those of another item of the polyline of the oracle with th
 **Checks:** `gradient_peaks` matches the oracle of the gradient waveform on the whole file and
 on up to 40 windows, for each sequence of `tests/gap_sequences.py` that `spec` reads
 (parametrized): a zero gap with a step, a long gap, a first value and a last value that are not
-0, and one block with two axes. The test of the same name of section 3.10 has the others (the two
-sequences of pypulseq-issues 12 and a short gap), which `spec` rejects.
+0, and one block with two axes. The test of the same name of section 3.10 has the others
+(`delayed_sequence`, `early_end_sequence` and a short gap), which `spec` rejects.
 
 **How:** The test loads each sequence with `load(seq)`. The windows come from `_oracle_windows`
 (seed 20261007). Their ends are on the starts and the ends of the blocks, on the points of the
@@ -4832,7 +4849,8 @@ blocks of zero duration). Each sequence is loaded with `load(seq)`, and the orac
 `1e3 / gamma`) with `tests/oracles/grad_spectrum.py` within 1e-12.
 
 **Assumptions:** pypulseq's `calculate_gradient_spectrum` draws a line across a long gap and has
-no step at a junction (pypulseq-issues 12), so it is not the reference.
+no step at a junction (pypulseq `Sequence/calc_grad_spectrum.py:76` and
+`Sequence/sequence.py:1683-1691`), so it is not the reference.
 
 #### `test_matches_oracle_with_many_chunks`
 
@@ -5509,8 +5527,8 @@ that `add_block` gives: 1, 2, 3.
 
 #### `test_the_polyline_of_each_sequence_of_pypulseq_issue_12_is_the_one_of_matlab_pulseq`
 
-**Checks:** The oracle gives the points that MATLAB Pulseq gives for the two sequences of
-pypulseq-issues 12, and credits the two ramp points to the right blocks.
+**Checks:** The oracle gives the points that MATLAB Pulseq gives for `delayed_sequence` and
+`early_end_sequence`, and credits the two ramp points to the right blocks.
 
 **How:** Parametrized over the two sequences: the second gradient starts at A after a
 delay, and the first gradient ends at A before the end of its block. Both have a gap of
@@ -5520,14 +5538,16 @@ The sequence has no step. The point at 205 µs is credited to the first block, a
 point at 295 µs to the second. `sample` at 50, 150, 202.5, 250, 297.5 and 350 µs must give
 A/2, A, A/2, 0, A/2 and A/2.
 
-**Assumptions:** The values of MATLAB Pulseq are those in `issue.md` of pypulseq-issues 12.
-They are not run in this repository. The test removes the repeated points with a tolerance
+**Assumptions:** The values of MATLAB Pulseq are those that its `waveforms_and_times` gave for
+the same two sequences (with another value of A) in GNU Octave, outside this repository; they are
+not run in this repository. Its rule of a long gap is at Pulseq
+`matlab/+mr/@Sequence/Sequence.m:2114-2135`. The test removes the repeated points with a tolerance
 of 1 ps and 1e-6 Hz/m. Other tests check the repeated points.
 
 #### `test_the_values_of_each_sequence_of_pypulseq_issue_12_are_hand_values`
 
 **Checks:** The oracle gives the hand values of the slew, the peak, the vector peak and the
-RMS of the two sequences of pypulseq-issues 12.
+RMS of `delayed_sequence` and `early_end_sequence`.
 
 **How:** Parametrized over the two sequences. A ramp of A in DT/2 has the slope 2 A / DT,
 which is `max_slew`, and the oracle must give it as the slew, at 200 or at 295 µs. The peak
@@ -11290,7 +11310,8 @@ test checks the slew, `slew_block` (block 2), and `slew_time_s` (the start of bl
 delay, minus half a raster time, to 1e-12 s). It checks that the junction of block 2 is 0.
 
 **Assumptions:** `add_block` accepts a delayed extended trapezoid with a first value that is
-not 0, after a block that ends at 0. The ramp is the rule of MATLAB Pulseq (pypulseq-issues 12).
+not 0, after a block that ends at 0. The ramp is the rule of MATLAB Pulseq (Pulseq
+`matlab/+mr/@Sequence/Sequence.m:2114-2135`).
 `spec` rejects the first value that is not 0 after a delay (`gradient.nonzero-start-delay`), so the test uses `cpp-siemens`, which
 plays it.
 
@@ -11330,7 +11351,7 @@ those of section 2.6. The scale of the tolerance is the limits of `SYSTEM`, and
 
 **Checks:** `gradient_peaks` matches the oracle of the gradient waveform on the whole file and
 on up to 40 windows, for each sequence of `tests/gap_sequences.py` that `spec` rejects
-(parametrized): the two sequences of pypulseq-issues 12 (a first value after a delay, and an end
+(parametrized): `delayed_sequence` and `early_end_sequence` (a first value after a delay, and an end
 before the end of its block) and a short gap. The test of the same name of section 2.6 has the
 others.
 
@@ -11377,7 +11398,7 @@ as the test of the same name of section 2.6 checks for the sequences that `spec`
 
 **How:** The sequences are `raster_4us_sequence`, an x extended trapezoid with a delay and a first
 value that is not 0 after a trapezoid (`_delayed_junction_sequence`), the three sequences of
-`tests/gap_sequences.py` that `spec` rejects (the two sequences of pypulseq-issues 12 and a short
+`tests/gap_sequences.py` that `spec` rejects (`delayed_sequence`, `early_end_sequence` and a short
 gap), and 8 random sequences of `random_gap_sequence` (seeds 0 to 7). For each sequence the test
 makes the snapshot `load(make_seq(), "cpp-siemens")` and calls
 `_assert_block_values_agree_with_gradient_peaks` of `test_grad_peaks.py` (section 2.6), which
@@ -11419,7 +11440,7 @@ snapshots of each window are `load(seq, "cpp-siemens")`.
 
 #### `test_the_values_of_each_sequence_of_pypulseq_issue_12_are_those_of_matlab_pulseq`
 
-**Checks:** The two sequences of pypulseq-issues 12 (parametrized) have the gradient of MATLAB
+**Checks:** `delayed_sequence` and `early_end_sequence` (parametrized) have the gradient of MATLAB
 Pulseq, with the values by hand. The gradient is at 0, 100, 200, 205, 295, 300 and 400 µs the
 values 0, A, A, 0, 0, A and 0, where A is half of `max_slew * grad_raster_time`.
 
@@ -11515,8 +11536,8 @@ at a junction, and ends that are not 0 next to it, equals the spectrum that the 
 from the oracle waveform (`tests/oracles/waveform.py`, the model of MATLAB Pulseq), as the test of
 the same name of section 2.10 checks for the sequences that `spec` reads.
 
-**How:** Parametrized over 16 sequences: `short_gap_sequence` and the two sequences of
-pypulseq-issues 12, a copy of each of the three with each amplitude negated
+**How:** Parametrized over 16 sequences: `short_gap_sequence`, `delayed_sequence` and
+`early_end_sequence`, a copy of each of the three with each amplitude negated
 (`gap_sequences.negated`), `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times
 between two values that are not 0), `short_gap_to_0_sequence` (a short gap from a value to 0),
 and the 8 sequences of `random_gaps.random_gap_sequence` with the seeds 0 to 7 (random signs,
@@ -11529,7 +11550,8 @@ these sequences. The oracle reads `sequence_of(snap)`. `_assert_matches_oracle` 
 `tests/oracles/grad_spectrum.py` within 1e-12.
 
 **Assumptions:** pypulseq's `calculate_gradient_spectrum` draws a line across a long gap and has
-no step at a junction (pypulseq-issues 12), so it is not the reference.
+no step at a junction (pypulseq `Sequence/calc_grad_spectrum.py:76` and
+`Sequence/sequence.py:1683-1691`), so it is not the reference.
 
 #### `test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`
 
@@ -11540,10 +11562,10 @@ includes a first value and a last value of an axis that are not 0, and a sequenc
 that is not on the raster, where `pns_levels` samples with `GradientSampler.sample`.
 
 **How:** Parametrized over 42 sequences. On the raster, 8 are a two-axis short gap with a first
-value and a last value that are not 0, the two sequences of pypulseq-issues 12,
+value and a last value that are not 0, `delayed_sequence` and `early_end_sequence`,
 `gap_of_1_5_raster_times_sequence` (a long gap of 1.5 raster times between two values that are
 not 0), `short_gap_to_0_sequence` (a short gap from a value to 0), and a copy of
-`short_gap_sequence` and of the two sequences of pypulseq-issues 12 with each amplitude negated
+`short_gap_sequence`, `delayed_sequence` and `early_end_sequence` with each amplitude negated
 (`gap_sequences.negated`). 8 more are the sequences of `random_gaps.random_gap_sequence` with the
 seeds 0 to 7 (random signs, delays of 0 to 7 raster times, and zero, short and long gaps). Fifteen
 more, on the raster, have the last sample of an event at a sample time: the 14 ramps of
@@ -11563,9 +11585,9 @@ starts above 0 after a delay (`gradient.nonzero-start-delay`) and a delay off th
 `_off_raster`.
 
 **Assumptions:** `calculate_pns` is not the reference, because it draws a line across each gap
-(pypulseq-issues 12). The oracle reads the gradients as the snapshot plays them
-(`tests/oracles/blocks.sequence_of`), so the rounding of the written file is not in the
-difference.
+(pypulseq `Sequence/calc_pns.py:50` and `Sequence/sequence.py:1683-1691`). The oracle reads the
+gradients as the snapshot plays them (`tests/oracles/blocks.sequence_of`), so the rounding of the
+written file is not in the difference.
 
 #### `test_sample_equals_the_oracle_for_the_whole_sequence`
 

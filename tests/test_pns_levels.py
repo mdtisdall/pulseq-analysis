@@ -280,9 +280,10 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     axis that are not 0), `pns_levels` is the SAFE model of the oracle samples
     (`check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`),
     on the raster and, for the names that end in `_off_raster`, off it (`_GAP_NAMES`).
-    `calculate_pns` of pypulseq is not the reference: it draws a line across each gap
-    (pypulseq-issues 12). The test of the same name of the `cpp-siemens` plugin has the sequences
-    that `spec` rejects."""
+    `calculate_pns` of pypulseq is not the reference: it draws a line across each gap (pypulseq
+    `Sequence/calc_pns.py:50` and `Sequence/sequence.py:1683-1691`, at the fork commit
+    `3c3bd85` that uv.lock pins). The test of the same name of the `cpp-siemens` plugin has the
+    sequences that `spec` rejects."""
     check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
         load(_gap_sequence(name)), on_raster=not name.endswith("_off_raster")
     )
