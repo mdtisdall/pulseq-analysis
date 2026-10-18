@@ -367,7 +367,7 @@ Notes:
 - **Open decision** (`TODO.md`): whether `spec` reads a trapezoid whose rise,
   flat and fall times are all 0. C17 (#172) decided it below.
 
-### The plan `docs/plans/remaining-review-fixes.md` (#143, closed in this PR)
+### The plan `docs/plans/remaining-review-fixes.md` (#143, closed in #197)
 
 The plan covered every finding that the PRs above did not fix, in four
 tracks: the code (C), the documents and the duplication (D), the API (A) and
