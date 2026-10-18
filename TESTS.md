@@ -7220,6 +7220,44 @@ was `syntax.number` before too.
 
 **Assumptions:** None.
 
+#### `test_the_samples_of_a_shape_cost_no_python_line_each`
+
+**Checks:** Review 2026-10-13 2.5b: `spec._shapes_of` checks the samples of a shape with no
+Python loop over them: the Python work of a shape does not grow with its number of samples.
+
+**How:** `valid_no_signature.seq`, whose last section is `[SHAPES]`, with one more shape (ID 100)
+of 10, then of 1000, uncompressed samples `0.001 * i`. `read_seqfile` of each file runs under
+`sys.settrace`, and `_lines_of_shapes_of` counts the `line` events of the frames of
+`_shapes_of` and of the functions defined in it, at any depth. A loop gives a `line` event for
+each pass, and so does a list comprehension, which Python 3.12 inlines in its function. Each
+file reads, with 10 or 1000 samples in shape 100, and the two counts are equal.
+
+**Assumptions:** The count does not see the work of the functions that `_shapes_of` calls
+(NumPy, `as_written`, `_Report`), so a loop over the samples there is not caught. The test
+counts `line` events and not `opcode` events: Python 3.12 gives no `opcode` event in the first
+traced call of a function. The other tests of the shapes check what is read.
+
+#### `test_the_bad_samples_of_random_shapes_are_syntax_number_at_their_lines`
+
+**Checks:** D2.5, D3.5: each sample line of a shape that is not one finite number is
+`syntax.number` at its line, with the choice for `nan`, `inf` and `-inf` and without it for a
+text that is not one number, and a shape with no such line is read with its samples; with
+comments among the samples and between the `shape_id` and `num_samples` lines.
+
+**How:** 300 files from `numpy.random.default_rng(5)`: `valid_no_signature.seq` with 1 to 5
+more shapes (IDs from 100), each of 0 to 11 uncompressed samples rounded to 3 decimals in
+-1 to 1, and a blank line after each. A comment line `# between` comes after the `shape_id` line
+with a probability of 0.2, a comment `# among` before a sample with 0.15, and a sample is
+replaced with one of `_BAD_SAMPLES` (`nan`, `inf`, `-inf`, `1,5`, `abc`, `1 2`,
+`num_samples 3`) with 0.1. For a file with a bad sample, the violations are, in order, one
+`syntax.number` in `SHAPES` at the line of each bad sample, with the choice of `_BAD_SAMPLES`
+and a message that starts with ``sample '<text>' is not one finite number``. For a file with
+none, each added shape has its number of samples and its samples (`Shape.packed`).
+
+**Assumptions:** The file has at most `MAX_LOCATIONS` bad samples (the test checks it), so
+every violation is kept. The added shapes are not used by an event, so no other rule applies to
+them.
+
 #### `test_the_same_file_with_revision_1_5_1_reads_the_1_5_1_extensions`
 
 **Checks:** The version gate: the file of `valid_1_5_0_extensions_of_1_5_1.seq` with `revision 1` reads ROTATIONS and RF_SHIMS and skips only UNKNOWN.
