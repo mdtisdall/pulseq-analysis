@@ -303,8 +303,8 @@ def _limit(poly: Polyline, q: float, side: str) -> float:
 
 
 def _axis_values(poly: Polyline, dt: float, lo: float, hi: float, end_s: float) -> dict:
-    peak, peak_time, peak_play = 0.0, 0.0, None
-    slew, slew_time, slew_play = 0.0, 0.0, None
+    peak, peak_time, peak_play = 0.0, None, None
+    slew, slew_time, slew_play = 0.0, None, None
     integral = 0.0
     t, g, point_play = poly.t, poly.g, poly.point_play
     steps = list(zip(poly.step_point, poly.step_time, poly.step_size, poly.step_play, strict=True))
@@ -359,12 +359,12 @@ def _axis_values(poly: Polyline, dt: float, lo: float, hi: float, end_s: float) 
 
 def _vector_peak(
     polys: dict[str, Polyline], lo: float, hi: float
-) -> tuple[float, float, int | None]:
+) -> tuple[float, float | None, int | None]:
     reference = polys["x"]
     times = np.unique(
         np.concatenate([[lo, hi]] + [p.t[(p.t >= lo) & (p.t <= hi)] for p in polys.values()])
     )
-    best, best_time, best_block = 0.0, 0.0, None
+    best, best_time, best_block = 0.0, None, None
     for time in times:
         for side in ("before", "after"):
             if (side == "before" and time == lo) or (side == "after" and time == hi):
@@ -399,7 +399,7 @@ def peaks(seq: pp.Sequence, window: tuple[float, float] | None = None) -> dict:
     "peak_time" (s), "peak_block" (a block ID, or None when the peak is 0), "max_slew"
     (Hz/m/s), "slew_time", "slew_block" (None when the slew is 0) and "rms" (Hz/m). It has
     also "vector_peak" (Hz/m), "vector_peak_time" and "vector_peak_block" (None when the
-    peak is 0). The time of a value that is 0 is 0.0."""
+    peak is 0). The time of a value that is 0 is None, as its block is."""
     polys = polylines(seq)
     reference = polys["x"]
     end_s = float(reference.block_end[-1]) if reference.block_end.size else 0.0
@@ -414,6 +414,6 @@ def peaks(seq: pp.Sequence, window: tuple[float, float] | None = None) -> dict:
     if hi > lo:
         vector, time, block = _vector_peak(polys, lo, hi)
     else:
-        vector, time, block = 0.0, 0.0, None
+        vector, time, block = 0.0, None, None
     result.update(vector_peak=vector, vector_peak_time=time, vector_peak_block=block)
     return result

@@ -286,7 +286,8 @@ whole file, over a range, or for each block:
 
 An axis with no event in a block has the amplitude 0 there. When several
 blocks have the largest value, the first of them in play order gets the
-credit. A largest value of 0 gives no block (`None`) and the time 0.0.
+credit. A largest value of 0 gives no block and no time: both are `None`, as
+the time of the peak of `pns_levels` is (section 2.2).
 
 **A NaN.** A plugin can read a NaN of a file (an amplitude `nan`, which `spec`
 rejects, `syntax.number`), and then the waveform is NaN where that event plays.
@@ -320,7 +321,8 @@ argument `range_s` with each end clipped to `(0.0, end_s)` of the sequence, so
 its start is never after its end. A range that is past an end of the sequence
 by less than `seq_utils.TIME_TOLERANCE` has the range
 `(end_s, end_s)` (or `(0.0, 0.0)`), of length 0, with the `reason`
-`seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values. A segment that crosses
+`seq_index.NO_GRADIENTS_IN_WINDOW` and the zero values (0.0, with the blocks
+and the times `None`). A segment that crosses
 an end of the range is cut there, and a step is in the range by the rule of
 section 1.7. The `reason` is `None` when the range has a part of a gradient
 event, or a ramp, a line or a step with a value that is not 0.
