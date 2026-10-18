@@ -9,7 +9,7 @@ name: matlab-oracle
 # The workflow runs tests/test_matlab_oracle.py and the test of the plugin that uses the oracle,
 # on a pull request or a push to main that changes what they read:
 # - the code of pulseq-analysis that they import: the reading and the decoding (seqfile, synth),
-#   analyses/loading.py and the modules at the top of the package;
+#   analyses/loading.py, analyses/grad_peaks.py and the modules at the top of the package;
 # - the interpreter cpp-siemens and its build;
 # - the fixtures, the oracle and the test modules;
 # - the dependencies (pyproject.toml, uv.lock, the flake) and this file.
@@ -23,6 +23,7 @@ on:
       - src/pulseq_analysis/*.py
       - src/pulseq_analysis/analyses/__init__.py
       - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/analyses/grad_peaks.py
       - src/pulseq_analysis/seqfile/**
       - src/pulseq_analysis/synth/**
       - packages/pulseq-cpp-siemens/src/**
@@ -47,6 +48,7 @@ on:
       - src/pulseq_analysis/*.py
       - src/pulseq_analysis/analyses/__init__.py
       - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/analyses/grad_peaks.py
       - src/pulseq_analysis/seqfile/**
       - src/pulseq_analysis/synth/**
       - packages/pulseq-cpp-siemens/src/**

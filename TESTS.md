@@ -8473,8 +8473,8 @@ same files and the same command does not start Octave. The whole module skips wh
 PATH: only the default devShell has it, not the `ci` shell. `.github/workflows/matlab-oracle.yml` runs the
 module, and the MATLAB test of `cpp-siemens` (section 3.9), in the default devShell, on a pull request or a
 push to `main` that changes the code of pulseq-analysis that they import (`seqfile`, `synth`,
-`analyses/loading.py` and the modules at the top of the package), the interpreter `cpp-siemens` or its build,
-`tests/seqfiles/`, the oracle (`tests/oracles/matlab.py`, `tests/matlab_oracle/`), the two test modules, the
+`analyses/loading.py`, `analyses/grad_peaks.py` and the modules at the top of the package), the
+interpreter `cpp-siemens` or its build, `tests/seqfiles/`, the oracle (`tests/oracles/matlab.py`, `tests/matlab_oracle/`), the two test modules, the
 dependencies or the flake, and by hand. It fails before the tests when `matlab.command_path()` finds no
 command, where they would skip. Block `b` of the model, in play order, is block
 `b + 1` of MATLAB. A value is compared to a relative 1e-12 of the largest magnitude of its event or axis, and
@@ -8483,8 +8483,9 @@ the two values. Where the package decodes a file otherwise than MATLAB, the test
 and the test gives the reason: `shape_dur` of an RF event of cells whose dwell is more than one RF raster, and
 of one of points whose last time is not a whole number of RF rasters (D2.12); `first` of a 1.4 gradient with a
 time shape (U23); MATLAB's restored points of an arbitrary gradient of time ID 0 (U21); the waveform of a
-file older than 1.5.1 with a rotation (D4.6); and the midpoints of the waveform at the boundary of a block
-that plays a rotation (D2.14).
+file older than 1.5.1 with a rotation (D4.6); the midpoints of the waveform at the boundary of a block
+that plays a rotation (D2.14); and, for the gradient peaks, the segments that start at such a boundary
+where an event starts or ends at a value that is not 0 (D2.14).
 
 #### `test_the_events_of_each_block_are_those_of_matlab_pulseq`
 
@@ -8630,6 +8631,74 @@ against MATLAB's float64.
 `koma_v1.5_rotation_radial_tiny.seq` and `pulseq_make_radial.seq` are the radial cases of
 `docs/plans/scanner-settings-study.md` section 3.5; the `valid_1_5_1` family adds an extended
 trapezoid in a rotated block. A file that `spec` rejects or that MATLAB cannot read is skipped.
+
+#### `test_the_gradient_peaks_of_a_rotated_file_are_those_of_matlab_pulseq`
+
+**Checks:** For each file with a `ROTATIONS` section that MATLAB reads, from 1.5.1, and for a file that
+the test builds from `valid_1_5_1.seq`, `gradient_peaks` of `load(path)` (`spec`) has the values of
+MATLAB's rotated polylines from `waveforms_and_times(true)`: in the whole file and in each block, the
+peak, the slew and the RMS of each axis and the vector peak, each with a time at which MATLAB has that
+value. `block_gradient_values` has the vector peak of each block whose window is the whole block. The
+comparison is the helper `compare_gradient_peaks`.
+
+**How:**
+
+- The expected values (`_Expected`) apply the rules of `analyses/grad_peaks.py` to MATLAB's points:
+  the peak from the ends of the segments in the window, with the value of the line at an edge that
+  cuts a segment; the slew from the slopes of the segments of 1e-9 s (`seq_utils.TIME_TOLERANCE`) or
+  more, at their starts, and from the step from 0 at the first point and to 0 at the last point of an
+  axis, `|value| / dt`, at a time in `[lo, hi)` and more than 1e-9 s before the end; the RMS from the
+  integral of the square of the segments; and the vector peak at the edges of the window and at the
+  times of the points of the three axes, on each side of a time (not before the start of the window,
+  not after its end).
+- The windows are the whole file (`window=None`) and each block, without the intervals that the test
+  leaves out (`_left_out`); a window that they cut becomes the windows between them. A block that has
+  no interval left out, and no neighbour of duration 0, also has the vector peak of
+  `block_gradient_values` compared with that of its window: the candidates of a block are the times in
+  it, from each side, as in the window of the block.
+- Left out, on every axis: a segment of MATLAB's polyline that starts at the start or the end of a block
+  that plays a rotation (a quaternion with a vector part that is not 0) where a gradient event of
+  MATLAB's `getBlock` starts or ends at a value that is not 0 (`_steps_at`: `first` or `last` of an
+  arbitrary gradient, the amplitude of a trapezoid with a rise or a fall of 0). Where the gradient of
+  one block ends and that of the next starts at one time, MATLAB keeps the last point of the earlier
+  block and leaves out the points of the later block at that time (`Sequence.m:2143`), so its segment
+  into the later block starts at the earlier value; the measurements draw a step there, with its slew
+  (D2.14). In `valid_1_5_1.seq` that is the segment from 1.5 ms to 1.505 ms. A segment that ends at such
+  a boundary is the same in both and is compared, and so is one at a boundary where every event starts
+  and ends at 0 (the rotated trapezoids of the radial files). Also left out: the segments next to a
+  point that MATLAB restores in an arbitrary gradient of time ID 0 (U21, as the test of the waveform).
+- Each value is compared to a relative 1e-12 (`REL`) of the largest absolute value of MATLAB's axis, and
+  each slew to a relative 1e-12 of the largest slew of MATLAB's axis (both of the three axes for the
+  vector peak and for an axis where MATLAB has no point). A time passes when MATLAB has a candidate within
+  1e-12 s of it with the largest value: of the values that are equal but for rounding (the flat tops of
+  the radial files, turned), the package can give any.
+- The built file (`_rotated_two_axes`, in `tmp_path`) gives the two rotated blocks of
+  `valid_1_5_1.seq` events on two axes: block 5 plays its gx event and a new trapezoid on gy with its
+  rotation of 45 degrees about z, and block 9, of the same duration, plays the same two events with a new
+  rotation of 45 degrees about y, a quaternion with the same scalar part. MATLAB reads it in a run of its
+  own (a second `MatlabOracle`, with the same cache). With a trapezoid of 200 000 Hz/m, MATLAB fails on
+  the file ("Slew rate violation (122%)", from `mr.addGradients`, which `mr.rotate3D` calls with the
+  system limits), so it has 50 000 Hz/m.
+- It skips a file older than 1.5.1 (`valid_1_5_0_extensions_of_1_5_1.seq`), as the tests above.
+
+**Assumptions:**
+
+- The expected values take the model of the measurements (the steps at the ends of an axis, the cut
+  segments, the two sides of a time) as given: the test checks the values of the analyses on the
+  rotated gradients against MATLAB's, not the model. The rules of the model, and windows with other
+  edges, have their tests in section 2.6.
+- At a boundary of a block that plays no rotation, the test takes MATLAB's polyline as that of the
+  package, which the test of the waveform checks at the midpoints there.
+- MATLAB's `mr.rotate3D` leaves out a term of a rotated axis whose entry of the rotation matrix is below
+  1e-6, and a rotated gradient below 1e-6 of the largest (`rotate3D.m:119-143`); the package keeps them.
+  In these files such a term is below the tolerance: about 2e-10 Hz/m on x in block 10 of
+  `oracle/pulseq_make_radial.seq` (90 degrees about z).
+- `spec` keys the gradients of the rotated blocks by their events, the flags of the field of view,
+  their duration and the bytes of the quaternion (`_played`). With the key of the scalar part of the
+  quaternion only (`rows = np.ascontiguousarray(quaternions[:, :1])` in `_from_gradients_at`), every
+  other test of the root and of pulseq-cpp-siemens passes, and this test fails on the built file: block
+  9 gets the gradients of block 5. No file of `tests/seqfiles` has two blocks with the same events and two
+  rotations of one angle.
 
 ### 2.25 The sanitized C++ oracle (`test_cpp_oracle_sanitized.py`)
 
