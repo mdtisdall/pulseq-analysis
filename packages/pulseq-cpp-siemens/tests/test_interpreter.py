@@ -10,6 +10,7 @@ devShell. The module is not collected without pulseq-analysis (`conftest.py`).
 
 import copy
 import dataclasses
+import inspect
 import pickle
 import re
 import subprocess
@@ -469,6 +470,30 @@ def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
     assert set(synth.events.decode_rf(spec_data)) == {1}
     with pytest.raises(TypeError, match="synth.decode"):
         synth.events.decode_rf(data)
+
+
+def test_the_decoding_takes_seconds_and_the_reader_microseconds():
+    """`CppSiemensDecoding.gradients_at` takes block-relative times in s, the argument `time_s` of
+    the protocol `synth.Decoding` of version 1 (Q23 of `docs/plans/remaining-review-fixes.md` of
+    pulseq-analysis), and the reader's own `Sequence.gradients_at` takes us. At the times of the
+    trapezoid of block 2 of valid_1_5_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us,
+    fall 100 us, block 500 us) on gx, the decoding gives the reader's values at the same times in
+    us, bit for bit: without a session, and with one that doubles x (the two paths of the
+    method). The old keyword `time_us` raises `TypeError`."""
+    parameters = ["self", "block_index", "time_s", "rotated"]
+    assert list(inspect.signature(CppSiemensDecoding.gradients_at).parameters) == parameters
+    data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
+    seconds = np.array([-1e-6, 50e-6, 150e-6, 250e-6, 450e-6, 500e-6, 501e-6])
+    blocks = np.ones(seconds.size, int)
+    reader = data.reading.gradients_at(blocks, seconds * 1e6)
+    np.testing.assert_allclose(reader[:, 0], [0, 0, 0.5e6, 1e6, 0.5e6, 0, 0], rtol=0, atol=1e-6)
+    doubled = synth.Session(gradient_scaling=(2, 1, 1))
+    for session, scale in ((synth.Session(), 1.0), (doubled, 2.0)):
+        decoding = synth.decode(data, session)
+        values = decoding.gradients_at(blocks, time_s=seconds)
+        np.testing.assert_array_equal(values, reader * [scale, 1.0, 1.0])
+        with pytest.raises(TypeError, match="time_us"):
+            decoding.gradients_at(blocks, time_us=seconds * 1e6)
 
 
 RADIAL = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"

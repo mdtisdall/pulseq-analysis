@@ -1,3 +1,4 @@
+import inspect
 import pickle
 import tracemalloc
 from pathlib import Path
@@ -726,15 +727,19 @@ def test_every_file_that_loads_decodes(path):
 RADIAL = ORACLE / "koma_v1.5_rotation_radial_tiny.seq"
 
 
-def test_spec_gradients_at_are_the_lines_between_the_points_of_each_event():
-    """`SpecDecoding.gradients_at` (Hz/m) at block-relative times in us: the trapezoid of block
-    2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall 100 us, block
-    500 us) on gx; 0 before the delay, after the event and outside the block. The arguments are
-    checked as for a plugin interpreter's decoding."""
+def test_spec_gradients_at_takes_seconds_and_gives_the_lines_between_the_points_of_each_event():
+    """`SpecDecoding.gradients_at` (Hz/m) at block-relative times in s, the argument `time_s` of
+    the protocol `synth.Decoding` (Q23 of `docs/plans/remaining-review-fixes.md`): the trapezoid
+    of block 2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall 100 us,
+    block 500 us) on gx; 0 before the delay, after the event and outside the block. The old
+    keyword `time_us` raises `TypeError`. The arguments are checked as for a plugin
+    interpreter's decoding."""
+    parameters = ["self", "block_index", "time_s", "rotated"]
+    assert list(inspect.signature(synth.Decoding.gradients_at).parameters) == parameters
     decoding = synth.decode(seqfile.read_seqfile(SEQFILES / "valid_1_4_1.seq"))
     assert decoding.block_count == 4
-    times = [-1.0, 50.0, 150.0, 250.0, 450.0, 500.0, 501.0]
-    values = decoding.gradients_at(np.ones(7, int), times)
+    times = [-1e-6, 50e-6, 150e-6, 250e-6, 450e-6, 500e-6, 501e-6]
+    values = decoding.gradients_at(np.ones(7, int), time_s=times)
     assert values.shape == (7, 3)
     np.testing.assert_allclose(values[:, 0], [0, 0, 0.5e6, 1e6, 0.5e6, 0, 0], atol=1e-6)
     assert not values[:, 1:].any()
@@ -746,6 +751,8 @@ def test_spec_gradients_at_are_the_lines_between_the_points_of_each_event():
     for index in (-1, 4):
         with pytest.raises(IndexError):
             decoding.gradients_at([index], [0.0])
+    with pytest.raises(TypeError, match="time_us"):
+        decoding.gradients_at([1], time_us=[250.0])
 
 
 def test_rotate_is_the_active_rotation_of_a_unit_quaternion():
