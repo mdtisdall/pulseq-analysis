@@ -691,7 +691,8 @@ themselves, by the IDs of the file, are in the decoding of the snapshot
 
 **The gradient waveform.** `sampling.gradient_sampler(snap)` gives a
 `GradientSampler`. `sampler.sample(axis, t)` gives the waveform of one axis
-(`"gx"`, `"gy"` or `"gz"`) in Hz/m at the sorted times `t`, for a plot:
+in Hz/m at the sorted times `t`, for a plot. The axis is `"x"`, `"y"` or `"z"`,
+as in the results, not the name of a column of the index (`gx`, `gy`, `gz`):
 
 ```python
 import numpy as np
@@ -699,7 +700,7 @@ import numpy as np
 from pulseq_analysis.synth.sampling import gradient_sampler
 
 t = np.linspace(0.0, 0.01, 2001)  # the first 10 ms
-gx = gradient_sampler(snap).sample("gx", t)
+gx = gradient_sampler(snap).sample("x", t)
 ```
 
 `GradientSampler.block_samples`, `sampling.raster_block_lengths` and

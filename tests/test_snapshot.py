@@ -176,7 +176,7 @@ def _results(snap: Snapshot) -> dict:
     lengths = raster_block_lengths(index, snap.data.rasters.gradient)
     samples = {
         axis: sampler.block_samples(axis, 0, index.num_blocks, snap.data.rasters.gradient)
-        for axis in ("gx", "gy", "gz")
+        for axis in ("x", "y", "z")
     }
     return {
         "index": index,

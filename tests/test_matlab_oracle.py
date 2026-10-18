@@ -476,7 +476,8 @@ def test_the_gradient_waveform_of_each_axis_is_that_of_matlab_pulseq(cases, path
             ("point", t[~restored], at_points[~restored]),
             ("midpoint", mid_t[kept_mid], mid_v[kept_mid]),
         ):
-            ours = sampler.sample(axis, times)
+            # The sampler names the axis of the column "gx" "x".
+            ours = sampler.sample(axis.removeprefix("g"), times)
             error = np.abs(ours - expected)
             outside = np.flatnonzero(error > REL * scale)
             for i in outside[:3]:

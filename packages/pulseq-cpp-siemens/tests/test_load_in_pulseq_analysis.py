@@ -259,7 +259,7 @@ def _reader_probes(snap, axis: int):
     sampler draws a line between two events (`sampling`, the module docstring), is left out."""
     played = played_gradients(snap)
     column = (played.gx, played.gy, played.gz)[axis]
-    name = ("gx", "gy", "gz")[axis]
+    name = ("x", "y", "z")[axis]
     duration = snap.decoding.block_durations
     start = sequence_index(snap).start_s
     sampler = gradient_sampler(snap)
@@ -330,7 +330,7 @@ def test_the_measurements_of_an_event_that_keeps_the_buffer_of_its_block_are_the
     reader = snap.data.reading.gradients_at(np.ones(time_us.size, dtype=np.int64), time_us)
     np.testing.assert_allclose(reader[:, 1], expected, rtol=0, atol=RTOL * 1000)
     at = sequence_index(snap).start_s[1] + time_us * 1e-6
-    sampled = gradient_sampler(snap).sample("gy", at)
+    sampled = gradient_sampler(snap).sample("y", at)
     np.testing.assert_allclose(sampled, expected, rtol=0, atol=RTOL * 1000)
     assert gradient_peaks(snap).axes["y"].peak_hz_per_m == pytest.approx(1000.0, rel=RTOL)
     arbitrary = load(BUFFER_ARBITRARY, "cpp-siemens")
@@ -366,7 +366,7 @@ def test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_
     reader = snap.data.reading.gradients_at(np.full(time_us.size, 4), time_us)[:, 0]
     assert np.array_equal(reader, np.zeros(time_us.size))
     at = sequence_index(snap).start_s[4] + time_us * 1e-6
-    assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader)
+    assert np.array_equal(gradient_sampler(snap).sample("x", at), reader)
     assert block_gradient_values(snap).peak_hz_per_m["x"][4] == 0.0
 
 
@@ -391,7 +391,7 @@ def test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements(tmp_path, c
     reader = snap.data.reading.gradients_at(np.zeros(time_us.size, dtype=np.int64), time_us)
     assert np.array_equal(reader[:, 0], np.zeros(time_us.size))
     at = sequence_index(snap).start_s[0] + time_us * 1e-6
-    assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader[:, 0])
+    assert np.array_equal(gradient_sampler(snap).sample("x", at), reader[:, 0])
 
 
 @pytest.mark.parametrize("window", LENGTH_0_WINDOWS)

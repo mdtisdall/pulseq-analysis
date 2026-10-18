@@ -780,7 +780,7 @@ def test_a_ramp_to_0_and_a_ramp_from_0_cross_a_long_gap_by_hand():
     snap = _load_model("off_raster_events")
     t = _RASTER * np.array([3.3, 3.5, 3.8, 5.0, 8.2, 8.5, 8.7, 11.7, 12.0])
     expected = _A * np.array([1.0, 0.6, 0.0, 0.0, 0.0, 0.3, 0.5, 0.0, 0.0])
-    got = gradient_sampler(snap).sample("gx", t)
+    got = gradient_sampler(snap).sample("x", t)
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-9 * _A)
 
 
@@ -819,19 +819,19 @@ def test_hand_made_ramp_and_no_event_block():
     t = (j + 0.5) * dt
     expected_gx_block0 = np.where(t < rise, amp * t / rise, 0.0)
     expected_gx = np.concatenate([expected_gx_block0, np.zeros(n_block)])
-    got_gx = sampler.block_samples("gx", 0, 2, dt)
+    got_gx = sampler.block_samples("x", 0, 2, dt)
     # A division (the linear-interpolation formula) makes exact equality unlikely: the
     # implementation and this test compute the ramp fraction with a different order of
     # floating-point operations.
     np.testing.assert_allclose(got_gx, expected_gx, rtol=1e-12, atol=1e-12 * amp)
 
     # gy has no event anywhere in the file: 0 for every sample of both blocks.
-    got_gy = sampler.block_samples("gy", 0, 2, dt)
+    got_gy = sampler.block_samples("y", 0, 2, dt)
     np.testing.assert_array_equal(got_gy, np.zeros(2 * n_block, dtype=np.float64))
 
     # Block 1 (the delay) has no event on any axis: 0 for gx and gz too.
     np.testing.assert_array_equal(got_gx[n_block:], np.zeros(n_block, dtype=np.float64))
-    got_gz = sampler.block_samples("gz", 0, 2, dt)
+    got_gz = sampler.block_samples("z", 0, 2, dt)
     np.testing.assert_array_equal(got_gz[n_block:], np.zeros(n_block, dtype=np.float64))
 
 
@@ -895,9 +895,9 @@ def test_skip_and_count_equal_the_same_slice_of_the_whole_range():
                 assert np.array_equal(got, whole[skip:]), (axis, first, stop, skip)
     assert checked > 300
     # The range has samples that are not 0 after the first sample of block 2 and 0 at its end.
-    part = sampler.block_samples("gx", 2, 3, dt, skip=60, count=60)
+    part = sampler.block_samples("x", 2, 3, dt, skip=60, count=60)
     assert not np.any(part)
-    assert np.any(sampler.block_samples("gx", 2, 3, dt, skip=20, count=40))
+    assert np.any(sampler.block_samples("x", 2, 3, dt, skip=20, count=40))
 
 
 def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
@@ -921,9 +921,9 @@ def test_the_sample_at_the_time_of_the_last_point_has_the_value_of_that_point():
     sampler = gradient_sampler(load(seq, "cpp-siemens"))
     dt = 2 * raster
     assert 0.5 * dt == raster
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt), [amp, 0.0])
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=0, count=1), [amp])
-    np.testing.assert_array_equal(sampler.block_samples("gx", 0, 1, dt, skip=1, count=1), [0.0])
+    np.testing.assert_array_equal(sampler.block_samples("x", 0, 1, dt), [amp, 0.0])
+    np.testing.assert_array_equal(sampler.block_samples("x", 0, 1, dt, skip=0, count=1), [amp])
+    np.testing.assert_array_equal(sampler.block_samples("x", 0, 1, dt, skip=1, count=1), [0.0])
 
 
 def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_point():
@@ -948,7 +948,7 @@ def test_the_sample_at_a_last_point_that_is_many_steps_in_has_the_value_of_that_
     # `spec` rejects a gradient that ends above 0 before its block ends
     # (`gradient.nonzero-end-align`); `cpp-siemens` plays it.
     sampler = gradient_sampler(load(seq, "cpp-siemens"))
-    got = sampler.block_samples("gx", 0, 1, dt)
+    got = sampler.block_samples("x", 0, 1, dt)
     assert got.shape == (last + 2,)
     assert got[last] == amp
     assert got[last + 1] == 0.0
@@ -963,7 +963,7 @@ def test_the_samples_in_a_short_gap_are_the_line_by_hand():
     first sample of block 1 (5 us) is on the ramp down of block 1."""
     snap = _load_model("short_gap")
     sampler = gradient_sampler(snap)
-    got = sampler.block_samples("gx", 0, 2, _RASTER)
+    got = sampler.block_samples("x", 0, 2, _RASTER)
     assert got.shape == (21,)
     unit = 1e4
     # Block 0: the ramp 0 to 3 U over 100 us at 5, 15, ..., 95 us, then the line at 105 us.
@@ -986,7 +986,7 @@ def test_the_samples_in_a_ramp_of_a_long_gap_that_are_not_at_its_ends_are_the_ra
     those of the own events."""
     snap = _load_model("off_raster_events")
     sampler = gradient_sampler(snap)
-    got = sampler.block_samples("gx", 0, 2, _RASTER)
+    got = sampler.block_samples("x", 0, 2, _RASTER)
     expected = _A * np.array(
         [
             0.2 / 3,
@@ -1035,7 +1035,7 @@ def test_block_samples_at_the_last_point_of_an_event_and_at_a_step_equals_the_or
     assert raster_block_lengths(index, _RASTER)[1]
     sampler = gradient_sampler(snap)
     for axis in "xyz":
-        got = sampler.block_samples(f"g{axis}", 0, index.num_blocks, _RASTER)
+        got = sampler.block_samples(axis, 0, index.num_blocks, _RASTER)
         _assert_samples_match(got, oracle.block_samples(sequence_of(snap), axis, _RASTER))
 
 
