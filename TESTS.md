@@ -8245,6 +8245,18 @@ late by 0.4 tolerances give the step 1.
 
 **Assumptions:** The test uses `model.TIME_TOLERANCE` itself, not its value.
 
+#### `test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes`
+
+**Checks:** The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
+times, and `model` has no `TIME_TOLERANCE`, the old name of it (Q21). `seq_utils.TIME_TOLERANCE`, a
+tolerance of 1e-9 s, keeps its name.
+
+**How:** The test imports `RF_TIME_SHAPE_TOLERANCE` from `pulseq_analysis.seqfile.model` and compares it
+with 1e-6. It reads `model.TIME_TOLERANCE` and checks that this raises `AttributeError`.
+
+**Assumptions:** The test checks a constant of the package and its name, not a calculation. The import is
+in the test, so that a missing name fails this test only. It needs no pypulseq.
+
 #### `test_adc_phase_modulation_has_one_value_for_each_sample`
 
 **Checks:** The phase modulation of an ADC event has one value for each ADC sample (D2.15).

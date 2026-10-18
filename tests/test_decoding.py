@@ -525,6 +525,17 @@ def test_rf_time_step_has_the_tolerance_of_the_model(shift, regular):
         assert result is None
 
 
+def test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes():
+    """The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
+    times, and the model has no `TIME_TOLERANCE`, the old name, which `seq_utils` also has for
+    a tolerance of 1e-9 s (Q21)."""
+    from pulseq_analysis.seqfile.model import RF_TIME_SHAPE_TOLERANCE
+
+    assert RF_TIME_SHAPE_TOLERANCE == 1e-6
+    with pytest.raises(AttributeError):
+        _ = model.TIME_TOLERANCE
+
+
 def test_rf_event_with_a_time_shape_in_a_1_4_file():
     """The block pulse of the file has the magnitude 1, 1 at the times 0, 100: two points, 0 and
     100 us, and no cells (slides 4 and 9, D2.11)."""
