@@ -6651,6 +6651,14 @@ follows it, not that the decision is right.
 
 **Assumptions:** The slides conflict about the vertices (slide 6 against slide 4); the rejection is the package's choice.
 
+#### `test_a_gradient_time_shape_that_starts_before_0_is_shape_time_order`
+
+**Checks:** D3.9: a gradient time shape `-2 1 3 6 10` gives `shape.time-order` once, in `[SHAPES]` on the line of its `shape_id`, with "before the start" and the choice in the message. The same file with the first time 0 loads.
+
+**How:** The test writes `valid_no_signature.seq` (time shape 6 is `0 1 3 6 10`) to `tmp_path` as it is, and with the first time of that shape changed to -2, and reads both.
+
+**Assumptions:** The rejection is the user's choice (2026-10-14), the rule for an RF time shape extended to gradients.
+
 #### `test_a_1_4_gradient_with_a_time_shape_must_start_at_time_0`
 
 **Checks:** In a 1.4.1 file, an arbitrary gradient whose time shape starts at 0, 5e-7 or -5e-7 gradient rasters loads. One that starts at 2e-6 or 0.5 gives `layer1.gradient-ends` and `raster.gradient-vertex` (the first time is a vertex off the raster). A 1.5.1 file with a time shape that starts at 0.5 gives no `layer1.gradient-ends`.
