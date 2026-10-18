@@ -6,7 +6,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
-from pulseq_analysis import seqfile, synth
+from pulseq_analysis import analyses, seqfile, synth
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, interpreters, model
 from pulseq_analysis.synth.events import (
     AdcEvent,
@@ -939,3 +939,66 @@ def test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence(tmp_pa
         expected = [1000, 0, 0] if rotated is False else [turned, turned, 0]
         np.testing.assert_allclose(values, [expected], rtol=0, atol=1e-2)
         assert peak < 100e3, (rotated, peak)
+
+
+def test_load_decodes_no_rf_event(tmp_path, monkeypatch):
+    """`load` builds no `RfEvent` and no `AdcEvent` (C16 of `docs/plans/remaining-review-fixes.md`,
+    2.4 of `docs/reviews/2026-10-13-code-review.md`): no analysis reads them, and a caller
+    decodes them with `decode_rf(snap.data)` and `decode_adc(snap.data)`. Of the file of
+    `time_shaped` (3 RF and 2 ADC events), those two calls after `load` build each event once."""
+    path = tmp_path / "time_shaped.seq"
+    path.write_text(TIME_SHAPED)
+    built = []
+
+    def counted(cls):
+        def make(*args, **kwargs):
+            built.append(cls.__name__)
+            return cls(*args, **kwargs)
+
+        return make
+
+    monkeypatch.setattr("pulseq_analysis.synth.events.RfEvent", counted(RfEvent))
+    monkeypatch.setattr("pulseq_analysis.synth.events.AdcEvent", counted(AdcEvent))
+    snap = analyses.load(path)
+    assert built == []
+    assert sorted(decode_rf(snap.data)) == [1, 2, 3]
+    assert sorted(decode_adc(snap.data)) == [1, 2]
+    assert built == ["RfEvent"] * 3 + ["AdcEvent"] * 2
+
+
+def _labelled(path: Path, third: str) -> Path:
+    """A 1.5.1 file of four blocks of a trapezoid on gx and three LABELSET objects: 1 (LIN 1) and
+    2 (LIN 2) in the extension list of blocks 1 and 3, and 3 (`third`, set to 1) in the list of
+    block 2 (play order from 0)."""
+    lines = [_HEADER_1_5_1, "[BLOCKS]"]
+    lines += [f"{i + 1} 50 0 1 0 0 0 {ext}" for i, ext in enumerate((0, 1, 3, 1))]
+    lines += ["", "[TRAP]", "1 1000 100 200 100 0", ""]
+    lines += ["[EXTENSIONS]", "1 1 1 2", "2 1 2 0", "3 1 3 0", ""]
+    lines += ["extension LABELSET 1", "1 1 LIN", "2 2 LIN", f"3 1 {third}"]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_spec_walks_the_lists_only_for_the_labels_of_the_field_of_view(tmp_path, monkeypatch):
+    """`spec`'s decoding walks the extension lists for the LABELSET objects NOROT and NOSLC only
+    (C16 of `docs/plans/remaining-review-fixes.md`, 2.4 of
+    `docs/reviews/2026-10-13-code-review.md`): of a file whose LABELSET objects are LIN only, it
+    walks no list for LABELSET, and every flag is False; when the third object is NOROT, the walk
+    for LABELSET gives that object alone, in block 2, and NOROT is set from block 2 on."""
+    walks = []
+    walk = synth.decoding._extension_objects
+
+    def counted(data, string_id, *args, **kwargs):
+        found = walk(data, string_id, *args, **kwargs)
+        walks.append((string_id, found))
+        return found
+
+    monkeypatch.setattr(synth.decoding, "_extension_objects", counted)
+    decoding = synth.decode(seqfile.read_seqfile(_labelled(tmp_path / "lin.seq", "LIN")))
+    assert walks == []
+    norot, noscale = decoding.fov_flags()
+    assert not norot.any() and not noscale.any()
+    decoding = synth.decode(seqfile.read_seqfile(_labelled(tmp_path / "norot.seq", "NOROT")))
+    assert walks == [("LABELSET", [(2, 3)])]
+    norot, noscale = decoding.fov_flags()
+    assert norot.tolist() == [False, False, True, True] and not noscale.any()
