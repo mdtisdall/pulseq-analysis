@@ -6859,6 +6859,14 @@ follows it, not that the decision is right.
 
 **Assumptions:** None.
 
+#### `test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples`
+
+**Checks:** Q7 of the plan: a shape that declares 200 000 000 samples, more than the package's limit of 2^27, gives `limit.shape-samples` once, in `[SHAPES]` on the line of its `shape_id`, and not `shape.length`; the message says that the specification does not state the rule.
+
+**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the header of shape 3 changed from `num_samples 10` to `num_samples 200000000` (its 10 samples stay), and reads it.
+
+**Assumptions:** The specification has no limit of `num_samples`; the limit is the package's, against a short file that makes the reader allocate without bound.
+
 #### `test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance`
 
 **Checks:** spec:624: the magnitude shape of an RF event and the waveform of an arbitrary gradient with a sample beyond 1 in absolute value by more than `RANGE_TOLERANCE` (1e-9) give `shape.range` once for the shape, with no choice in the message; samples within the tolerance, and a gradient sample of -5e-10, load.

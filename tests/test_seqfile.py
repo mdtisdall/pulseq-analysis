@@ -1703,6 +1703,28 @@ def test_a_shape_that_does_not_have_its_declared_number_of_samples_is_shape_leng
     assert "10 samples, not the 11" in violation.message
 
 
+def test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples(
+    tmp_path,
+):
+    """The specification has no limit of `num_samples`, and `spec` does not decompress a shape
+    that declares more than 2^27 samples: a short file could otherwise make the reader allocate
+    without bound (Q7 of `docs/plans/remaining-review-fixes.md`). A shape whose header declares
+    200 000 000 samples is `limit.shape-samples` on the line of its `shape_id`, not
+    `shape.length`, a rule of the specification (the package's limit; the message says so)."""
+    text = _text("valid_no_signature.seq")
+    old = "shape_id 3\nnum_samples 10\n"
+    assert old in text
+    line = text[: text.index(old)].count("\n") + 1
+    new = "shape_id 3\nnum_samples 200000000\n"
+    (violation,) = violations_of(_write(tmp_path, text.replace(old, new), "big.seq")).violations
+    assert (violation.rule, violation.section, violation.line) == (
+        "limit.shape-samples",
+        "SHAPES",
+        line,
+    )
+    assert carries_choice(violation)
+
+
 def _with_shape(directory, shape_id, samples):
     """`valid_no_signature.seq` with the shape `shape_id` replaced by `samples`, a list of
     numbers written uncompressed. The number of samples must be the one that the events of the
