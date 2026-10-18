@@ -22,9 +22,13 @@ from gap_sequences import (
 )
 from oracles import waveform as oracle
 from oracles.blocks import sequence_of
-from scale_sequences import build_repeating
+from random_gaps import random_gap_sequence
+from scale_sequences import build_repeating, build_worst
 from synthetic import (
     SYSTEM,
+    arbitrary_gradient_sequence,
+    border_sequence,
+    empty_sequence,
     gre_sequence,
     spin_echo_sequence,
     waveform_sequence,
@@ -44,8 +48,8 @@ from pulseq_analysis.synth.seq_index import (
     NO_GRADIENTS_IN_WINDOW,
     sequence_index,
 )
-from pulseq_analysis.synth.seq_utils import _AXES, TIME_TOLERANCE
-from pulseq_analysis.synth.snapshot import Snapshot
+from pulseq_analysis.synth.seq_utils import _AXES, TIME_TOLERANCE, gradient_offsets
+from pulseq_analysis.synth.snapshot import Snapshot, _kept_results
 
 # The writer rounds an amplitude and the values of a shape to 6 significant digits, so a value
 # read from a written file is within about 1.2e-6 of the value in memory. The tests that compare
@@ -399,6 +403,56 @@ def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step(k):
     assert oracle.peaks(seq)["x"]["slew_block"] == block_a_id
 
 
+def check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(
+    seq: pp.Sequence, snap: Snapshot, early: float
+) -> None:
+    """`seq` is `_end_step_sequence(100e-6, early)` and `snap` its snapshot. The step to 0 is
+    counted only when `early` is more than `TIME_TOLERANCE`: then it is the largest slew,
+    `A / DT`, in block 2, at the last point (`early` is one raster time then). Else the largest
+    slew is the 1e9 Hz/m/s of the trapezoid. The whole file, the window that ends at the end of
+    the sequence, the window that ends `0.5 * TIME_TOLERANCE` before it (the step of an `early` of
+    0.9 * `TIME_TOLERANCE` is before the end of that window, and is not counted) and the values of
+    each block agree with the oracle."""
+    index = sequence_index(snap)
+    block_a_id, block_b_id = seq.block_events
+    counted = early > TIME_TOLERANCE
+
+    expected = oracle.peaks(seq)["x"]
+    assert expected["max_slew"] == pytest.approx(A / DT if counted else 1e9, rel=1e-6)
+    assert expected["slew_block"] == (block_b_id if counted else block_a_id)
+    for result in (
+        gradient_peaks(snap).axes["x"],
+        gradient_peaks(snap, window=(0.0, index.end_s)).axes["x"],
+    ):
+        assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert result.slew_block == expected["slew_block"]
+        assert result.slew_time_s == pytest.approx(expected["slew_time"], abs=1e-12)
+    window = (0.0, index.end_s - 0.5 * TIME_TOLERANCE)
+    expected_window = oracle.peaks(seq, window)["x"]
+    result = gradient_peaks(snap, window=window).axes["x"]
+    assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
+    assert expected_window["slew_block"] == expected["slew_block"]
+    assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+    assert result.slew_block == expected["slew_block"]
+    slew = block_gradient_values(snap).slew_hz_per_m_per_s["x"]
+    assert slew[1] == pytest.approx(A / DT if counted else A / 100e-6, rel=1e-6)
+    if counted:
+        assert expected["slew_time"] == pytest.approx(index.end_s - early, abs=1e-12)
+
+
+def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end():
+    """The last point of the extended trapezoid is at the end of the sequence (an `early` of 0):
+    the step to 0 is not counted, in the whole file, in the window that ends at the end of the
+    sequence and in the window that ends `0.5 * TIME_TOLERANCE` before it
+    (`check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`).
+    `spec` reads it; the test of the same name of the `cpp-siemens` plugin has the values of
+    `early` that `spec` rejects (a last point before the end of its block, and off the raster)."""
+    seq = _end_step_sequence(100e-6, 0.0)
+    check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(
+        seq, load(seq), 0.0
+    )
+
+
 def test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_it():
     """A window entirely inside a block with no gradient, after a gradient event that ends at a
     non-zero value (within the tolerance `add_block` accepts) in the block before: the step to 0
@@ -577,11 +631,12 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
 # So these comparisons test the measurements of the played events, not the decoding, which has
 # its own tests (`test_played.py`, `test_decoding.py`, and the C++ and MATLAB oracle tests).
 # `oracle.peaks(seq, window)` gives the values of the package: the peak, the
-# slew, the RMS and the vector peak, each with its time and its block. The test here compares all
-# of them, for the whole file and for windows, on random sequences. The comparisons on the
-# synthetic sequences and on the sequences of the oracle's own tests are in the tests of the
-# `cpp-siemens` plugin (`packages/pulseq-cpp-siemens/tests/test_measurements_in_pulseq_analysis.py`),
-# which load them through `cpp-siemens` and use the helpers of this file.
+# slew, the RMS and the vector peak, each with its time and its block. The tests here compare all
+# of them, for the whole file and for windows, on the synthetic sequences, on the sequences of
+# the oracle's own tests and on random sequences, that `spec` reads. The same comparisons on the
+# sequences that `spec` rejects are in the tests of the `cpp-siemens` plugin
+# (`packages/pulseq-cpp-siemens/tests/test_measurements_in_pulseq_analysis.py`), which load them
+# through `cpp-siemens` and use the helpers of this file.
 #
 # The package sums and maxes per unique event; the oracle sums and maxes on the polyline, after
 # adding the start of each block to the event's corner times before it differences them for a
@@ -825,6 +880,60 @@ def test_matches_oracle_on_random_gradient_sequences(seed):
     _assert_matches_oracle_on_windows(snap, windows)
 
 
+@pytest.mark.parametrize(
+    "make_seq",
+    [
+        spin_echo_sequence,
+        gre_sequence,
+        empty_sequence,
+        arbitrary_gradient_sequence,
+        border_sequence,
+    ],
+    ids=["spin_echo", "gre", "empty", "arbitrary_gradient", "border"],
+)
+def test_matches_oracle_on_synthetic_sequences(make_seq):
+    """`gradient_peaks` matches the oracle on the whole file, and on 12 windows that cut the
+    gradients of `tests/synthetic.py`'s sequences (`_oracle_windows`), the first half of the
+    sequence among them. `border_sequence` has a gradient that is not 0 at a block junction, and
+    `gre_sequence` plays one event in several blocks. The test of the same name of the
+    `cpp-siemens` plugin has `raster_4us_sequence`, which `spec` rejects."""
+    snap = load(make_seq())
+    windows = _oracle_windows(snap, np.random.default_rng(20261007), 12)
+    windows.append((0.0, sequence_index(snap).end_s / 2))
+    _assert_matches_oracle_on_windows(snap, windows)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [zero_gap_sequence, long_gap_sequence, non_zero_ends_sequence, vector_sequence],
+    ids=["zero_gap", "long_gap", "non_zero_ends", "vector"],
+)
+def test_matches_oracle_on_the_sequences_of_the_oracle_tests(build):
+    """`gradient_peaks` matches the oracle on the whole file and on 40 windows that cut the
+    gradients, for each sequence of `gap_sequences.py` that `spec` reads: a zero gap with a step, a
+    long gap, a first and a last value that are not 0, and one block with two axes. The test of
+    the same name of the `cpp-siemens` plugin has the others (the two sequences of
+    pypulseq-issues 12 and a short gap), which `spec` rejects."""
+    snap = load(build())
+    windows = _oracle_windows(snap, np.random.default_rng(20261007), 40)
+    _assert_matches_oracle_on_windows(snap, windows)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_matches_oracle_on_random_sequences_with_ends_that_are_not_zero_next_to_gaps(seed):
+    """40 random sequences of `random_gap_sequence(rng, for_spec=True)`, which `spec` reads:
+    events that start and end at values that are not 0, delays and delay blocks before and after
+    them, and blocks of zero duration, so that the gaps between the events are zero (a step or
+    none), short (a line) and long (a ramp to 0 and a ramp from 0): `gradient_peaks` matches the
+    oracle, on the whole file and on 8 windows (`_oracle_windows`). The test of the same name of
+    the `cpp-siemens` plugin has the sequences of `random_gap_sequence(rng)`, with events that
+    start above 0 after a delay or end above 0 before the end of their block, which `spec`
+    rejects."""
+    rng = np.random.default_rng(seed)
+    snap = load(random_gap_sequence(rng, for_spec=True))
+    _assert_matches_oracle_on_windows(snap, _oracle_windows(snap, rng, 8))
+
+
 # ---- Values of each block (`block_gradient_values`) ----
 
 
@@ -999,6 +1108,321 @@ def test_junction_step_is_at_the_start_of_the_block_after_the_junction():
     assert after_delay.slew_hz_per_m_per_s["x"][0] == pytest.approx(last_value / _RASTER)
     assert after_delay.slew_time_s["x"][0] == pytest.approx(200e-6, abs=1e-12)
     assert after_delay.slew_hz_per_m_per_s["x"][1] == 0.0
+
+
+def _junction_time(seq: pp.Sequence, values, axis: str, play: int) -> float:
+    """The time of the junction (the step, or the line) into the event of the block `play` on
+    `axis`, read with `get_block`: the time of the first point of the event, `(block start +
+    delay)`, for a step and for the first event of the axis, and the time of the last point of the
+    event before it, for a line across a short gap. The arithmetic is that of the package."""
+    first_event = getattr(seq.get_block(int(values.block_id[play])), f"g{axis}")
+    first_time = values.start_s[play] + first_event.delay
+    for earlier in range(play - 1, -1, -1):
+        g = getattr(seq.get_block(int(values.block_id[earlier])), f"g{axis}", None)
+        if g is not None:
+            delay, offsets, _ = gradient_offsets(g)
+            last_time = (values.start_s[earlier] + delay) + offsets[-1]
+            return last_time if first_time - last_time > TIME_TOLERANCE else first_time
+    return first_time
+
+
+def _assert_block_values_agree_with_gradient_peaks(snap: Snapshot) -> None:
+    """The maximum of each value of `block_gradient_values` is the value of the whole file
+    in `gradient_peaks`, and the first block with that value, with its time, is the block and
+    the time of `gradient_peaks` (for the vector peak, the block with the earliest time of the
+    blocks with that value). The time of a junction is read here with `get_block`
+    (`_junction_time`). The arithmetic is the same, so every comparison is exact."""
+    values = block_gradient_values(snap)
+    whole = gradient_peaks(snap)
+    assert values.block_id.size > 0
+    for axis in ("x", "y", "z"):
+        result = whole.axes[axis]
+
+        peak = values.peak_hz_per_m[axis]
+        top = float(peak.max())
+        assert top == result.peak_hz_per_m
+        if top > 0.0:
+            play = int(np.argmax(peak == top))
+            assert int(values.block_id[play]) == result.peak_block
+            assert values.peak_time_s[axis][play] == result.peak_time_s
+        else:
+            assert result.peak_block is None
+
+        segment = values.slew_hz_per_m_per_s[axis]
+        junction = values.junction_hz_per_m_per_s[axis]
+        combined = np.maximum(segment, junction)
+        top = float(combined.max())
+        assert top == result.max_slew_hz_per_m_per_s
+        if top > 0.0:
+            play = int(np.argmax(combined == top))
+            assert int(values.block_id[play]) == result.slew_block
+            # The junction is before every other item of its block.
+            if junction[play] == top:
+                time = _junction_time(sequence_of(snap), values, axis, play)
+            else:
+                time = values.slew_time_s[axis][play]
+            assert time == result.slew_time_s
+        else:
+            assert result.slew_block is None
+
+    vector = values.vector_peak_hz_per_m
+    top = float(vector.max())
+    assert top == whole.vector_peak_hz_per_m
+    if top > 0.0:
+        tied = np.flatnonzero(vector == top)
+        play = int(tied[np.argmin(values.vector_peak_time_s[tied])])
+        assert int(values.block_id[play]) == whole.vector_peak_block
+        assert values.vector_peak_time_s[play] == whole.vector_peak_time_s
+    else:
+        assert whole.vector_peak_block is None
+
+
+_AGREEMENT_SEQUENCES = [
+    spin_echo_sequence,
+    gre_sequence,
+    empty_sequence,
+    arbitrary_gradient_sequence,
+    border_sequence,
+    lambda: build_repeating(50),
+    lambda: build_worst(50),
+    _junction_sequence,
+    _junction_and_segment_sequence,
+    _gradient_ends_non_zero_before_delay_sequence,
+    _first_block_starts_non_zero_sequence,
+    lambda: zero_gap_sequence(),
+    lambda: long_gap_sequence(),
+    lambda: non_zero_ends_sequence(),
+    lambda: vector_sequence(),
+    *(
+        lambda seed=seed: _random_gradient_sequence(np.random.default_rng(seed))
+        for seed in range(4)
+    ),
+    *(
+        lambda seed=seed: random_gap_sequence(np.random.default_rng(seed), for_spec=True)
+        for seed in range(8)
+    ),
+]
+
+
+_AGREEMENT_IDS = [
+    "spin_echo",
+    "gre",
+    "empty",
+    "arbitrary_gradient",
+    "border",
+    "build_repeating_50",
+    "build_worst_50",
+    "junction",
+    "junction_and_segment",
+    "ends_non_zero_before_delay",
+    "first_block_starts_non_zero",
+    "oracle_zero_gap",
+    "oracle_long_gap",
+    "oracle_non_zero_ends",
+    "oracle_vector",
+    *(f"random_{seed}" for seed in range(4)),
+    *(f"random_gap_for_spec_{seed}" for seed in range(8)),
+]
+
+
+@pytest.mark.parametrize("make_seq", _AGREEMENT_SEQUENCES, ids=_AGREEMENT_IDS)
+def test_block_gradient_values_agree_with_gradient_peaks_for_the_whole_file(make_seq):
+    """The maxima of `block_gradient_values` over the blocks are the whole-file values of
+    `gradient_peaks`, with the same block and time
+    (`_assert_block_values_agree_with_gradient_peaks`), for the sequences that `spec` reads. The
+    test of the same name of the `cpp-siemens` plugin has the sequences that `spec` rejects."""
+    _assert_block_values_agree_with_gradient_peaks(load(make_seq()))
+
+
+def _zero_duration_blocks_sequence() -> pp.Sequence:
+    """Trapezoids on x and y with blocks of zero duration (labels) before, between and after
+    them, so a window edge can fall on the time of a block of zero duration."""
+    seq = pp.Sequence(SYSTEM)
+    label = pp.make_label(label="LIN", type="SET", value=1)
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
+    seq.add_block(label)
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="y", area=500, system=SYSTEM))
+    seq.add_block(label)
+    seq.add_block(pp.make_trapezoid(channel="x", area=700, system=SYSTEM))
+    seq.add_block(label)
+    return seq
+
+
+def _random_windows(snap: Snapshot, rng: np.random.Generator, count: int) -> list:
+    """`count` windows of `snap`: half have each end on a start or an end of a block (so a window
+    edge and a block edge are equal, also for a block of zero duration), half have random ends."""
+    index = sequence_index(snap)
+    edges = np.unique(
+        np.concatenate(([0.0, index.end_s], index.start_s, index.start_s + index.duration_s))
+    )
+    windows = []
+    for i in range(count):
+        pool = edges if i % 2 == 0 else rng.uniform(0.0, index.end_s, size=edges.size)
+        start, end = np.sort(rng.choice(pool, size=2))
+        if start < end:
+            windows.append((float(start), float(end)))
+    return windows
+
+
+def check_a_window_gives_the_same_result_with_and_without_the_kept_data(
+    seq: pp.Sequence, interpreter: str
+) -> None:
+    """For 30 random windows (`_random_windows`), `gradient_peaks` of a snapshot of `seq` (read by
+    `interpreter`) that has its kept data (from the windows before: it is never emptied, and it
+    is one object for all the windows) gives a result equal (`==`) to the result of a second
+    snapshot of the same build whose kept data of `gradient_peaks` is empty and is built by this
+    call (a new snapshot for each window)."""
+    snap = load(seq, interpreter)
+    windows = _random_windows(snap, np.random.default_rng(20261006), 30)
+    kept = _kept_results(snap)
+    kept_data = None
+    for window in windows:
+        with_kept = gradient_peaks(snap, window=window)
+        if kept_data is None:
+            kept_data = kept["block_data"]
+        assert kept["block_data"] is kept_data
+        assert with_kept == gradient_peaks(load(seq, interpreter), window=window), window
+
+
+@pytest.mark.parametrize(
+    "make_seq",
+    [
+        lambda: build_repeating(30),
+        _zero_duration_blocks_sequence,
+        _junction_sequence,
+        lambda: _random_gradient_sequence(np.random.default_rng(3)),
+        lambda: random_gap_sequence(np.random.default_rng(5), for_spec=True),
+    ],
+    ids=[
+        "build_repeating_30",
+        "zero_duration_blocks",
+        "junction",
+        "random_3",
+        "random_gap_for_spec_5",
+    ],
+)
+def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq):
+    """`check_a_window_gives_the_same_result_with_and_without_the_kept_data` through `spec`, for
+    the sequences that it reads. The test of the same name of the `cpp-siemens` plugin has the
+    sequences that `spec` rejects."""
+    check_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq(), "spec")
+
+
+def _block_values_of_the_polyline(seq: pp.Sequence, axis: str) -> dict:
+    """The values of each block on `axis`, from the polyline of the oracle only: the peak and its
+    time, the junction (the items of a segment from a point of one block to a point of another,
+    and the steps before the last point), and the slew (the other segments, and the step after the
+    last point when it is more than `TIME_TOLERANCE` before the end of the sequence), each with
+    the items of the block that have the largest value. The credit of an item is the play index of
+    the polyline."""
+    poly = oracle.axis_polyline(seq, axis)
+    n = len(poly.block_id)
+    end = float(poly.block_end[-1])
+    peak, peak_time = np.zeros(n), np.array(poly.block_start)
+    for time, value, play in zip(poly.t, poly.g, poly.point_play, strict=True):
+        if abs(value) > peak[play]:
+            peak[play], peak_time[play] = abs(value), time
+    items = []  # (position in the polyline, is a junction, play index, value, time)
+    for s in range(poly.t.size - 1):
+        t0, t1 = poly.t[s], poly.t[s + 1]
+        if t1 - t0 >= TIME_TOLERANCE and not poly.segment_is_step[s]:
+            junction = poly.point_play[s] != poly.point_play[s + 1]
+            slope = abs(poly.g[s + 1] - poly.g[s]) / (t1 - t0)
+            items.append((s, junction, poly.point_play[s + 1], slope, t0))
+    for point, time, size, play in zip(
+        poly.step_point, poly.step_time, poly.step_size, poly.step_play, strict=True
+    ):
+        last = point == poly.t.size - 1
+        if not last or time < end - TIME_TOLERANCE:
+            items.append((point - 0.5, not last, play, abs(size) / seq.grad_raster_time, time))
+    junction = np.zeros(n)
+    slew = np.zeros(n)
+    for _, is_junction, play, value, _ in items:
+        column = junction if is_junction else slew
+        column[play] = max(column[play], value)
+    slew_times = [
+        [time for _, is_junction, play, value, time in items if not is_junction and play == p
+         and value >= slew[p] * (1 - 1e-9)]
+        for p in range(n)
+    ]  # fmt: skip
+    return {
+        "peak": peak,
+        "peak_time": peak_time,
+        "junction": junction,
+        "slew": slew,
+        "slew_times": slew_times,
+    }
+
+
+def check_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has(
+    snap: Snapshot,
+) -> None:
+    """For each axis and each block of `snap`, the peak, the junction and the slew of
+    `block_gradient_values` are the values of the items that the credit of the model gives to
+    the block, found in the polyline of the oracle (`_block_values_of_the_polyline`): the peak and
+    its time (the first point that has it), the junction (a line across a short gap, a step
+    across a zero gap, and the step before the first point, and not a ramp), and the slew (the
+    segments of the event and the ramps of the event, and the step after the last point when it
+    is before the end of the sequence). The time of the slew of a block is the time of one of its
+    items with the largest slope (two items can have one slope up to the rounding of the times).
+    The polyline is that of the gradients that the snapshot plays (`sequence_of`): the file holds
+    the amplitudes rounded by the writer."""
+    seq = sequence_of(snap)
+    values = block_gradient_values(snap)
+
+    for axis in _AXES:
+        expected = _block_values_of_the_polyline(seq, axis)
+        np.testing.assert_allclose(values.peak_hz_per_m[axis], expected["peak"], rtol=1e-12)
+        positive = expected["peak"] > 0.0
+        np.testing.assert_allclose(
+            values.peak_time_s[axis][positive], expected["peak_time"][positive], rtol=0, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            values.junction_hz_per_m_per_s[axis], expected["junction"], rtol=1e-9
+        )
+        np.testing.assert_allclose(values.slew_hz_per_m_per_s[axis], expected["slew"], rtol=1e-9)
+        for play in np.flatnonzero(expected["slew"] > 0.0):
+            assert any(
+                abs(values.slew_time_s[axis][play] - time) <= 1e-12
+                for time in expected["slew_times"][play]
+            ), f"{axis} block {play}: slew time {values.slew_time_s[axis][play]!r}"
+
+
+_BLOCK_VALUE_SEQUENCES = [
+    spin_echo_sequence,
+    gre_sequence,
+    border_sequence,
+    lambda: zero_gap_sequence(),
+    lambda: long_gap_sequence(),
+    lambda: non_zero_ends_sequence(),
+    lambda: vector_sequence(),
+    *(
+        lambda seed=seed: random_gap_sequence(np.random.default_rng(seed), for_spec=True)
+        for seed in range(14)
+    ),
+]
+
+
+_BLOCK_VALUE_IDS = [
+    "spin_echo",
+    "gre",
+    "border",
+    "oracle_zero_gap",
+    "oracle_long_gap",
+    "oracle_non_zero_ends",
+    "oracle_vector",
+    *(f"random_gap_for_spec_{seed}" for seed in range(14)),
+]
+
+
+@pytest.mark.parametrize("make_seq", _BLOCK_VALUE_SEQUENCES, ids=_BLOCK_VALUE_IDS)
+def test_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has(make_seq):
+    """`check_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has` for the
+    sequences that `spec` reads. The test of the same name of the `cpp-siemens` plugin has the
+    sequences that `spec` rejects."""
+    check_block_gradient_values_are_the_items_of_the_polyline_that_each_block_has(load(make_seq()))
 
 
 def test_block_gradient_values_are_in_play_order_with_one_entry_for_each_block():

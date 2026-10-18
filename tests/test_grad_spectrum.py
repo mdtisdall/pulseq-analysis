@@ -9,8 +9,16 @@ import pickle
 
 import numpy as np
 import pypulseq as pp
+from gap_sequences import (
+    long_gap_sequence,
+    negated,
+    non_zero_ends_sequence,
+    short_gap_from_0_sequence,
+    zero_gap_sequence,
+)
 from oracles import grad_spectrum as oracle
 from oracles.blocks import sequence_of
+from random_gaps import random_gap_sequence
 from scale_sequences import TR_BLOCKS, build_repeating, build_worst
 from synthetic import (
     GAMMA_1H,
@@ -169,6 +177,48 @@ def _assert_matches_oracle(
 )
 def test_matches_oracle_on_synthetic_sequences(seq):
     snap = load(seq)
+    _assert_matches_oracle(
+        grad_spectrum.gradient_spectrum(snap),
+        oracle.gradient_spectrum(sequence_of(snap)),
+        sequence_of(snap),
+    )
+
+
+_GAP_SEQUENCES = {
+    "zero_gap": zero_gap_sequence,
+    "long_gap": long_gap_sequence,
+    "non_zero_ends": non_zero_ends_sequence,
+    "short_gap_from_0": short_gap_from_0_sequence,
+}
+# The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on
+# the sign).
+_GAP_SEQUENCES |= {
+    f"negated_{name}": (lambda build=_GAP_SEQUENCES[name]: negated(build()))
+    for name in ("zero_gap", "long_gap", "non_zero_ends")
+}
+# The random sequences of `random_gaps` that `spec` reads (random signs, zero, short and long
+# gaps, and blocks of zero duration).
+_GAP_SEQUENCES |= {
+    f"random_gaps_for_spec_{seed}": (
+        lambda seed=seed: random_gap_sequence(np.random.default_rng(seed), for_spec=True)
+    )
+    for seed in range(8)
+}
+
+
+@pytest.mark.parametrize("build", _GAP_SEQUENCES.values(), ids=_GAP_SEQUENCES.keys())
+def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_waveform(build):
+    """The spectrum of a sequence with a long gap, a short gap from 0, or a step at a junction,
+    and an end that is not 0 next to it (and a first and a last value that are not 0), equals the
+    spectrum that the oracle calculates from `oracle.sample` (the model of MATLAB Pulseq), for the
+    sequences that `spec` reads: the hand sequences of `gap_sequences` that it reads, three of
+    them also with every amplitude negated, and the 8 random sequences of
+    `random_gap_sequence(rng, for_spec=True)` (seeds 0 to 7). pypulseq's
+    `calculate_gradient_spectrum` draws a line across a long gap (pypulseq-issues 12) and gives
+    another spectrum, so it is not the reference here. The oracle reads the gradients as the
+    snapshot plays them (`sequence_of`). The test of the same name of the `cpp-siemens` plugin has
+    the sequences that `spec` rejects."""
+    snap = load(build())
     _assert_matches_oracle(
         grad_spectrum.gradient_spectrum(snap),
         oracle.gradient_spectrum(sequence_of(snap)),
