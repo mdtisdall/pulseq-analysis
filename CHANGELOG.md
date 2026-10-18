@@ -81,6 +81,10 @@ A caller moves in this order:
   `[EXTENSIONS]`, as `id.positive` (spec:181, spec:472, spec:494; review
   2026-10-13 1.2.4b). Before, a file whose header and entries had such a type
   read.
+- `spec` rejects a gradient time shape whose first time is below 0 (by more
+  than `spec.FIRST_TIME_TOLERANCE`) as `shape.time-order`, as it does an RF
+  time shape (D3.9; review 2026-10-13 1.2.1). Before, a gradient time shape
+  `-2 1 3 6 10` read, and the gradient started before its event.
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package

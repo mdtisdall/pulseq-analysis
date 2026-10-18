@@ -965,7 +965,7 @@ reader of the error sees that it is the package's choice and why.
 | `gradient.nonzero-start-delay`, `gradient.nonzero-end-align` | spec:420; slide 6 | a gradient that starts above 0 after a delay, or ends above 0 before its block ends |
 | `shape.length`, `shape.range` | spec:626, spec:624 | a shape that does not decompress to `num_samples`; an amplitude shape outside [-1, 1] |
 | `shape.empty`, `shape.event-length` | choice; D3.7, D3.8 | a shape with no sample that an event uses; the shapes of one event of different lengths, or an ADC phase shape whose length is not the number of ADC samples |
-| `shape.time-order` | choice; D3.9 | an RF time shape of one sample at 0 or before, a time shape whose times do not increase, an RF time shape that starts before 0 |
+| `shape.time-order` | choice; D3.9 | an RF time shape of one sample at 0 or before, a time shape whose times do not increase, a time shape (RF or gradient) that starts before 0 |
 | `shape.oversampled-length` | spec:420, slides 4, 8 | an oversampled gradient (time ID -1) with an even number of samples |
 | `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
 | `layer1.gradient-ends` | choice; D4.4, D4.5 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |

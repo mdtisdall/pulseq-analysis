@@ -131,7 +131,7 @@ this reason); MATLAB Pulseq writes an RF time shape of one sample (D3.9), which
 | D3.6 | `syntax.negative` | a negative time or count | spec:176 stores integers as unsigned, but defines negative values elsewhere (time ID -1, a soft delay offset); a negative time or count has no waveform; the writers' makers do not check the sign |
 | D3.7 | `shape.empty` | an event uses a shape with no sample | an event with no samples has no waveform |
 | D3.8 | `shape.event-length` | the shapes of one event with different numbers of samples | the shapes of an event pair up by sample (spec:349, spec:443); some samples would have no partner |
-| D3.9 | `shape.time-order` | an RF time shape of one sample at 0 or before, times that do not increase, or a first time below 0 | such time points define no cell, no line, or no waveform; a time shape of one sample above 0 is read as one cell (D2.10; the user, 2026-10-13) |
+| D3.9 | `shape.time-order` | an RF time shape of one sample at 0 or before, or a time shape (RF or gradient) whose times do not increase or whose first time is below 0 | such time points define no cell, no line, or no waveform; a time shape of one sample above 0 is read as one cell (D2.10; the user, 2026-10-13) |
 | D3.10 | `rotation.zero` | a quaternion of norm 0 | `spec` divides each quaternion by its norm (spec:567: "a normalized rotation quaternion"), and one of norm 0 is no rotation |
 | D3.11 | `syntax.shape` | a shape with no blank line after it | spec:602 declares the end of a shape with a blank line, and does not say what a shape without one is |
 | D1.3 | `raster.gradient-vertex` | a vertex of a gradient time shape off the gradient raster | section 2.3 |
@@ -223,7 +223,7 @@ the package's choice.
 | `shape.range` | — | an amplitude shape outside [-1, 1] (within `spec.RANGE_TOLERANCE`) | spec:624 |
 | `shape.empty` | D3.7 | an event that uses a shape with no sample | choice |
 | `shape.event-length` | D3.8 | the shapes of one event with different numbers of samples, or an ADC phase shape without one sample for each ADC sample | spec:349, spec:443, spec:120; choice |
-| `shape.time-order` | D3.9 | an RF time shape of one sample at 0 or before, times that do not increase, or an RF first time below 0 | spec:349, spec:395; choice |
+| `shape.time-order` | D3.9 | an RF time shape of one sample at 0 or before, or a time shape (RF or gradient) whose times do not increase or whose first time is below 0 | spec:349, spec:395; choice |
 | `shape.oversampled-length` | — | an oversampled gradient with an even number of samples | spec:420, slides 4 and 8 |
 | `rotation.zero` | D3.10 | a quaternion of norm 0 | spec:567; choice |
 | `extension.required-unknown` | — | a required extension that `spec` does not know | spec:460 |

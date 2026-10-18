@@ -164,7 +164,7 @@ specification does not state, which its message says.
 | [D3.6](#d36-a-negative-time-or-count) | Negative time or count | integers unsigned; negatives elsewhere | reads | rejects (choice) |
 | [D3.7](#d37-an-event-that-uses-a-shape-with-no-sample) | Empty shape that an event uses | silent | crashes (macOS build) | rejects (choice) |
 | [D3.8](#d38-the-shapes-of-one-event-with-different-numbers-of-samples) | Shapes of one event, two lengths | silent | crashes (RF) | rejects (choice) |
-| [D3.9](#d39-an-rf-time-shape-of-one-sample-or-times-that-do-not-increase-or-start-below-0) | RF time shape of one sample, or times not increasing | times in the shape | resamples; no check | one sample above 0: one cell; otherwise rejects (choice) |
+| [D3.9](#d39-an-rf-time-shape-of-one-sample-or-times-that-do-not-increase-or-start-below-0) | RF time shape of one sample, or times not increasing or below 0 | times in the shape | resamples (RF); no check | one sample above 0: one cell; otherwise rejects (choice) |
 | [D3.10](#d310-a-rotation-quaternion-of-norm-0) | Quaternion of norm 0 | normalized quaternion | rejects | rejects (choice) |
 | [D3.11](#d311-a-shape-with-no-blank-line-after-it) | No blank line after a shape | blank line ends a shape | reads the next header as a sample line; stops | rejects (choice) |
 | [D4.1](#d41-a-version-before-140-or-from-160-both-interpreters) | Version before 1.4.0 or from 1.6.0 | silent | 1.2.0 and later | not supported |
@@ -1021,7 +1021,7 @@ The same condition in `cpp-siemens`: [D5.7](../packages/pulseq-cpp-siemens/docs/
 | Source | What it does |
 |---|---|
 | Specification | Gives the times only as "the time sampling points" (`spec:349`; for a gradient `spec:395`). |
-| C++ reader | Resamples any time shape that is not stored in 3 or 4 values as in D2.11 (`cpp:2022-2050`), and does not check that the times increase or start at 0 or later (matrix: accepts `bad_shape_time_order.seq`). |
+| C++ reader | Resamples any RF time shape that is not stored in 3 or 4 values as in D2.11 (`cpp:2022-2050`), and does not check that the times increase or start at 0 or later (matrix: accepts `bad_shape_time_order.seq`). Converts each time of a gradient time shape to µs, `long(0.5 + t)` (`cpp:2181-2182`), with no check either. |
 
 Example: `tests/seqfiles/bad_shape_time_order.seq` has an RF time shape of 100
 samples that decrease, 100, 99, …, 1. An RF event of one sample on the time
@@ -1031,13 +1031,20 @@ reader resamples it to `int(0.5 + 5)` = 5 cells of 1 µs, each the one sample,
 so it plays the sample from 0 to 5 µs, half the dwell of 10 µs that the writer
 meant (`pulseq-cpp-oracle --dump`: `shape_dur_us` 5, five magnitudes). On the
 time shape `0` it plays no cell (`shape_dur_us` 0, no magnitude); it reads both
-files.
+files. A gradient time shape `-2 1 3 6 10` (gradient raster 10 µs, the file that
+`test_a_gradient_time_shape_that_starts_before_0_is_shape_time_order` writes):
+the C++ reader reads it, with the times -19, 10, 30, 60 and 100 µs
+(`pulseq-cpp-oracle --dump`, run of 2026-10-18): the gradient starts 19 µs
+before its event.
 
 `spec`: an RF time shape of one sample `t0` above 0 is one cell of `d = 2 t0`
 (D2.10 with N = 1): the sample is held from 0 to `2 t0`, around `t0`
 (`model.rf_time_step`). `shape.time-order` for an RF time shape of one sample
-at 0 or before, an RF time shape whose first time is below 0, and a time shape
-(of RF or of a gradient) whose times do not increase.
+at 0 or before, and for a time shape (of RF or of a gradient) whose times do not
+increase or whose first time is below 0. The first time of a gradient time
+shape is below 0 when it is below 0 by more than `spec.FIRST_TIME_TOLERANCE`
+(1e-6 gradient rasters), the tolerance of the first time of a 1.4 gradient
+(D4.5).
 
 Reason: a time shape of one sample at 0 or before defines no cell, and times
 that do not increase or start before the event define no waveform, so `spec`
@@ -1046,6 +1053,14 @@ times that increase: `(i - 0.5)` dwell, or `0` and `N` for a block pulse
 (`makeArbitraryRf.m:70`, `makeBlockPulse.m:73`; `make_arbitrary_rf.py:114`,
 `make_block_pulse.py:102`), and refuse an extended trapezoid whose times do not
 increase (`makeExtendedTrapezoid.m:50-51`, `make_extended_trapezoid.py:87-88`).
+Their makers of an extended trapezoid also refuse a time off the gradient raster
+(`makeExtendedTrapezoid.m:84-86`, `make_extended_trapezoid.py:115-118`), put
+the first time, rounded to the raster, in the delay, and keep the times less
+the delay (`makeExtendedTrapezoid.m:100-101`, `make_extended_trapezoid.py:123-124`):
+the time shape of such a gradient starts at 0 (MATLAB Pulseq: to within the 10 ns
+by which it lets a time be off the raster). The rule for a first time below 0 covers a gradient
+time shape too (the user, 2026-10-14), because the specification does not say
+how to read one.
 A time shape of one sample is the exception: MATLAB Pulseq writes one for an
 arbitrary pulse of one sample (`makeArbitraryRf.m:68-74`, `Sequence.m:607-614`;
 run of 2026-10-13: a pulse of one sample with a dwell of 10 µs gives a time

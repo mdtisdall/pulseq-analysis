@@ -111,7 +111,8 @@ TOLERANCE_NS = 1e-3
 RANGE_TOLERANCE = 1e-9
 
 # The first time of the time shape of a 1.4.x arbitrary gradient is 0 to within this many gradient
-# rasters, and a vertex of a gradient time shape is on the raster to within as many.
+# rasters, a gradient time shape starts before 0 when its first time is below 0 by more, and a
+# vertex of a gradient time shape is on the raster to within as many.
 FIRST_TIME_TOLERANCE = 1e-6
 
 # Two rasters are integer multiples of each other to within this relative difference.
@@ -318,8 +319,8 @@ RULES: Mapping[str, Rule] = MappingProxyType(
         ),
         "shape.time-order": Rule(
             "an RF time shape of one sample at 0 or before, or a time shape whose times do not "
-            "increase, or an RF time shape whose first time is below 0 (one sample t0 above 0 is "
-            "one cell of 2 t0)",
+            "increase or whose first time is below 0 (an RF time shape of one sample t0 above 0 "
+            "is one cell of 2 t0)",
             "spec:349, spec:395 (the time sampling points); D2.10-D2.12, D3.9",
             choice="the specification does not define such time sampling points, and " + _NO_WRITER,
         ),
@@ -1562,11 +1563,14 @@ def _check_time_shapes(f: _File) -> None:
         if times is None or times.size < 1:
             continue
         if times.size > 1 and (np.diff(times) <= 0).any():
+            why = "has times that do not increase"
+        elif times[0] < -FIRST_TIME_TOLERANCE:
+            why = f"starts at {times[0]:g} gradient rasters, before the start of the event"
+        else:
+            why = None
+        if why is not None:
             f.report.add(
-                "shape.time-order",
-                "SHAPES",
-                info.line,
-                f"gradient time shape {shape_id} has times that do not increase",
+                "shape.time-order", "SHAPES", info.line, f"gradient time shape {shape_id} {why}"
             )
         inner = times[:-1]
         off = np.flatnonzero(np.abs(inner - np.round(inner)) > FIRST_TIME_TOLERANCE)
