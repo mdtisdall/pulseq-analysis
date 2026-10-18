@@ -683,6 +683,18 @@ def test_the_default_interpreter_is_spec():
     assert data == read_seqfile(path, "spec") == read_spec(path)
 
 
+def test_read_seqfile_is_the_one_way_to_read_a_file_through_spec():
+    """`read_seqfile(path)` is the one way to read a file through `spec` (Q22): the module
+    `spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
+    `read_seqfile(path)`."""
+    from pulseq_analysis.seqfile import spec
+
+    path = SEQFILES / "valid_1_5_1.seq"
+    with pytest.raises(AttributeError):
+        _ = spec.read_spec
+    assert spec._read_spec(path) == read_seqfile(path)
+
+
 # ---- The rows of section 6 of the plan: the format and its structure ----
 
 
