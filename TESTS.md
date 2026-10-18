@@ -1203,7 +1203,7 @@ and at each point that is not a step, to 1e-7 of the largest value of the file
 rotations left unapplied). A fixture that the interpreter rejects is skipped. For each block and
 axis with an event, the check takes the middle of each segment of positive length (the mean of
 its two values) and each inner point whose neighbours are at other times, and reads
-`gradients_at` of the decoding at the same blocks and times (µs). A NaN of the file must be NaN in
+`gradients_at` of the decoding at the same blocks and times (s). A NaN of the file must be NaN in
 both. The rest must agree to 1e-7 times the largest value (at least 1).
 
 **Assumptions:**
@@ -11088,7 +11088,7 @@ are the values of `gradients_at` (not rotated) at the times of the points, to a 
 1e-3 Hz/m.
 
 **How:** For each file, axis and gradient ID, the test takes the first block that plays it and
-compares `gradients_at` at `delay + offsets` (in µs) with the values of the points.
+compares `gradients_at` at `delay + offsets` (in s) with the values of the points.
 
 **Assumptions:** The first and the last point of an event are not compared. The test asserts that it
 compared at least one event in each file.
@@ -12135,7 +12135,7 @@ axis.
 The file is loaded through `cpp-siemens` with `Session(fov_rotation=...)`, 90 degrees about z.
 The probes are those of `_reader_probes`; the sampler is read at the block start plus the probe's
 time, and `CppSiemensDecoding.gradients_at` (the reader's `gradientsAt` with the session's
-rotation, `rotate_vec3_by_quat`) at the block and the time (µs). The values must agree to 1e-7
+rotation, `rotate_vec3_by_quat`) at the block and the time (s). The values must agree to 1e-7
 times the largest value of the axis (at least 1).
 
 **Assumptions:** The file has no NaN, so the test does not compare NaNs.

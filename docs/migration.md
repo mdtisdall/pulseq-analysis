@@ -97,7 +97,12 @@ or in its metadata. [`docs/usage.md`](usage.md#0-install) has the install lines.
 `synth.Decoding` of version 1, which includes `gradient_variants()`: return
 None when each gradient event decodes alike in every block that plays it, or
 an int64 array (blocks, 3) that says which blocks and axes decode an event
-alike ([`docs/usage.md`](usage.md), section 8).
+alike ([`docs/usage.md`](usage.md), section 8). Version 1 is not released, and
+it changed in place: `gradients_at(block_index, time_us, rotated=None)`, with
+the times in µs, is `gradients_at(block_index, time_s, rotated=None)`, with
+the times in s from the start of each block, as the rest of the API. A decoding
+whose reader takes µs converts them itself (`cpp-siemens`: `time_s * 1e6`). A
+call with `time_us=` raises `TypeError`.
 
 ## 3. The modules that moved
 

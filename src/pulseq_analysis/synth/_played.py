@@ -245,7 +245,7 @@ def _from_gradients_at(
         np.repeat(plan_start[plan_of_group], group_size) + within
     ]
     pairs_block = np.repeat(first_block, group_size)
-    values = decoding.gradients_at(pairs_block, pairs_time_s * 1e6)
+    values = decoding.gradients_at(pairs_block, pairs_time_s)
 
     # The points of each group, from the reads of the groups of each plan together. The keys of
     # a plan's groups share its offsets, and the three axes of a group share its values, so

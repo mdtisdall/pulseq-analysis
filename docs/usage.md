@@ -775,11 +775,11 @@ data = read_seqfile("sequence.seq", interpreter="cpp-siemens")  # a plugin, by n
 data.interpreter  # CppSiemens(oversampling='center', rotation='reader'); str() is 'cpp-siemens'
 
 plugin = decode(data)  # the plugin's own decoding
-plugin.gradients_at([0, 0], [10.0, 20.0])  # Hz/m, times in us from the start of each block
+plugin.gradients_at([0, 0], [10e-6, 20e-6])  # Hz/m, times in s from the start of each block
 plugin.rotations()  # the blocks with a rotation, and their quaternions
 plugin.rotation_record  # what the decoding does with the rotations
 
-decode(spec).gradients_at([0], [10.0])  # spec: rotated from 1.5.1, as the file says
+decode(spec).gradients_at([0], [10e-6])  # spec: rotated from 1.5.1, as the file says
 ```
 
 With pulseq-cpp-siemens installed, an interpreter object gives the settings:
@@ -885,8 +885,8 @@ is what the package uses of a decoding. Blocks are indexed in play order from 0:
   delays and field of view (`scanner.SoftDelayRecord`, `scanner.FovRecord`),
   and `fov_flags()`: the flag NOROT and the scaling flag of each block (two
   bool arrays) ([The scanner session](#the-scanner-session)).
-- `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m at
-  each pair of a block index and a time in us from the start of that block, an
+- `gradients_at(block_index, time_s, rotated=None)`: the gradients in Hz/m at
+  each pair of a block index and a time in s from the start of that block, an
   array (n, 3), 0 after the actual end of the block. `rotated=None` follows the
   interpreter and the session; `False` gives the logical gradients, and `True`
   also rotates each block by its rotation, for one call.

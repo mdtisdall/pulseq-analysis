@@ -221,8 +221,8 @@ pulse of points. As each decoding (the protocol `synth.Decoding`, 2.4), `SpecDec
 
 - `block_count`; `session`; `block_durations` (actual) and
   `stored_block_durations` (2.8).
-- `gradients_at(block_index, time_us, rotated=None)`: the gradients in Hz/m,
-  an array (n, 3), at times in µs from the start of each block. Each event is
+- `gradients_at(block_index, time_s, rotated=None)`: the gradients in Hz/m,
+  an array (n, 3), at times in s from the start of each block. Each event is
   the straight lines between its points (`seq_utils.gradient_offsets`), 0
   before its delay and after its end, and every value is 0 outside the block
   (its actual duration). `rotated` None or True turns each block with a
@@ -270,7 +270,7 @@ plugin is of the protocol `synth.Decoding` (module `synth.decoding`), which
 `SpecDecoding` also follows: `interpreter`, `session`, `block_count`,
 `block_durations`, `stored_block_durations`, `rotations()`, `rotation_record`,
 `soft_delay_record`, `fov_record`, `fov_flags()`,
-`gradients_at(block_index, time_us, rotated=None)`,
+`gradients_at(block_index, time_s, rotated=None)`,
 `gradient_points(key, block, axis)` and `gradient_variants()`. The plugin class states the version of the
 protocol that it implements (`protocol`, 1; `seqfile.PROTOCOL`), and the package
 uses a plugin only of its own version (2.8). `CppSiemensDecoding` has these, and the
@@ -279,13 +279,15 @@ blocks of the reader. Blocks are in play order from 0:
 - `block_count`; `block(index)` and `blocks()`: `GetBlock` and `decodeBlock`,
   the fields of the C++ oracle's `--dump` (section 6), in the reader's units
   (µs, Hz, Hz/m, rad), after the resampling and the clamps.
-- `gradients_at(block_index, time_us, rotated=None)`:
-  `SeqBlock::gradientsAt` in Hz/m, an array (n, 3), 0 before and after the
-  block, whose end is set with the reader's hook `setActualSoftDelay_ru` under a
-  session's soft delays. `rotated=None` follows the setting `rotation` and the
-  session's field of view; `False` gives the reader's own values; `True` turns
-  each block with a rotation by its quaternion, with the reader's own
-  `rotate_vec3_by_quat`, and applies the field of view (2.8).
+- `gradients_at(block_index, time_s, rotated=None)`:
+  `SeqBlock::gradientsAt` in Hz/m, an array (n, 3), at times in s from the
+  start of each block (the reader takes µs: the times times 1e6), 0 before and
+  after the block, whose end is set with the reader's hook
+  `setActualSoftDelay_ru` under a session's soft delays. `rotated=None` follows
+  the setting `rotation` and the session's field of view; `False` gives the
+  reader's own values; `True` turns each block with a rotation by its
+  quaternion, with the reader's own `rotate_vec3_by_quat`, and applies the
+  field of view (2.8).
 - `rotations()`: the play indices of the blocks to which `GetBlock` attaches a
   rotation (the first of the list), and their quaternions (n, 4), q0, qx,
   qy, qz, as the reader normalized them. The same in each setting.

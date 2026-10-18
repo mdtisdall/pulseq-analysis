@@ -789,10 +789,10 @@ def test_spec_rotates_the_gradients_of_each_block_that_has_a_rotation(recwarn):
     assert indices.tolist() == [0, 1, 2, 3, 4]
     np.testing.assert_allclose(np.linalg.norm(quaternions, axis=1), 1, rtol=0, atol=1e-15)
     block_index = np.repeat(np.arange(5), 4)
-    time_us = np.tile([50.0, 150.0, 200.0, 350.0], 5)
-    logical = decoding.gradients_at(block_index, time_us, rotated=False)
-    rotated = decoding.gradients_at(block_index, time_us)
-    assert np.array_equal(rotated, decoding.gradients_at(block_index, time_us, rotated=True))
+    time_s = np.tile([50e-6, 150e-6, 200e-6, 350e-6], 5)
+    logical = decoding.gradients_at(block_index, time_s, rotated=False)
+    rotated = decoding.gradients_at(block_index, time_s)
+    assert np.array_equal(rotated, decoding.gradients_at(block_index, time_s, rotated=True))
     assert np.array_equal(logical[:, 1:], np.zeros((20, 2))) and logical[:, 0].any()
     angle = np.radians(np.repeat([0, 45, 90, 45, 0], 4))
     expected = logical[:, :1] * np.stack([np.cos(angle), np.sin(angle), 0 * angle], axis=1)
@@ -838,7 +838,7 @@ def test_a_file_older_than_1_5_1_with_rotations_is_not_rotated(tmp_path):
         indices, quaternions = decoding.rotations()
         assert indices.size == 0 and quaternions.shape == (0, 4)
         assert decoding.rotation_record == synth.RotationRecord("apply", 0, 0, 0)
-        times = np.linspace(0.05, 0.95, 10) * decoding.block_durations[block] * 1e6
+        times = np.linspace(0.05, 0.95, 10) * decoding.block_durations[block]
         values = decoding.gradients_at(np.full(10, block), times)
         assert values[:, 0].any()
         assert np.array_equal(values, decoding.gradients_at(np.full(10, block), times, False))
@@ -898,15 +898,14 @@ def _many_trapezoids(path: Path, blocks: int, traps: int, seed: int) -> Path:
     return path
 
 
-def _gradients_one_read_at_a_time(decoding, block_index, time_us):
+def _gradients_one_read_at_a_time(decoding, block_index, time_s):
     """`gradients_at` of `spec` under the neutral session, one read at a time: the logical
     gradients (the straight lines of `gradient_offsets` of each cell's event, 0 outside the
     block), and those turned by the quaternion of each block with a rotation."""
     indices, quaternions = decoding.rotations()
     quaternion_of = dict(zip(indices.tolist(), quaternions, strict=True))
     logical = np.zeros((block_index.size, 3))
-    for k, (b, us) in enumerate(zip(block_index.tolist(), time_us.tolist(), strict=True)):
-        t = us * 1e-6
+    for k, (b, t) in enumerate(zip(block_index.tolist(), time_s.tolist(), strict=True)):
         if t < 0 or t > decoding.block_durations[b]:
             continue
         for axis, column in enumerate(("gx", "gy", "gz")):
@@ -934,13 +933,15 @@ def test_spec_gradients_at_of_many_events_is_each_read_alone(tmp_path):
     assert 1300 < decoding.rotation_blocks.size < 1700
     rng = np.random.default_rng(11)
     block_index = rng.integers(0, 3000, size=20_000)
-    time_us = np.where(
-        rng.random(20_000) < 0.5, rng.uniform(-50, 550, 20_000), 10.0 * rng.integers(-5, 56, 20_000)
+    time_s = np.where(
+        rng.random(20_000) < 0.5,
+        rng.uniform(-50e-6, 550e-6, 20_000),
+        1e-5 * rng.integers(-5, 56, 20_000),
     )
-    logical, rotated = _gradients_one_read_at_a_time(decoding, block_index, time_us)
-    assert logical.any(axis=1).mean() > 0.3 and not logical[(time_us < 0) | (time_us > 500)].any()
-    assert np.array_equal(decoding.gradients_at(block_index, time_us, rotated=False), logical)
-    assert np.array_equal(decoding.gradients_at(block_index, time_us), rotated)
+    logical, rotated = _gradients_one_read_at_a_time(decoding, block_index, time_s)
+    assert logical.any(axis=1).mean() > 0.3 and not logical[(time_s < 0) | (time_s > 5e-4)].any()
+    assert np.array_equal(decoding.gradients_at(block_index, time_s, rotated=False), logical)
+    assert np.array_equal(decoding.gradients_at(block_index, time_s), rotated)
 
 
 def test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence(tmp_path):
@@ -960,10 +961,10 @@ def test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence(tmp_pa
     assert decoding.block_count == blocks
     turned = 1000 * np.sqrt(0.5)
     for rotated in (False, None, True):
-        decoding.gradients_at([0], [250.0], rotated)
+        decoding.gradients_at([0], [250e-6], rotated)
         tracemalloc.start()
         try:
-            values = decoding.gradients_at([0], [250.0], rotated)
+            values = decoding.gradients_at([0], [250e-6], rotated)
             _, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()

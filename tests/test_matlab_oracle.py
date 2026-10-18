@@ -573,13 +573,13 @@ def compare_rotated_gradients(case, data, rel):
         block = np.searchsorted(starts, mid_t, side="right") - 1
         inside = block < data.blocks.size
         mid_t, mid_v, block = mid_t[inside], mid_v[inside], block[inside]
-        time_us = (mid_t - starts[block]) * 1e6
-        ours = decoding.gradients_at(block, time_us)[:, column]
+        time_s = mid_t - starts[block]
+        ours = decoding.gradients_at(block, time_s)[:, column]
         scale = np.abs(v).max()
         tolerance = rel * scale
         error = np.abs(ours - mid_v)
         diff._first_outside(axis, "rotated value at the midpoints", ours, mid_v, error, tolerance)
-        logical = decoding.gradients_at(block, time_us, rotated=False)[:, column]
+        logical = decoding.gradients_at(block, time_s, rotated=False)[:, column]
         unrotated_differs |= bool(np.any(np.abs(logical - mid_v) > tolerance))
     diff.check()
     if decoding.rotation_record.not_identity:

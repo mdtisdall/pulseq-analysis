@@ -96,7 +96,7 @@ def check_the_points_are_the_gradients(path, interpreter) -> None:
     blocks, axes, times, values = _probes(snap)
     if blocks.size == 0:
         return
-    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    got = snap.decoding.gradients_at(blocks, times)[np.arange(blocks.size), axes]
     # A value that the file writes as `nan` (a plugin can read it) is NaN in both.
     assert np.array_equal(np.isnan(got), np.isnan(values))
     finite = ~np.isnan(values)
@@ -143,8 +143,8 @@ class DoubledDecoding(UnrotatedDecoding):
     def rotation_record(self):
         return self.spec.rotation_record
 
-    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
-        values = self.spec.gradients_at(block_index, time_us, rotated)
+    def gradients_at(self, block_index: Any, time_s: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_s, rotated)
         in_block_1 = np.asarray(block_index).reshape(-1) == 1
         return np.where(in_block_1[:, None], 2 * values, values)
 
@@ -191,7 +191,7 @@ def test_a_block_that_the_session_rotates_takes_the_points_of_its_variant():
     scale = float(np.abs(block_1).max())
     np.testing.assert_allclose(block_1, 2 * block_0, rtol=0, atol=RTOL * scale)
     blocks, axes, times, values = _probes(snap)
-    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    got = snap.decoding.gradients_at(blocks, times)[np.arange(blocks.size), axes]
     assert np.abs(got - values).max() <= RTOL * scale
 
 
@@ -235,8 +235,8 @@ class LateDecoding(DoubledDecoding):
         durations.flags.writeable = False
         return durations
 
-    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
-        values = self.spec.gradients_at(block_index, time_us, rotated)
+    def gradients_at(self, block_index: Any, time_s: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_s, rotated)
         in_block_1 = np.asarray(block_index).reshape(-1) == 1
         return np.where(in_block_1[:, None], 0.0, values)
 
@@ -268,7 +268,7 @@ def test_an_event_wholly_after_the_end_of_its_block_has_two_points_or_more(sessi
             _, offsets, _ = played.points[int(column[1])]
             assert offsets.size >= 2
     blocks, axes, times, values = _probes(snap)
-    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    got = snap.decoding.gradients_at(blocks, times)[np.arange(blocks.size), axes]
     scale = max(float(np.abs(values).max()), 1.0)
     assert np.abs(got - values).max() <= RTOL * scale
 
@@ -301,7 +301,7 @@ def test_an_event_that_starts_at_the_end_of_its_block_has_two_points_or_more(int
     for axis in ("x", "y", "z"):
         assert block_gradient_values(snap).peak_hz_per_m[axis][1] == 0.0
     blocks, axes, times, values = _probes(snap)
-    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    got = snap.decoding.gradients_at(blocks, times)[np.arange(blocks.size), axes]
     scale = max(float(np.abs(values).max()), 1.0)
     assert np.abs(got - values).max() <= RTOL * scale
 
@@ -358,7 +358,7 @@ def _check_block_1_has_two_points_or_more(snap) -> None:
             _, offsets, _ = played.points[int(column[1])]
             assert offsets.size >= 2
     blocks, axes, times, values = _probes(snap)
-    got = snap.decoding.gradients_at(blocks, times * 1e6)[np.arange(blocks.size), axes]
+    got = snap.decoding.gradients_at(blocks, times)[np.arange(blocks.size), axes]
     scale = max(float(np.abs(values).max()), 1.0)
     assert np.abs(got - values).max() <= RTOL * scale
 
@@ -422,8 +422,8 @@ LENGTH_0_SESSIONS = [
     pytest.param(Session(fov_rotation=QUARTER_Z), id="fov"),
 ]
 LENGTH_0_WINDOWS = [pytest.param(None, id="whole"), pytest.param((200e-6, 900e-6), id="window")]
-# Times of block 2 (us from its start, 500 us long) away from the one time of the event (100 us).
-LENGTH_0_TIMES_US = np.array([0.0, 50.0, 99.0, 101.0, 250.0, 499.0])
+# Times of block 2 (s from its start, 500 us long) away from the one time of the event (100 us).
+LENGTH_0_TIMES_S = np.array([0.0, 50e-6, 99e-6, 101e-6, 250e-6, 499e-6])
 
 
 def check_an_event_of_length_0_plays_0_in_the_measurements(
@@ -458,7 +458,7 @@ def check_the_played_points_of_an_event_of_length_0_are_0(
 ):
     """With no session, block 2 of `_length_0_file` of `kind` (written in `directory`) keeps the
     decoded event of `interpreter` on gx, whose points are all at one time and not all 0. The
-    decoding's `gradients_at` is 0 on each axis at `LENGTH_0_TIMES_US` of the block, and the
+    decoding's `gradients_at` is 0 on each axis at `LENGTH_0_TIMES_S` of the block, and the
     played points of the event have the delay and the offsets of the decoding and the values 0.
     Returns the snapshot. A warning of the scanner settings is ignored."""
     with warnings.catch_warnings():
@@ -469,8 +469,8 @@ def check_the_played_points_of_an_event_of_length_0_are_0(
     assert int(played.gx[1]) == event
     delay, offsets, amp = snap.decoding.gradient_points(event, 1, 0)
     assert np.all(offsets == offsets[0]) and np.any(amp != 0)
-    blocks = np.ones(LENGTH_0_TIMES_US.size, dtype=np.int64)
-    assert np.array_equal(snap.decoding.gradients_at(blocks, LENGTH_0_TIMES_US), np.zeros((6, 3)))
+    blocks = np.ones(LENGTH_0_TIMES_S.size, dtype=np.int64)
+    assert np.array_equal(snap.decoding.gradients_at(blocks, LENGTH_0_TIMES_S), np.zeros((6, 3)))
     played_delay, played_offsets, played_amp = played.points[event]
     assert played_delay == delay and np.array_equal(played_offsets, offsets)
     assert np.array_equal(played_amp, np.zeros(amp.size)), played_amp
@@ -666,12 +666,12 @@ class OneNaNDecoding(DoubledDecoding):
     rotation of a vector with a NaN is NaN on each axis (NaN times 0 is NaN), as with
     `cpp-siemens`. The variants and the rotation record are those of `DoubledDecoding`."""
 
-    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
-        values = self.spec.gradients_at(block_index, time_us, rotated)
+    def gradients_at(self, block_index: Any, time_s: Any, rotated: bool | None = None):
+        values = self.spec.gradients_at(block_index, time_s, rotated)
         if not self.interpreter.nan:
             return values
         delay, offsets, _ = self.spec.gradient_points(1, 1, 0)
-        t = np.asarray(time_us, dtype=np.float64).reshape(-1) * 1e-6 - delay
+        t = np.asarray(time_s, dtype=np.float64).reshape(-1) - delay
         in_block_1 = np.asarray(block_index).reshape(-1) == 1
         inside = in_block_1 & (t > offsets[0]) & (t < offsets[2])
         axes = slice(None) if rotated is not False and self.session.rotates else 0

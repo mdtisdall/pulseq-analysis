@@ -145,8 +145,8 @@ class UnrotatedDecoding:
             hint="read the file with spec",
         )
 
-    def gradients_at(self, block_index: Any, time_us: Any, rotated: bool | None = None):
-        return self.spec.gradients_at(block_index, time_us, rotated=bool(rotated))
+    def gradients_at(self, block_index: Any, time_s: Any, rotated: bool | None = None):
+        return self.spec.gradients_at(block_index, time_s, rotated=bool(rotated))
 
     def gradient_points(self, key: int, block: int, axis: int):
         return self.spec.gradient_points(key, block, axis)

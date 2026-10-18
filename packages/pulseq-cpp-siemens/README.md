@@ -200,12 +200,12 @@ edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
 
 cpp = decode(data)  # the C++ reader's own decoding
 cpp.block(0)  # GetBlock and decodeBlock of the first block
-cpp.gradients_at([0, 0], [10.0, 20.0])  # SeqBlock::gradientsAt (Hz/m), times in us
+cpp.gradients_at([0, 0], [10e-6, 20e-6])  # SeqBlock::gradientsAt (Hz/m), times in s
 cpp.rotations()  # the blocks with a rotation, and their quaternions
 cpp.rotation_record  # rotation: reader, ... not applied
 
 rotated = decode(read_seqfile("sequence.seq", interpreter=CppSiemens(rotation="apply")))
-rotated.gradients_at([0], [10.0])  # each block's gradients turned by its rotation
+rotated.gradients_at([0], [10e-6])  # each block's gradients turned by its rotation
 ```
 
 `import pulseq_cpp_siemens` does not import pulseq-analysis; only `pulseq_cpp_siemens.interpreter`
@@ -285,9 +285,11 @@ The reading is not compared by `==`. `pickle` carries the bytes of the file and 
 **The decoding.** `CppSiemens.decode(data)` (and `pulseq_analysis.synth.decode`) gives a
 `CppSiemensDecoding`: `block(index)` and `blocks()` are `GetBlock` and `decodeBlock` of a block (the
 fields of the C++ oracle's `--dump`, `tests/cpp_oracle/README.md` of pulseq-analysis, in the
-reader's units), `gradients_at(block_index, time_us, rotated=None)` is `SeqBlock::gradientsAt` in
-Hz/m, and `gradient_points(key, block, axis)` gives the points between which `gradientsAt` draws
-its straight lines (not rotated; the values are those that `gradientsAt` gives at the points).
+reader's units), `gradients_at(block_index, time_s, rotated=None)` is `SeqBlock::gradientsAt` in
+Hz/m at times in s from the start of each block (the reader's `Sequence.gradients_at` takes us:
+the times times 1e6), and `gradient_points(key, block, axis)` gives the points between which
+`gradientsAt` draws its straight lines (not rotated; the values are those that `gradientsAt` gives
+at the points).
 `gradient_variants()` says which blocks and axes decode a gradient event alike: the reader
 decodes the gradients of a block into one buffer, so a shape that writes fewer samples than it
 declares keeps the values of the shape before it in the block (D5.5). It is None for a file with

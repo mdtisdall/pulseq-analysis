@@ -100,7 +100,7 @@ def test_the_field_of_view_of_cpp_siemens_is_that_of_spec_where_the_flags_agree(
     cpp = synth.decode(read_seqfile(SESSION_FILE, CppSiemens(rotation="apply")), session)
     spec = synth.decode(read_seqfile(SESSION_FILE), session)
     blocks = np.repeat([0, 2, 3, 4, 5, 8], 5)
-    times = np.tile([60.0, 150.0, 300.0, 420.0, 470.0], 6)
+    times = np.tile([60e-6, 150e-6, 300e-6, 420e-6, 470e-6], 6)
     got, expected = cpp.gradients_at(blocks, times), spec.gradients_at(blocks, times)
     same = np.isin(blocks, [0, 2, 3])
     np.testing.assert_allclose(got[same], expected[same], rtol=0, atol=FLOAT32 * 4e6)
@@ -113,12 +113,12 @@ def test_the_field_of_view_of_cpp_siemens_is_that_of_spec_where_the_flags_agree(
     )
     # The reader's default leaves the block's rotation unapplied, and the field of view applied.
     reader = synth.decode(read_seqfile(SESSION_FILE, "cpp-siemens"), session)
-    logical = reader.gradients_at([2], [300.0], rotated=False)[0]
+    logical = reader.gradients_at([2], [300e-6], rotated=False)[0]
     np.testing.assert_allclose(
-        reader.gradients_at([2], [300.0])[0], [2 * logical[0], 0, 0], rtol=0, atol=1e-6
+        reader.gradients_at([2], [300e-6])[0], [2 * logical[0], 0, 0], rtol=0, atol=1e-6
     )
     np.testing.assert_array_equal(
-        reader.gradients_at([2], [300.0], rotated=True), cpp.gradients_at([2], [300.0])
+        reader.gradients_at([2], [300e-6], rotated=True), cpp.gradients_at([2], [300e-6])
     )
 
 
@@ -182,10 +182,10 @@ def test_the_gradients_of_cpp_siemens_allocate_no_array_of_the_size_of_the_seque
     assert decoding.block_count == blocks
     turned = 2000 * np.sqrt(0.5)
     for rotated in (False, None, True):
-        decoding.gradients_at([0], [250.0], rotated)
+        decoding.gradients_at([0], [250e-6], rotated)
         tracemalloc.start()
         try:
-            values = decoding.gradients_at([0], [250.0], rotated)
+            values = decoding.gradients_at([0], [250e-6], rotated)
             _, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
