@@ -6,10 +6,10 @@ plugin's decoding for a plugin interpreter).
 Both are immutable, so a measurement describes one fixed sequence, and its result can be kept
 for later calls. `analyses.load` makes a snapshot of a file, of a pypulseq sequence or of a
 `SequenceData`, one time, and each measurement takes the snapshot. `load` is the one way to make
-a snapshot (Q22 of `docs/plans/remaining-review-fixes.md`): `Snapshot` is the type, and
-`Snapshot(...)` raises `TypeError` that names `load`. The measurements take the gradients only
-through the decoding: its decoded events, and `gradients_at` for a block whose gradients the
-decoding rotates (`_played`).
+a snapshot (the user, 2026-10-14; `Snapshot(data)` made one with no `ScannerSettingWarning`):
+`Snapshot` is the type, and `Snapshot(...)` raises `TypeError` that names `load`. The measurements
+take the gradients only through the decoding: its decoded events, and `gradients_at` for a block
+whose gradients the decoding rotates (`_played`).
 
 The results that the measurements make from a snapshot (`seq_index.sequence_index`, the played
 gradients of `_played`, `_events.event_points`, the gaps of `sampling` and the results of

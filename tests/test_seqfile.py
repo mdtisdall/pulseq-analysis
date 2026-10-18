@@ -684,8 +684,8 @@ def test_the_default_interpreter_is_spec():
 
 
 def test_read_seqfile_is_the_one_way_to_read_a_file_through_spec():
-    """`read_seqfile(path)` is the one way to read a file through `spec` (Q22): the module
-    `spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
+    """`read_seqfile(path)` is the one way to read a file through `spec` (the user, 2026-10-14): the
+    module `spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
     `read_seqfile(path)`."""
     from pulseq_analysis.seqfile import spec
 
@@ -785,16 +785,17 @@ def test_the_versions_1_5_0_to_1_5_x_are_read(tmp_path, revision):
 
 
 def test_spec_raises_not_supported_for_a_folder(tmp_path):
-    """Q1 of `docs/plans/parser-redesign.md` and Q14 of `docs/plans/remaining-review-fixes.md`:
-    a folder is outside the package's scope, so `read_seqfile` raises `NotSupported` under `spec`,
-    as under every interpreter, and not the `IsADirectoryError` of reading it."""
+    """Q1 of `docs/plans/parser-redesign.md`, and one gate of the scope for every interpreter
+    (the user, 2026-10-14): a folder is outside the package's scope, so `read_seqfile` raises
+    `NotSupported` under `spec`, as under every interpreter, and not the `IsADirectoryError` of
+    reading it."""
     with pytest.raises(NotSupported, match="folder") as caught:
         read_seqfile(tmp_path)
     assert str(tmp_path) in str(caught.value)
 
 
 def test_spec_raises_not_supported_for_a_binary_pulseq_file(tmp_path):
-    """Q1 and Q14 (as above): a binary Pulseq file, which starts with the 8 bytes
+    """Q1 and the one gate (as above): a binary Pulseq file, which starts with the 8 bytes
     `\\x01pulseq\\x02`, is outside the package's scope, so `read_seqfile` raises `NotSupported`
     under `spec`, and not the `SeqFileError` (`syntax.encoding`) of a text file with bytes that
     are not UTF-8."""
@@ -1723,7 +1724,7 @@ def test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shap
 ):
     """The specification has no limit of `num_samples`, and `spec` does not decompress a shape
     that declares more than 2^27 samples: a short file could otherwise make the reader allocate
-    without bound (Q7 of `docs/plans/remaining-review-fixes.md`). A shape whose header declares
+    without bound (the user, 2026-10-14). A shape whose header declares
     200 000 000 samples is `limit.shape-samples` on the line of its `shape_id`, not
     `shape.length`, a rule of the specification (the package's limit; the message says so)."""
     text = _text("valid_no_signature.seq")
@@ -2409,8 +2410,8 @@ def test_an_extension_type_id_that_is_not_positive_is_id_positive(
     tmp_path, written, changed, section, type_id
 ):
     """spec:181 ("IDs must be positive integers"), spec:472 and spec:494 (`<type>` is the "ID of
-    the type"; decision Q4: the rule of spec:181 covers it): a type ID of 0 or less in the header
-    `extension <STRING_ID> <type>` or in the `type` column of a row of `[EXTENSIONS]` is
+    the type"; the user, 2026-10-14: the rule of spec:181 covers it): a type ID of 0 or less in the
+    header `extension <STRING_ID> <type>` or in the `type` column of a row of `[EXTENSIONS]` is
     `id.positive`, at the section and the line of that ID."""
     line = changed.format(type_id)
     path = _write(tmp_path, _text("valid_no_signature.seq").replace(written, line), "e.seq")

@@ -454,7 +454,8 @@ contract too:
   It raises their `SeqFileError` and `NotSupported`. pypulseq no longer reads a
   file. A `seqfile.SequenceData` of such a reading is taken as it is; the
   interpreter given must be the one that read it (`data.interpreter`), else
-  `ValueError`. `load` is the one way to make a snapshot (Q22).
+  `ValueError`. `load` is the one way to make a snapshot (the user,
+  2026-10-14).
 - `synth.Snapshot`: `data` (the `SequenceData`), `session` (R16), `decoding`
   (`synth.decode(data, session)`, a `synth.Decoding`), `interpreter` (with its
   settings), `records` (`SequenceData.records`), `rotation_record`,

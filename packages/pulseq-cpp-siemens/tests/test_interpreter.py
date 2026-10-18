@@ -334,9 +334,9 @@ def test_a_binary_file_and_a_folder_are_not_supported(tmp_path):
 
 @pytest.mark.parametrize("case", ["folder", "binary", "version"])
 def test_both_interpreters_give_one_message_for_a_file_outside_the_scope(tmp_path, case):
-    """Q14 of `docs/plans/remaining-review-fixes.md`: `read_seqfile` checks the scope (a folder,
-    a binary Pulseq file, a version outside 1.4.0 to 1.5.x) before it chooses the interpreter,
-    so `spec` and `cpp-siemens` raise `NotSupported` with one message, which names the file."""
+    """`read_seqfile` checks the scope (a folder, a binary Pulseq file, a version outside 1.4.0
+    to 1.5.x) before it chooses the interpreter (the user, 2026-10-14), so `spec` and
+    `cpp-siemens` raise `NotSupported` with one message, which names the file."""
     if case == "folder":
         path = tmp_path
     elif case == "binary":
@@ -474,12 +474,12 @@ def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
 
 def test_the_decoding_takes_seconds_and_the_reader_microseconds():
     """`CppSiemensDecoding.gradients_at` takes block-relative times in s, the argument `time_s` of
-    the protocol `synth.Decoding` of version 1 (Q23 of `docs/plans/remaining-review-fixes.md` of
-    pulseq-analysis), and the reader's own `Sequence.gradients_at` takes us. At the times of the
-    trapezoid of block 2 of valid_1_5_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us,
-    fall 100 us, block 500 us) on gx, the decoding gives the reader's values at the same times in
-    us, bit for bit: without a session, and with one that doubles x (the two paths of the
-    method). The old keyword `time_us` raises `TypeError`."""
+    the protocol `synth.Decoding` of version 1 (in s, as the rest of the API of pulseq-analysis: the
+    user, 2026-10-14), and the reader's own `Sequence.gradients_at` takes us. At the times of the
+    trapezoid of block 2 of valid_1_5_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall
+    100 us, block 500 us) on gx, the decoding gives the reader's values at the same times in us, bit
+    for bit: without a session, and with one that doubles x (the two paths of the method). The old
+    keyword `time_us` raises `TypeError`."""
     parameters = ["self", "block_index", "time_s", "rotated"]
     assert list(inspect.signature(CppSiemensDecoding.gradients_at).parameters) == parameters
     data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")

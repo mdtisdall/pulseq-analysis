@@ -16,8 +16,8 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
 `CppSiemens.read(path)` (`read_cpp_siemens`) reads a file in four steps:
 
 1. **The version gate** (Q1 of the plan). `read_seqfile` of pulseq-analysis checks the scope
-   before it calls `read`, for every interpreter (Q14 of `docs/plans/remaining-review-fixes.md`
-   in pulseq-analysis): a folder, a binary Pulseq file, and a version outside 1.4.0 to 1.5.x in
+   before it calls `read`, for every interpreter, with one message (the user, 2026-10-14): a
+   folder, a binary Pulseq file, and a version outside 1.4.0 to 1.5.x in
    the "as written" reading (`as_written`, the first row of each key) raise `NotSupported`.
    `load` then reads the version again as the reader does (the reader takes the last row of each
    key), and refuses a version outside 1.4.0 to 1.5.x and a binary Pulseq file before the C++

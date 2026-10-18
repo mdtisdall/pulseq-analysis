@@ -530,7 +530,7 @@ def test_rf_time_step_has_the_tolerance_of_the_model(shift, regular):
 def test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes():
     """The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
     times, and the model has no `TIME_TOLERANCE`, the old name, which `seq_utils` also has for
-    a tolerance of 1e-9 s (Q21)."""
+    a tolerance of 1e-9 s (the user, 2026-10-14)."""
     from pulseq_analysis.seqfile.model import RF_TIME_SHAPE_TOLERANCE
 
     assert RF_TIME_SHAPE_TOLERANCE == 1e-6
@@ -729,11 +729,11 @@ RADIAL = ORACLE / "koma_v1.5_rotation_radial_tiny.seq"
 
 def test_spec_gradients_at_takes_seconds_and_gives_the_lines_between_the_points_of_each_event():
     """`SpecDecoding.gradients_at` (Hz/m) at block-relative times in s, the argument `time_s` of
-    the protocol `synth.Decoding` (Q23 of `docs/plans/remaining-review-fixes.md`): the trapezoid
-    of block 2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall 100 us,
-    block 500 us) on gx; 0 before the delay, after the event and outside the block. The old
-    keyword `time_us` raises `TypeError`. The arguments are checked as for a plugin
-    interpreter's decoding."""
+    the protocol `synth.Decoding` (in s, as the rest of the API: the user, 2026-10-14): the
+    trapezoid of block 2 of valid_1_4_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us, fall
+    100 us, block 500 us) on gx; 0 before the delay, after the event and outside the block. The old
+    keyword `time_us` raises `TypeError`. The arguments are checked as for a plugin interpreter's
+    decoding."""
     parameters = ["self", "block_index", "time_s", "rotated"]
     assert list(inspect.signature(synth.Decoding.gradients_at).parameters) == parameters
     decoding = synth.decode(seqfile.read_seqfile(SEQFILES / "valid_1_4_1.seq"))
@@ -921,8 +921,8 @@ def _gradients_one_read_at_a_time(decoding, block_index, time_s):
 
 
 def test_spec_gradients_at_of_many_events_is_each_read_alone(tmp_path):
-    """`SpecDecoding.gradients_at` of many reads of many events (C10 of
-    `docs/plans/remaining-review-fixes.md`, 2.1 of `docs/reviews/2026-10-13-code-review.md`) is,
+    """`SpecDecoding.gradients_at` of many reads of many events (2.1 of
+    `docs/reviews/2026-10-13-code-review.md`: the loop over the IDs was quadratic) is,
     bit for bit, the value of each read alone: 3000 blocks of 1500 trapezoids, one block in two
     with a rotation, and 20 000 reads in random order, with repeats, at random times and at times
     on the 10 us raster, from 50 us before each block to 50 us after it."""
@@ -974,8 +974,8 @@ def test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence(tmp_pa
 
 
 def test_load_decodes_no_rf_event(tmp_path, monkeypatch):
-    """`load` builds no `RfEvent` and no `AdcEvent` (C16 of `docs/plans/remaining-review-fixes.md`,
-    2.4 of `docs/reviews/2026-10-13-code-review.md`): no analysis reads them, and a caller
+    """`load` builds no `RfEvent` and no `AdcEvent` (2.4 of
+    `docs/reviews/2026-10-13-code-review.md`): no analysis reads them, and a caller
     decodes them with `decode_rf(snap.data)` and `decode_adc(snap.data)`. Of the file of
     `time_shaped` (3 RF and 2 ADC events), those two calls after `load` build each event once."""
     path = tmp_path / "time_shaped.seq"
@@ -1013,10 +1013,9 @@ def _labelled(path: Path, third: str) -> Path:
 
 def test_spec_walks_the_lists_only_for_the_labels_of_the_field_of_view(tmp_path, monkeypatch):
     """`spec`'s decoding walks the extension lists for the LABELSET objects NOROT and NOSLC only
-    (C16 of `docs/plans/remaining-review-fixes.md`, 2.4 of
-    `docs/reviews/2026-10-13-code-review.md`): of a file whose LABELSET objects are LIN only, it
-    walks no list for LABELSET, and every flag is False; when the third object is NOROT, the walk
-    for LABELSET gives that object alone, in block 2, and NOROT is set from block 2 on."""
+    (2.4 of `docs/reviews/2026-10-13-code-review.md`): of a file whose LABELSET objects are LIN
+    only, it walks no list for LABELSET, and every flag is False; when the third object is NOROT,
+    the walk for LABELSET gives that object alone, in block 2, and NOROT is set from block 2 on."""
     walks = []
     walk = synth.decoding._extension_objects
 

@@ -1707,8 +1707,8 @@ def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
 def test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window():
     """`gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range: they
     match the oracle of the gradient waveform for that range, and the `range_s` of the result is
-    the range given. The old name of the argument, `window`, raises `TypeError` (decision
-    Q18)."""
+    the range given. The old name of the argument, `window`, raises `TypeError` (the user,
+    2026-10-14: the name of `GradientPeaks.range_s`)."""
     snap = load(spin_echo_sequence())
     seq = sequence_of(snap)
     time_range = (0.0, sequence_index(snap).end_s / 2)

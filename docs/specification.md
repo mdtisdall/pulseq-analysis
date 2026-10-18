@@ -44,11 +44,11 @@ file otherwise, pulseq-checks reports a finding (P17).
 which says nothing about the file, and also for a binary file or a folder
 (`bad_version_unsupported_1_3.seq`, `bad_version_unsupported_1_6.seq`). The
 check is that of `read_seqfile`, before the interpreter reads the file, so
-every interpreter has it, with one message for each case (Q14 of
-`docs/plans/remaining-review-fixes.md`). The version is that of the "as
-written" reading (`AsWritten.version`), and a binary Pulseq file is one whose
-first 8 bytes are `\x01pulseq\x02`. The specification has no rule for a
-version that a reader does not know.
+every interpreter has it, with one message for each case (the user,
+2026-10-14). The version is that of the "as written" reading
+(`AsWritten.version`), and a binary Pulseq file is one whose first 8 bytes are
+`\x01pulseq\x02`. The specification has no rule for a version that a reader
+does not know.
 
 Why: the package reads 1.4.0 to 1.5.x only (Q1), so a version that it does not
 know fails loudly, not wrongly.
@@ -111,6 +111,7 @@ section 6 of the plan chose (Q5).
 | D2.20 | a session's field of view and a block's rotation | R_fov R_block S g: the scaling of the logical axes, then the block's rotation, then the rotation of the field of view; not turned in a block with `NOROT`, not scaled in a block with `NOSLC` (`tests/session/scanner_session.seq`) | the specification gives no order; MATLAB Pulseq's `mr.TransformFOV` is the only written one (TransformFOV.m:58-60; the user, 2026-10-13) |
 | D2.21 | a session's soft delay value | `value / factor + offset` on the block duration raster, rounded half away from 0; `SettingError` for an unknown hint, a file before 1.5.0, a hint with two numeric IDs, a block with an event or two soft delays, and a negative duration | spec:545-563; MATLAB's `applySoftDelay` (Sequence.m:2518-2587) is the only written rounding; the user, 2026-10-13 |
 | D2.22 | the flag `NOSLC`, and `NOSCL` of the writers | `NOSLC` turns off the scaling from 1.4.1; `NOSCL` is an unknown label (D2.19), without effect | the specification's spelling (spec:520, spec:537; the user, 2026-10-13) |
+| — | a trapezoid whose rise, flat and fall times are all 0 | read: an event of length 0, which plays 0 (`docs/implementation.md`, section 1.2) | 0 is a multiple of the raster (spec:290). `makeTrapezoid` and `make_trapezoid` never make one, but MATLAB Pulseq and pypulseq write it when the times are set on the event, and their timing checks pass it; the C++ reader, MATLAB Pulseq and pypulseq play 0 for it (the user, 2026-10-18) |
 | — | an oversampled gradient (time ID -1) | all the samples, half a raster apart, the first and last at cell centres | spec:420 and slides 4 and 8: N − 1 extra points on the cell edges |
 | — | a signature hash | `Signature.matches` by the rule of spec:223: the md5 of the bytes before `[SIGNATURE]`, without the `\n` right before it; a mismatch is not a rejection (`valid_crlf.seq`, `valid_signature_mismatch.seq`) | the specification says to strip that new line, and has no "must" to verify the hash |
 

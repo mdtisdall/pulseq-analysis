@@ -7,6 +7,7 @@ The documents are the Markdown files at the top of the repository, of `docs/` an
 its folders), and the same of `packages/pulseq-cpp-siemens/`. The folders of `docs/` (`plans/`,
 `reviews/`) are not read: they keep the text of the time they were written. The check of the
 names of the tests also reads the Python files of `src/` and `tests/`, and the same of the plugin.
+The check of the plans reads each file that git tracks, outside `docs/plans/` and `docs/reviews/`.
 
 The module imports only `pulseq_analysis` and the standard library, so it needs no build of the
 plugin: it reads `CODES` of `cpp-siemens` from the source of the plugin with `ast`.
@@ -20,6 +21,7 @@ import importlib
 import inspect
 import pkgutil
 import re
+import subprocess
 import tomllib
 import unicodedata
 from pathlib import Path
@@ -56,6 +58,10 @@ _TEST_NAME = re.compile(r"(?<![\w./])test_\w+(?![\w.])")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
 _REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
 _UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
+# A path of a plan of this repository. A plan of pulseq-checks is the path followed by "of" or
+# "in" and "pulseq-checks" (group 1), across a line break too.
+_PLAN = re.compile(r"docs/plans/[\w-]+\.md(`?\s+(?:of|in)\s+pulseq-checks\b)?")
+HISTORY = (ROOT / "docs" / "plans", ROOT / "docs" / "reviews")
 
 # This repository at a commit: a URL of GitHub (a file, a folder, a commit, or a `pip` install),
 # a raw file, or a flake reference, with a commit ID of 7 to 40 hex digits as its ref.
@@ -88,6 +94,15 @@ def _python_files() -> list[Path]:
         for folder in ("src", "tests")
         for path in sorted((base / folder).rglob("*.py"))
     ]
+
+
+def _tracked_files() -> list[Path]:
+    """The files that git tracks (`git ls-files`), as they are in the working tree: a tracked
+    file that was deleted, and is still in the index, is left out."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True, text=True
+    ).stdout
+    return [ROOT / name for name in listed.split("\0") if name and (ROOT / name).is_file()]
 
 
 def _text(path: Path) -> str:
@@ -297,6 +312,37 @@ def test_each_test_that_a_document_names_exists():
     assert not missing, f"the texts name tests that do not exist: {missing}"
 
 
+def test_each_plan_that_a_file_cites_exists():
+    """Each path `docs/plans/<name>.md` of a file that git tracks names a plan that exists, so a
+    text does not cite a plan that was deleted when its work was done: a citation gives the
+    reason or the decision itself. The plans and the reviews (`docs/plans/`, `docs/reviews/`)
+    are not read: they keep the text of the time they were written, and may cite a closed plan.
+    A plan of pulseq-checks (the path followed by "of pulseq-checks") is not read."""
+    # The pattern finds a plan in a code span and outside one, and tells a plan of pulseq-checks
+    # from it, across a line break too.
+    text = "`docs/plans/parser-redesign.md`, docs/plans/parser-redesign.md of\npulseq-checks"
+    assert [match.group(1) is None for match in _PLAN.finditer(text)] == [True, False]
+    cited = []
+    for path in _tracked_files():
+        if any(path.is_relative_to(folder) for folder in HISTORY):
+            continue
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        cited += [
+            (path, text.count("\n", 0, match.start()) + 1, match.group(0))
+            for match in _PLAN.finditer(text)
+            if match.group(1) is None
+        ]
+    # The reading finds a citation of a file that is not a document or a Python file.
+    workflow = ROOT / ".github" / "workflows" / "pulseq-cpp-siemens-wheels.yml"
+    assert (workflow, "docs/plans/parser-redesign.md") in {(path, plan) for path, _, plan in cited}
+    missing = [
+        f"{path.relative_to(ROOT)}:{number}: {plan}"
+        for path, number, plan in cited
+        if not (ROOT / plan).is_file()
+    ]
+    assert not missing, f"the files cite plans that do not exist: {missing}"
+
+
 def test_no_document_links_a_commit():
     """No document links this repository at a commit (a URL or a flake reference whose ref is a
     commit ID), code blocks too: a document describes `main`, and the tag of a release pins it.
@@ -450,7 +496,8 @@ def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_res
     """The table of the defaults of `docs/usage.md` (section 2) has one row for each parameter
     with a default of `load`, `read_seqfile` and `read_pypulseq`, and one for each default of an
     analysis of `registry()`, of the function of the column `compute` of the analyses table
-    (decision Q24 of `docs/plans/remaining-review-fixes.md`). Each row gives the default of the
+    (the rule of section 2 of `docs/usage.md`: a method parameter has a documented default, and
+    the result records it; the user, 2026-10-14). Each row gives the default of the
     signature of the function, and each `Class.field` of its column "On the result" is a field
     of the class that the function returns."""
     text = _text(USAGE)

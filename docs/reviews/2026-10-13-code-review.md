@@ -14,7 +14,7 @@ The review looks for these things:
 
 It does not repeat a finding of an earlier review that is fixed. The line
 numbers are of commit `74fa0b2`. Section 7 gives the status after the fixes
-of PRs #134 to #141.
+of PRs #134 to #196.
 
 Method:
 
@@ -330,12 +330,12 @@ Method:
   `Session()`. Each is recorded on the result. Which must be explicit is a
   decision.
 
-## 7. Status after PRs #134 to #141
+## 7. Status after PRs #134 to #196
 
 The plan `docs/plans/cpp-siemens-review-fixes.md` (#134, closed in #141)
 fixed findings 1.1.1 to 1.1.4, each with tests that failed before the fix.
-Its work found three more bugs (B5 to B7). The other findings are open:
-`TODO.md` points to this review.
+Its work found three more bugs (B5 to B7). The plan
+`docs/plans/remaining-review-fixes.md` covered the other findings (below).
 
 | Finding | Bug | PR | Fix |
 |---|---|---|---|
@@ -365,4 +365,82 @@ Notes:
     too. Its cause is in `grad_peaks._event_values`, and it is not tied to
     `gradients_at`.
 - **Open decision** (`TODO.md`): whether `spec` reads a trapezoid whose rise,
-  flat and fall times are all 0.
+  flat and fall times are all 0. C17 (#172) decided it below.
+
+### The plan `docs/plans/remaining-review-fixes.md` (#143, closed in #197)
+
+The plan covered every finding that the PRs above did not fix, in four
+tracks: the code (C), the documents and the duplication (D), the API (A) and
+the tests (T). Each task was one PR, and the title of each PR ends with its
+task. A task that changed behaviour added its tests first, and they failed
+before the fix. A9 and C18 were added after the plan was written.
+
+| Finding | Task | PR | Fix |
+|---|---|---|---|
+| 1.1.5 | C1 | #145 | The points of an "edge" gradient with no sample kept have the values 0, as the reader plays it. |
+| 1.1.6; 6 (no findings from a plugin) | C8 | #163 | The checks give every case of undefined behaviour, each a `Violation` of the one `SeqFileError` (the user, 2026-10-14), and use a 32-bit `long`, so that a file has one verdict on every host. |
+| 1.2.1 | C13 | #177 | A gradient time shape whose first time is below 0 is `shape.time-order`; D3.9 covers gradients (the user, 2026-10-14). |
+| 1.2.2, 1.2.3 | C2 | #155 | A syntax error in one event table keeps `spec`'s checks of the others, and a NaN end is not a non-zero end. |
+| 1.2.4a | C3 | #153 | Rotation IDs are int64, as every other ID. |
+| 1.2.4b | C9 | #165 | An extension type ID that is not positive is `id.positive`: the rule of spec:181 covers it (the user, 2026-10-14). |
+| 1.2.4c | C4 | #151 | A class is not an interpreter: `interpreter()` raises `TypeError`, which names its call. |
+| 1.2.4d | C14 | #182 | A shape over the package's limit of 2^27 samples is `limit.shape-samples`, not `shape.length`. |
+| 1.3.1 | C5 | #144 | `RfEvent.signal` puts each cell boundary in the cell after it. |
+| 1.3.2 | C11 | #152 | The `.asc` reader reads a hex int, an int with a sign and a float with an exponent sign, leaves out a line after the end marker, and reads the file as latin-1 (the user, 2026-10-14). |
+| 1.3.3 | C6 | #154 | A second `FrozenDict.__init__` changes nothing, `pns_levels` refuses a hardware label `"nan"`, `"inf"` or `"-inf"`, and `AnalysisSpec` checks its fields. |
+| 2.1; 2.3 (the array of each call of `gradients_at`) | C10 | #162 | `gradients_at` sorts the reads once, and each decoding keeps its row map of the rotations. |
+| 2.2 | C7 | #147 | One plan for each events and duration of the rotated blocks. |
+| 2.3 (the kept work of the sampler) | — | — | No code fix: keeping the sampler between calls saves 2 % on a file of 40 000 blocks and 13 % on a spiral file, and most of the cost is filling each chunk (measured on 2026-10-14; D4, #166, gives it in `docs/implementation.md`). |
+| 2.4 (the labels, the RF and ADC events) | C16 | #171 | `load` decodes no RF or ADC event (`SpecDecoding` has no `rf` and no `adc`; the user, 2026-10-14), and walks the extension lists for NOROT and NOSLC only. |
+| 2.4c | — | — | No code fix: a shape decompressed twice costs 0.05 s for 1000 shapes of 4000 samples, and after C16 only gradient shapes are decompressed (D4, #166). |
+| 2.5a | — | — | No code fix: the plugin's decoding of a kept block again costs 0.02 s for 1000 calls and 0.10 s for 32 000 (D4, #166). |
+| 2.5b | C15 | #185 | `spec._shapes_of` has no loop over the samples. |
+| 2.5c | C12 | #167 | The runs of a threshold of `pns_levels` have no loop over the runs, and `docs/implementation.md` gives the measured cost in place of "a few percent". |
+| 3.1 | D1 | #157 | `docs/findings-for-pulseq-checks.md` describes `main`, with relative links. |
+| 3.2 | D2 | #159 | pulseq-cpp-siemens is `0.1.0rc7`, with pulseq-analysis in its extra `analysis`. |
+| 3.3 | D3 | #156 | The README installs `main` until rc7, and its example handles a file with no peak. |
+| 3.4 | D7 | #164 | The contracts of the analyses give the axes as the decoding gives them and the tie of the code; the versions stay 1 until 0.1.0 (the user, 2026-10-14). |
+| 3.5, 4.3 | D8 | #178 | `read_seqfile` checks the scope for every interpreter, with one message (the user, 2026-10-14). |
+| 3.7, 4.2 | D4 | #166 | The claims of `docs/implementation.md` match the code, and the cost table of `docs/usage.md` is a link to its section 3.5. |
+| 3.8 (the stale names) | D5 | #173 | No stale names of tests and modules. |
+| 3.8 (the private drafts) | D11 | #196 | Each citation of the private drafts is the behaviour and its line in pypulseq, and `scripts/check` fails on the name of their folder. |
+| 3.9, 4.1, 4.2 | D0 | #146 | `tests/test_documents.py` checks the documents, also in the docs-only path. |
+| 4.4 | D10 | #181 | The plugin uses the main package's `Points` and the helpers of `synth.scanner`. |
+| 4.5 | D9 | #176 | One walk of the extension lists in `decoding.py`. |
+| 4.6; 6 (the hardware) | A1 | #187 | `pns_levels` takes a `SafeHardware`, whose name is the label, checked once when it is made. |
+| 5.1a (the claims), 5.9c | T6 | #161 | The tests say what they test: the input of the oracles is made from the package's played gradients. T12, the oracles on pypulseq's reading of the file, is dropped (the user, 2026-10-14): the decoding is tested on its own. |
+| 5.2 | T13 | #184 | The original SAFE under Octave is an oracle. |
+| 5.3a | T1 | #148 | The fast and the slow typing compare most tables. |
+| 5.3b, 5.3e, 5.6b | T4 | #150 | MATLAB's waveform of a rotated file is compared in float64. |
+| 5.3c | T3 | #149 | The spectrum oracle takes its three arguments. |
+| 5.3d | T2 | #158 | A guard of `spec`'s `TOLERANCE_NS`. |
+| 5.4 | T10 | #168 | A workflow runs the MATLAB oracle (the user, 2026-10-14: a separate workflow). |
+| 5.5 | T9 | #174 | No tests of code outside this repository: one smoke test of the harness stays, and the hash tests (the user, 2026-10-14). |
+| 5.6a, 5.6c, 5.7 | T5 | #160 | No asserts that cannot fail, and no tautologies. |
+| 5.6d | T7 | #169 | Strict credit in the peaks oracle. |
+| 5.8a-c | T8 | #170 | No duplicate tests. |
+| 5.8d, 5.9b | T11 | #179 | The root's oracle comparisons run through `spec`. |
+| 5.9a | T14 | #183 | The gradient peaks of a rotated file against MATLAB Pulseq. |
+| 6 (`__all__`) | A0 | #186 | An `__all__` in every public module. |
+| 6 (`window`) | A2 | #188 | `gradient_peaks` takes its time range as `range_s`. |
+| 6 (the names of the axes) | A3 | #189 | The sampler takes the axes `"x"`, `"y"` and `"z"`. |
+| 6 (`peak_time_s`) | A4 | #190 | A peak time is None when its block is None. |
+| 6 (two `TIME_TOLERANCE`s) | A5 | #191 | The tolerance of an RF time shape is `RF_TIME_SHAPE_TOLERANCE`. |
+| 6 (the entry points) | A6 | #192 | One way to make each object. |
+| 6 (`gradients_at` in µs) | A7 | #193 | The protocol's `gradients_at` takes seconds. |
+| 6 (the defaults) | A8 | #194 | The target data is necessary, and the method parameters have their documented defaults, recorded on the result (`docs/usage.md`, section 2). |
+| 6 (the defaults) | A9 | #195 | A `PnsLevels` records the `bin_s` of its call, by the rule of A8. |
+| 6 (`docs/usage.md` reads as a checker) | D6 | #175 | `docs/usage.md` gives values, not checks. |
+| the open decision above | C17 | #172 | `spec` reads a trapezoid whose times are all 0, as now (the user, 2026-10-18; `docs/specification.md`, section 2.4). |
+| none | C18 | #180 | An event of length 0 plays 0 in the measurements, with each interpreter. The check of C17 found it. |
+
+Notes:
+
+- **Finding 5.1b** was fixed by B1 (above), so the plan had no task for it.
+- **The speed tasks** (C10, C12, C15) have no timing test (the user,
+  2026-10-14): an equality test of the old and the new results, or a count,
+  and the measured times in the PR.
+- **Found in this work, and open** (`TODO.md`): `cpp-siemens` has no limit of
+  the samples of a shape, where `spec` has `limit.shape-samples` (C14); and
+  most of the rest of the time of `load` is in the checks of each model
+  object (C16).

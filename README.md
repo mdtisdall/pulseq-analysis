@@ -164,10 +164,7 @@ fraction of the stimulation limit.
   scanner session, and the findings for pulseq-checks in place of checks.
 - [`docs/reviews/2026-10-13-code-review.md`](docs/reviews/2026-10-13-code-review.md):
   a review of the whole repository after the documentation of the own parser,
-  with the status of its fixes (PRs #134 to #141).
-- [`docs/plans/remaining-review-fixes.md`](docs/plans/remaining-review-fixes.md):
-  the plan of the fixes of the findings of that review that are still open,
-  in four tracks (the code, the documents, the API and the tests).
+  with the status of its fixes (PRs #134 to #196).
 - [`docs/specification.md`](docs/specification.md): what the interpreter `spec`
   does and why, rule by rule, with the codes of its rejections.
 - [`docs/discrepancies.md`](docs/discrepancies.md): the record of where the
