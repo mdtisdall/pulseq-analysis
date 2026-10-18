@@ -9,6 +9,12 @@ locally with:
 nix develop --command scripts/check
 ```
 
+The `ci` devShell has no MATLAB oracle, so the tests that compare with MATLAB
+Pulseq skip there. `.github/workflows/matlab-oracle.yml` runs them in the
+default devShell, on a pull request or a push to `main` that changes what they
+read (section 2.24). The two other workflows are in section 3: the wheels of
+pulseq-cpp-siemens in its introduction, and the fuzzing of its checks in 3.7.
+
 Each check below has:
 
 - **Checks:** one statement of what the check makes sure of.
@@ -8154,7 +8160,13 @@ end. Two files that `spec` reads are skipped with a reason when MATLAB fails on 
 session, on all the files that are not in its cache (`.pytest_cache/d/matlab-oracle`). The cache key of a
 file is the SHA-256 of the store path of the command and of the bytes of the file, so a later run with the
 same files and the same command does not start Octave. The whole module skips when the command is not on the
-PATH: only the default devShell has it, not the `ci` shell. Block `b` of the model, in play order, is block
+PATH: only the default devShell has it, not the `ci` shell. `.github/workflows/matlab-oracle.yml` runs the
+module, and the MATLAB test of `cpp-siemens` (section 3.9), in the default devShell, on a pull request or a
+push to `main` that changes the code of pulseq-analysis that they import (`seqfile`, `synth`,
+`analyses/loading.py` and the modules at the top of the package), the interpreter `cpp-siemens` or its build,
+`tests/seqfiles/`, the oracle (`tests/oracles/matlab.py`, `tests/matlab_oracle/`), the two test modules, the
+dependencies or the flake, and by hand. It fails before the tests when `matlab.command_path()` finds no
+command, where they would skip. Block `b` of the model, in play order, is block
 `b + 1` of MATLAB. A value is compared to a relative 1e-12 of the largest magnitude of its event or axis, and
 a time to an absolute 1e-12 s. Each failure lists every difference with the file, the block, the field and
 the two values. Where the package decodes a file otherwise than MATLAB, the tests do not compare that part,
@@ -10387,7 +10399,8 @@ interpreter for `cpp-siemens`: the helpers `check_*` of `test_from_pypulseq.py` 
 pulseq-analysis gives for the model of a plugin. The interpreters are `"cpp-siemens"` and
 `CppSiemens(oversampling="edge")`. Like `test_interpreter.py`, it needs pulseq-analysis and is not
 collected without it; the MATLAB test skips as the tests of pulseq-analysis do, when
-`pulseq-matlab-oracle` is not on the PATH.
+`pulseq-matlab-oracle` is not on the PATH. It runs with them in `.github/workflows/matlab-oracle.yml`
+(section 2.24).
 
 #### `test_a_sequence_in_memory_reads_as_its_written_file_through_cpp_siemens`
 
