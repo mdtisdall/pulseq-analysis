@@ -592,12 +592,12 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
 # difference of two such times by the segment's duration. The tolerance is therefore derived
 # from each sequence (the user, 2026-09-28): `1e-12 + 4 * eps * duration / shortest segment`
 # (`_rounding_tol`), relative to the value or to the limit of the same kind. The rounding can
-# also make the oracle credit a peak, or a slew, of a repeated event to a later block, or to
-# another segment of equal slope in the same block (the rise and the fall of a symmetric
-# trapezoid). The comparisons accept a later block of the oracle that plays the same event as
-# the block of this package (`_assert_same_credit`), and for the slew another item of the
-# oracle's polyline with the same slope (`_assert_slew_item`). The tests with hand-computed
-# values use events that are not repeated and check the block and the time exactly.
+# also make the oracle credit a slew of a repeated event to a later block, or to another
+# segment of equal slope in the same block (the rise and the fall of a symmetric trapezoid).
+# For the slew, the comparisons accept another item of the oracle's polyline with the same
+# slope (`_assert_slew_item`). The block of the peak of each axis and the block of the vector
+# peak must be the oracle's. The tests with hand-computed values use events that are not
+# repeated and check the block and the time exactly.
 
 
 def _rounding_tol(snap: Snapshot) -> float:
@@ -624,21 +624,6 @@ def _assert_close(actual: float, expected: float, scale: float, tol: float, labe
     assert abs(actual - expected) <= bound, (
         f"{label}: {actual!r} != {expected!r} (tolerance {bound!r})"
     )
-
-
-def _assert_same_credit(
-    seq: pp.Sequence, axis: str, ours: int | None, theirs: int | None, label: str
-) -> None:
-    """The credited blocks `ours` and `theirs` are equal (both None, or one block ID). They can
-    differ in one case: the oracle credits a later block that plays the same gradient event on
-    `axis` (from the rounding of its absolute corner times, see the comment above), where this
-    package credits the first block in play order. The block IDs of `seq` rise in play order."""
-    if ours == theirs:
-        return
-    assert ours is not None and theirs is not None, f"{label}: {ours!r} != {theirs!r}"
-    column = 2 + "xyz".index(axis)  # the gradient column of a row of `seq.block_events`
-    assert seq.block_events[ours][column] == seq.block_events[theirs][column] != 0, label
-    assert ours < theirs, f"{label}: {ours!r} is after {theirs!r}"
 
 
 def _assert_slew_item(
@@ -692,9 +677,9 @@ def _assert_matches_oracle(
 ) -> None:
     """The values of this package match `theirs`, the values of `oracle.peaks(seq, window)`.
     The time of the peak of each axis and the time of the vector peak are equal to 1e-12 s, the
-    block of the peak of each axis is the oracle's (`_assert_same_credit`), the block of the vector
-    peak is the oracle's, and the time and the block of the slew are the oracle's or another item
-    with the same slope (`_assert_slew_item`). `seq` is the sequence of both results."""
+    block of the peak of each axis and the block of the vector peak are the oracle's, and the
+    time and the block of the slew are the oracle's or another item with the same slope
+    (`_assert_slew_item`). `seq` is the sequence of both results."""
     # The scale of the tolerance: the limits of `SYSTEM`, which the sequences of the tests have
     # (`raster_4us_sequence` has others, of the same order). `sequence_of` has no `system.max_grad`.
     grad_scale, slew_scale = SYSTEM.max_grad, SYSTEM.max_slew
@@ -704,7 +689,7 @@ def _assert_matches_oracle(
         _assert_close(a.max_slew_hz_per_m_per_s, b["max_slew"], slew_scale, tol, f"{axis} slew")
         _assert_close(a.rms_hz_per_m, b["rms"], grad_scale, tol, f"{axis} rms")
         assert a.peak_time_s == pytest.approx(b["peak_time"], rel=0, abs=1e-12), f"{axis} peak time"
-        _assert_same_credit(seq, axis, a.peak_block, b["peak_block"], f"{axis} peak_block")
+        assert a.peak_block == b["peak_block"], f"{axis} peak_block"
         _assert_slew_item(seq, axis, window, a, b, slew_scale * tol)
     _assert_close(ours.vector_peak_hz_per_m, theirs["vector_peak"], grad_scale, tol, "vector peak")
     assert ours.vector_peak_time_s == pytest.approx(theirs["vector_peak_time"], rel=0, abs=1e-12)
