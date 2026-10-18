@@ -1,13 +1,21 @@
-"""The names of the interface: the names that `README.md`, `docs/usage.md` and
-`docs/implementation.md` give exist, and each public name of a module is in the documents.
+"""The names of the interface: each public module has an `__all__`, its public names; the
+names that `README.md`, `docs/usage.md` and `docs/implementation.md` give with a public module
+are in its `__all__`; and each name of an `__all__` is in the documents.
+
+A module is public when no part of its path starts with `_` (`synth._events` is not). The
+`__all__` of a module that is not a package gives only the names that the module defines (or
+that it imports from a module that is not public, as `series.FrozenDict`): a name that a module
+imports from another public module is in the `__all__` of that module only. The `__all__` of a
+package (`analyses`, `seqfile`, `synth`) gives names that it imports from its own modules.
 
 The documents write a name in backticks or in a code block. These tests read two forms:
 
 - a dotted name that starts with a module of the package: its path, with or without the
   prefix `pulseq_analysis.` (`pulseq_analysis.analyses.grad_peaks.gradient_peaks`,
   `synth.snapshot.load`), or the last part of its path alone (`registry.registry()`,
-  `series.FrozenDict`). The module imports, and it has the attribute that follows (a
-  further `.part`, for example a method, is not read);
+  `series.FrozenDict`). The module imports, and the name that follows is in its `__all__`
+  (a name with a `_` at the start, or of a module that is not public, is an attribute of the
+  module; a further `.part`, for example a method, is not read);
 - a `from pulseq_analysis.module import name, ...` line of a Python code block.
 
 A bare name (`Series`, `gradient_peaks`) in backticks or in a code block gives the name of
@@ -25,8 +33,9 @@ import pulseq_analysis
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = [ROOT / "README.md", ROOT / "docs" / "usage.md", ROOT / "docs" / "implementation.md"]
 
-# The public names (no `_` at the start) of a module of the package that no document gives.
-# Each has the module, the name and the reason. A new public name needs a document, or a `_`.
+# The public names (no `_` at the start) that a public module defines and leaves out of its
+# `__all__`, so no document needs to give them. Each has the module, the name and the reason. A
+# new public name goes in the `__all__` and in a document, or gets a `_`.
 EXCEPTIONS: dict[tuple[str, str], str] = {}
 
 _FENCE = re.compile(r"^```(\w*)\n(.*?)^```", re.DOTALL | re.MULTILINE)
@@ -44,6 +53,20 @@ def _module_names() -> list[str]:
         info.name.removeprefix(PREFIX)
         for info in pkgutil.walk_packages(pulseq_analysis.__path__, PREFIX)
     ]
+
+
+def _is_public(module_name: str) -> bool:
+    """No part of the path of the module starts with `_` (`synth._events` is not public)."""
+    return not any(part.startswith("_") for part in module_name.split("."))
+
+
+def _public_modules() -> list[str]:
+    return [name for name in _module_names() if _is_public(name)]
+
+
+def _all(module_name: str) -> list[str] | None:
+    """The `__all__` of the module, or None when it has none."""
+    return getattr(importlib.import_module(f"{PREFIX}{module_name}"), "__all__", None)
 
 
 def _short_names() -> dict[str, str]:
@@ -128,9 +151,39 @@ def _defined_names(module_name: str) -> set[str]:
     return names
 
 
-def test_each_name_that_the_documents_give_with_a_module_can_be_imported():
-    """A dotted name or an import of the documents exists, so a document does not give a
-    name that was removed or renamed."""
+def _imported_from(module_name: str) -> dict[str, str]:
+    """The module that each name of a `from ... import` of the top level of the source of the
+    module comes from, by the name, as a path without the prefix `pulseq_analysis.` (in
+    `analyses.pns_levels`, `SAFE_FIELDS` gives `analyses.safe`)."""
+    module = importlib.import_module(f"{PREFIX}{module_name}")
+    package = module.__name__ if hasattr(module, "__path__") else module.__name__.rpartition(".")[0]
+    found = {}
+    for node in ast.parse(Path(module.__file__).read_text(encoding="utf-8")).body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        source = node.module or ""
+        if node.level:
+            parts = package.split(".")[: len(package.split(".")) - node.level + 1]
+            source = ".".join(parts + [source] if source else parts)
+        found |= {alias.asname or alias.name: source.removeprefix(PREFIX) for alias in node.names}
+    return found
+
+
+def test_each_public_module_has_an_all():
+    """Each public module and subpackage of the package has an `__all__`, the names of its
+    contract."""
+    modules = _public_modules()
+    # The walk finds the modules of each subpackage and the subpackages.
+    assert {"analyses", "synth.seq_index", "seqfile.spec"} <= set(modules)
+    without = [name for name in modules if _all(name) is None]
+    assert not without, f"public modules with no `__all__`: {without}"
+
+
+def test_each_name_that_the_documents_give_with_a_public_module_is_in_its_all():
+    """A dotted name or an import of the documents with a public module is in the `__all__` of
+    the module, so a document does not give a name that was removed or renamed, or a name
+    through a module that only imports it (`pns_levels.SAFE_FIELDS`). A name with a `_` at the
+    start, or of a module that is not public, exists in the module."""
     qualified = _qualified_names()
     # The reading finds the names of the documents that this test must cover.
     assert ("analyses.series", "FrozenDict") in qualified
@@ -142,9 +195,57 @@ def test_each_name_that_the_documents_give_with_a_module_can_be_imported():
         qualified | imported, key=lambda pair: (pair[0], pair[1] or "")
     ):
         module = importlib.import_module(f"{PREFIX}{module_name}")
-        if name is not None and not hasattr(module, name):
+        if name is None:
+            continue
+        if _is_public(module_name) and not name.startswith("_"):
+            if name not in (_all(module_name) or ()):
+                missing.append(f"{module_name}.{name}")
+        elif not hasattr(module, name):
             missing.append(f"{module_name}.{name}")
-    assert not missing, f"the documents give names that do not exist: {missing}"
+    assert not missing, (
+        f"the documents give names that are not in the `__all__` of their module: {missing}"
+    )
+
+
+def test_each_name_of_an_all_is_in_the_documents():
+    """Each name of the `__all__` of a public module exists in the module, and a span or a
+    code block of the documents gives it (as a bare name or with its module)."""
+    bare = _bare_names()
+    absent, undocumented = [], []
+    for module_name in _public_modules():
+        module = importlib.import_module(f"{PREFIX}{module_name}")
+        for name in _all(module_name) or ():
+            if not hasattr(module, name):
+                absent.append(f"{module_name}.{name}")
+            if name not in bare:
+                undocumented.append(f"{module_name}.{name}")
+    assert not absent, f"names of an `__all__` that the module does not have: {absent}"
+    assert not undocumented, f"names of an `__all__` that no document gives: {undocumented}"
+
+
+def test_an_all_gives_no_name_of_another_public_module():
+    """The `__all__` of a public module that is not a package gives the names that the module
+    defines, and the names that it imports from a module that is not public
+    (`series.FrozenDict` of `_equality`), but no name that it imports from another public module
+    (`NO_GRADIENTS` of `synth.seq_index` in `analyses.pns_levels`). The `__all__` of a package
+    gives the names that it imports from its own modules."""
+    # The reading of the imports finds an import from a public module and one from a module that
+    # is not public.
+    assert _imported_from("analyses.pns_levels")["NO_GRADIENTS"] == "synth.seq_index"
+    assert _imported_from("analyses.series")["FrozenDict"] == "_equality"
+    assert _imported_from("synth")["Session"] == "synth.scanner"
+    wrong = []
+    for module_name in _public_modules():
+        module = importlib.import_module(f"{PREFIX}{module_name}")
+        defined, sources = _defined_names(module_name), _imported_from(module_name)
+        for name in _all(module_name) or ():
+            source = sources.get(name)
+            if hasattr(module, "__path__"):
+                if source is None or not source.startswith(f"{module_name}."):
+                    wrong.append(f"{module_name}.{name}")
+            elif name not in defined and (source is None or _is_public(source)):
+                wrong.append(f"{module_name}.{name} (from {source})")
+    assert not wrong, f"names of an `__all__` that belong to another module: {wrong}"
 
 
 def test_the_interface_names_of_the_review_are_in_the_documents():
@@ -165,30 +266,26 @@ def test_the_interface_names_of_the_review_are_in_the_documents():
     assert SeriesKind.__module__ == "pulseq_analysis.analyses.series"
 
 
-def test_each_public_name_of_a_module_is_in_the_documents_or_an_exception():
-    """A name of a module without a `_` at the start that the module defines is in the
-    documents (as a bare name or with its module), or is in `EXCEPTIONS`. The modules with a
-    `_` at the start of the last part of their path (`_equality`, `_events`, `_validate`) are
-    not public."""
-    bare = _bare_names()
-    undocumented = set()
-    for module_name in _module_names():
-        if module_name.rsplit(".", 1)[-1].startswith("_"):
-            continue
+def test_each_public_name_of_a_module_is_in_its_all_or_an_exception():
+    """A name without a `_` at the start that a public module defines is in the `__all__` of the
+    module (so a document gives it), or is in `EXCEPTIONS`."""
+    outside = set()
+    for module_name in _public_modules():
+        names = set(_all(module_name) or ())
         for name in _defined_names(module_name):
-            if not name.startswith("_") and name not in bare:
-                undocumented.add((module_name, name))
-    assert undocumented == set(EXCEPTIONS) & undocumented, (
-        "public names that no document gives (give each a `_`, or a document): "
-        f"{sorted(undocumented - set(EXCEPTIONS))}"
+            if not name.startswith("_") and name not in names:
+                outside.add((module_name, name))
+    assert outside == set(EXCEPTIONS) & outside, (
+        "public names that are not in the `__all__` of their module (put each in the `__all__`"
+        f" and a document, or give it a `_`): {sorted(outside - set(EXCEPTIONS))}"
     )
 
 
-def test_each_exception_is_a_public_name_that_no_document_gives():
-    """An entry of `EXCEPTIONS` is still needed: the module defines the name, no document gives
-    it, and the entry has a reason."""
-    bare = _bare_names()
+def test_each_exception_is_a_public_name_outside_the_all():
+    """An entry of `EXCEPTIONS` is still needed: the module is public, defines the name and
+    leaves it out of its `__all__`, and the entry has a reason."""
     for (module_name, name), reason in EXCEPTIONS.items():
+        assert _is_public(module_name), (module_name, name)
         assert name in _defined_names(module_name), (module_name, name)
-        assert name not in bare, (module_name, name)
+        assert name not in (_all(module_name) or ()), (module_name, name)
         assert reason, (module_name, name)
