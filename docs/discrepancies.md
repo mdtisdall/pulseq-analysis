@@ -487,8 +487,8 @@ which the reader plays at 0.5 to 99.5 µs); matrix: the C++ reader accepts it.
 reader resamples it, and the macOS build crashes (`tests/test_cpp_oracle.py`).
 
 `spec`: a time shape whose times are `(i + 0.5) d` (2 or more samples, equal
-steps, the first half a step, within `model.TIME_TOLERANCE`; or one sample `t0`
-above 0, a cell of `d = 2 t0`, D3.9) is cells of `d`:
+steps, the first half a step, within `model.RF_TIME_SHAPE_TOLERANCE`; or one
+sample `t0` above 0, a cell of `d = 2 t0`, D3.9) is cells of `d`:
 each sample is held for one dwell around its time, from the start of the pulse,
 and the pulse lasts `N d` (`model.rf_time_step`, `events.RfEvent.dwell`). Any
 other time shape is points (D2.11). `bad_shape_rf_time_grid.seq` (`1 1 98`,

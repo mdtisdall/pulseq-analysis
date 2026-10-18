@@ -57,8 +57,8 @@ from .._equality import _freeze, values_equal
 from .interpreters import Interpreter
 
 __all__ = [
+    "RF_TIME_SHAPE_TOLERANCE",
     "TABLE_DTYPES",
-    "TIME_TOLERANCE",
     "Extensions",
     "Rasters",
     "Record",
@@ -313,7 +313,7 @@ class Shape:
 
 # The times of a regular RF time shape are at the centres of its cells to within this many RF
 # rasters, and its steps are equal to within as many.
-TIME_TOLERANCE = 1e-6
+RF_TIME_SHAPE_TOLERANCE = 1e-6
 
 
 def rf_time_step(times: np.ndarray) -> float | None:
@@ -322,28 +322,28 @@ def rf_time_step(times: np.ndarray) -> float | None:
 
     `times` is the decompressed time shape, in RF raster times. A shape is regular when it has 2
     or more samples, its steps are equal and above 0, and its first time is half a step, all to
-    within `TIME_TOLERANCE`: then its times are `(i + 0.5) d` for a step `d`, the centres of cells
-    of `d` from the start of the pulse. The slide set that section 2.6 of the specification cites
-    places the samples of a regularly sampled RF pulse at the centres of their dwell periods, from
-    the start of the pulse (`doc/pulseq_shapes_and_times.pdf`, slide 9), so no other shape can be
-    a regular pulse; that a shape of this form is one, and not points at those times, is the
-    package's choice: every regular pulse that MATLAB Pulseq and pypulseq write has this form, and
-    neither writes points there (`docs/discrepancies.md`, D2.10). The time shape of the default
-    raster, `0.5 1 1 N-3`, gives 1. A shape of one sample `t0` is the same form with N = 1: one
-    cell of `2 t0` when that is above `TIME_TOLERANCE` (the user, 2026-10-13, D3.9), as MATLAB
-    Pulseq writes `5` for an arbitrary pulse of one sample with a dwell of 10 rasters; otherwise
-    `None` (`spec` rejects it, `shape.time-order`)."""
+    within `RF_TIME_SHAPE_TOLERANCE`: then its times are `(i + 0.5) d` for a step `d`, the
+    centres of cells of `d` from the start of the pulse. The slide set that section 2.6 of the
+    specification cites places the samples of a regularly sampled RF pulse at the centres of their
+    dwell periods, from the start of the pulse (`doc/pulseq_shapes_and_times.pdf`, slide 9), so no
+    other shape can be a regular pulse; that a shape of this form is one, and not points at those
+    times, is the package's choice: every regular pulse that MATLAB Pulseq and pypulseq write has
+    this form, and neither writes points there (`docs/discrepancies.md`, D2.10). The time shape of
+    the default raster, `0.5 1 1 N-3`, gives 1. A shape of one sample `t0` is the same form with
+    N = 1: one cell of `2 t0` when that is above `RF_TIME_SHAPE_TOLERANCE` (the user, 2026-10-13,
+    D3.9), as MATLAB Pulseq writes `5` for an arbitrary pulse of one sample with a dwell of 10
+    rasters; otherwise `None` (`spec` rejects it, `shape.time-order`)."""
     t = np.asarray(times, dtype=np.float64)
     if t.size == 1:
         step = 2 * float(t[0])
-        return step if step > TIME_TOLERANCE else None
+        return step if step > RF_TIME_SHAPE_TOLERANCE else None
     if t.size < 2:
         return None
     steps = np.diff(t)
     step = float(steps[0])
-    if step <= TIME_TOLERANCE or np.abs(steps - step).max() > TIME_TOLERANCE:
+    if step <= RF_TIME_SHAPE_TOLERANCE or np.abs(steps - step).max() > RF_TIME_SHAPE_TOLERANCE:
         return None
-    if abs(float(t[0]) - step / 2) > TIME_TOLERANCE:
+    if abs(float(t[0]) - step / 2) > RF_TIME_SHAPE_TOLERANCE:
         return None
     return step
 

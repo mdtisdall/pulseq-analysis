@@ -360,7 +360,7 @@ interpreters"; the codes are:
 
 The limits of the rules are `spec.TOLERANCE_NS`, `spec.RANGE_TOLERANCE`,
 `spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and
-`model.TIME_TOLERANCE`.
+`model.RF_TIME_SHAPE_TOLERANCE`.
 
 **The codes of `cpp-siemens`** are the keys of `pulseq_cpp_siemens.interpreter.CODES`
 (29 codes). Each maps to its entry of the record and what the reader rejects.

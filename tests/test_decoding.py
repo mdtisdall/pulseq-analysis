@@ -515,12 +515,13 @@ def test_rf_time_step_of_a_time_shape(num_samples, packed, step):
     ],
 )
 def test_rf_time_step_has_the_tolerance_of_the_model(shift, regular):
-    """The steps are equal, and the first time is half a step, to within `model.TIME_TOLERANCE`
-    RF raster times. The times 0.5, 1.5, ..., 4.5 are late by `shift` times the tolerance."""
-    times = np.arange(5) + 0.5 + np.array(shift) * model.TIME_TOLERANCE
+    """The steps are equal, and the first time is half a step, to within
+    `model.RF_TIME_SHAPE_TOLERANCE` RF raster times. The times 0.5, 1.5, ..., 4.5 are late by
+    `shift` times the tolerance."""
+    times = np.arange(5) + 0.5 + np.array(shift) * model.RF_TIME_SHAPE_TOLERANCE
     result = model.rf_time_step(times)
     if regular:
-        assert result == pytest.approx(1.0, abs=model.TIME_TOLERANCE)
+        assert result == pytest.approx(1.0, abs=model.RF_TIME_SHAPE_TOLERANCE)
     else:
         assert result is None
 
