@@ -568,6 +568,20 @@ def test_adc_phase_modulation_has_one_value_for_each_sample():
     np.testing.assert_array_equal(adc.phase_modulation, np.zeros(8))
 
 
+def test_adc_phase_modulation_is_the_shape_with_no_factor_and_no_wrap(tmp_path):
+    """ADC 2 of `valid_no_signature.seq` (8 samples) with its phase shape 8 written as the phases
+    0, 0.5, ..., 3.5: the modulation is these 8 values in rad, with no factor, and the values
+    above pi are not wrapped (D2.15)."""
+    text = (SEQFILES / "valid_no_signature.seq").read_text()
+    old = "shape_id 8\nnum_samples 8\n0\n0\n6\n"
+    assert old in text
+    values = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5]
+    new = "shape_id 8\nnum_samples 8\n" + "\n".join(map(str, values)) + "\n"
+    path = tmp_path / "adc_phase.seq"
+    path.write_text(text.replace(old, new))
+    assert decode_adc(seqfile.read_seqfile(path))[2].phase_modulation.tolist() == values
+
+
 # ---- All events ----
 
 
