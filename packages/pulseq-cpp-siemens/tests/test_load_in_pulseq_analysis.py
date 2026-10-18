@@ -18,8 +18,14 @@ from pulseq_cpp_siemens.interpreter import CppSiemens, CppSiemensDecoding
 from test_api import oversampled_file
 from test_played import (
     FIXTURES,
+    LENGTH_0_KINDS,
+    LENGTH_0_SESSIONS,
+    LENGTH_0_TIMES_US,
+    LENGTH_0_WINDOWS,
     QUARTER_Z,
     RTOL,
+    check_an_event_of_length_0_plays_0_in_the_measurements,
+    check_the_played_points_of_an_event_of_length_0_are_0,
     check_the_points_are_the_gradients,
     load_or_none,
 )
@@ -386,6 +392,34 @@ def test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements(tmp_path, c
     assert np.array_equal(reader[:, 0], np.zeros(time_us.size))
     at = sequence_index(snap).start_s[0] + time_us * 1e-6
     assert np.array_equal(gradient_sampler(snap).sample("gx", at), reader[:, 0])
+
+
+@pytest.mark.parametrize("window", LENGTH_0_WINDOWS)
+@pytest.mark.parametrize("session", LENGTH_0_SESSIONS)
+@pytest.mark.parametrize("kind", LENGTH_0_KINDS)
+def test_an_event_of_length_0_plays_0_in_the_measurements_through_cpp_siemens(
+    tmp_path, kind, session, window
+):
+    """Through `cpp-siemens`, a gradient event of length 0 with an amplitude that is not 0 (a
+    trapezoid with rise, flat and fall times 0, or an extended trapezoid of one vertex) alone in
+    a block gives the measurements of the same file with the amplitude 0, over the whole file and
+    in a window around the block, with and without a rotation of the field of view
+    (`test_played.check_an_event_of_length_0_plays_0_in_the_measurements`)."""
+    check_an_event_of_length_0_plays_0_in_the_measurements(
+        tmp_path, "cpp-siemens", kind, session, window
+    )
+
+
+@pytest.mark.parametrize("kind", LENGTH_0_KINDS)
+def test_the_played_points_of_an_event_of_length_0_are_0_through_cpp_siemens(tmp_path, kind):
+    """Through `cpp-siemens`, the played points of a gradient event of length 0 with an amplitude
+    that is not 0 are 0 at the times of the decoding
+    (`test_played.check_the_played_points_of_an_event_of_length_0_are_0`), and the reader's
+    `gradientsAt` is 0 in the block away from the one time of the event."""
+    snap = check_the_played_points_of_an_event_of_length_0_are_0(tmp_path, "cpp-siemens", kind)
+    blocks = np.ones(LENGTH_0_TIMES_US.size, dtype=np.int64)
+    reader = snap.data.reading.gradients_at(blocks, LENGTH_0_TIMES_US)
+    assert np.array_equal(reader, np.zeros(reader.shape))
 
 
 @pytest.mark.parametrize("path", fixtures(), ids=fixture_id)
