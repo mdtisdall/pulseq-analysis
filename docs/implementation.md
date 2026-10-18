@@ -957,9 +957,9 @@ must be of the interpreter given (`interpreters.interpreter(interpreter)` equals
 `snapshot._snapshot(data, source, session)` makes the snapshot, which decodes
 the data under the scanner session (`decoding.decode(data, session)`), which
 raises `scanner.SettingError` for a setting that addresses something the file
-does not have. `load` is the one way to make a snapshot (Q22 of
-`docs/plans/remaining-review-fixes.md`): `Snapshot.__init__` raises
-`TypeError`, and `pickle` and `copy.deepcopy` make their copy with
+does not have. `load` is the one way to make a snapshot (the user, 2026-10-14;
+`Snapshot(data)` made one with no `ScannerSettingWarning`): `Snapshot.__init__`
+raises `TypeError`, and `pickle` and `copy.deepcopy` make their copy with
 `_snapshot`. In the same way, `sampling.gradient_sampler(snap)` is the one way to
 make a sampler, with `GradientSampler._from_parts`, and `GradientSampler.__init__`
 raises `TypeError`.

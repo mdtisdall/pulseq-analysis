@@ -496,7 +496,8 @@ def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_res
     """The table of the defaults of `docs/usage.md` (section 2) has one row for each parameter
     with a default of `load`, `read_seqfile` and `read_pypulseq`, and one for each default of an
     analysis of `registry()`, of the function of the column `compute` of the analyses table
-    (decision Q24 of `docs/plans/remaining-review-fixes.md`). Each row gives the default of the
+    (the rule of section 2 of `docs/usage.md`: a method parameter has a documented default, and
+    the result records it; the user, 2026-10-14). Each row gives the default of the
     signature of the function, and each `Class.field` of its column "On the result" is a field
     of the class that the function returns."""
     text = _text(USAGE)

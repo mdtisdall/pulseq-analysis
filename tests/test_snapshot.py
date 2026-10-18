@@ -279,7 +279,8 @@ def check_load_of_a_sequence_data(path: pathlib.Path, interpreter, decoding_type
     """`load(data, interpreter)` of the `SequenceData` of `read_seqfile(path, interpreter)` holds
     that data, with `source` None and a decoding of the class named `decoding_type`, and gives
     what `load(path, interpreter)` gives: equal data, an equal interpreter and rotation record,
-    the same `ScannerSettingWarning`s (their messages, in order) and equal results (Q22)."""
+    the same `ScannerSettingWarning`s (their messages, in order) and equal results (the user,
+    2026-10-14: `load` is the one way to make a snapshot)."""
     data = read_seqfile(path, interpreter)
     caught = []
     for source in (data, path):
@@ -365,7 +366,8 @@ def test_load_warns_for_a_rotation_that_a_plugin_leaves_unapplied(path):
 def test_load_of_a_sequence_data_warns_for_a_rotation_that_a_plugin_leaves_unapplied(path):
     """`load(data, interpreter)` of the reading of a radial file by a plugin that leaves the
     rotations unapplied emits the warning once (`check_load_warns_for_an_unapplied_rotation`),
-    as `load(path)` does, though `read_seqfile` emits none (Q22)."""
+    as `load(path)` does, though `read_seqfile` emits none (the user, 2026-10-14: `load` is the
+    one way to make a snapshot)."""
     with warnings.catch_warnings():
         warnings.simplefilter("error", ScannerSettingWarning)
         data = read_seqfile(path, Unrotated())
@@ -515,8 +517,9 @@ def test_check_snapshot_raises_a_type_error_that_names_load(make_bad):
 
 
 def test_a_snapshot_is_made_only_by_load():
-    """`load` is the one way to make a snapshot (Q22): `Snapshot(data)` raises `TypeError` that
-    names `load`, also for a `SequenceData`, and `Snapshot` stays the type of a snapshot."""
+    """`load` is the one way to make a snapshot (the user, 2026-10-14): `Snapshot(data)` raises
+    `TypeError` that names `load`, also for a `SequenceData`, and `Snapshot` stays the type of a
+    snapshot."""
     with pytest.raises(TypeError, match="load"):
         Snapshot(read_seqfile(GRE_FILE))
     assert isinstance(load(read_seqfile(GRE_FILE)), Snapshot)

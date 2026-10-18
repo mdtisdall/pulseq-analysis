@@ -102,9 +102,10 @@ class GradientSampler:
     (`_axis_events`). Apart from these, a call to `sample` costs O(samples + blocks between
     the first and the last sample), not O(all blocks).
 
-    `gradient_sampler(snap)` makes the sampler of a snapshot, the one way to make one (Q22 of
-    `docs/plans/remaining-review-fixes.md`). `GradientSampler(...)` raises TypeError that names
-    `gradient_sampler`: the class is the type of a sampler, not a way to make one.
+    `gradient_sampler(snap)` makes the sampler of a snapshot, the one way to make one (the user,
+    2026-10-14: `GradientSampler(snap)` made the same sampler). `GradientSampler(...)` raises
+    TypeError that names `gradient_sampler`: the class is the type of a sampler, not a way to make
+    one.
     """
 
     def __init__(self, *args: object, **kwargs: object) -> None:

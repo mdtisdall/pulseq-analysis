@@ -162,7 +162,7 @@ A caller moves in this order:
   the records of what it applied.
 - `Decoding.gradients_at(block_index, time_s, rotated=None)` takes the times
   in s from the start of each block, as the rest of the API (review 2026-10-13
-  6, Q23 of `docs/plans/remaining-review-fixes.md`). Before, it took
+  6; the user, 2026-10-14). Before, it took
   `time_us`, in µs, the unit of the C++ reader; `time_us=` raises `TypeError`.
   Version 1 of the protocol is not released, so it changes in place and
   `seqfile.PROTOCOL` stays 1. A plugin converts the times to its reader's unit
@@ -271,7 +271,8 @@ A caller moves in this order:
   (`extensions.refuse_rotations` and the module `extensions` are removed). It
   emits a `synth.ScannerSettingWarning` where the decoding leaves content of
   the file unapplied, such as a rotation under `cpp-siemens`'s default.
-- `load` is the one way to make a snapshot (review 2026-10-13 6, Q22). It also
+- `load` is the one way to make a snapshot (review 2026-10-13 6; the user,
+  2026-10-14). It also
   takes a `seqfile.SequenceData` of `read_seqfile` or `read_pypulseq`, as it
   is, and gives the decoding and the `ScannerSettingWarning` of `load` of the
   file; the interpreter given must be the one that read the data
@@ -481,7 +482,8 @@ of `synth.seq_index` only, not of `analyses.grad_peaks`,
 `analyses.pns_levels`. The `__all__` of `seqfile.spec` now also has
 `TOLERANCE_NS`, `FIRST_TIME_TOLERANCE` and `RATIO_TOLERANCE`, which
 `docs/usage.md` gives. `seqfile.read_seqfile(path)` is the one way to read a
-file through `spec` (review 2026-10-13 6, Q22): `spec.read_spec` is private,
+file through `spec` (review 2026-10-13 6; the user, 2026-10-14):
+`spec.read_spec` is private,
 `spec._read_spec`, and `spec.read_spec` raises `AttributeError`. `tests/test_interface.py` checks that each public module
 has an `__all__`, that each name that the documents give with a public module
 is in its `__all__`, that each name of an `__all__` is in the documents, and
@@ -540,7 +542,8 @@ public module.
   | `sampler.block_samples("gx", first, stop, dt)` | `sampler.block_samples("x", first, stop, dt)` |
 
 - `sampling.gradient_sampler(snap)` is the one way to make a sampler (review
-  2026-10-13 6, Q22): `GradientSampler(snap)` raises `TypeError` that names
+  2026-10-13 6; the user, 2026-10-14): `GradientSampler(snap)` raises
+  `TypeError` that names
   `gradient_sampler`, and `GradientSampler` stays the type of a sampler. The
   values do not change.
 

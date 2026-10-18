@@ -161,10 +161,9 @@ def test_the_points_of_the_played_events_are_the_gradients_of_cpp_siemens_under_
 def test_the_gradients_of_cpp_siemens_allocate_no_array_of_the_size_of_the_sequence(tmp_path):
     """A call of `gradients_at` of `cpp-siemens` (rotation "apply") with one read, under a session
     that scales the gradients, allocates nothing in proportion to the blocks (3 of 2.1 of
-    `docs/reviews/2026-10-13-code-review.md` of pulseq-analysis, C10 of its
-    `docs/plans/remaining-review-fixes.md`): in a file of 100 000 blocks, the first of which has a
-    rotation, the peak of `tracemalloc` over the second call is below 100 kB, with `rotated`
-    False, None and True. A map of 8 bytes for each block is 800 kB."""
+    `docs/reviews/2026-10-13-code-review.md` of pulseq-analysis): in a file of 100 000 blocks, the
+    first of which has a rotation, the peak of `tracemalloc` over the second call is below 100 kB,
+    with `rotated` False, None and True. A map of 8 bytes for each block is 800 kB."""
     blocks = 100_000
     rows = "".join(f"{i} 50 0 1 0 0 0 0\n" for i in range(2, blocks + 1))
     path = tmp_path / "long.seq"

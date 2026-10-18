@@ -32,13 +32,24 @@
   release in the `dev` group, remove `[tool.uv.sources]`, and run the tests
   with it. Do this in the three repositories at the same time.
 
-- **The other findings of the review of 2026-10-13**
-  (`docs/reviews/2026-10-13-code-review.md`). The plan of the fixes of
-  `cpp-siemens` (PRs #134 to #141) fixed four of its bugs, and three that the
-  work found (B5 to B7); section 7 of the review gives the status. Its
-  findings that are not fixed:
-  - for the plugin: the "edge" mode with an oversampled gradient of 0
-    samples (1.1.5), and undefined behaviour reported as one first-found
-    rejection (1.1.6);
-  - the findings of sections 1.2 to 6, for `spec`, `synth`, the analyses,
-    the duplication, the tests, the documents and the API.
+- **A limit of the samples of a shape for `cpp-siemens`.** `spec` does not
+  decompress a shape that declares more than 2^27 samples
+  (`limit.shape-samples`, C14, #182). `cpp-siemens` has no such limit. The
+  C++ reader reads the number of samples of a shape as an `int` (cpp:946), up
+  to 2^31 - 1, and `decodeArbGradInBlock` resizes a `std::vector<float>` to it
+  and copies it (cpp:2109, cpp:2149). `read_cpp_siemens` decodes each block
+  (`first_rejected_block`). `valid_no_signature.seq` with shape 3 declared as
+  2^26 samples (stored as four runs, 2894 bytes in all) made the peak memory
+  of `read_seqfile(path, "cpp-siemens")` 548 MiB, against 35 MiB: about 8
+  bytes for each declared sample (164 MiB at 2^24 samples); by that rate,
+  200 000 000 samples would take about 1.6 GB (not measured). To decide: whether `cpp-siemens` gets a limit too.
+  The scanner's reader has none.
+
+- **The cost of the model objects in `load`.** The plan of the fixes of the
+  review of 2026-10-13 found, for task C16, that most of the rest of the time
+  of `load` is in the checks of each model object, and left it to a later
+  study. For a file of 200 000 blocks and 200 000 trapezoids
+  (`_many_trapezoids` of `tests/test_decoding.py`), `load` takes 1.7 s; under
+  `cProfile`, 1.8 s of its 3.0 s are in the 200 003 calls of
+  `model._post_init`, which makes each field of a model object immutable, and
+  only 0.2 s in `read_seqfile`.

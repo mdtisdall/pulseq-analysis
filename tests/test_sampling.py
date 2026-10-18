@@ -1089,9 +1089,9 @@ def test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot(b
 
 
 def test_a_sampler_is_made_only_by_gradient_sampler():
-    """`gradient_sampler(snap)` is the one way to make a sampler (Q22): `GradientSampler(snap)`
-    raises `TypeError` that names `gradient_sampler`, and `GradientSampler` stays the type of
-    a sampler."""
+    """`gradient_sampler(snap)` is the one way to make a sampler (the user, 2026-10-14):
+    `GradientSampler(snap)` raises `TypeError` that names `gradient_sampler`, and `GradientSampler`
+    stays the type of a sampler."""
     snap = _load_model("gre")
     with pytest.raises(TypeError, match="gradient_sampler"):
         GradientSampler(snap)

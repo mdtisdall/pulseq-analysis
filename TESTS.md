@@ -2284,9 +2284,9 @@ raise `TypeError` with `match="load"`.
 
 #### `test_a_sampler_is_made_only_by_gradient_sampler`
 
-**Checks:** `gradient_sampler(snap)` is the one way to make a sampler (Q22): `GradientSampler(snap)`
-raises `TypeError` that names `gradient_sampler`, and `GradientSampler` stays the type of the
-sampler of `gradient_sampler`.
+**Checks:** `gradient_sampler(snap)` is the one way to make a sampler (the user, 2026-10-14):
+`GradientSampler(snap)` raises `TypeError` that names `gradient_sampler`, and `GradientSampler`
+stays the type of the sampler of `gradient_sampler`.
 
 **How:** The snapshot of the gradient echo sequence through `spec`; `GradientSampler(snap)` in
 `pytest.raises`, and `isinstance` of `gradient_sampler(snap)`.
@@ -2686,8 +2686,9 @@ is credited for either and no time is given (`peak_block`, `slew_block`, `peak_t
 #### `test_a_largest_value_of_zero_has_no_block_and_no_time`
 
 **Checks:** When the largest value of the peak, of the slew and of the vector peak is 0,
-`gradient_peaks` gives 0.0 for it, and None for its block and for its time (decision Q20 of
-`docs/plans/remaining-review-fixes.md`), whether the `reason` is None or not.
+`gradient_peaks` gives 0.0 for it, and None for its block and for its time (the user,
+2026-10-14: None whenever the block is None, as in `PnsLevels`), whether the `reason` is None or
+not.
 
 **How:** Two cases. In the first, one block has a trapezoid on each axis, each scaled to the
 amplitude 0 with `pp.scale_grad`, and `range_s` is None: `reason` is None, because the axes have
@@ -2768,8 +2769,7 @@ are the oracle's, or those of another item of the polyline of the oracle with th
   `tests/synthetic.py`.
 - `spin_echo_sequence` and `gre_sequence` play an event in more than one block, and the peak of
   an axis is in a block that is not the first block of its event. A peak credited to the first
-  block of its event (the change `peak_credit_first_of_event` of
-  `docs/plans/remaining-review-fixes.md`, task T11) fails this test.
+  block of its event (the change `peak_credit_first_of_event` of #179) fails this test.
 
 #### `test_matches_oracle_on_the_sequences_of_the_oracle_tests`
 
@@ -3114,8 +3114,8 @@ window as a tuple of floats.
 #### `test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window`
 
 **Checks:** `gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range,
-and the old name of the argument, `window`, raises `TypeError` (decision Q18 of
-`docs/plans/remaining-review-fixes.md`).
+and the old name of the argument, `window`, raises `TypeError` (the user, 2026-10-14: the name
+of the result field `GradientPeaks.range_s`).
 
 **How:** The spin echo and the range from 0 to half the length of the sequence. The `range_s` of
 the result is that range, and the result matches the oracle of the gradient waveform for it
@@ -4528,8 +4528,8 @@ The kept result of the whole sequence is still the same object after the calls w
 #### `test_compute_of_gradient_peaks_takes_range_s_and_refuses_window`
 
 **Checks:** `GRADIENT_PEAKS.compute(snap, range_s=r)` gives the result of the range `r`, and the
-old name of the parameter, `window`, raises `TypeError` (decision Q18 of
-`docs/plans/remaining-review-fixes.md`).
+old name of the parameter, `window`, raises `TypeError` (the user, 2026-10-14: the name of the
+result field `GradientPeaks.range_s`).
 
 **How:** `gre_sequence(num_trs=4)` and the range `(0, T/2)`. The `range_s` of the result is
 `(0, T/2)`, and the result is not `==` to `compute(snap)`, the result of the whole sequence.
@@ -5871,8 +5871,8 @@ character, in a string value and in a comment.
 byte 0xE9) and reads them. The fields must be `a` with the value `"café"`, and `b`.
 
 **Assumptions:** Siemens `.asc` files come from Windows tools, so they are likely in latin-1
-or cp1252 (decision Q5 of `docs/plans/remaining-review-fixes.md`). There is no real file with a
-byte that is not ASCII to check this against.
+or cp1252, and the reader reads latin-1, which never fails (the user, 2026-10-14). There is no
+real file with a byte that is not ASCII to check this against.
 
 #### `test_read_gradient_asc_leaves_out_the_fields_after_the_end_marker_of_an_included_file`
 
@@ -6082,11 +6082,11 @@ reason.
 #### `test_load_of_a_sequence_data_is_load_of_its_file`
 
 **Checks:** `load(data, interpreter)` of the `SequenceData` of `read_seqfile(path, interpreter)`
-gives what `load(path, interpreter)` gives (Q22): the snapshot holds that data object, with
-`source` None and a decoding of the class of the interpreter, its data, interpreter and rotation
-record equal those of `load(path, interpreter)`, the two calls emit the same
-`ScannerSettingWarning`s (their messages, in order), and the results compare equal
-(`check_load_of_a_sequence_data`).
+gives what `load(path, interpreter)` gives (the user, 2026-10-14: `load` is the one way to make a
+snapshot): the snapshot holds that data object, with `source` None and a decoding of the class of
+the interpreter, its data, interpreter and rotation record equal those of `load(path, interpreter)`,
+the two calls emit the same `ScannerSettingWarning`s (their messages, in order), and the results
+compare equal (`check_load_of_a_sequence_data`).
 
 **How:** Parametrized over the gradient echo file and the two radial files, and over `"spec"`
 and `Unrotated()`. Each `load` runs in `warnings.catch_warnings(record=True)` with the filter
@@ -6130,8 +6130,8 @@ keeps the decoding's rotation record, with no block rotated and some blocks left
 
 **Checks:** `load(data, interpreter)` of the reading of a file whose blocks play rotations, by a
 plugin that leaves them unapplied, emits one `ScannerSettingWarning` and keeps the decoding's
-rotation record, as `load(path)` does, though `read_seqfile` emits no warning (Q22,
-`check_load_warns_for_an_unapplied_rotation`).
+rotation record, as `load(path)` does, though `read_seqfile` emits no warning (the user, 2026-10-14:
+`load` is the one way to make a snapshot; `check_load_warns_for_an_unapplied_rotation`).
 
 **How:** Parametrized over the two radial files. `read_seqfile(path, Unrotated())` runs with the
 warning made an error, then `load(data, data.interpreter)` in `pytest.warns`.
@@ -6219,9 +6219,9 @@ and a path, and nothing for a `Snapshot`.
 
 #### `test_a_snapshot_is_made_only_by_load`
 
-**Checks:** `load` is the one way to make a snapshot (Q22): `Snapshot(data)` raises `TypeError`
-that names `load`, also for a `SequenceData`, and `Snapshot` stays the type of the snapshot of
-`load`.
+**Checks:** `load` is the one way to make a snapshot (the user, 2026-10-14): `Snapshot(data)` raises
+`TypeError` that names `load`, also for a `SequenceData`, and `Snapshot` stays the type of the
+snapshot of `load`.
 
 **How:** `Snapshot(read_seqfile(path))` in `pytest.raises`, and `isinstance` of
 `load(read_seqfile(path))`, on the gradient echo file.
@@ -6540,9 +6540,9 @@ follows it, not that the decision is right.
 
 #### `test_read_seqfile_is_the_one_way_to_read_a_file_through_spec`
 
-**Checks:** `read_seqfile(path)` is the one way to read a file through `spec` (Q22): the module
-`seqfile.spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
-`read_seqfile(path)`.
+**Checks:** `read_seqfile(path)` is the one way to read a file through `spec` (the user,
+2026-10-14): the module `seqfile.spec` has no `read_spec`, and its private `_read_spec(path)` gives
+the model of `read_seqfile(path)`.
 
 **How:** The test reads `spec.read_spec` and checks that this raises `AttributeError`, and
 compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
@@ -6591,7 +6591,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_spec_raises_not_supported_for_a_folder`
 
-**Checks:** Q1 of `docs/plans/parser-redesign.md` and Q14 of `docs/plans/remaining-review-fixes.md`: `read_seqfile` of a folder raises `NotSupported` under `spec`, not `IsADirectoryError`, with a message that names the folder.
+**Checks:** Q1 of `docs/plans/parser-redesign.md`, and one gate of the scope for every interpreter (the user, 2026-10-14): `read_seqfile` of a folder raises `NotSupported` under `spec`, not `IsADirectoryError`, with a message that names the folder.
 
 **How:** The test reads `tmp_path`.
 
@@ -6599,7 +6599,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_spec_raises_not_supported_for_a_binary_pulseq_file`
 
-**Checks:** Q1 and Q14 (as above): `read_seqfile` of a file that starts with the 8 bytes of a binary Pulseq file (`\x01pulseq\x02`) raises `NotSupported` under `spec`, not a `SeqFileError` (`syntax.encoding`), with a message that names the file.
+**Checks:** Q1 and the one gate (as above): `read_seqfile` of a file that starts with the 8 bytes of a binary Pulseq file (`\x01pulseq\x02`) raises `NotSupported` under `spec`, not a `SeqFileError` (`syntax.encoding`), with a message that names the file.
 
 **How:** The test writes the 8 bytes and then every byte value (0 to 255, so bytes that are not UTF-8) to a file in `tmp_path`, and reads it.
 
@@ -7015,7 +7015,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples`
 
-**Checks:** Q7 of the plan: a shape that declares 200 000 000 samples, more than the package's limit of 2^27, gives `limit.shape-samples` once, in `[SHAPES]` on the line of its `shape_id`, and not `shape.length`; the message says that the specification does not state the rule.
+**Checks:** The package's limit has a code of its own (the user, 2026-10-14): a shape that declares 200 000 000 samples, more than the package's limit of 2^27, gives `limit.shape-samples` once, in `[SHAPES]` on the line of its `shape_id`, and not `shape.length`; the message says that the specification does not state the rule.
 
 **How:** The test writes `valid_no_signature.seq` to `tmp_path` with the header of shape 3 changed from `num_samples 10` to `num_samples 200000000` (its 10 samples stay), and reads it.
 
@@ -7303,7 +7303,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_an_extension_type_id_that_is_not_positive_is_id_positive`
 
-**Checks:** spec:181, spec:472, spec:494 (decision Q4): a type ID of 0 or -1 in an `extension` header, or in the `type` column of a row of `[EXTENSIONS]`, gives one `id.positive`, with the section and the line of that ID.
+**Checks:** spec:181, spec:472, spec:494 (the user, 2026-10-14: the rule of spec:181 covers the ID of a type): a type ID of 0 or -1 in an `extension` header, or in the `type` column of a row of `[EXTENSIONS]`, gives one `id.positive`, with the section and the line of that ID.
 
 **How:** For each place and each of 0 and -1, the test changes one type ID of `valid_no_signature.seq` (the header `extension UNKNOWN 7`, or the type of the row `2 2 1 0`), writes the file in `tmp_path`, and compares the section and line of each `id.positive` with those of the changed line.
 
@@ -8343,8 +8343,8 @@ late by 0.4 tolerances give the step 1.
 #### `test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes`
 
 **Checks:** The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
-times, and `model` has no `TIME_TOLERANCE`, the old name of it (Q21). `seq_utils.TIME_TOLERANCE`, a
-tolerance of 1e-9 s, keeps its name.
+times, and `model` has no `TIME_TOLERANCE`, the old name of it (the user, 2026-10-14).
+`seq_utils.TIME_TOLERANCE`, a tolerance of 1e-9 s, keeps its name.
 
 **How:** The test imports `RF_TIME_SHAPE_TOLERANCE` from `pulseq_analysis.seqfile.model` and compares it
 with 1e-6. It reads `model.TIME_TOLERANCE` and checks that this raises `AttributeError`.
@@ -8386,8 +8386,8 @@ section 3.8; a fake plugin: `test_interpreters.py`, section 2.27).
 
 #### `test_spec_gradients_at_takes_seconds_and_gives_the_lines_between_the_points_of_each_event`
 
-**Checks:** The protocol `synth.Decoding` names the times of `gradients_at` `time_s` (decision Q23
-of `docs/plans/remaining-review-fixes.md`). `SpecDecoding.gradients_at` gives the gradients (Hz/m)
+**Checks:** The protocol `synth.Decoding` names the times of `gradients_at` `time_s` (in s, as
+the rest of the API: the user, 2026-10-14). `SpecDecoding.gradients_at` gives the gradients (Hz/m)
 at block-relative times in s, the keyword `time_s`, an array (n, 3): on block 2 of
 `valid_1_4_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs, rise 100 µs, flat 200 µs, fall
 100 µs, block 500 µs), 0 at -1 and 50 µs, 0.5e6 at 150 µs, 1e6 at 250 µs, 0.5e6 at 450 µs, 0 at 500
@@ -8456,7 +8456,7 @@ checks the model of `cpp-siemens`.
 #### `test_spec_gradients_at_of_many_events_is_each_read_alone`
 
 **Checks:** `SpecDecoding.gradients_at` of many reads of many events is, bit for bit, the value of
-each read alone (C10 of `docs/plans/remaining-review-fixes.md`, 2.1 of the review of 2026-10-13):
+each read alone (2.1 of the review of 2026-10-13: the loop over the IDs was quadratic):
 in a 1.5.1 file of 3000 blocks of 500 µs that play more than 1400 of 1500 random trapezoids (one cell
 in five has none), with a ROTATIONS object (one of 50 random quaternions) in one block in two, 20 000
 reads in random order, with repeats, from 50 µs before each block to 50 µs after it, give the
@@ -8470,7 +8470,8 @@ quaternion of `rotations()` of each block with a rotation.
 
 **Assumptions:** Each value of the reference is the arithmetic of `gradients_at` on one read, so the
 two are equal bit for bit whatever the order in which `gradients_at` groups the reads. The times of
-the speed fix are in its PR (Q8: no timing tests).
+the speed fix are in its PR, #162 (the user, 2026-10-14: no timing tests, which are noisy on a
+shared CI runner).
 
 #### `test_spec_gradients_at_allocates_no_array_of_the_size_of_the_sequence`
 
@@ -9777,8 +9778,8 @@ compared. `registry()` has only the analyses of this package in the test environ
 **Checks:** The table of the defaults of `docs/usage.md` (section 2) has one row for each
 parameter with a default of `load`, `read_seqfile` and `read_pypulseq`, and one row for each
 default of an analysis of `registry()`. Each row gives the default of the signature of its
-function, and names a field of the class that the function returns: the rule of decision Q24 of
-`docs/plans/remaining-review-fixes.md`, that a method parameter has a documented default that the
+function, and names a field of the class that the function returns: the rule of section 2 of
+`docs/usage.md` (the user, 2026-10-14), that a method parameter has a documented default that the
 result records.
 
 **How:** The function of an analysis is the function of the call of the column `compute` of the
@@ -10938,9 +10939,9 @@ before the reader.
 
 #### `test_both_interpreters_give_one_message_for_a_file_outside_the_scope`
 
-**Checks:** Q14 of `docs/plans/remaining-review-fixes.md`: for a folder, a binary Pulseq file and
-a file of version 1.3.0, `read_seqfile` with `spec` and with `cpp-siemens` raise `NotSupported`
-with one and the same message, which names the path.
+**Checks:** One gate of the scope for every interpreter (the user, 2026-10-14): for a folder, a
+binary Pulseq file and a file of version 1.3.0, `read_seqfile` with `spec` and with `cpp-siemens`
+raise `NotSupported` with one and the same message, which names the path.
 
 **How:** For each case (parametrized), the test makes the path in `tmp_path` (the folder itself;
 the 8 magic bytes and then every byte value; `MINIMAL_SEQ` with `minor 3`) and reads it with each
@@ -11111,8 +11112,8 @@ and refuses the model of `cpp-siemens` with `TypeError` that names `synth.decode
 #### `test_the_decoding_takes_seconds_and_the_reader_microseconds`
 
 **Checks:** `CppSiemensDecoding.gradients_at` takes block-relative times in s, the keyword `time_s`
-of the protocol `synth.Decoding` of version 1 (decision Q23 of `docs/plans/remaining-review-fixes.md`
-of pulseq-analysis), and the reader's own `Sequence.gradients_at` keeps µs. At -1, 50, 150, 250,
+of the protocol `synth.Decoding` of version 1 (in s, as the rest of the API of pulseq-analysis:
+the user, 2026-10-14), and the reader's own `Sequence.gradients_at` keeps µs. At -1, 50, 150, 250,
 450, 500 and 501 µs of block 2 of `valid_1_5_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs,
 rise 100 µs, flat 200 µs, fall 100 µs, block 500 µs), the reader gives 0, 0, 0.5e6, 1e6, 0.5e6, 0
 and 0 on gx; the decoding at the same times in s gives the reader's values bit for bit under the

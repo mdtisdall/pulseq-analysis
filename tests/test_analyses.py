@@ -595,7 +595,7 @@ def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
 def test_compute_of_gradient_peaks_takes_range_s_and_refuses_window():
     """`GRADIENT_PEAKS.compute(snap, range_s=r)` gives the result of the range `r`: its `range_s`
     is `r`, and it is not the result of the whole sequence. The old name of the parameter,
-    `window`, raises `TypeError` (decision Q18)."""
+    `window`, raises `TypeError` (the user, 2026-10-14: the name of `GradientPeaks.range_s`)."""
     snap = load(gre_sequence(num_trs=4))
     time_range = (0.0, sequence_index(snap).end_s / 2)
 

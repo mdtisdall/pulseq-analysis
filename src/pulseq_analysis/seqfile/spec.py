@@ -2,8 +2,8 @@
 possible to the Pulseq specification, into the model of layer 1. It is the default interpreter
 of `seqfile.read_seqfile`; a plugin interpreter is read by name (`interpreters`).
 
-`seqfile.read_seqfile(path)` is the one way to read a file through `spec` (Q22 of
-`docs/plans/remaining-review-fixes.md`): it checks the scope (`errors._read_in_scope`, for every
+`seqfile.read_seqfile(path)` is the one way to read a file through `spec` (the user,
+2026-10-14; `spec.read_spec` was the same): it checks the scope (`errors._read_in_scope`, for every
 interpreter) and reads the "as written" reading of the check with `_read_written`. The private
 `_read_spec(path)` makes the same two steps. The reading returns a `model.SequenceData`, or
 raises `SeqFileError` (a `ValueError`) with every violation of its rules, and `NotSupported` for

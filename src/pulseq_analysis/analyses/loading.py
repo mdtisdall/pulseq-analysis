@@ -1,7 +1,7 @@
 """`load`: a file or a pypulseq sequence, read through one interpreter, or the `SequenceData` of
 such a reading, as the snapshot that the measurements take (task R14 of
-`docs/plans/parser-redesign.md`, P15). `load` is the one way to make a snapshot (Q22 of
-`docs/plans/remaining-review-fixes.md`).
+`docs/plans/parser-redesign.md`, P15). `load` is the one way to make a snapshot (the user,
+2026-10-14): `Snapshot(data)` made one too, with no `ScannerSettingWarning`.
 
 `load(path, interpreter="spec")` reads the file with `seqfile.read_seqfile`, and `load(seq,
 interpreter="spec")` a `pypulseq.Sequence` in memory with `seqfile.read_pypulseq` (its text as
