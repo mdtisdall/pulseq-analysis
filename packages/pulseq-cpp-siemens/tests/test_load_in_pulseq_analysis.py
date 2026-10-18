@@ -38,13 +38,14 @@ from test_snapshot import (
     check_load_applies_rotations_without_a_warning,
     check_load_does_not_warn_for_a_rotation_that_no_block_plays,
     check_load_of_a_file,
+    check_load_of_a_sequence_data,
     check_load_warns_for_an_unapplied_rotation,
 )
 
 from pulseq_analysis._equality import values_equal
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
-from pulseq_analysis.seqfile import NotSupported, SeqFileError
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_seqfile
 from pulseq_analysis.synth import ScannerSettingWarning, Session
 from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.sampling import gradient_sampler
@@ -86,6 +87,16 @@ def test_load_of_a_file_is_the_reading_of_cpp_siemens(interpreter):
     check_load_of_a_file(interpreter, "CppSiemensDecoding")
 
 
+@pytest.mark.parametrize("interpreter", INTERPRETERS)
+@pytest.mark.parametrize("path", [GRE_FILE, *RADIAL_FILES], ids=lambda p: p.stem)
+def test_load_of_a_sequence_data_of_cpp_siemens_is_load_of_its_file(path, interpreter):
+    """`load(data, interpreter)` of the reading of a file by `cpp-siemens` gives what
+    `load(path, interpreter)` gives, the warnings included (`check_load_of_a_sequence_data`):
+    with the default, which leaves the rotations of the radial files unapplied, and with
+    settings that apply them."""
+    check_load_of_a_sequence_data(path, interpreter, "CppSiemensDecoding")
+
+
 @pytest.mark.parametrize(
     "name", ["bad_gradient_nonzero_end_align.seq", "bad_raster_gradient_delay.seq"]
 )
@@ -122,6 +133,17 @@ def test_load_warns_for_a_rotation_that_cpp_siemens_leaves_unapplied(path):
     with pytest.warns(ScannerSettingWarning, match="rotation='apply'"):
         load(path, "cpp-siemens")
     assert check_load_warns_for_an_unapplied_rotation(path, "cpp-siemens").setting == "reader"
+
+
+@pytest.mark.parametrize("path", RADIAL_FILES, ids=lambda p: p.stem)
+def test_load_of_a_sequence_data_warns_for_a_rotation_that_cpp_siemens_leaves_unapplied(path):
+    """`load(data, "cpp-siemens")` of the reading of a radial file with `cpp-siemens`'s default
+    emits the warning once (`check_load_warns_for_an_unapplied_rotation`), as `load(path)` does,
+    though `read_seqfile` emits none."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ScannerSettingWarning)
+        data = read_seqfile(path, "cpp-siemens")
+    assert check_load_warns_for_an_unapplied_rotation(data, "cpp-siemens").setting == "reader"
 
 
 @pytest.mark.parametrize("path", RADIAL_FILES, ids=lambda p: p.stem)

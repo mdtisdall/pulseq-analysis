@@ -1078,12 +1078,20 @@ def test_a_ramp_from_a_raster_edge_changes_no_sample_at_the_gradient_raster():
 
 @pytest.mark.parametrize("build", [gre_sequence, lambda: "sequence.seq"], ids=["sequence", "path"])
 def test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot(build):
-    """`gradient_sampler` and `GradientSampler` raise `TypeError` that names `load` for a
-    `pp.Sequence` and for a path: they take a `Snapshot`."""
+    """`gradient_sampler` raises `TypeError` that names `load` for a `pp.Sequence` and for a
+    path: it takes a `Snapshot`."""
     with pytest.raises(TypeError, match="load"):
         gradient_sampler(build())
-    with pytest.raises(TypeError, match="load"):
-        GradientSampler(build())
+
+
+def test_a_sampler_is_made_only_by_gradient_sampler():
+    """`gradient_sampler(snap)` is the one way to make a sampler (Q22): `GradientSampler(snap)`
+    raises `TypeError` that names `gradient_sampler`, and `GradientSampler` stays the type of
+    a sampler."""
+    snap = _load_model("gre")
+    with pytest.raises(TypeError, match="gradient_sampler"):
+        GradientSampler(snap)
+    assert isinstance(gradient_sampler(snap), GradientSampler)
 
 
 # ---- GradientSampler._from_parts ----
@@ -1105,7 +1113,7 @@ def check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(
 ) -> None:
     """`GradientSampler._from_parts` with an index and points made again from `snap`
     (not the kept ones) and an empty dict gives, bit for bit, the `sample` and
-    `block_samples` values of `GradientSampler(snap)`. Its gaps are kept in the dict that
+    `block_samples` values of `gradient_sampler(snap)`. Its gaps are kept in the dict that
     was passed, equal to those of the snapshot's sampler, and not on the snapshot."""
     played = played_gradients(snap)
     index = seq_index._index_from_data(snap.data, (played.gx, played.gy, played.gz))
@@ -1113,7 +1121,7 @@ def check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(
     assert index is not sequence_index(snap)
     kept: dict = {}
     parts = GradientSampler._from_parts(index, points, kept)
-    whole = GradientSampler(snap)
+    whole = gradient_sampler(snap)
     t = _model_times(snap)
     for axis in _AXES:
         assert np.array_equal(parts.sample(axis, t), whole.sample(axis, t))
@@ -1130,7 +1138,7 @@ def check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(
 
 @pytest.mark.parametrize("name", _read_by_spec(_FROM_PARTS_NAMES))
 def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(name):
-    """`GradientSampler._from_parts` gives, bit for bit, the values of `GradientSampler(snap)`,
+    """`GradientSampler._from_parts` gives, bit for bit, the values of `gradient_sampler(snap)`,
     for the sequences that `spec` reads
     (`check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`)."""
     check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(_load_model(name))

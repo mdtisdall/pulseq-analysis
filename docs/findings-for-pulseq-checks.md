@@ -450,17 +450,19 @@ contract too:
   `seqfile.read_seqfile`, a `pypulseq.Sequence` with `seqfile.read_pypulseq`,
   through the interpreter given by name or as an object (`spec` or a plugin's).
   It raises their `SeqFileError` and `NotSupported`. pypulseq no longer reads a
-  file.
+  file. A `seqfile.SequenceData` of such a reading is taken as it is; the
+  interpreter given must be the one that read it (`data.interpreter`), else
+  `ValueError`. `load` is the one way to make a snapshot (Q22).
 - `synth.Snapshot`: `data` (the `SequenceData`), `session` (R16), `decoding`
   (`synth.decode(data, session)`, a `synth.Decoding`), `interpreter` (with its
   settings), `records` (`SequenceData.records`), `rotation_record`,
   `soft_delay_record` and `fov_record` (the decoding's records) and `source` (the
-  path, or None). `load(source, interpreter, session=None)` takes the session
+  path, or None). `Snapshot(...)` raises `TypeError` that names `load`. `load(source, interpreter, session=None)` takes the session
   (2.8).
 - `load` emits `RotationRecord.warning()` (a `ScannerSettingWarning`) when it is
   not None: under `CppSiemens(rotation="reader")`, for a file whose blocks play
-  a rotation. `load` no longer refuses the rotation extension
-  (`synth.extensions` is removed).
+  a rotation, and for the `SequenceData` of such a file. `load` no longer
+  refuses the rotation extension (`synth.extensions` is removed).
 - The measurements take the gradients only through the decoding (the protocol
   `synth.Decoding`): `gradient_points` for the decoded event of each block and
   axis, once for each event and variant (`gradient_variants`; for `cpp-siemens`,

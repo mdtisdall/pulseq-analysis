@@ -1605,7 +1605,7 @@ on x, on y and on z; and one delay block. The test checks
 
 **Checks:** `has_gradients` is False for the index of a model with no block.
 
-**How:** The snapshot of the model of `valid_no_signature.seq` through `spec`, with its block
+**How:** `load` of the model of `valid_no_signature.seq` through `spec`, with its block
 table replaced by an empty one (`spec` rejects a file with no block, `blocks.empty`, and
 pypulseq's writer cannot write a sequence with no block; the plugin's tests read
 `bad_blocks_empty.seq` through `cpp-siemens`, section 3.11).
@@ -2253,18 +2253,29 @@ peak), because the ramp end and the sample time are each a sum of floats.
 
 #### `test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot`
 
-**Checks:** `gradient_sampler` and the constructor `GradientSampler` raise `TypeError` with
-a message that names `load` for a `pp.Sequence` and for a path.
+**Checks:** `gradient_sampler` raises `TypeError` with a message that names `load` for a
+`pp.Sequence` and for a path.
 
-**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. Both calls
-must raise `TypeError` with `match="load"`.
+**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. The call must
+raise `TypeError` with `match="load"`.
 
 **Assumptions:** The path is not read: the type check comes before any read.
+
+#### `test_a_sampler_is_made_only_by_gradient_sampler`
+
+**Checks:** `gradient_sampler(snap)` is the one way to make a sampler (Q22): `GradientSampler(snap)`
+raises `TypeError` that names `gradient_sampler`, and `GradientSampler` stays the type of the
+sampler of `gradient_sampler`.
+
+**How:** The snapshot of the gradient echo sequence through `spec`; `GradientSampler(snap)` in
+`pytest.raises`, and `isinstance` of `gradient_sampler(snap)`.
+
+**Assumptions:** None.
 
 #### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
 
 **Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
-`block_samples` values of `GradientSampler(snap)`. It keeps its gaps in the dict that was passed,
+`block_samples` values of `gradient_sampler(snap)`. It keeps its gaps in the dict that was passed,
 not on the snapshot, and these gaps equal those of the snapshot's sampler.
 
 **How:** Parametrized over the model sequences `long_gap`, `zero_gap`, `gre` and `spin_echo`, the
@@ -5339,7 +5350,7 @@ test checks the dtype (float64 for `delay`, `offsets` and `amp`; int64 for `coun
 
 #### `test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy`
 
-**Checks:** `GradientSampler(snap)` keeps the pooled points of
+**Checks:** `gradient_sampler(snap)` keeps the pooled points of
 `event_points` as they are, with no copy.
 
 **How:** For each sequence of the file, the test checks `np.shares_memory` of the
@@ -5465,7 +5476,7 @@ function, keeps the result, takes a `weakref` to the snapshot, deletes the snaps
 **How:** `event_points` is called with `spin_echo_sequence()` and must raise `TypeError` with
 `match="load"`.
 
-**Assumptions:** Each measurement and `GradientSampler` has the same test in its own test file
+**Assumptions:** Each measurement and `gradient_sampler` has the same test in its own test file
 (`test_grad_peaks.py`, `test_pns_levels.py`, `test_grad_spectrum.py`, `test_sampling.py`).
 
 ### 2.15 The oracle of the gradient waveform (`test_oracle_waveform.py`)
@@ -6037,6 +6048,32 @@ reason.
 
 **Assumptions:** None.
 
+#### `test_load_of_a_sequence_data_is_load_of_its_file`
+
+**Checks:** `load(data, interpreter)` of the `SequenceData` of `read_seqfile(path, interpreter)`
+gives what `load(path, interpreter)` gives (Q22): the snapshot holds that data object, with
+`source` None and a decoding of the class of the interpreter, its data, interpreter and rotation
+record equal those of `load(path, interpreter)`, the two calls emit the same
+`ScannerSettingWarning`s (their messages, in order), and the results compare equal
+(`check_load_of_a_sequence_data`).
+
+**How:** Parametrized over the gradient echo file and the two radial files, and over `"spec"`
+and `Unrotated()`. Each `load` runs in `warnings.catch_warnings(record=True)` with the filter
+`"always"`. On the radial files `Unrotated()` gives one warning to each call, and `spec` none.
+
+**Assumptions:** `load(path)` gives the warning (`test_load_warns_for_a_rotation_that_a_plugin_leaves_unapplied`),
+so the radial files with `Unrotated()` compare a warning and not two empty lists.
+
+#### `test_load_of_a_sequence_data_takes_only_the_interpreter_of_the_data`
+
+**Checks:** `load(data, interpreter)` raises `ValueError` that names `data.interpreter` when
+`interpreter` is not the interpreter that read `data`.
+
+**How:** The data of `spec` with `Unrotated()`, and the data of `Unrotated()` with the default
+interpreter, `spec`, on the gradient echo file.
+
+**Assumptions:** None.
+
 #### `test_the_snapshot_records_the_interpreter_with_its_settings_and_the_records`
 
 **Checks:** `snap.interpreter` is the interpreter object given, and `snap.records` is the records
@@ -6055,6 +6092,18 @@ keeps the decoding's rotation record, with no block rotated and some blocks left
 (`check_load_warns_for_an_unapplied_rotation`).
 
 **How:** Parametrized over the two radial files, with `Unrotated()`, in `pytest.warns`.
+
+**Assumptions:** None.
+
+#### `test_load_of_a_sequence_data_warns_for_a_rotation_that_a_plugin_leaves_unapplied`
+
+**Checks:** `load(data, interpreter)` of the reading of a file whose blocks play rotations, by a
+plugin that leaves them unapplied, emits one `ScannerSettingWarning` and keeps the decoding's
+rotation record, as `load(path)` does, though `read_seqfile` emits no warning (Q22,
+`check_load_warns_for_an_unapplied_rotation`).
+
+**How:** Parametrized over the two radial files. `read_seqfile(path, Unrotated())` runs with the
+warning made an error, then `load(data, data.interpreter)` in `pytest.warns`.
 
 **Assumptions:** None.
 
@@ -6137,13 +6186,17 @@ and a path, and nothing for a `Snapshot`.
 
 **Assumptions:** None.
 
-#### `test_a_snapshot_takes_only_a_sequence_data`
+#### `test_a_snapshot_is_made_only_by_load`
 
-**Checks:** `Snapshot(x)` raises `TypeError` that names `SequenceData` when `x` is not one.
+**Checks:** `load` is the one way to make a snapshot (Q22): `Snapshot(data)` raises `TypeError`
+that names `load`, also for a `SequenceData`, and `Snapshot` stays the type of the snapshot of
+`load`.
 
-**How:** With a `pp.Sequence`.
+**How:** `Snapshot(read_seqfile(path))` in `pytest.raises`, and `isinstance` of
+`load(read_seqfile(path))`, on the gradient echo file.
 
-**Assumptions:** None.
+**Assumptions:** The copies of a snapshot (`pickle`, `copy.deepcopy`) do not call `Snapshot`;
+`test_a_copy_of_a_snapshot_is_a_new_snapshot_with_no_kept_results` tests them.
 
 #### `test_a_snapshot_has_read_only_properties_no_new_attribute_and_the_hash_of_its_identity`
 
@@ -6265,7 +6318,7 @@ its `__all__`, and has a reason.
 
 ### 2.19 The reader of Pulseq files (`test_seqfile.py`)
 
-`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq.
+`test_seqfile.py` tests the `spec` interpreter (`seqfile.spec`, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq.
 
 #### `test_each_fixture_gives_its_verdict`
 
@@ -6448,9 +6501,20 @@ follows it, not that the decision is right.
 
 #### `test_the_default_interpreter_is_spec`
 
-**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")` and of `read_spec(path)`.
+**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")` and of the private `spec._read_spec(path)`.
 
 **How:** The test reads one fixture the three ways and compares.
+
+**Assumptions:** None.
+
+#### `test_read_seqfile_is_the_one_way_to_read_a_file_through_spec`
+
+**Checks:** `read_seqfile(path)` is the one way to read a file through `spec` (Q22): the module
+`seqfile.spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
+`read_seqfile(path)`.
+
+**How:** The test reads `spec.read_spec` and checks that this raises `AttributeError`, and
+compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 **Assumptions:** None.
 
@@ -11509,7 +11573,7 @@ gradient raster. Each is loaded with `cpp-siemens`. The test calls
 #### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
 
 **Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
-`block_samples` values of `GradientSampler(snap)`, and keeps its gaps in the dict that was passed,
+`block_samples` values of `gradient_sampler(snap)`, and keeps its gaps in the dict that was passed,
 for the sequences that `spec` rejects (the test of the same name of section 2.5 has the others).
 
 **How:** Parametrized over `short_gap`, `off_raster_events` and `random_gaps_0`. Each is loaded
@@ -11758,6 +11822,18 @@ rotation="apply")`, on the gradient echo file `oracle/pulseq_seq4.seq`.
 
 **Assumptions:** None.
 
+#### `test_load_of_a_sequence_data_of_cpp_siemens_is_load_of_its_file`
+
+**Checks:** `load(data, interpreter)` of the reading of a file by `cpp-siemens` gives what
+`load(path, interpreter)` gives, the `ScannerSettingWarning`s included, with a
+`CppSiemensDecoding` (`check_load_of_a_sequence_data`).
+
+**How:** Parametrized over the gradient echo file and the two radial files, and over
+`"cpp-siemens"` (whose default leaves the rotations of the radial files unapplied, with a
+warning) and `CppSiemens(oversampling="edge", rotation="apply")`.
+
+**Assumptions:** None.
+
 #### `test_load_through_cpp_siemens_gives_a_snapshot_of_a_file_that_spec_rejects`
 
 **Checks:** A file that `spec` rejects gives, through `cpp-siemens`, which plays it as the C++
@@ -11794,6 +11870,18 @@ rotation record with the setting `"reader"`, no block rotated and some left unap
 (`check_load_warns_for_an_unapplied_rotation`).
 
 **How:** Parametrized over the two radial files.
+
+**Assumptions:** None.
+
+#### `test_load_of_a_sequence_data_warns_for_a_rotation_that_cpp_siemens_leaves_unapplied`
+
+**Checks:** `load(data, "cpp-siemens")` of the reading of a file whose blocks play rotations,
+with `cpp-siemens`'s default, emits one `ScannerSettingWarning` and keeps the rotation record
+with the setting `"reader"`, as `load(path)` does, though `read_seqfile` emits no warning
+(`check_load_warns_for_an_unapplied_rotation`).
+
+**How:** Parametrized over the two radial files. `read_seqfile(path, "cpp-siemens")` runs with
+the warning made an error.
 
 **Assumptions:** None.
 

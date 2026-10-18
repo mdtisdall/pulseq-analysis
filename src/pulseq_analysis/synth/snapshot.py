@@ -4,10 +4,12 @@ A `Snapshot` holds the `seqfile.SequenceData` of one interpreter (`data`) and it
 a scanner session (`decoding.decode(data, session)`: the package's decoder for `spec`, the
 plugin's decoding for a plugin interpreter).
 Both are immutable, so a measurement describes one fixed sequence, and its result can be kept
-for later calls. `analyses.load` makes a snapshot of a file or of a pypulseq sequence, one time,
-and each measurement takes the snapshot. The measurements take the gradients only through the
-decoding: its decoded events, and `gradients_at` for a block whose gradients the decoding rotates
-(`_played`).
+for later calls. `analyses.load` makes a snapshot of a file, of a pypulseq sequence or of a
+`SequenceData`, one time, and each measurement takes the snapshot. `load` is the one way to make
+a snapshot (Q22 of `docs/plans/remaining-review-fixes.md`): `Snapshot` is the type, and
+`Snapshot(...)` raises `TypeError` that names `load`. The measurements take the gradients only
+through the decoding: its decoded events, and `gradients_at` for a block whose gradients the
+decoding rotates (`_played`).
 
 The results that the measurements make from a snapshot (`seq_index.sequence_index`, the played
 gradients of `_played`, `_events.event_points`, the gaps of `sampling` and the results of
@@ -16,6 +18,8 @@ made on their first use. The data of a snapshot does not change, so a kept resul
 
 Private interface for the modules of the package:
 
+- `_snapshot(data, source, session)` makes the snapshot of `data`, decoded under `session`, for
+  `analyses.load` and the copies of a snapshot. It emits no warning.
 - `_check_snapshot(snap)` raises `TypeError` that names `load` when `snap` is not a
   `Snapshot`. A public function calls it for its first argument, after the checks of its
   other arguments.
@@ -45,30 +49,25 @@ class Snapshot:
     - `rotation_record`, `soft_delay_record` and `fov_record`: what the decoding does with the
       rotations of the file, and with the session's soft delays and field of view (the
       decoding's records, rule 4 of section 7.8 of `docs/plans/parser-redesign.md`).
-    - `source`: the path that `load` read, or `None` for a pypulseq sequence.
+    - `source`: the path that `load` read, or `None` for a pypulseq sequence and a
+      `SequenceData`.
 
     Two snapshots are equal only when they are the same object, and the hash is the identity
     hash of `object`, so a snapshot can be the key of a dict. A copy from `pickle` or
     `copy.deepcopy` is a new snapshot of the same data, with no kept results: it makes them
     again.
 
-    Make a snapshot with `analyses.load`. `Snapshot(data, source, session)` decodes `data`
-    under `session`, and does not emit the `ScannerSettingWarning` that `load` emits.
+    Make a snapshot with `analyses.load`, also of a `SequenceData`. `Snapshot(...)` raises
+    `TypeError` that names `load`: the class is the type of a snapshot, not a way to make one.
     """
 
     __slots__ = ("__weakref__", "_data", "_decoding", "_kept", "_session", "_source")
 
-    def __init__(
-        self, data: SequenceData, source: str | None = None, session: Session | None = None
-    ) -> None:
-        if not isinstance(data, SequenceData):
-            raise TypeError(f"a Snapshot holds a SequenceData, not {type(data)!r}")
-        self._data = data
-        self._decoding = decode(data, session)
-        self._session = self._decoding.session
-        self._source = source
-        # The kept results of the measurements: `_kept_results`.
-        self._kept: dict[Any, Any] = {}
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError(
+            "a Snapshot is made by pulseq_analysis.analyses.load(source), of a path, a pypulseq "
+            "Sequence or a seqfile.SequenceData, not by Snapshot(...)"
+        )
 
     @property
     def data(self) -> SequenceData:
@@ -113,14 +112,28 @@ class Snapshot:
     @property
     def source(self) -> str | None:
         """The path that `load` read (a `str`, as `os.fspath` gives it), or `None` when the
-        snapshot is of a pypulseq sequence."""
+        snapshot is of a pypulseq sequence or of a `SequenceData`."""
         return self._source
 
     def __reduce__(self) -> tuple[Any, ...]:
-        return (Snapshot, (self._data, self._source, self._session))
+        return (_snapshot, (self._data, self._source, self._session))
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "Snapshot":
-        return Snapshot(self._data, self._source, self._session)
+        return _snapshot(self._data, self._source, self._session)
+
+
+def _snapshot(data: SequenceData, source: str | None, session: Session | None) -> Snapshot:
+    """The snapshot of `data` with `source`, decoded under `session` (`decoding.decode`), with no
+    kept results: the one maker of a `Snapshot`, for `analyses.load` and the copies. It emits no
+    warning (`load` emits the `ScannerSettingWarning` of the decoding)."""
+    snap = object.__new__(Snapshot)
+    snap._data = data
+    snap._decoding = decode(data, session)
+    snap._session = snap._decoding.session
+    snap._source = source
+    # The kept results of the measurements: `_kept_results`.
+    snap._kept = {}
+    return snap
 
 
 def _check_snapshot(snap: object) -> None:
@@ -129,7 +142,7 @@ def _check_snapshot(snap: object) -> None:
     if not isinstance(snap, Snapshot):
         raise TypeError(
             f"expected a pulseq_analysis.synth.snapshot.Snapshot, not {type(snap)!r}: make one "
-            "with pulseq_analysis.analyses.load(path or sequence)"
+            "with pulseq_analysis.analyses.load(path, sequence or SequenceData)"
         )
 
 

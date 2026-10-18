@@ -100,13 +100,16 @@ class GradientSampler:
     (`_axis_events`). Apart from these, a call to `sample` costs O(samples + blocks between
     the first and the last sample), not O(all blocks).
 
-    `gradient_sampler(snap)` makes a sampler of a snapshot. Raises TypeError for an
-    argument that is not a `Snapshot`.
+    `gradient_sampler(snap)` makes the sampler of a snapshot, the one way to make one (Q22 of
+    `docs/plans/remaining-review-fixes.md`). `GradientSampler(...)` raises TypeError that names
+    `gradient_sampler`: the class is the type of a sampler, not a way to make one.
     """
 
-    def __init__(self, snap: Snapshot) -> None:
-        _check_snapshot(snap)
-        self._init(sequence_index(snap), event_points(snap), _kept_results(snap))
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "a GradientSampler is made by pulseq_analysis.synth.sampling.gradient_sampler(snap), "
+            "not by GradientSampler(...)"
+        )
 
     @classmethod
     def _from_parts(
@@ -114,7 +117,7 @@ class GradientSampler:
     ) -> "GradientSampler":
         """A sampler of the index `index` and the points `points` of one sequence, which keeps
         the gaps in `kept` (the key `("gaps", axis)`), not on a snapshot. It gives the values
-        of `GradientSampler(snap)` for a snapshot with the same index and points."""
+        of `gradient_sampler(snap)` for a snapshot with the same index and points."""
         sampler = cls.__new__(cls)
         sampler._init(index, points, kept)
         return sampler
@@ -494,12 +497,14 @@ class GradientSampler:
 
 
 def gradient_sampler(snap: Snapshot) -> GradientSampler:
-    """The `GradientSampler` of `snap`: the public way to make a sampler.
+    """The `GradientSampler` of `snap`: the one way to make a sampler.
 
-    It is `GradientSampler(snap)`. The index, the event points and the gaps are kept on the
-    snapshot, so the sampler is not kept. Raises TypeError for an argument that is not a
-    `Snapshot`."""
-    return GradientSampler(snap)
+    The index, the event points and the gaps are kept on the snapshot, so the sampler is not
+    kept. Raises TypeError that names `load` for an argument that is not a `Snapshot`."""
+    _check_snapshot(snap)
+    return GradientSampler._from_parts(
+        sequence_index(snap), event_points(snap), _kept_results(snap)
+    )
 
 
 def _frozen_gaps(*arrays: np.ndarray) -> _AxisGaps:

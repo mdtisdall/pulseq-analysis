@@ -40,7 +40,7 @@ from pulseq_analysis.seqfile.spec import (
     RANGE_TOLERANCE,
     RULES,
     _off_raster,
-    read_spec,
+    _read_spec,
 )
 from pulseq_analysis.synth import events
 
@@ -680,7 +680,19 @@ def test_the_default_interpreter_is_spec():
     data = read_seqfile(path)
     assert data.interpreter == Spec()
     assert str(data.interpreter) == "spec"
-    assert data == read_seqfile(path, "spec") == read_spec(path)
+    assert data == read_seqfile(path, "spec") == _read_spec(path)
+
+
+def test_read_seqfile_is_the_one_way_to_read_a_file_through_spec():
+    """`read_seqfile(path)` is the one way to read a file through `spec` (Q22): the module
+    `spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
+    `read_seqfile(path)`."""
+    from pulseq_analysis.seqfile import spec
+
+    path = SEQFILES / "valid_1_5_1.seq"
+    with pytest.raises(AttributeError):
+        _ = spec.read_spec
+    assert spec._read_spec(path) == read_seqfile(path)
 
 
 # ---- The rows of section 6 of the plan: the format and its structure ----
@@ -2494,7 +2506,7 @@ def _lines_of_shapes_of(call) -> int:
     `call()`, at any depth: each `line` event of `sys.settrace`, which a loop gives for each pass
     (a list comprehension too, which Python 3.12 inlines in its function)."""
     count = 0
-    filename = read_spec.__code__.co_filename
+    filename = _read_spec.__code__.co_filename
 
     def local(frame, event, arg):
         nonlocal count

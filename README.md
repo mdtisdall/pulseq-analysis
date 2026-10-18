@@ -85,7 +85,8 @@ from pulseq_analysis.analyses.pns_levels import pns_levels
 
 gamma = 42.576e6  # Hz/T: the gamma of the nucleus of the target, here 1H
 
-snap = load("sequence.seq")  # through `spec`; load(seq) for a pypulseq Sequence
+# Through `spec`; load(seq) takes a pypulseq Sequence, and load(data) a SequenceData.
+snap = load("sequence.seq")
 hardware = hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc")
 levels = pns_levels(snap, hardware=hardware)
 fraction = levels.peak_hz_per_t / abs(gamma)

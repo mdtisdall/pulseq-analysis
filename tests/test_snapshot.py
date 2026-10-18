@@ -4,11 +4,13 @@
 interpreter's `SequenceData` and its decoding. The tests check that:
 
 1. `load` of a file is `read_seqfile` of it, and `load` of a sequence is `read_pypulseq` of it,
-   through the interpreter given (a name or an object), with its rejections;
+   through the interpreter given (a name or an object), with its rejections, and `load` of the
+   `SequenceData` of a reading gives what `load` of the file gives;
 2. the snapshot records the interpreter, its settings, the records of the reading and the
    rotation record of the decoding, and `load` warns only for a rotation left unapplied;
 3. a snapshot does not change when its sequence changes, and its copies are new snapshots;
-4. the type of the argument and the properties of a snapshot.
+4. the type of the argument, that only `load` makes a snapshot, and the properties of a
+   snapshot.
 
 The tests run without any plugin interpreter installed. A fake plugin (`Unrotated`, in this
 module) stands for one: `spec`'s model and decoding, with the rotations left unapplied. The
@@ -273,6 +275,51 @@ def test_load_accepts_a_file_with_no_signature():
     assert sequence_index(snap).num_blocks > 0
 
 
+def check_load_of_a_sequence_data(path: pathlib.Path, interpreter, decoding_type: str) -> None:
+    """`load(data, interpreter)` of the `SequenceData` of `read_seqfile(path, interpreter)` holds
+    that data, with `source` None and a decoding of the class named `decoding_type`, and gives
+    what `load(path, interpreter)` gives: equal data, an equal interpreter and rotation record,
+    the same `ScannerSettingWarning`s (their messages, in order) and equal results (Q22)."""
+    data = read_seqfile(path, interpreter)
+    caught = []
+    for source in (data, path):
+        with warnings.catch_warnings(record=True) as found:
+            warnings.simplefilter("always")
+            caught.append((load(source, interpreter), found))
+    (snap, of_data), (reference, of_path) = caught
+    assert [str(w.message) for w in of_data if w.category is ScannerSettingWarning] == [
+        str(w.message) for w in of_path if w.category is ScannerSettingWarning
+    ]
+    assert snap.data is data
+    assert snap.data == reference.data
+    assert snap.interpreter == reference.interpreter
+    assert snap.source is None
+    assert type(snap.decoding).__name__ == decoding_type
+    assert snap.rotation_record == reference.rotation_record
+    assert _differences(_results(snap), _results(reference)) == []
+
+
+@pytest.mark.parametrize("interpreter", INTERPRETERS)
+@pytest.mark.parametrize("path", [GRE_FILE, *RADIAL_FILES], ids=lambda p: p.stem)
+def test_load_of_a_sequence_data_is_load_of_its_file(path, interpreter):
+    """`load(data, interpreter)` of the reading of a file gives what `load(path, interpreter)`
+    gives, the warnings included (`check_load_of_a_sequence_data`): for `spec`, which applies the
+    rotations of the radial files, and for a plugin that leaves them unapplied."""
+    check_load_of_a_sequence_data(
+        path, interpreter, "SpecDecoding" if interpreter == "spec" else "UnrotatedDecoding"
+    )
+
+
+def test_load_of_a_sequence_data_takes_only_the_interpreter_of_the_data():
+    """`load(data, interpreter)` raises `ValueError` that names `data.interpreter` when
+    `interpreter` is not the interpreter that read `data`: the data of `spec` with a plugin, and
+    the data of a plugin with the default, `spec`."""
+    with pytest.raises(ValueError, match=r"data\.interpreter"):
+        load(read_seqfile(GRE_FILE), Unrotated())
+    with pytest.raises(ValueError, match=r"data\.interpreter"):
+        load(read_seqfile(GRE_FILE, Unrotated()))
+
+
 # ---- 2. What the snapshot records, and the warning ----
 
 
@@ -289,12 +336,14 @@ def test_the_snapshot_records_the_interpreter_with_its_settings_and_the_records(
     ]
 
 
-def check_load_warns_for_an_unapplied_rotation(path: pathlib.Path, interpreter) -> RotationRecord:
-    """`load(path, interpreter)` keeps the decoding's rotation record and emits its
-    `ScannerSettingWarning` once: blocks play a rotation that the measurements do not apply
-    (P20, rule 4; Q3). Returns the record."""
+def check_load_warns_for_an_unapplied_rotation(
+    source: pathlib.Path | SequenceData, interpreter
+) -> RotationRecord:
+    """`load(source, interpreter)`, of a path or of the `SequenceData` of its reading, keeps the
+    decoding's rotation record and emits its `ScannerSettingWarning` once: blocks play a rotation
+    that the measurements do not apply (P20, rule 4; Q3). Returns the record."""
     with pytest.warns(ScannerSettingWarning, match="play a rotation") as caught:
-        snap = load(path, interpreter)
+        snap = load(source, interpreter)
     assert len([w for w in caught if w.category is ScannerSettingWarning]) == 1
     record = snap.rotation_record
     assert record == snap.decoding.rotation_record
@@ -310,6 +359,17 @@ def test_load_warns_for_a_rotation_that_a_plugin_leaves_unapplied(path):
     with pytest.warns(ScannerSettingWarning, match="read the file with spec"):
         load(path, Unrotated())
     assert check_load_warns_for_an_unapplied_rotation(path, Unrotated()).setting == "unrotated"
+
+
+@pytest.mark.parametrize("path", RADIAL_FILES, ids=lambda p: p.stem)
+def test_load_of_a_sequence_data_warns_for_a_rotation_that_a_plugin_leaves_unapplied(path):
+    """`load(data, interpreter)` of the reading of a radial file by a plugin that leaves the
+    rotations unapplied emits the warning once (`check_load_warns_for_an_unapplied_rotation`),
+    as `load(path)` does, though `read_seqfile` emits none (Q22)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ScannerSettingWarning)
+        data = read_seqfile(path, Unrotated())
+    check_load_warns_for_an_unapplied_rotation(data, data.interpreter)
 
 
 def check_load_applies_rotations_without_a_warning(path: pathlib.Path, interpreter) -> None:
@@ -454,11 +514,12 @@ def test_check_snapshot_raises_a_type_error_that_names_load(make_bad):
         _check_snapshot(bad)
 
 
-@pytest.mark.pypulseq
-def test_a_snapshot_takes_only_a_sequence_data():
-    """`Snapshot(data)` raises `TypeError` for an argument that is not a `SequenceData`."""
-    with pytest.raises(TypeError, match="SequenceData"):
-        Snapshot(spin_echo_sequence())
+def test_a_snapshot_is_made_only_by_load():
+    """`load` is the one way to make a snapshot (Q22): `Snapshot(data)` raises `TypeError` that
+    names `load`, also for a `SequenceData`, and `Snapshot` stays the type of a snapshot."""
+    with pytest.raises(TypeError, match="load"):
+        Snapshot(read_seqfile(GRE_FILE))
+    assert isinstance(load(read_seqfile(GRE_FILE)), Snapshot)
 
 
 def test_a_snapshot_has_read_only_properties_no_new_attribute_and_the_hash_of_its_identity():

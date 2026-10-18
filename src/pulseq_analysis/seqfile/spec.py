@@ -2,11 +2,13 @@
 possible to the Pulseq specification, into the model of layer 1. It is the default interpreter
 of `seqfile.read_seqfile`; a plugin interpreter is read by name (`interpreters`).
 
-`read_spec(path)`, which `seqfile.read_seqfile(path)` calls, reads a file and returns a
-`model.SequenceData`, or raises `SeqFileError` (a `ValueError`) with every violation of its rules,
-and `NotSupported` for a file outside the package's scope (Q1 of `docs/plans/parser-redesign.md`):
-a folder, a binary Pulseq file, or a version outside 1.4.0 to 1.5.x, by the check of
-`errors._read_in_scope`, which `read_seqfile` makes for every interpreter.
+`seqfile.read_seqfile(path)` is the one way to read a file through `spec` (Q22 of
+`docs/plans/remaining-review-fixes.md`): it checks the scope (`errors._read_in_scope`, for every
+interpreter) and reads the "as written" reading of the check with `_read_written`. The private
+`_read_spec(path)` makes the same two steps. The reading returns a `model.SequenceData`, or
+raises `SeqFileError` (a `ValueError`) with every violation of its rules, and `NotSupported` for
+a file outside the package's scope (Q1 of `docs/plans/parser-redesign.md`): a folder, a binary
+Pulseq file, or a version outside 1.4.0 to 1.5.x.
 Each violation is a `Violation(rule, section, line, message)`. The error lists at most
 `MAX_LOCATIONS` violations of each rule and counts the rest (`SeqFileError.omitted`). The reader
 does not import pypulseq, uses no default for a value that the file must define, and does not
@@ -105,7 +107,6 @@ __all__ = [
     "RULES",
     "TOLERANCE_NS",
     "Rule",
-    "read_spec",
 ]
 
 # The most violations of one rule that an error lists.
@@ -533,9 +534,9 @@ class _Ids:
         return self.order[pos], self.sorted[pos] == refs
 
 
-def read_spec(path: str | Path) -> SequenceData:
+def _read_spec(path: str | Path) -> SequenceData:
     """Read the Pulseq text file `path` (versions 1.4.0 to 1.5.x) into a `SequenceData`, by the
-    rules of the `spec` interpreter. `seqfile.read_seqfile(path)` calls it.
+    rules of the `spec` interpreter: the reading of `seqfile.read_seqfile(path)`, the public way.
 
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
     (see the module docstring), `NotSupported` for a file outside the package's scope
@@ -545,7 +546,7 @@ def read_spec(path: str | Path) -> SequenceData:
 
 
 def _read_written(written: AsWritten) -> SequenceData:
-    """`read_spec` of the file that `written` reads, a file in the package's scope
+    """`_read_spec` of the file that `written` reads, a file in the package's scope
     (`errors._read_in_scope`)."""
     report = _Report()
     data = _build(written, report)

@@ -767,7 +767,7 @@ def test_block_samples_of_any_range_equals_the_oracle_and_the_slice_of_the_whole
 
 @pytest.mark.parametrize("name", _rejected_by_spec(_FROM_PARTS_NAMES))
 def test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(name):
-    """`GradientSampler._from_parts` gives, bit for bit, the values of `GradientSampler(snap)`,
+    """`GradientSampler._from_parts` gives, bit for bit, the values of `gradient_sampler(snap)`,
     for the sequences that `spec` rejects
     (`check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`)."""
     check_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot(_load_model(name))

@@ -46,6 +46,10 @@ A caller moves in this order:
    `AxisResult.peak_time_s`, `AxisResult.slew_time_s` and
    `GradientPeaks.vector_peak_time_s` of a value of 0. Check for `None` before
    a time is formatted or compared, as for `PnsLevels.peak_time_s`.
+10. Make a snapshot only with `load`, and a sampler only with
+    `sampling.gradient_sampler(snap)`: `Snapshot(...)` and
+    `GradientSampler(...)` raise `TypeError`. `load(data, data.interpreter)`
+    takes a `seqfile.SequenceData`.
 
 ### Reading files and the interpreters
 
@@ -252,6 +256,14 @@ A caller moves in this order:
   (`extensions.refuse_rotations` and the module `extensions` are removed). It
   emits a `synth.ScannerSettingWarning` where the decoding leaves content of
   the file unapplied, such as a rotation under `cpp-siemens`'s default.
+- `load` is the one way to make a snapshot (review 2026-10-13 6, Q22). It also
+  takes a `seqfile.SequenceData` of `read_seqfile` or `read_pypulseq`, as it
+  is, and gives the decoding and the `ScannerSettingWarning` of `load` of the
+  file; the interpreter given must be the one that read the data
+  (`load(data, data.interpreter)` for the data of a plugin), else
+  `ValueError`, and `Snapshot.source` is `None`. `Snapshot(...)` raises
+  `TypeError` that names `load`, and `Snapshot` stays the type of a snapshot.
+  Before, `Snapshot(data)` made a snapshot with no `ScannerSettingWarning`.
 - `synth.Snapshot` holds the interpreter's `SequenceData` (`data`), its
   decoding (`decoding`), the interpreter (`interpreter`), the session
   (`session`), the records of the reading (`records`) and the decoding's
@@ -445,7 +457,9 @@ of `synth.seq_index` only, not of `analyses.grad_peaks`,
 `SAFE_FIELDS` is in the `__all__` of `analyses.safe` only, not of
 `analyses.pns_levels`. The `__all__` of `seqfile.spec` now also has
 `TOLERANCE_NS`, `FIRST_TIME_TOLERANCE` and `RATIO_TOLERANCE`, which
-`docs/usage.md` gives. `tests/test_interface.py` checks that each public module
+`docs/usage.md` gives. `seqfile.read_seqfile(path)` is the one way to read a
+file through `spec` (review 2026-10-13 6, Q22): `spec.read_spec` is private,
+`spec._read_spec`, and `spec.read_spec` raises `AttributeError`. `tests/test_interface.py` checks that each public module
 has an `__all__`, that each name that the documents give with a public module
 is in its `__all__`, that each name of an `__all__` is in the documents, and
 that the `__all__` of a module that is not a package has no name of another
@@ -501,6 +515,11 @@ public module.
   |---|---|
   | `sampler.sample("gx", t)` | `sampler.sample("x", t)` |
   | `sampler.block_samples("gx", first, stop, dt)` | `sampler.block_samples("x", first, stop, dt)` |
+
+- `sampling.gradient_sampler(snap)` is the one way to make a sampler (review
+  2026-10-13 6, Q22): `GradientSampler(snap)` raises `TypeError` that names
+  `gradient_sampler`, and `GradientSampler` stays the type of a sampler. The
+  values do not change.
 
 ### Dependencies
 
