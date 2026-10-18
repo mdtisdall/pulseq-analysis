@@ -9720,6 +9720,27 @@ defaults of the parameters of that function in the module `grad_spectrum`.
 **Assumptions:** The columns `compute` (beyond the names of its arguments) and `to_series` are not
 compared. `registry()` has only the analyses of this package in the test environment.
 
+#### `test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_result`
+
+**Checks:** The table of the defaults of `docs/usage.md` (section 2) has one row for each
+parameter with a default of `load`, `read_seqfile` and `read_pypulseq`, and one row for each
+default of an analysis of `registry()`. Each row gives the default of the signature of its
+function, and names a field of the class that the function returns: the rule of decision Q24 of
+`docs/plans/remaining-review-fixes.md`, that a method parameter has a documented default that the
+result records.
+
+**How:** The function of an analysis is the function of the call of the column `compute` of the
+analyses table of section 7. The call and the parameter of a row are the code spans of its first
+two columns, and the rows are compared with the expected pairs (function, parameter), sorted. The
+default is the first code span of the column "Default": the literal, or, for a name (`BIN_S`), the
+attribute of the module that defines the function. A field is a code span `Class.field` of the
+column "On the result": `Class` is the name of the return annotation of the function, and `field`
+is a field of that dataclass, or a property of that class.
+
+**Assumptions:** The test does not compute a result, so it does not check that the field holds the
+value that the call used: the tests of each call do. The text of each row around its code spans is
+not read. `registry()` has only the analyses of this package in the test environment.
+
 #### `test_the_documents_give_the_version_of_pulseq_cpp_siemens`
 
 **Checks:** `docs/migration.md` and the entry "Unreleased" of `CHANGELOG.md` give the version and
