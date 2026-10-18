@@ -123,6 +123,15 @@ nothing themselves.
     delay, where `gradientsAt` carries its first segment backwards (D4.5;
     `docs/findings-for-pulseq-checks.md`, 2.4). An event whose amplitude is 0
     is 0 everywhere, as `gradientsAt` gives it.
+  - An event of length 0 (all its points at one time: a trapezoid with rise,
+    flat and fall times 0, or an extended trapezoid whose time shape has one
+    sample; both interpreters read both) has no segment. `gradients_at` gives
+    it the value 0 at every time but that one, where a decoding can give
+    another value (the reader gives the vertex of an extended trapezoid of one
+    vertex). So its points keep their times and have the values 0, whatever
+    values the decoding gives them, as in a block read through `gradients_at`
+    (below). The measurements of such an event are those of the same event
+    with the amplitude 0.
 - **A block whose gradients the decoding gives with `gradients_at`**: a block
   with a gradient event that the decoding rotates by a rotation that is not the
   identity (`spec` from 1.5.1, `CppSiemens(rotation="apply")`; D2.18, D6.2), or

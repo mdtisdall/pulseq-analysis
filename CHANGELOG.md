@@ -416,6 +416,17 @@ sequence against the code before each change:
   values, credited to the first block with the NaN at the time of its first
   NaN, and they no longer raise `IndexError`; `pns_levels` gives a NaN peak at
   the time of the first NaN total, not 0.0 with no time.
+- A gradient event of length 0 (all its points at one time: a trapezoid with
+  rise, flat and fall times 0, or an extended trapezoid whose time shape has
+  one sample) plays 0 in the measurements, with each interpreter, as
+  `gradients_at` plays it: its played points keep their times and have the
+  values 0 (`docs/implementation.md`, section 1.2). In a block that is not read
+  through `gradients_at`, `gradient_peaks` and `block_gradient_values` gave
+  its amplitude as the peak of its axis, above the vector peak of the file,
+  and with `cpp-siemens` the slew of a ramp to the vertex of an extended
+  trapezoid; so the values changed with a rotation of the block and with the
+  window. A NaN amplitude of such an event (`cpp-siemens` reads one) plays 0
+  too, as the reader plays it.
 - `d.__init__(...)` no longer changes a `FrozenDict` (review 2026-10-13
   1.3.3): `__new__` fills it, and `__init__` does nothing. The methods of
   `dict` itself, such as `dict.__setitem__(d, key, value)`, still change it.
