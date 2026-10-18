@@ -115,7 +115,7 @@ raises `ModuleNotFoundError`.
 | `asc` | `analyses.asc` |
 | `pns_levels` | `analyses.pns_levels`; `SAFE_FIELDS` is in `analyses.safe` |
 | `grad_peaks`, `grad_spectrum` | `analyses.grad_peaks`, `analyses.grad_spectrum` |
-| `sampling`, `seq_utils` | `synth.sampling`, `synth.seq_utils` |
+| `sampling`, `seq_utils` | `synth.sampling`, `synth.seq_utils`. `GradientSampler.sample` and `GradientSampler.block_samples` take the axis as `"x"`, `"y"` or `"z"`, as the results name it, in place of `"gx"`, `"gy"` or `"gz"`, which raise `ValueError`: `sample("gx", t)` becomes `sample("x", t)`. The values do not change. |
 | `extensions` (`refuse_rotations`, `refuse_unsigned`) | removed ([`load`](#4-load)) |
 
 The entry points of the five analyses now name

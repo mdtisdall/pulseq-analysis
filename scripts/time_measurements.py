@@ -19,7 +19,7 @@ times each call:
 5. `block_gradient_values(snap)`: with the kept values of each block.
 6. `gradient_peaks(snap, range_s=...)`: the median of `WINDOWS` windows at random places, of
    one block, of one TR and of 1000 TRs.
-7. `gradient_sampler(snap).sample("gx", t)`: `SAMPLE_TIMES` sorted times over the sequence.
+7. `gradient_sampler(snap).sample("x", t)`: `SAMPLE_TIMES` sorted times over the sequence.
 8. `gradient_spectrum(snap)`: the default arguments.
 
 A row is thus the time of its call after the calls above it. Each repeat builds a new
@@ -96,7 +96,7 @@ def run_once(build, n_trs, rng, interpreter):
     ):
         rows[label] = median_window_time(snap, index, n_blocks, rng)
     t = np.linspace(0.0, float(index.end_s), SAMPLE_TIMES)
-    rows[f"sample, {SAMPLE_TIMES} times"], _ = timed(lambda: gradient_sampler(snap).sample("gx", t))
+    rows[f"sample, {SAMPLE_TIMES} times"], _ = timed(lambda: gradient_sampler(snap).sample("x", t))
     rows["gradient_spectrum"], spectrum = timed(lambda: gradient_spectrum(snap))
     return rows, index, spectrum
 

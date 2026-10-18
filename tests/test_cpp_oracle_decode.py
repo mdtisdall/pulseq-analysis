@@ -640,7 +640,8 @@ def test_the_gradient_waveform_equals_gradients_at_of_the_cpp_reader(corpus, rec
         theirs = cpp.sample(f.path, block_index, time_us)
         sampled.append(f"{f.name}: {block_index.size}")
         for c, axis in enumerate(_AXES):
-            ours = sampler.sample(axis, t)
+            # The sampler names the axis of the column "gx" "x".
+            ours = sampler.sample(axis.removeprefix("g"), t)
             magnitudes = np.array(
                 [_magnitude(grads[int(i)]) if i else 0.0 for i in data.blocks[axis]]
             )

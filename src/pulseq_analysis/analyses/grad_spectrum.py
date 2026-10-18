@@ -59,7 +59,7 @@ from .._equality import FrozenDict, _freeze, value_dataclass
 from .._validate import real
 from ..synth.sampling import gradient_sampler, sequence_samples
 from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
+from ..synth.seq_utils import _AXES
 from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 
 __all__ = [
@@ -242,9 +242,9 @@ def _compute_spectrum(
         start = first * hop
         stop = (last - 1) * hop + nwin
         rss_sq = 0.0
-        for axis, column in zip(_AXES, _GRAD_COLUMNS, strict=True):
+        for axis in _AXES:
             sxx = _chunk_spectrogram(
-                sampler, column, start, stop, pad, nt, dt, nwin, nfft, keep_n, window
+                sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep_n, window
             )
             chunk_max = sxx.max(axis=1)
             axes_max[axis] = (
@@ -271,8 +271,8 @@ def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep
     windows) and dtype float64. The values are those of scipy's `spectrogram` with the
     arguments of pypulseq's `calculate_gradient_spectrum` (mode="magnitude", `nperseg=nwin`,
     `noverlap=nwin // 2`, `nfft=nfft`, detrend="constant", window=("tukey", 1), `fs=1 / dt`),
-    to the float rounding. `[start, stop)` holds a whole number of windows. `axis` is "gx",
-    "gy" or "gz" (`sampling.GradientSampler`'s axis names); `sampler` gives the axis's
+    to the float rounding. `[start, stop)` holds a whole number of windows. `axis` is "x",
+    "y" or "z" (`sampling.GradientSampler`'s axis names); `sampler` gives the axis's
     waveform (Hz/m), 0 before the first event and after the last one, so an axis with no
     gradient gives an all-zero chunk. `nfft` is the FFT length, and `window` is the Hann
     window of `nwin` samples.

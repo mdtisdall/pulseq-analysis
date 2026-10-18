@@ -474,7 +474,8 @@ These arguments of pypulseq are not arguments here:
 
 ### 2.4 The sampler and the number of samples
 
-`GradientSampler.sample(axis, t)` gives the values at the sorted times `t`.
+`GradientSampler.sample(axis, t)` gives the values of the axis `axis` (`"x"`,
+`"y"` or `"z"`) at the sorted times `t`.
 They are the straight lines between the points of all the events of the axis,
 with the ramps to 0 and from 0 across a long gap, and 0 before the first point
 and after the last point. The value at the time of a step is the value before

@@ -1759,7 +1759,7 @@ second block starts `0.5 * max_slew * grad_raster_time` below the end of the fir
 ramp to 0 in half a raster time, then 0. The grid has 33 times. They are steps of half a raster
 time around the junction, the start of the gap and the start of the last trapezoid, 5 times
 inside the ramp, and 7 times in the gap. The test checks that the values in the ramp are not 0
-and the values after the ramp are 0. It compares `sample("gx", t[i:j])` with `whole[i:j]`
+and the values after the ramp are 0. It compares `sample("x", t[i:j])` with `whole[i:j]`
 (`numpy.array_equal`) for each pair `i < j`. It also compares the whole grid with the oracle.
 
 **Assumptions:** With a last value of 0 for the second block, the gap is 0 with and without the
@@ -1848,7 +1848,7 @@ added event's own corner or sample points (`[0, *g.tt, g.shape_dur]` and `[g.fir
 corners for the trapezoid), offset by each block's start (`numpy.cumsum` of
 `seq.block_durations`) and the event's own delay, with a point dropped when it is not
 more than 1e-9 s after the point before it (the join rule of pypulseq's `waveforms()`).
-`GradientSampler.sample("gx", t)` is compared with `numpy.interp` on that polyline at
+`GradientSampler.sample("x", t)` is compared with `numpy.interp` on that polyline at
 3999 points evenly spaced over the file, within an absolute 1e-5 times the peak of the
 reference (`rtol=0`; the file holds the amplitudes to 6 significant digits). The test cannot call
 `load(seq)`: `read_pypulseq` calls pypulseq's `seq.remove_duplicates()`, which raises `KeyError: -1`
@@ -1887,18 +1887,42 @@ checks each result against `numpy.zeros` exactly, with `dtype == float64`.
 
 **Checks:** `sample` with an empty `t` returns an empty `float64` array, not an error.
 
-**How:** Builds `gre_sequence(num_trs=1)`, calls `sample("gx", numpy.array([]))`, and
+**How:** Builds `gre_sequence(num_trs=1)`, calls `sample("x", numpy.array([]))`, and
 checks the result's dtype and shape.
 
 **Assumptions:** None.
 
 #### `test_invalid_axis_name_raises_value_error`
 
-**Checks:** `sample` raises `ValueError` for an axis name other than "gx", "gy" or
-"gz".
+**Checks:** `sample` raises `ValueError` for an axis name other than "x", "y" or
+"z".
 
 **How:** Builds `gre_sequence(num_trs=1)`, calls `sample("gw", ...)` inside
 `pytest.raises(ValueError)`.
+
+**Assumptions:** None.
+
+#### `test_the_axes_are_x_y_and_z`
+
+**Checks:** `sample` and `block_samples` take the axis names of the results, "x", "y" and "z", and
+give the waveform of that axis.
+
+**How:** `gre_sequence(num_trs=2)` has trapezoids on x, y and z. For each axis, the oracle's
+`oracle.sample` at `_model_times(snap)` is not all 0, `sample(axis, t)` equals it as in
+`_assert_matches_oracle` (a relative 1e-12 and an absolute 1e-12 times the peak), and
+`block_samples(axis, 0, num_blocks, dt)` at the gradient raster equals `oracle.block_samples` within
+`_assert_samples_match`.
+
+**Assumptions:** None.
+
+#### `test_the_block_table_column_names_are_not_axis_names`
+
+**Checks:** `sample` and `block_samples` raise `ValueError` for "gx", "gy" and "gz", the names of the
+block table's gradient columns, and the message names the axes "x", "y" and "z".
+
+**How:** Parametrized over the three column names on `gre_sequence(num_trs=1)`. `sample(column,
+[0.0])` and `block_samples(column, 0, 1, dt)` each inside `pytest.raises(ValueError, match=...)`
+with the pattern `('x', 'y', 'z')`.
 
 **Assumptions:** None.
 
@@ -2047,7 +2071,7 @@ empty range at the end, and the last four samples. For an empty range of blocks,
 `skip=0, count=0` is valid.
 
 **How:** `gre_sequence(num_trs=1)`, blocks 1 to 2. `raster_block_lengths` gives the
-number of samples. `block_samples("gx", 1, 3, dt, skip=total, count=0)` has size 0 and
+number of samples. `block_samples("x", 1, 3, dt, skip=total, count=0)` has size 0 and
 `skip=total - 4, count=4` has size 4. For the empty block range `(2, 2)`, `skip=0,
 count=0` has size 0, and `skip=0, count=1` raises `ValueError` (match `skip`).
 
@@ -2055,8 +2079,8 @@ count=0` has size 0, and `skip=0, count=1` raises `ValueError` (match `skip`).
 
 #### `test_block_samples_invalid_axis_name_raises_value_error`
 
-**Checks:** `block_samples` raises `ValueError` for an axis name other than "gx", "gy"
-or "gz".
+**Checks:** `block_samples` raises `ValueError` for an axis name other than "x", "y"
+or "z".
 
 **How:** Builds `gre_sequence(num_trs=1)`, calls `block_samples("gw", 0, 1, dt)` inside
 `pytest.raises(ValueError)`.
@@ -2081,7 +2105,7 @@ sample raster steps.
 
 **How:** A file holds a block duration in whole block raster times, which is the gradient raster time
 here, so the block is made off the sample raster by `dt`. `pp.make_delay(3 * raster)` is one block of 3
-gradient raster times, and `block_samples("gx", 0, 1, 2 * raster)` (1.5 samples) must raise `ValueError`.
+gradient raster times, and `block_samples("x", 0, 1, 2 * raster)` (1.5 samples) must raise `ValueError`.
 
 **Assumptions:** None.
 
@@ -11537,7 +11561,7 @@ and when the range cuts the block to one sample.
 **How:** `dt` is two raster steps, so the time of sample 0, `dt / 2`, is exactly one
 raster step (the test asserts this). A block with `pp.make_extended_trapezoid` that
 ramps from 0 to 1000.0 Hz/m over one raster step, and a delay event that makes the
-block four raster steps (two samples). `block_samples("gx", 0, 1, dt)` must be `[1000.0,
+block four raster steps (two samples). `block_samples("x", 0, 1, dt)` must be `[1000.0,
 0.0]`; with `skip=0, count=1` it must be `[1000.0]`, and with `skip=1, count=1` it
 must be `[0.0]`, with `numpy.testing.assert_array_equal`. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
 
@@ -11552,7 +11576,7 @@ sample is below that value.
 
 **How:** `dt` is two raster steps. A ramp from 0 to 1000.0 Hz/m over 27 raster steps
 (`pp.make_extended_trapezoid`) in a block of 30 raster steps (a delay event). The test
-asserts `(13 + 0.5) * dt == 27 * raster` in floats. `block_samples("gx", 0, 1, dt)` has 15
+asserts `(13 + 0.5) * dt == 27 * raster` in floats. `block_samples("x", 0, 1, dt)` has 15
 samples. Sample 13 equals 1000.0, sample 14 equals 0.0, and samples 0 to 12 are below
 1000.0. The sequence is loaded with `cpp-siemens`. `spec` rejects a gradient that ends above 0 before its block ends (`gradient.nonzero-end-align`). `cpp-siemens` plays it. The values are exact in float32 (1000.0 Hz/m), so the assertions are exact.
 

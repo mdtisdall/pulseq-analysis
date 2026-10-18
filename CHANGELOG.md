@@ -9,7 +9,8 @@ The package reads Pulseq files itself, through an interpreter, and no longer
 through pypulseq. This release breaks callers of `0.1.0rc6`;
 `docs/migration.md` gives, for each name of `0.1.0rc6`, its replacement. In the
 release candidates, an incompatible change has no alias: an old name raises
-`ImportError`, `AttributeError` or `TypeError`.
+`ImportError`, `AttributeError` or `TypeError`, and an old value of an argument
+(an axis `"gx"` of the sampler) `ValueError`.
 
 A caller moves in this order:
 
@@ -38,6 +39,9 @@ A caller moves in this order:
 7. Give the time range of `gradient_peaks` and of `GRADIENT_PEAKS.compute` as
    `range_s=(start_s, end_s)`, in place of `window=(start_s, end_s)`. The old
    name raises `TypeError`.
+8. Name the axis of `GradientSampler.sample` and `GradientSampler.block_samples`
+   `"x"`, `"y"` or `"z"`, in place of `"gx"`, `"gy"` or `"gz"`. The old axis
+   names raise `ValueError`, as an unknown axis does.
 
 ### Reading files and the interpreters
 
@@ -453,6 +457,21 @@ public module.
   |---|---|
   | `gradient_peaks(snap, window=(start_s, end_s))` | `gradient_peaks(snap, range_s=(start_s, end_s))` |
   | `GRADIENT_PEAKS.compute(snap, window=(start_s, end_s))` | `GRADIENT_PEAKS.compute(snap, range_s=(start_s, end_s))` |
+
+### The gradient sampler
+
+- `GradientSampler.sample` and `GradientSampler.block_samples` take the axis
+  as `"x"`, `"y"` or `"z"`, the names of the axes in the results (review
+  2026-10-13 6: the sampler took `"gx"`, `"gy"` and `"gz"`). `"gx"`, `"gy"`
+  and `"gz"` raise `ValueError`, whose message gives the three names. The
+  values do not change. The columns of the block table and of the sequence
+  index keep the names of the file, `gx`, `gy` and `gz`, and the protocol's
+  `gradient_points` keeps the index 0, 1 or 2 of an axis.
+
+  | `0.1.0rc6` | Now |
+  |---|---|
+  | `sampler.sample("gx", t)` | `sampler.sample("x", t)` |
+  | `sampler.block_samples("gx", first, stop, dt)` | `sampler.block_samples("x", first, stop, dt)` |
 
 ### Dependencies
 

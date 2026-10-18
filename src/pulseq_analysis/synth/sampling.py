@@ -53,7 +53,7 @@ from ._events import (
     ramps,
 )
 from .seq_index import SequenceIndex, sequence_index
-from .seq_utils import _GRAD_COLUMNS, TIME_TOLERANCE
+from .seq_utils import _AXES, _GRAD_COLUMNS, TIME_TOLERANCE
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
 __all__ = [
@@ -63,6 +63,9 @@ __all__ = [
     "raster_block_lengths",
     "sequence_samples",
 ]
+
+# The column of the block table (and of `SequenceIndex`) of each axis of the sampler.
+_COLUMN_OF = dict(zip(_AXES, _GRAD_COLUMNS, strict=True))
 
 
 @dataclass(frozen=True, eq=False)
@@ -140,7 +143,7 @@ class GradientSampler:
         kept for later calls."""
         found = self._events.get(axis)
         if found is None:
-            events = axis_events(self._index, self._points, axis)
+            events = axis_events(self._index, self._points, _COLUMN_OF[axis])
             gaps = gap_kinds(events, self._grad_raster_time)
             found = (events, gaps, ramps(events, gaps, self._grad_raster_time))
             self._events[axis] = found
@@ -182,12 +185,12 @@ class GradientSampler:
         return _frozen_gaps(start_s, end_s, start_v, end_v)
 
     def sample(self, axis: str, t: np.ndarray) -> np.ndarray:
-        """The waveform of `axis` ("gx", "gy" or "gz") in Hz/m at the times `t` (s), which
+        """The waveform of `axis` ("x", "y" or "z") in Hz/m at the times `t` (s), which
         must be sorted in increasing order, by the model of the module docstring. The value
         at the time of a step is the value before the step. It equals the values of the
         oracle `tests/oracles/waveform.py` to the float rounding."""
-        if axis not in _GRAD_COLUMNS:
-            raise ValueError(f"axis must be one of {_GRAD_COLUMNS}: {axis!r}")
+        if axis not in _AXES:
+            raise ValueError(f"axis must be one of {_AXES}: {axis!r}")
         t = np.asarray(t, dtype=np.float64)
         if t.size == 0:
             return np.empty(0, dtype=np.float64)
@@ -261,7 +264,7 @@ class GradientSampler:
         skip: int = 0,
         count: int | None = None,
     ) -> np.ndarray:
-        """The samples of `axis` ("gx", "gy" or "gz") in Hz/m of the blocks `first` to
+        """The samples of `axis` ("x", "y" or "z") in Hz/m of the blocks `first` to
         `stop - 1` (play indexes), joined in play order (float64), from the sample `skip`
         of that range, `count` samples (`count=None`: all the samples after `skip`).
 
@@ -302,8 +305,8 @@ class GradientSampler:
         `0 <= first <= stop <= num_blocks`, when a block of the range is not on the
         raster (`raster_block_lengths`), and when `skip` or `count` is negative or
         `skip + count` is more than the samples of the range."""
-        if axis not in _GRAD_COLUMNS:
-            raise ValueError(f"axis must be one of {_GRAD_COLUMNS}: {axis!r}")
+        if axis not in _AXES:
+            raise ValueError(f"axis must be one of {_AXES}: {axis!r}")
         num_blocks = self._index.num_blocks
         if not (0 <= first <= stop <= num_blocks):
             raise ValueError(
@@ -359,7 +362,7 @@ class GradientSampler:
         ends = starts + n
         # The blocks with an event on `axis` that have a sample in the result are the ones
         # to fill.
-        col = getattr(self._index, axis)[first:stop].astype(np.int64)
+        col = getattr(self._index, _COLUMN_OF[axis])[first:stop].astype(np.int64)
         touched = (col > 0) & (n > 0) & (ends > 0) & (starts < count)
         if not np.any(touched):
             return

@@ -72,7 +72,9 @@ def sequence(*blocks):
 
 
 def ours(snap, axis, t):
-    return gradient_sampler(snap).sample(axis, t)
+    """The waveform that the package measures on the axis of the column `axis` ("gx", "gy" or
+    "gz"), which the sampler names "x", "y" or "z"."""
+    return gradient_sampler(snap).sample(axis.removeprefix("g"), t)
 
 
 def pypulseq_points(seq, axis):

@@ -58,7 +58,7 @@ from ..synth.sampling import (
     sequence_samples,
 )
 from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
-from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
+from ..synth.seq_utils import _AXES
 from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 from .safe import SAFE_FIELDS, SafeHardware, _safe_gwf_to_pns_chunk
 
@@ -511,7 +511,7 @@ def _read_block_range(
     offset = int(cumulative[first_block - 1]) if first_block > 0 else 0
     columns = [
         sampler.block_samples(axis, first_block, stop_block, dt, skip=s0 - offset, count=s1 - s0)
-        for axis in _GRAD_COLUMNS
+        for axis in _AXES
     ]
     return np.stack(columns, axis=1)
 
@@ -521,7 +521,7 @@ def _read_sampled_range(sampler: GradientSampler, dt: float, s0: int, s1: int) -
     `GradientSampler.sample` at the file times `(k + 0.5) * dt` (the fallback for a
     sequence with a block that is not on the raster)."""
     t = (np.arange(s0, s1, dtype=np.float64) + 0.5) * dt
-    columns = [sampler.sample(axis, t) for axis in _GRAD_COLUMNS]
+    columns = [sampler.sample(axis, t) for axis in _AXES]
     return np.stack(columns, axis=1)
 
 
