@@ -9635,9 +9635,10 @@ documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
 time they were written. `test_each_test_that_a_document_names_exists` also reads the Python files
-of `src/` and `tests/` of both. The module imports only `pulseq_analysis` and the standard library, so
-the docs-only path of `scripts/check` runs it with `test_interface.py`, with no build of the
-plugin.
+of `src/` and `tests/` of both, and `test_each_plan_that_a_file_cites_exists` reads each file that
+git tracks outside the plans and the reviews. The module imports only `pulseq_analysis` and the
+standard library, so the docs-only path of `scripts/check` runs it with `test_interface.py`, with no
+build of the plugin.
 
 #### `test_each_record_id_that_a_document_cites_is_an_entry_of_the_record`
 
@@ -9688,6 +9689,26 @@ test in a docstring of `tests/test_grad_spectrum.py`, and collects each name tha
 (`tests/test_x.py`), followed by a dot, or in `scripts/`. A name of a test of another module, or a
 name of a function `test_...` that pytest does not collect, counts as a test. The test does not
 check that the test is the one that the text means.
+
+#### `test_each_plan_that_a_file_cites_exists`
+
+**Checks:** Each path `docs/plans/<name>.md` that a file of the repository gives names a plan
+that exists. A plan is deleted when its work is done, so a text that cites it gives the reason or
+the decision itself instead.
+
+**How:** The test reads each file that `git ls-files` lists and that is in the working tree, as
+UTF-8 (a byte that is not UTF-8 is replaced), code blocks and code spans too, except the files of
+`docs/plans/` and `docs/reviews/`. It collects each `docs/plans/`, letters, digits, `_` or `-`,
+and `.md`, and leaves out a path followed by `of` or `in` and `pulseq-checks` (a plan of that
+repository), across a line break too. It first checks that the pattern finds a path in a code
+span and outside one and leaves out a plan of pulseq-checks, and that the reading finds the
+citation of `.github/workflows/pulseq-cpp-siemens-wheels.yml`, a file that is not a document or a
+Python file. It gives the file and the line of each citation of a plan that does not exist.
+
+**Assumptions:** The plans and the reviews keep the text of the time they were written, and may
+cite a closed plan. A relative link to a plan that does not start with `docs/plans/`
+(`plans/x.md` of a file of `docs/`) is not read; nor is a plan of pulseq-checks whose path is not
+followed by its name. The test does not check that the plan is the one that the text means.
 
 #### `test_no_document_links_a_commit`
 
