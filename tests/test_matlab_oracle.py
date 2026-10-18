@@ -35,7 +35,7 @@ from pulseq_analysis import seqfile
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
-from pulseq_analysis.seqfile.model import TIME_TOLERANCE
+from pulseq_analysis.seqfile.model import RF_TIME_SHAPE_TOLERANCE
 from pulseq_analysis.synth import seq_utils
 from pulseq_analysis.synth._events import _points_from_events
 from pulseq_analysis.synth.events import (
@@ -269,7 +269,7 @@ def _same_end_as_matlab(rf, raster):
     if rf.dwell is not None:
         return rf.dwell == raster
     last = rf.t[-1] / raster
-    return abs(last - round(last)) <= TIME_TOLERANCE
+    return abs(last - round(last)) <= RF_TIME_SHAPE_TOLERANCE
 
 
 def compare_rf(diff, where, rf, theirs, data):

@@ -169,6 +169,12 @@ A caller moves in this order:
   by straight lines of the complex signal (D2.10 to D2.12). A time shape of
   one sample `t0` above 0 is one cell of `2 t0` (D3.9), so MATLAB Pulseq's
   pulse of one sample plays for one dwell (`model.rf_time_step`).
+- The tolerance of a regular RF time shape, 1e-6 RF raster times, is
+  `seqfile.model.RF_TIME_SHAPE_TOLERANCE` (review 2026-10-13 6:
+  `model.TIME_TOLERANCE` had the name of `seq_utils.TIME_TOLERANCE`, a
+  tolerance of 1e-9 s). `model.TIME_TOLERANCE` raises `AttributeError`, and
+  its import `ImportError`. The value does not change, and
+  `seq_utils.TIME_TOLERANCE` keeps its name.
 
 ### The plugin pulseq-cpp-siemens
 

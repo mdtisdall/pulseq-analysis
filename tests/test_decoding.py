@@ -515,14 +515,26 @@ def test_rf_time_step_of_a_time_shape(num_samples, packed, step):
     ],
 )
 def test_rf_time_step_has_the_tolerance_of_the_model(shift, regular):
-    """The steps are equal, and the first time is half a step, to within `model.TIME_TOLERANCE`
-    RF raster times. The times 0.5, 1.5, ..., 4.5 are late by `shift` times the tolerance."""
-    times = np.arange(5) + 0.5 + np.array(shift) * model.TIME_TOLERANCE
+    """The steps are equal, and the first time is half a step, to within
+    `model.RF_TIME_SHAPE_TOLERANCE` RF raster times. The times 0.5, 1.5, ..., 4.5 are late by
+    `shift` times the tolerance."""
+    times = np.arange(5) + 0.5 + np.array(shift) * model.RF_TIME_SHAPE_TOLERANCE
     result = model.rf_time_step(times)
     if regular:
-        assert result == pytest.approx(1.0, abs=model.TIME_TOLERANCE)
+        assert result == pytest.approx(1.0, abs=model.RF_TIME_SHAPE_TOLERANCE)
     else:
         assert result is None
+
+
+def test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes():
+    """The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
+    times, and the model has no `TIME_TOLERANCE`, the old name, which `seq_utils` also has for
+    a tolerance of 1e-9 s (Q21)."""
+    from pulseq_analysis.seqfile.model import RF_TIME_SHAPE_TOLERANCE
+
+    assert RF_TIME_SHAPE_TOLERANCE == 1e-6
+    with pytest.raises(AttributeError):
+        _ = model.TIME_TOLERANCE
 
 
 def test_rf_event_with_a_time_shape_in_a_1_4_file():

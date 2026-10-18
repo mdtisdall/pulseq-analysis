@@ -1033,8 +1033,9 @@ modulation is in rad, one value for each sample. The model is made of
 `model.Rasters`, `model.Shape`, `model.Signature` and `model.Extensions`;
 `model.TABLE_DTYPES` has the dtype of each table, and `model.decompress_shape`
 decompresses a shape. `spec.RANGE_TOLERANCE`, `spec.TOLERANCE_NS`,
-`spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and `model.TIME_TOLERANCE`
-are the limits of its rules.
+`spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and
+`model.RF_TIME_SHAPE_TOLERANCE` (1e-6 RF raster times, the tolerance of a
+regular RF time shape) are the limits of its rules.
 
 **The contract with pulseq-checks.** The "as written" reading, the
 reading of a plugin (`SequenceData.reading`), the protocols `Plugin` and `Decoding`, the

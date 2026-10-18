@@ -8236,14 +8236,26 @@ and one sample 5 gives 10. A step is compared to a relative 1e-12.
 #### `test_rf_time_step_has_the_tolerance_of_the_model`
 
 **Checks:** The steps must be equal, and the first time must be half a step, to within
-`model.TIME_TOLERANCE` RF raster times.
+`model.RF_TIME_SHAPE_TOLERANCE` RF raster times.
 
 **How:** For four cases (parametrized), the times 0.5, 1.5, 2.5, 3.5, 4.5 are made late by a multiple of the
 tolerance: one time late by 0.4 tolerances gives the step 1 (to the tolerance); one time late by 3 tolerances,
 and all the times late by 3 tolerances (the first time is then not half a step), give `None`; all the times
 late by 0.4 tolerances give the step 1.
 
-**Assumptions:** The test uses `model.TIME_TOLERANCE` itself, not its value.
+**Assumptions:** The test uses `model.RF_TIME_SHAPE_TOLERANCE` itself, not its value.
+
+#### `test_the_tolerance_of_an_rf_time_shape_is_named_for_rf_time_shapes`
+
+**Checks:** The tolerance of `model.rf_time_step` is `model.RF_TIME_SHAPE_TOLERANCE`, 1e-6 RF raster
+times, and `model` has no `TIME_TOLERANCE`, the old name of it (Q21). `seq_utils.TIME_TOLERANCE`, a
+tolerance of 1e-9 s, keeps its name.
+
+**How:** The test imports `RF_TIME_SHAPE_TOLERANCE` from `pulseq_analysis.seqfile.model` and compares it
+with 1e-6. It reads `model.TIME_TOLERANCE` and checks that this raises `AttributeError`.
+
+**Assumptions:** The test checks a constant of the package and its name, not a calculation. The import is
+in the test, so that a missing name fails this test only. It needs no pypulseq.
 
 #### `test_adc_phase_modulation_has_one_value_for_each_sample`
 
