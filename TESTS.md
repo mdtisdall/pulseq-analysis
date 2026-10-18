@@ -10587,13 +10587,8 @@ from 0 to half of the total duration. For each window, `_assert_matches_oracle` 
 field with `oracle.peaks(seq, window)`: the peak, the slew and the RMS of each axis within
 `_rounding_tol`, the peak time and the vector peak time to 1e-12 s, the blocks (below) and the
 vector peak. `_rounding_tol` is `1e-12 + 4 * eps * duration / shortest segment`, relative to
-the value or to the limit of the same kind. The block of the peak of each axis is the oracle's,
-with one exception (`_assert_same_credit`). `gre_sequence` repeats its readout, phase-encode and
-spoiler events every TR, and the oracle adds the absolute block start to the corner times, so
-its rounding can make it credit a later block that plays the same event. This package credits
-the first block in play order. The test accepts a different block only when both blocks play
-the same gradient event on that axis and the block of this package is the earlier one. The
-block and the time of the slew are the oracle's, or those of another item of the polyline of
+the value or to the limit of the same kind. The block of the peak of each axis is the oracle's.
+The block and the time of the slew are the oracle's, or those of another item of the polyline of
 the oracle with the same slope (`_assert_slew_item`). The block of the vector peak is the
 oracle's.
 
