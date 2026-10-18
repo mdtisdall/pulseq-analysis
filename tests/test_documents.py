@@ -14,6 +14,7 @@ plugin: it reads `CODES` of `cpp-siemens` from the source of the plugin with `as
 
 import ast
 import collections
+import dataclasses
 import functools
 import importlib
 import inspect
@@ -436,6 +437,62 @@ def test_the_analyses_table_of_usage_is_the_registry():
             f"{analysis_id}: (params, necessary, defaults, cost) are {written} in the document "
             f"and {registered} in the registry"
         )
+
+
+def _has_field(cls: type, name: str) -> bool:
+    """`name` is a field of the dataclass `cls`, or a property of the class `cls`."""
+    if dataclasses.is_dataclass(cls):
+        return name in {field.name for field in dataclasses.fields(cls)}
+    return isinstance(getattr(cls, name, None), property)
+
+
+def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_result():
+    """The table of the defaults of `docs/usage.md` (section 2) has one row for each parameter
+    with a default of `load`, `read_seqfile` and `read_pypulseq`, and one for each default of an
+    analysis of `registry()`, of the function of the column `compute` of the analyses table
+    (decision Q24 of `docs/plans/remaining-review-fixes.md`). Each row gives the default of the
+    signature of the function, and each `Class.field` of its column "On the result" is a field
+    of the class that the function returns."""
+    text = _text(USAGE)
+    analyses = registry()
+    expected = [
+        (function_name, name)
+        for function_name in ("load", "read_seqfile", "read_pypulseq")
+        for name, parameter in inspect.signature(
+            getattr(_module_defining(function_name), function_name)
+        ).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    ]
+    for row in _table(text, "| ID | `compute` | Necessary | Defaults | Cost | `to_series` |"):
+        (analysis_id,) = _CODE.findall(row[0])
+        function_name = _CODE.findall(row[1])[0].split("(", 1)[0]
+        expected += [(function_name, name) for name, _ in analyses[analysis_id].spec.defaults]
+    rows = _table(text, "| Call | Parameter | Default | On the result |")
+    written = [(_CODE.findall(row[0])[0], _CODE.findall(row[1])[0]) for row in rows]
+    assert sorted(written) == sorted(expected), _difference(written, expected)
+    for (function_name, name), row in zip(written, rows, strict=True):
+        module = _module_defining(function_name)
+        signature = inspect.signature(getattr(module, function_name))
+        span = _CODE.findall(row[2])[0]
+        try:
+            default = ast.literal_eval(span)
+        except ValueError:
+            default = getattr(module, span)
+        assert default == signature.parameters[name].default, (
+            f"{function_name}: the default of {name} is {default!r} in the document and "
+            f"{signature.parameters[name].default!r} in the code"
+        )
+        returned = signature.return_annotation
+        fields = [
+            match.groups()
+            for span in _CODE.findall(row[3])
+            if (match := re.fullmatch(r"([A-Z]\w*)\.(\w+)", span)) is not None
+        ]
+        assert fields, f"{function_name}: the row of {name} names no field of the result"
+        for class_name, field in fields:
+            assert class_name == returned.__name__ and _has_field(returned, field), (
+                f"{function_name}: {class_name}.{field} is not a field of {returned.__name__}"
+            )
 
 
 def _project_name(requirement: str) -> str:

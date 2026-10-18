@@ -237,6 +237,29 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   `gradient_spectrum`
   ([implementation, section 6](implementation.md#6-argument-checks)).
 
+**Target data and method parameters.** The data of the target (the scanner, its
+gradient coil and the nucleus) is necessary: the package has no default for it.
+So `pns_levels` has no default `hardware`, `hardware_from_asc` assumes no
+gradient scale factor ([section 5](#5-predict-the-pns-on-a-scanner)), and no
+call takes a gamma: the values are in units with no gamma
+([section 9](#9-units-and-gamma)). A parameter of the method has a documented
+default, and the result records what the call used. This table gives each
+default of `load`, of the reads and of the analyses
+([section 7](#7-run-the-analyses-and-write-json)):
+
+| Call | Parameter | Default | On the result |
+|---|---|---|---|
+| `load` | `interpreter` | `"spec"` | `Snapshot.interpreter`: `Spec()` for the default |
+| `load` | `session` | `None`: the neutral session, `Session()` | `Snapshot.session` |
+| `read_seqfile` | `interpreter` | `"spec"` | `SequenceData.interpreter` |
+| `read_pypulseq` | `interpreter` | `"spec"` | `SequenceData.interpreter` |
+| `gradient_peaks` | `range_s` | `None`: the whole sequence | `GradientPeaks.range_s`: `(0.0, end_s)` for the default |
+| `pns_levels` | `thresholds_hz_per_t` | `()`: no runs | the keys of `PnsLevels.above`, one for each threshold |
+| `pns_levels` | `bin_s` | `BIN_S` (0.005 s) | `PnsLevels.bin_samples`: the samples of a bin that `bin_s` gives. The result does not have `bin_s`. |
+| `gradient_spectrum` | `max_frequency_hz` | `MAX_FREQUENCY_HZ` (2000.0 Hz), the default of pypulseq | `GradientSpectrum.max_frequency_hz` |
+| `gradient_spectrum` | `window_s` | `FFT_WINDOW_S` (0.05 s), the default of pypulseq | `GradientSpectrum.window_s` |
+| `gradient_spectrum` | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0), the default of pypulseq | `GradientSpectrum.frequency_oversampling` |
+
 **The cost of each call.** The time of a call grows with the size of the
 sequence: with the number of blocks, with the number of unique gradient events,
 or with the duration (the number of gradient raster samples).
@@ -511,6 +534,8 @@ spectrum ([implementation, section 2.3](implementation.md#23-gradient_spectrum))
 | `window_s` | `FFT_WINDOW_S` (0.05) | `window_width` | The length of a window. |
 | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0) | `frequency_oversampling` | The length of the FFT, as a multiple of the samples of a window. |
 
+Each default is the default of the argument of pypulseq, and the result
+records each of the three arguments ([section 2](#2-before-you-start)).
 The three arguments are keyword-only. Each is a finite number. `window_s` is
 above 0 and at least 2 samples of the gradient raster of the file, and
 `frequency_oversampling` is 1 or more. `max_frequency_hz` is above 0, at most the

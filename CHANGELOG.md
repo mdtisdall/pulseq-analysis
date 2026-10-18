@@ -597,6 +597,11 @@ sequence against the code before each change:
 
 - `docs/migration.md`: from `0.1.0rc6` to this release, for pulseq-checks and
   pulseq-reports.
+- `docs/usage.md` (section 2) gives the rule of the defaults: the data of the
+  target (the scanner, its gradient coil and the nucleus) has no default, and a
+  parameter of the method has a documented default that the result records. A
+  table gives each default of `load`, of the reads and of the analyses, and the
+  field of the result that records it.
 - `docs/specification.md`: what `spec` does and why, by rule, with the codes
   of its rejections. `docs/discrepancies.md`: the record of `spec`, entry by
   entry (IDs D1.1 to D4.6), with the sources (the specification and the C++
