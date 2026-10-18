@@ -31,8 +31,10 @@ the same steps as scipy: the windows, the constant detrend, the Hann window, the
 (`scipy.fft.rfft` in one thread) and the scale of the magnitude mode. The windows are a
 read-only view of the samples of the chunk, and the magnitude is taken only of the bins up
 to `max_frequency_hz`, about 1/25 of the bins at the defaults, so the chunk needs less
-memory and time than scipy's call. The values agree with scipy's to the float rounding
-(`tests/test_grad_spectrum.py`, `test_matches_scipy_spectrogram`).
+memory and time than scipy's call. The values agree with scipy's to the float rounding:
+`test_matches_oracle_on_synthetic_sequences`, `test_matches_oracle_with_many_chunks` and
+`test_matches_oracle_with_other_arguments` (`tests/test_grad_spectrum.py`) compare them with the
+oracle `tests/oracles/grad_spectrum.py`, which calls scipy's `spectrogram`.
 
 The spectrum is in Hz/m/sqrt(Hz), the unit of the gradients of a .seq file, with no
 gamma. A change to T/m needs gamma, the gyromagnetic ratio of the nucleus that the scanner
@@ -200,8 +202,7 @@ def _compute_spectrum(
         )
     sampler = gradient_sampler(snap)
 
-    # The file's raster ([DEFINITIONS]): `Sequence.read` does not change the `system` of the
-    # sequence.
+    # The file's raster: `GradientRasterTime` of [DEFINITIONS] (`SequenceData.rasters`).
     dt = snap.data.rasters.gradient
     nwin = round(window_s / dt)
     nfft = round(frequency_oversampling * nwin)
@@ -286,8 +287,9 @@ def _chunk_spectrogram(sampler, axis, start, stop, pad, nt, dt, nwin, nfft, keep
     # `build_repeating(10000)` with the defaults, the peak memory of `gradient_spectrum` is
     # 54 MB instead of 85 MB, and the time 0.53 s instead of 0.63 s. scipy's `ZoomFFT`,
     # which makes only a range of bins, was slower and used more memory here.
-    # `test_matches_scipy_spectrogram` compares these values with scipy's, so a change of
-    # the steps in scipy fails that test.
+    # `test_matches_oracle_on_synthetic_sequences`, `test_matches_oracle_with_many_chunks` and
+    # `test_matches_oracle_with_other_arguments` compare these values with those of the oracle,
+    # which calls scipy's `spectrogram`, so a change of the steps in scipy fails them.
     hop = nwin - nwin // 2
     num_windows = (w.size - nwin) // hop + 1
     windows = np.lib.stride_tricks.as_strided(

@@ -4404,9 +4404,8 @@ RSS peak must be within 20 Hz of 600 Hz.
 **Checks:** A gradient at the end of the sequence gives the same spectrum as the
 same gradient in the middle of the sequence. This holds when the number of
 samples is a whole number of hops and when it is not, for a window of an even and
-of an odd number of samples. The test replaces
-`test_gradients_at_the_end_are_not_attenuated`: that test had a sequence of a
-whole number of hops, so it could not find the bug.
+of an odd number of samples. The test replaces an earlier test whose sequence
+had a whole number of hops, so that test could not find the bug.
 
 **How:** For 5000, 6000, 7000 and 7499 samples, and for a window of 5000 samples
 (`window_s=0.05`) and one of 4999 samples (`window_s=0.04999`), the test makes a
@@ -7635,7 +7634,7 @@ and checks that ADC 2 has `phase_modulation` `None`.
 **Checks:** Each decode function gives every row of its table, in table order, including an event
 that no block uses.
 
-**How:** The file of `test_rf_event_with_a_time_shape` has RF 3 and trapezoid 7, which no block
+**How:** The file of the fixture `time_shaped` has RF 3 and trapezoid 7, which no block
 uses. The test checks the keys of the three mappings and the values of RF 3 and trapezoid 7.
 
 **Assumptions:** None.
@@ -7655,7 +7654,7 @@ file. The events use the shapes 1, 2 (twice), 3, 6, 7 and 8, and the time shape 
 **Checks:** Each decoded event equals the same event of another call, survives `pickle`, cannot be
 changed, and has read-only arrays that cannot be made writable.
 
-**How:** For each decode function on the file of `test_rf_event_with_a_time_shape`, the test
+**How:** For each decode function on the file of the fixture `time_shaped`, the test
 compares each event with the same event of a second call and with a pickled copy. For each array
 field it checks that `writeable` is false and that setting it raises `ValueError`, and that setting
 a field raises `AttributeError`.
@@ -9072,7 +9071,8 @@ repeat a table of the code, and the version of pulseq-cpp-siemens that the docum
 documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
-time they were written. The module imports only `pulseq_analysis` and the standard library, so
+time they were written. `test_each_test_that_a_document_names_exists` also reads the Python files
+of `src/` and `tests/` of both. The module imports only `pulseq_analysis` and the standard library, so
 the docs-only path of `scripts/check` runs it with `test_interface.py`, with no build of the
 plugin.
 
@@ -9106,6 +9106,25 @@ and one within a document.
 **Assumptions:** Only ATX headings (`#` to `######`) are read, and the reference links
 (`[text][ref]`) are not. A `_` of emphasis in a heading stays in its anchor, where GitHub drops
 it.
+
+#### `test_each_test_that_a_document_names_exists`
+
+**Checks:** Each test name (`test_...`) that a document, or a docstring or a comment of a Python
+file of `src/` or `tests/` (of the repository and of the plugin), gives in a code span is a test
+function or a test module of the `tests/` of the repository or of the plugin (finding 3.8 of
+`docs/reviews/2026-10-13-code-review.md`: a test that was removed was still cited).
+
+**How:** The test reads the names of the test functions (`def test_...`, at any depth) and the
+names of the modules (`test_*.py`) of both `tests/` with `ast`, so it imports no test module. It
+reads each code span of each line of each document and Python file, code blocks too, and each name
+`test_` and letters, digits or `_` in it with no letter, digit, `_`, `.` or `/` before it and no
+letter, digit, `_` or dot after it. It checks that it found a test and a module in `TESTS.md` and a
+test in a docstring of `tests/test_grad_spectrum.py`, and collects each name that is no test.
+
+**Assumptions:** A name outside a code span is not read, and neither is a name in a path
+(`tests/test_x.py`), followed by a dot, or in `scripts/`. A name of a test of another module, or a
+name of a function `test_...` that pytest does not collect, counts as a test. The test does not
+check that the test is the one that the text means.
 
 #### `test_no_document_links_a_commit`
 
