@@ -107,8 +107,8 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 
 | Module | What it gives | Section |
 |---|---|---|
-| `pulseq_analysis.analyses` | `load`: a file or a pypulseq sequence, read through an interpreter, as a `Snapshot`. | [2](#2-before-you-start) |
-| `pulseq_analysis.synth.snapshot` | `Snapshot`: the interpreter's reading and its decoding, which the measurements read. | [2](#2-before-you-start) |
+| `pulseq_analysis.analyses` | `load`: a file or a pypulseq sequence, read through an interpreter, or the `SequenceData` of such a reading, as a `Snapshot`. | [2](#2-before-you-start) |
+| `pulseq_analysis.synth.snapshot` | `Snapshot`: the type of the interpreter's reading and its decoding, which the measurements read. `load` makes it. | [2](#2-before-you-start) |
 | `pulseq_analysis.synth.scanner` | `Session`: the inputs of the scanner that are not in the file; the records of what a decoding applied; `ScannerSettingWarning` and `SettingError`. | [8](#the-scanner-session) |
 | `pulseq_analysis.synth.events` | `decode_rf`, `decode_gradients` and `decode_adc`: the events of a `spec` model by file ID, as `RfEvent`, `Trapezoid`, `ArbitraryGradient` and `AdcEvent`. | [8](#the-events) |
 | `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a range of time and for each block. | [3](#3-the-gradient-peaks), [4](#4-find-where-a-value-occurs) |
@@ -123,7 +123,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 | `pulseq_analysis.synth.seq_utils` | The points of one gradient event, and `TIME_TOLERANCE`. | [8](#8-the-block-table-and-the-other-modules) |
 | `pulseq_analysis.seqfile.as_written` | The "as written" reading of a Pulseq text file: its sections, rows and typed fields, with line numbers. | [8](#the-as-written-reading) |
 | `pulseq_analysis.seqfile.model` | `SequenceData`: what an interpreter read of a file, as read-only values, and the classes it is made of. | [8](#the-model) |
-| `pulseq_analysis.seqfile.spec` | `read_spec`: the reading of the interpreter `spec`, its rules (`RULES`) and their codes. | [8](#the-interpreters) |
+| `pulseq_analysis.seqfile.spec` | The rules of the interpreter `spec` (`RULES`) and their codes. `read_seqfile` reads a file through it. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.from_pypulseq` | `read_pypulseq`: a `pypulseq.Sequence` in memory, written to text and read through an interpreter. | [8](#a-pypulseq-sequence-in-memory) |
 | `pulseq_analysis.seqfile.reading` | `read_seqfile`: a Pulseq text file through an interpreter, into a `SequenceData`. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.interpreters` | The interpreter `spec`, the protocol of a plugin interpreter, and the names of the installed interpreters. | [8](#the-interpreters) |
@@ -138,9 +138,10 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   interpreter one time, into a `Snapshot` that only the package holds, and each
   measurement takes the snapshot. A measurement of a `pp.Sequence` or of a path
   raises `TypeError` that names `load`.
-- **`load(source, interpreter="spec")`.** `source` is the path of a `.seq` file
-  or a `pp.Sequence` (you have one only with pypulseq: the extra `pypulseq`,
-  [Install](#0-install)). `interpreter` is a name (`"spec"`, the default, or
+- **`load(source, interpreter="spec")`.** `source` is the path of a `.seq` file,
+  a `pp.Sequence` (you have one only with pypulseq: the extra `pypulseq`,
+  [Install](#0-install)), or a `seqfile.SequenceData` that `read_seqfile` or
+  `read_pypulseq` gave. `interpreter` is a name (`"spec"`, the default, or
   the name of an installed plugin, such as `"cpp-siemens"`) or an interpreter
   object with its settings, for example `CppSiemens(rotation="apply")`
   ([The interpreters](#the-interpreters)).
@@ -150,11 +151,16 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   ([A pypulseq sequence in memory](#a-pypulseq-sequence-in-memory)). So the
   values are those of the file that the scanner receives (the writer rounds
   them), a later change of `seq` does not change the snapshot, and `load(seq)`
-  and `load` of the file of `seq.write` give the same results. A file that the
-  interpreter rejects raises its `SeqFileError` (with the code of each reason),
-  a file outside the package's scope `NotSupported`, and another type of
-  `source` `TypeError`. Call `load` one time for each file and interpreter, and
-  give the snapshot to each measurement.
+  and `load` of the file of `seq.write` give the same results.
+  `load(data, interpreter)` takes the data as it is, with no reading:
+  `interpreter` is the one that read it, so the data of a plugin is
+  `load(data, data.interpreter)`, and another interpreter raises `ValueError`.
+  The snapshot has the decoding and the warnings of `load` of the file. A file
+  that the interpreter rejects raises its `SeqFileError` (with the code of each
+  reason), a file outside the package's scope `NotSupported`, and another type
+  of `source` `TypeError`. Call `load` one time for each file and interpreter,
+  and give the snapshot to each measurement. `load` is the one way to make a
+  snapshot: `Snapshot(...)` raises `TypeError`.
 - **What a snapshot records.** `snap.interpreter` is the interpreter with its
   settings, `snap.session` the scanner session (`synth.Session`), `snap.records`
   what the interpreter recorded of the file (an extension, a label or a
@@ -163,7 +169,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   rotations of the file and with the session (`synth.RotationRecord`,
   `synth.SoftDelayRecord`, `synth.FovRecord`). `snap.data` is the `SequenceData`, `snap.decoding`
   its decoding, and `snap.source` the path that `load` read (a `str`), or `None`
-  for a `pp.Sequence`. A snapshot is equal only to itself.
+  for a `pp.Sequence` and a `SequenceData`. A snapshot is equal only to itself.
 - **Rotations.** `load` reads a file with the rotation extension (ROTATIONS,
   D2.18, D6.2). The measurements take the gradients of the decoding: `spec` rotates each
   block by its rotation from version 1.5.1, and `cpp-siemens` gives the reader's
@@ -694,7 +700,8 @@ themselves, by the IDs of the file, are in the decoding of the snapshot
 ([The events](#the-events)).
 
 **The gradient waveform.** `sampling.gradient_sampler(snap)` gives a
-`GradientSampler`. `sampler.sample(axis, t)` gives the waveform of one axis
+`GradientSampler`, and is the one way to make one: `GradientSampler(...)`
+raises `TypeError`. `sampler.sample(axis, t)` gives the waveform of one axis
 in Hz/m at the sorted times `t`, for a plot. The axis is `"x"`, `"y"` or `"z"`,
 as in the results, not the name of a column of the index (`gx`, `gy`, `gz`):
 
@@ -940,7 +947,8 @@ quaternion, divided by its norm (D2.18). It has no setting for this
   rotated. `cpp-siemens` with `rotation="apply"` rotates such a file, as the
   reader attaches the rotation in any version.
 
-**`spec`.** `spec.read_spec(path)` reads with the rules of `spec.RULES`, and its
+**`spec`.** `read_seqfile(path)`, with the default interpreter `"spec"`, reads
+with the rules of `spec.RULES`, and its
 `SeqFileError` has every violation (at most `spec.MAX_LOCATIONS` for each rule,
 and a count of the rest). Its sources are the specification
 (`doc/specification.tex` of pulseq/pulseq at `c7469123`, 1.5.3 draft) and, for

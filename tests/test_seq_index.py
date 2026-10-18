@@ -409,7 +409,7 @@ def _no_blocks():
     plugin's tests)."""
     data = read_seqfile(SEQFILES / "valid_no_signature.seq")
     empty = np.zeros(0, dtype=TABLE_DTYPES["blocks"])
-    return Snapshot(dataclasses.replace(data, blocks=_freeze(empty)[0]))
+    return load(dataclasses.replace(data, blocks=_freeze(empty)[0]))
 
 
 def test_has_gradients_is_false_for_a_file_with_no_blocks():

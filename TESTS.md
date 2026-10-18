@@ -1605,7 +1605,7 @@ on x, on y and on z; and one delay block. The test checks
 
 **Checks:** `has_gradients` is False for the index of a model with no block.
 
-**How:** The snapshot of the model of `valid_no_signature.seq` through `spec`, with its block
+**How:** `load` of the model of `valid_no_signature.seq` through `spec`, with its block
 table replaced by an empty one (`spec` rejects a file with no block, `blocks.empty`, and
 pypulseq's writer cannot write a sequence with no block; the plugin's tests read
 `bad_blocks_empty.seq` through `cpp-siemens`, section 3.11).
@@ -2253,11 +2253,11 @@ peak), because the ramp end and the sample time are each a sum of floats.
 
 #### `test_gradient_sampler_raises_type_error_that_names_load_for_a_non_snapshot`
 
-**Checks:** `gradient_sampler` and the constructor `GradientSampler` raise `TypeError` with
-a message that names `load` for a `pp.Sequence` and for a path.
+**Checks:** `gradient_sampler` raises `TypeError` with a message that names `load` for a
+`pp.Sequence` and for a path.
 
-**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. Both calls
-must raise `TypeError` with `match="load"`.
+**How:** Parametrized over `gre_sequence()` and the path string `"sequence.seq"`. The call must
+raise `TypeError` with `match="load"`.
 
 **Assumptions:** The path is not read: the type check comes before any read.
 
@@ -2275,7 +2275,7 @@ sampler of `gradient_sampler`.
 #### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
 
 **Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
-`block_samples` values of `GradientSampler(snap)`. It keeps its gaps in the dict that was passed,
+`block_samples` values of `gradient_sampler(snap)`. It keeps its gaps in the dict that was passed,
 not on the snapshot, and these gaps equal those of the snapshot's sampler.
 
 **How:** Parametrized over the model sequences `long_gap`, `zero_gap`, `gre` and `spin_echo`, the
@@ -5350,7 +5350,7 @@ test checks the dtype (float64 for `delay`, `offsets` and `amp`; int64 for `coun
 
 #### `test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy`
 
-**Checks:** `GradientSampler(snap)` keeps the pooled points of
+**Checks:** `gradient_sampler(snap)` keeps the pooled points of
 `event_points` as they are, with no copy.
 
 **How:** For each sequence of the file, the test checks `np.shares_memory` of the
@@ -5476,7 +5476,7 @@ function, keeps the result, takes a `weakref` to the snapshot, deletes the snaps
 **How:** `event_points` is called with `spin_echo_sequence()` and must raise `TypeError` with
 `match="load"`.
 
-**Assumptions:** Each measurement and `GradientSampler` has the same test in its own test file
+**Assumptions:** Each measurement and `gradient_sampler` has the same test in its own test file
 (`test_grad_peaks.py`, `test_pns_levels.py`, `test_grad_spectrum.py`, `test_sampling.py`).
 
 ### 2.15 The oracle of the gradient waveform (`test_oracle_waveform.py`)
@@ -6318,7 +6318,7 @@ its `__all__`, and has a reason.
 
 ### 2.19 The reader of Pulseq files (`test_seqfile.py`)
 
-`test_seqfile.py` tests `seqfile.spec.read_spec` (the `spec` interpreter, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq.
+`test_seqfile.py` tests the `spec` interpreter (`seqfile.spec`, the default of `read_seqfile`) and the model of `model.py`. A plugin interpreter has its own tests (sections 2.27 and 3.8). The files are in `tests/seqfiles`: the valid fixtures (`valid_*.seq`), one fixture for each rule or row of the plan (`bad_*.seq`, each made from a valid fixture with one change, by hand; some read under `spec`), and `tests/seqfiles/oracle`, the copies of files that MATLAB Pulseq, pypulseq and KomaMRI.jl wrote (`SOURCES.md` of that folder gives the source, the commit and the license of each). The table `VERDICTS` has the verdict of `spec` on each file. A test for a row of section 6 of `docs/plans/parser-redesign.md` cites the specification (`spec:N` is line N of `doc/specification.tex` at `c7469123`), the slides (`slide N`, of `doc/pulseq_shapes_and_times.pdf`) and the entry of `docs/discrepancies.md`, and says when the behaviour is the package's choice. The tests need no pypulseq.
 
 #### `test_each_fixture_gives_its_verdict`
 
@@ -6501,7 +6501,7 @@ follows it, not that the decision is right.
 
 #### `test_the_default_interpreter_is_spec`
 
-**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")` and of `read_spec(path)`.
+**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")` and of the private `spec._read_spec(path)`.
 
 **How:** The test reads one fixture the three ways and compares.
 
@@ -11573,7 +11573,7 @@ gradient raster. Each is loaded with `cpp-siemens`. The test calls
 #### `test_a_sampler_from_parts_gives_the_samples_of_the_sampler_of_the_snapshot`
 
 **Checks:** A sampler made by `GradientSampler._from_parts` gives, bit for bit, the `sample` and
-`block_samples` values of `GradientSampler(snap)`, and keeps its gaps in the dict that was passed,
+`block_samples` values of `gradient_sampler(snap)`, and keeps its gaps in the dict that was passed,
 for the sequences that `spec` rejects (the test of the same name of section 2.5 has the others).
 
 **How:** Parametrized over `short_gap`, `off_raster_events` and `random_gaps_0`. Each is loaded

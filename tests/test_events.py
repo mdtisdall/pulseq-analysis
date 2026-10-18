@@ -35,7 +35,7 @@ from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
 from pulseq_analysis.analyses.pns_levels import pns_levels
 from pulseq_analysis.synth import SpecDecoding
 from pulseq_analysis.synth._events import event_points
-from pulseq_analysis.synth.sampling import GradientSampler
+from pulseq_analysis.synth.sampling import gradient_sampler
 from pulseq_analysis.synth.seq_index import sequence_index
 
 _SEQUENCES = [
@@ -99,11 +99,11 @@ def test_event_points_arrays_are_read_only_and_have_the_documented_types(build):
 
 @pytest.mark.parametrize("build", _SEQUENCES)
 def test_a_gradient_sampler_uses_the_arrays_of_event_points_without_a_copy(build):
-    """`GradientSampler(snap)` keeps the pooled points of `event_points(snap)` as they are,
+    """`gradient_sampler(snap)` keeps the pooled points of `event_points(snap)` as they are,
     with no copy."""
     snap = load(build())
     points = event_points(snap)
-    sampler = GradientSampler(snap)
+    sampler = gradient_sampler(snap)
     assert np.shares_memory(sampler._offsets, points.offsets)
     assert np.shares_memory(sampler._amp, points.amp)
 
@@ -305,7 +305,7 @@ def test_a_kept_result_does_not_keep_the_snapshot_alive(measure):
 
 def test_event_points_raises_type_error_that_names_load_for_a_sequence():
     """`event_points` raises `TypeError` that names `load` for a `pp.Sequence`, which `load`
-    has not made a snapshot of. Each measurement and `GradientSampler` has the same test in
+    has not made a snapshot of. Each measurement and `gradient_sampler` has the same test in
     its own test file."""
     with pytest.raises(TypeError, match="load"):
         event_points(spin_echo_sequence())

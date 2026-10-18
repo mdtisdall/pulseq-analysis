@@ -115,7 +115,7 @@ raises `ModuleNotFoundError`.
 | `asc` | `analyses.asc` |
 | `pns_levels` | `analyses.pns_levels`; `SAFE_FIELDS` is in `analyses.safe` |
 | `grad_peaks`, `grad_spectrum` | `analyses.grad_peaks`, `analyses.grad_spectrum` |
-| `sampling`, `seq_utils` | `synth.sampling`, `synth.seq_utils`. `GradientSampler.sample` and `GradientSampler.block_samples` take the axis as `"x"`, `"y"` or `"z"`, as the results name it, in place of `"gx"`, `"gy"` or `"gz"`, which raise `ValueError`: `sample("gx", t)` becomes `sample("x", t)`. The values do not change. |
+| `sampling`, `seq_utils` | `synth.sampling`, `synth.seq_utils`. `GradientSampler.sample` and `GradientSampler.block_samples` take the axis as `"x"`, `"y"` or `"z"`, as the results name it, in place of `"gx"`, `"gy"` or `"gz"`, which raise `ValueError`: `sample("gx", t)` becomes `sample("x", t)`. The values do not change. `GradientSampler(snap)` raises `TypeError`: `sampling.gradient_sampler(snap)` is the one way to make a sampler, and `GradientSampler` stays its type. |
 | `extensions` (`refuse_rotations`, `refuse_unsigned`) | removed ([`load`](#4-load)) |
 
 The entry points of the five analyses now name
@@ -156,13 +156,14 @@ Import it from the module whose `__all__` gives it, for example:
 | A path | read with pypulseq's `Sequence.read` | read with `seqfile.read_seqfile(path, interpreter)` |
 | A `pp.Sequence` | `copy.deepcopy`, then the checks | `seqfile.read_pypulseq(seq, interpreter)`: pypulseq's writer writes it, and the interpreter reads the text. `seq` does not change. |
 | How a sequence is recognised | `isinstance` of `pp.Sequence` | by its methods `write` and `remove_duplicates` (the package does not import pypulseq) |
+| A `seqfile.SequenceData` | | taken as it is, with no reading: the data of `read_seqfile` or `read_pypulseq`. `interpreter` must be the interpreter that read it, so the data of a plugin is `load(data, data.interpreter)`. The snapshot has the decoding and the warning of `load` of the file. |
 | `interpreter` | | `"spec"` (the default), the name of a plugin such as `"cpp-siemens"`, or an interpreter object with its settings |
 | `session` | | a `synth.Session`: soft-delay values, the rotation of the field of view, the scaling of the gradients. `None` is the neutral session. |
 
 A sequence in memory is measured as its written file: the reading has pypulseq's
 rounding and its `[SIGNATURE]` hash, and `SequenceData.origin` is `"pypulseq"`.
 `load(seq)` does not run pypulseq's timing check. `Snapshot.source` is the path
-for a file and `None` for a sequence, as before.
+for a file and `None` for a sequence, as before, and `None` for a `SequenceData`.
 
 **Exceptions.**
 
@@ -174,9 +175,10 @@ for a file and `None` for a sequence, as before.
 | A file outside the package's scope (a version outside 1.4.0 to 1.5.x, a binary file, a folder) | the error of `Sequence.read`, or none | `seqfile.NotSupported` (a `NotImplementedError`) |
 | A setting of the session that addresses something the file does not have | | `synth.SettingError` (a `ValueError`): `setting`, `interpreter`, `version`, `reason` |
 | A name that no installed interpreter has | | `ValueError` |
+| A `SequenceData` that `interpreter` did not read | | `ValueError` that names `data.interpreter` |
 | A plugin that does not load | | `ImportError` |
 | A plugin of another protocol version | | `TypeError` |
-| A `source` that is not a path or a pypulseq sequence; a `session` that is not a `synth.Session` | `TypeError` | `TypeError` |
+| A `source` that is not a path, a pypulseq sequence or a `seqfile.SequenceData`; a `session` that is not a `synth.Session` | `TypeError` | `TypeError` |
 
 `SeqFileError` and `SettingError` are `ValueError`s, so an `except ValueError`
 around `load` catches both. `NotSupported` is a `NotImplementedError`, and now
@@ -189,7 +191,7 @@ hash checks `snap.data.signature` ([The snapshot](#5-the-snapshot)).
 decoding leaves content of the file unapplied, such as a block that plays a
 rotation under the default of `cpp-siemens`, whose reader never rotates.
 `spec` applies the rotations of a 1.5.1 file, so it has no warning.
-`Snapshot(data)` does not emit it. The warnings of pypulseq about the version of a file are gone.
+`load(data)` of the `SequenceData` of the file emits it too. The warnings of pypulseq about the version of a file are gone.
 
 ## 5. The snapshot
 
@@ -198,7 +200,7 @@ sequence, no block cache and no `get_block`.
 
 | `0.1.0rc6` | `0.1.0rc7` |
 |---|---|
-| `Snapshot(sequence, source)` | `Snapshot(data, source=None, session=None)`: `data` is a `seqfile.SequenceData`, else `TypeError`. It decodes the data under the session. Make a snapshot with `load`. |
+| `Snapshot(sequence, source)` | `load(source)`, the one way to make a snapshot: `Snapshot(...)` raises `TypeError` that names `load`, and `Snapshot` stays the type of a snapshot. For a `seqfile.SequenceData`, `load(data, interpreter)` with the interpreter that read it ([`load`](#4-load)). |
 | `snap.sequence` | removed. `snap.data` is the `SequenceData`; `snap.decoding` is its decoding. |
 | `snap.sequence.signature_value`, `signature_type` | `snap.data.signature`: `None`, or a `Signature` with `type`, `hash` and `matches` |
 | `snap.sequence.definitions` (numbers converted) | `snap.data.definitions`: the tokens of each line, as text |

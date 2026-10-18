@@ -951,10 +951,18 @@ the `Analysis.spec.id`).
 `reading.read_seqfile`, and a `pp.Sequence` with `from_pypulseq.read_pypulseq`
 (the text of its writer, read as a file). It raises what they raise:
 `SeqFileError` for a file that the interpreter rejects, and `NotSupported` for a
-file outside the package's scope. Then `Snapshot(data, source, session)` decodes
+file outside the package's scope. A `model.SequenceData` is not read again: it
+must be of the interpreter given (`interpreters.interpreter(interpreter)` equals
+`data.interpreter`), else `ValueError`. Then the private
+`snapshot._snapshot(data, source, session)` makes the snapshot, which decodes
 the data under the scanner session (`decoding.decode(data, session)`), which
 raises `scanner.SettingError` for a setting that addresses something the file
-does not have.
+does not have. `load` is the one way to make a snapshot (Q22 of
+`docs/plans/remaining-review-fixes.md`): `Snapshot.__init__` raises
+`TypeError`, and `pickle` and `copy.deepcopy` make their copy with
+`_snapshot`. In the same way, `sampling.gradient_sampler(snap)` is the one way to
+make a sampler, with `GradientSampler._from_parts`, and `GradientSampler.__init__`
+raises `TypeError`.
 
 ### 7.0 The scanner session
 
@@ -1006,7 +1014,9 @@ rotation that the decoding does not apply: under `CppSiemens(rotation="reader")`
 the default of `cpp-siemens`. `spec` (from 1.5.1) and
 `CppSiemens(rotation="apply")` rotate, and the measurements take the rotated
 gradients (section 1.2). The decoding never emits the warning, so that a reader
-of the decoding is not warned about the reader's own output.
+of the decoding is not warned about the reader's own output. The warning is of
+the decoding, so `load` of the `SequenceData` of a file emits the warning of
+`load` of the file.
 
 `load` does not check the `[SIGNATURE]` hash: the interpreters read it
 (`SequenceData.signature`), and no result uses it. A sequence that `add_block`
@@ -1032,8 +1042,9 @@ an interpreter (`docs/usage.md`, "The interpreters"). Two parts do the work:
   name of its entry point is a `TypeError`. `synth.decode` calls
   `Plugin.decode` for an interpreter that is not `Spec`, and a plugin that
   decodes gives an object of the protocol `decoding.Decoding`.
-- `spec.read_spec` is the `spec` interpreter: it gives a `model.SequenceData`
-  of a Pulseq text file (versions 1.4.0 to 1.5.x), or raises
+- `spec` is the `spec` interpreter: through `reading.read_seqfile`, the one way
+  to read a file through it (`spec._read_spec` is private), it gives a
+  `model.SequenceData` of a Pulseq text file (versions 1.4.0 to 1.5.x), or raises
   `errors.SeqFileError` with the `errors.Violation` of every rule that the file
   breaks (`spec.RULES`, at most `spec.MAX_LOCATIONS` for each rule). The module
   docstring of `spec` and each `spec.Rule` give the rule's basis: the lines of
