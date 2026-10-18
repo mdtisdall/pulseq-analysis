@@ -769,6 +769,27 @@ def test_the_versions_1_5_0_to_1_5_x_are_read(tmp_path, revision):
     assert data.version == (1, 5, revision)
 
 
+def test_spec_raises_not_supported_for_a_folder(tmp_path):
+    """Q1 of `docs/plans/parser-redesign.md` and Q14 of `docs/plans/remaining-review-fixes.md`:
+    a folder is outside the package's scope, so `read_seqfile` raises `NotSupported` under `spec`,
+    as under every interpreter, and not the `IsADirectoryError` of reading it."""
+    with pytest.raises(NotSupported, match="folder") as caught:
+        read_seqfile(tmp_path)
+    assert str(tmp_path) in str(caught.value)
+
+
+def test_spec_raises_not_supported_for_a_binary_pulseq_file(tmp_path):
+    """Q1 and Q14 (as above): a binary Pulseq file, which starts with the 8 bytes
+    `\\x01pulseq\\x02`, is outside the package's scope, so `read_seqfile` raises `NotSupported`
+    under `spec`, and not the `SeqFileError` (`syntax.encoding`) of a text file with bytes that
+    are not UTF-8."""
+    path = tmp_path / "binary.seq"
+    path.write_bytes(b"\x01pulseq\x02" + bytes(range(256)))
+    with pytest.raises(NotSupported, match="binary") as caught:
+        read_seqfile(path)
+    assert str(path) in str(caught.value)
+
+
 def test_a_version_line_that_is_not_an_integer_is_version_invalid():
     """spec:193-198: the three lines `major`, `minor` and `revision` hold integers, so
     `minor 5.0` is not an integer and is rejected (as a fraction in an integer column)."""

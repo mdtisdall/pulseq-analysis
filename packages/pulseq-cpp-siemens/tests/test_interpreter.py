@@ -331,6 +331,28 @@ def test_a_binary_file_and_a_folder_are_not_supported(tmp_path):
         read_seqfile(tmp_path, "cpp-siemens")
 
 
+@pytest.mark.parametrize("case", ["folder", "binary", "version"])
+def test_both_interpreters_give_one_message_for_a_file_outside_the_scope(tmp_path, case):
+    """Q14 of `docs/plans/remaining-review-fixes.md`: `read_seqfile` checks the scope (a folder,
+    a binary Pulseq file, a version outside 1.4.0 to 1.5.x) before it chooses the interpreter,
+    so `spec` and `cpp-siemens` raise `NotSupported` with one message, which names the file."""
+    if case == "folder":
+        path = tmp_path
+    elif case == "binary":
+        path = tmp_path / "binary.seq"
+        path.write_bytes(b"\x01pulseq\x02" + bytes(range(256)))
+    else:
+        path = tmp_path / "version.seq"
+        path.write_text(MINIMAL_SEQ.replace("minor 5", "minor 3"))
+    messages = []
+    for interpreter in ("spec", "cpp-siemens"):
+        with pytest.raises(NotSupported) as caught:
+            read_seqfile(path, interpreter)
+        messages.append(str(caught.value))
+    assert messages[0] == messages[1]
+    assert str(path) in messages[0]
+
+
 def test_the_model_is_the_readers_libraries_in_the_units_of_the_model():
     data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
     lib = data.reading.libraries
