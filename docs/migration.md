@@ -480,6 +480,7 @@ last column.
 | `synth.Session`, `synth.SettingError`, `synth.ScannerSettingWarning`, `synth.RotationRecord`, `synth.SoftDelayRecord`, `synth.FovRecord` | the scanner session and what a decoding applied | [The scanner session](usage.md#the-scanner-session) |
 | `Snapshot.data`, `decoding`, `interpreter`, `records`, `session` | the snapshot | [2. Before you start](usage.md#2-before-you-start) |
 | `analyses.safe.SafeHardware`, `SafeAxis`; `asc.safe_hardware` | the SAFE hardware | [5. Predict the PNS on a scanner](usage.md#5-predict-the-pns-on-a-scanner) |
+| `PnsLevels.bin_s`, and the `meta` key `bin_s` of the series `pns_total` | the `bin_s` of the call, as a `float`; `bin_samples` does not change | [5. Predict the PNS on a scanner](usage.md#5-predict-the-pns-on-a-scanner) |
 | `pulseq_cpp_siemens.interpreter.CppSiemens` | the interpreter `cpp-siemens` | [The interpreters](usage.md#the-interpreters) |
 
 [`docs/findings-for-pulseq-checks.md`](findings-for-pulseq-checks.md) describes

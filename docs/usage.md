@@ -221,7 +221,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   numbers are 0.0, its block fields and the times of its peaks are `None` and its
   arrays are empty, but the fields that say how it was made stay. `GradientPeaks` keeps
   `range_s`.
-  `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_samples` and `on_raster`, has
+  `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_s`, `bin_samples` and `on_raster`, has
   `num_samples` 0, and has `peak_time_s` `None` and an empty tuple in `above`
   for each threshold (`peak_time_s` is also `None` when all the gradients have
   the amplitude 0). `GradientSpectrum` keeps its three arguments.
@@ -255,7 +255,7 @@ default of `load`, of the reads and of the analyses
 | `read_pypulseq` | `interpreter` | `"spec"` | `SequenceData.interpreter` |
 | `gradient_peaks` | `range_s` | `None`: the whole sequence | `GradientPeaks.range_s`: `(0.0, end_s)` for the default |
 | `pns_levels` | `thresholds_hz_per_t` | `()`: no runs | the keys of `PnsLevels.above`, one for each threshold |
-| `pns_levels` | `bin_s` | `BIN_S` (0.005 s) | `PnsLevels.bin_samples`: the samples of a bin that `bin_s` gives. The result does not have `bin_s`. |
+| `pns_levels` | `bin_s` | `BIN_S` (0.005 s) | `PnsLevels.bin_s`, as a `float` (`PnsLevels.bin_samples` is the samples of a bin that it gives) |
 | `gradient_spectrum` | `max_frequency_hz` | `MAX_FREQUENCY_HZ` (2000.0 Hz), the default of pypulseq | `GradientSpectrum.max_frequency_hz` |
 | `gradient_spectrum` | `window_s` | `FFT_WINDOW_S` (0.05 s), the default of pypulseq | `GradientSpectrum.window_s` |
 | `gradient_spectrum` | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0), the default of pypulseq | `GradientSpectrum.frequency_oversampling` |
@@ -476,6 +476,7 @@ percent = (levels.level_max_hz_per_t / abs(gamma)) * 100  # fraction -> %, a new
 | `axis_peaks_hz_per_t` | A dict from each axis to its largest value (Hz/T). |
 | `above` | A dict from each threshold to a tuple of `PnsInterval`: the runs at or above it, in time order. `{}` with no threshold. |
 | `dt_s`, `num_samples` | The time step (the gradient raster) and the number of samples. |
+| `bin_s` | The `bin_s` of the call, as a `float`. Two values of `bin_s` can give the same `bin_samples`. |
 | `bin_samples`, `level_min_hz_per_t`, `level_max_hz_per_t` | The level: the samples of a bin, and the least and the greatest total of each bin (float32, Hz/T). |
 | `on_raster` | `True` when each block is a whole number of raster times. |
 
@@ -631,7 +632,7 @@ The series:
 
 | Name | Kind | Unit | `coord_unit` | Arrays | `meta` |
 |---|---|---|---|---|---|
-| `pns_total` | `ENVELOPE` | `"Hz/T"` | `"s"` | `min`, `max`: the level (float32) | `hardware`, `dt_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y`, `axis_peaks_z` |
+| `pns_total` | `ENVELOPE` | `"Hz/T"` | `"s"` | `min`, `max`: the level (float32) | `hardware`, `dt_s`, `bin_s`, `bin_samples`, `num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y`, `axis_peaks_z` |
 | `pns_above_<k>`, one for each threshold, `k` from 0 in the order of `thresholds_hz_per_t` | `RUNS` | `"Hz/T"` | `"s"` | `start`, `end`, `num_samples` (int64), `peak`, `peak_time_s` (float64): one entry for each run | `threshold` |
 | `gradient_spectrum` | `SAMPLES` | `"Hz/m/sqrt(Hz)"` | `"Hz"` | `value` (the RSS), `x`, `y`, `z` (float64) | `max_frequency_hz`, `window_s`, `frequency_oversampling` |
 
