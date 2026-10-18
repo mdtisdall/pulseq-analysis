@@ -1,0 +1,101 @@
+name: matlab-oracle
+
+# The tests of the decoding against MATLAB Pulseq, run under GNU Octave by pulseq-matlab-oracle
+# (tests/matlab_oracle/README.md), in the default devShell. The ci devShell of
+# .github/workflows/check.yml has no Octave, whose closure is about 2.5 GiB, so these tests skip
+# there. Nix fetches Octave from cache.nixos.org on each run: as in the other workflows, the Nix
+# store is not cached.
+#
+# The workflow runs tests/test_matlab_oracle.py and the test of the plugin that uses the oracle,
+# on a pull request or a push to main that changes what they read:
+# - the code of pulseq-analysis that they import: the reading and the decoding (seqfile, synth),
+#   analyses/loading.py and the modules at the top of the package;
+# - the interpreter cpp-siemens and its build;
+# - the fixtures, the oracle and the test modules;
+# - the dependencies (pyproject.toml, uv.lock, the flake) and this file.
+# The other test helpers that the modules import (conftest.py, synthetic.py, test_from_pypulseq.py)
+# are not in the list: the tests do not use them, and check.yml collects both modules on each
+# pull request.
+
+on:
+  pull_request:
+    paths:
+      - src/pulseq_analysis/*.py
+      - src/pulseq_analysis/analyses/__init__.py
+      - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/seqfile/**
+      - src/pulseq_analysis/synth/**
+      - packages/pulseq-cpp-siemens/src/**
+      - packages/pulseq-cpp-siemens/CMakeLists.txt
+      - packages/pulseq-cpp-siemens/pulseq-reader.sha256
+      - packages/pulseq-cpp-siemens/pyproject.toml
+      - packages/pulseq-cpp-siemens/uv.lock
+      - packages/pulseq-cpp-siemens/tests/conftest.py
+      - packages/pulseq-cpp-siemens/tests/test_interpreter_in_pulseq_analysis.py
+      - tests/seqfiles/**
+      - tests/oracles/matlab.py
+      - tests/matlab_oracle/**
+      - tests/test_matlab_oracle.py
+      - pyproject.toml
+      - uv.lock
+      - flake.nix
+      - flake.lock
+      - .github/workflows/matlab-oracle.yml
+  push:
+    branches: [main]
+    paths:
+      - src/pulseq_analysis/*.py
+      - src/pulseq_analysis/analyses/__init__.py
+      - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/seqfile/**
+      - src/pulseq_analysis/synth/**
+      - packages/pulseq-cpp-siemens/src/**
+      - packages/pulseq-cpp-siemens/CMakeLists.txt
+      - packages/pulseq-cpp-siemens/pulseq-reader.sha256
+      - packages/pulseq-cpp-siemens/pyproject.toml
+      - packages/pulseq-cpp-siemens/uv.lock
+      - packages/pulseq-cpp-siemens/tests/conftest.py
+      - packages/pulseq-cpp-siemens/tests/test_interpreter_in_pulseq_analysis.py
+      - tests/seqfiles/**
+      - tests/oracles/matlab.py
+      - tests/matlab_oracle/**
+      - tests/test_matlab_oracle.py
+      - pyproject.toml
+      - uv.lock
+      - flake.nix
+      - flake.lock
+      - .github/workflows/matlab-oracle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matlab-oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: The environment of pulseq-analysis
+        run: nix develop --command uv sync --frozen
+      # As scripts/check: the plugin is built from the C++ reader of the devShell, with
+      # pulseq-analysis installed from this checkout.
+      - name: Build the plugin
+        run: >-
+          nix develop --command uv sync --frozen --project packages/pulseq-cpp-siemens
+          --no-editable --reinstall-package pulseq-cpp-siemens --reinstall-package pulseq-analysis
+      # The tests skip, and do not fail, when matlab.command_path() is None: here that is a
+      # failure.
+      - name: The MATLAB oracle is on the PATH
+        run: >-
+          nix develop --command uv run python -c 'import sys; sys.path.insert(0, "tests");
+          from oracles import matlab; sys.exit(0 if matlab.command_path() else
+          f"{matlab.COMMAND} is not on the PATH: the MATLAB tests would skip")'
+      - name: The decoding against MATLAB Pulseq
+        run: nix develop --command uv run pytest -q -rs tests/test_matlab_oracle.py
+      - name: The rotated gradients of cpp-siemens against MATLAB Pulseq
+        run: >-
+          nix develop --command uv run --project packages/pulseq-cpp-siemens --no-sync
+          pytest -q -rs
+          packages/pulseq-cpp-siemens/tests/test_interpreter_in_pulseq_analysis.py::test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq

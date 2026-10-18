@@ -34,7 +34,10 @@ command has no time limit for one file.
 ## The devShell
 
 The command is in the default devShell only, not in the `ci` shell. Octave and its libraries
-are about 2.5 GiB (`nix path-info -S`), and CI does not cache the Nix store.
+are about 2.5 GiB (`nix path-info -S`), and CI does not cache the Nix store. So the tests
+that use the command run in CI in `.github/workflows/matlab-oracle.yml`, in the default
+devShell, and only for a change to what they read; `scripts/check` in the `ci` shell skips
+them.
 
 ## The JSON
 

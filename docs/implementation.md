@@ -1192,7 +1192,8 @@ waveform of each axis from `waveforms_and_times`, and the times of the ADC
 samples. `tests/test_matlab_oracle.py` compares the package with these values
 for the files of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/` that
 `spec` accepts. Only the default devShell has the command, because the closure
-of Octave is about 2.5 GiB.
+of Octave is about 2.5 GiB. In CI, `.github/workflows/matlab-oracle.yml` runs
+these tests in the default devShell, on a change to what they read.
 
 `tests/oracles/matlab.py` keeps a cache of the JSON of each file, in the
 pytest cache folder (`matlab-oracle`). The key of a file is the SHA-256 of the
