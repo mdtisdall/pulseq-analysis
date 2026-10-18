@@ -14,6 +14,7 @@ import dataclasses
 import hashlib
 import pickle
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -2486,6 +2487,113 @@ def test_a_nan_or_inf_shape_sample_is_syntax_number_with_the_choice(tmp_path):
             continue
         (violation,) = violations_of(path).violations
         assert (violation.rule, carries_choice(violation)) == ("syntax.number", choice)
+
+
+def _lines_of_shapes_of(call) -> int:
+    """The number of lines that `spec._shapes_of`, and the functions defined in it, run in
+    `call()`, at any depth: each `line` event of `sys.settrace`, which a loop gives for each pass
+    (a list comprehension too, which Python 3.12 inlines in its function)."""
+    count = 0
+    filename = read_spec.__code__.co_filename
+
+    def local(frame, event, arg):
+        nonlocal count
+        count += event == "line"
+        return local
+
+    def trace(frame, event, arg):
+        code = frame.f_code
+        if code.co_filename != filename or code.co_qualname.split(".")[0] != "_shapes_of":
+            return None
+        return local
+
+    previous = sys.gettrace()
+    sys.settrace(trace)
+    try:
+        call()
+    finally:
+        sys.settrace(previous)
+    return count
+
+
+def test_the_samples_of_a_shape_cost_no_python_line_each(tmp_path):
+    """Review 2026-10-13 2.5b: `spec._shapes_of` checks the samples of a shape with no Python
+    loop over them, so it runs as many lines for a shape of 1000 samples as for one of 10."""
+    text = _text("valid_no_signature.seq")
+    assert text.endswith("\n\n") and text.rindex("[") == text.index("[SHAPES]")
+    counts = []
+    for n in (10, 1000):
+        body = "\n".join(f"{0.001 * i:g}" for i in range(n))
+        path = _write(tmp_path, text + f"shape_id 100\nnum_samples {n}\n{body}\n\n", f"{n}.seq")
+        data = None
+
+        def read(path=path):
+            nonlocal data
+            data = read_seqfile(path)
+
+        counts.append(_lines_of_shapes_of(read))
+        assert data is not None and data.shapes[100].num_samples == n
+    assert counts[0] == counts[1]
+
+
+# A sample line that is not one finite number, and whether its violation carries the choice (D3.5).
+_BAD_SAMPLES = (
+    ("nan", True),
+    ("inf", True),
+    ("-inf", True),
+    ("1,5", False),
+    ("abc", False),
+    ("1 2", False),
+    ("num_samples 3", False),
+)
+
+
+def test_the_bad_samples_of_random_shapes_are_syntax_number_at_their_lines(tmp_path):
+    """Each sample line of a shape that is not one finite number is `syntax.number` at its line,
+    and a shape with none is read with its samples, in random shapes with comments among the
+    samples and between the `shape_id` and `num_samples` lines (D2.5, D3.5)."""
+    rng = np.random.default_rng(5)
+    text = _text("valid_no_signature.seq")
+    assert text.endswith("\n\n") and text.rindex("[") == text.index("[SHAPES]")
+    first = text.count("\n") + 1  # the line number of the first line added
+    for _ in range(300):
+        lines: list[str] = []
+        bad: list[tuple[int, str, bool]] = []  # (line, sample, choice)
+        good: dict[int, np.ndarray] = {}
+        for shape_id in range(100, 100 + int(rng.integers(1, 6))):
+            values = np.round(rng.uniform(-1, 1, int(rng.integers(0, 12))), 3)
+            lines.append(f"shape_id {shape_id}")
+            if rng.random() < 0.2:
+                lines.append("# between")
+            lines.append(f"num_samples {values.size}")
+            broken = False
+            for value in values.tolist():
+                if rng.random() < 0.15:
+                    lines.append("# among")
+                if rng.random() < 0.1:
+                    sample, choice = _BAD_SAMPLES[int(rng.integers(len(_BAD_SAMPLES)))]
+                    bad.append((first + len(lines), sample, choice))
+                    lines.append(sample)
+                    broken = True
+                else:
+                    lines.append(f"{value:g}")
+            if not broken:
+                good[shape_id] = values
+            lines.append("")
+        path = _write(tmp_path, text + "\n".join(lines) + "\n", "r.seq")
+        if not bad:
+            shapes = read_seqfile(path).shapes
+            for shape_id, values in good.items():
+                assert shapes[shape_id].num_samples == values.size
+                assert np.array_equal(shapes[shape_id].packed, values)
+            continue
+        assert len(bad) <= MAX_LOCATIONS
+        violations = violations_of(path).violations
+        assert [(v.rule, v.section, v.line, carries_choice(v)) for v in violations] == [
+            ("syntax.number", "SHAPES", line, choice) for line, _, choice in bad
+        ]
+        for violation, (_, sample, _) in zip(violations, bad, strict=True):
+            assert violation.message.startswith(f"sample {sample!r} is not one finite number")
 
 
 def test_the_same_file_with_revision_1_5_1_reads_the_1_5_1_extensions(tmp_path):
