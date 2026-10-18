@@ -414,20 +414,7 @@ def _block_rotations(data: SequenceData) -> tuple[np.ndarray, np.ndarray]:
 
 def _rotation_refs(data: SequenceData) -> np.ndarray:
     """The ID of the ROTATIONS object in the extension list of each block, 0 for none."""
-    by_id = {
-        int(e["id"]): (int(e["type"]), int(e["ref"]), int(e["next"]))
-        for e in data.extensions.entries
-    }
-    rotation_type = data.extensions.type_ids["ROTATIONS"]
-    found = {0: 0}  # list head -> the ROTATIONS ID, 0 for none
-
-    def rotation_of(head: int) -> int:
-        if head not in found:
-            entry, ref = head, 0
-            while entry and not ref:
-                kind, row_ref, entry = by_id[entry]
-                ref = row_ref if kind == rotation_type else 0
-            found[head] = ref
-        return found[head]
-
-    return np.array([rotation_of(int(head)) for head in data.blocks["ext"]], dtype=np.int64)
+    refs = np.zeros(data.blocks.size, np.int64)
+    for block, ref in _extension_objects(data, "ROTATIONS"):
+        refs[block] = ref
+    return refs
