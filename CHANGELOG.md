@@ -232,6 +232,16 @@ A caller moves in this order:
   of one read in each block, each block with a trapezoid of its own: 0.75 s
   before and 0.21 s now for 40,000 blocks, 6.7 s before and 0.78 s now for
   160,000. The output is the same, bit for bit.
+- `load` decodes no RF or ADC event, which no measurement reads:
+  `synth.SpecDecoding` has no `rf` and no `adc` (review 2026-10-13 2.4). A
+  caller that read `snap.decoding.rf` or `snap.decoding.adc` calls
+  `decode_rf(snap.data)` or `decode_adc(snap.data)` of `synth.events`, which
+  give the same events. The decoding of `spec` walks the extension lists only
+  for the LABELSET objects NOROT and NOSLC, and walks no list for a file with
+  neither. One run on an Apple M1 Max, of `load` of a file of 1,000,000 blocks
+  with 200,000 RF events of 2000 samples, 200,000 trapezoids, 200,000 ADC
+  events and a LABELSET LIN in each block: 12.1 s and a peak of 10.3 GiB
+  before, 2.6 s and 0.8 GiB now.
 - The block table (`seq.index`) gives the file's block IDs, and numbers the
   gradient events that play; two equal events with different IDs are two
   events (pypulseq's reading merged them). Each `spec.version` stays 1

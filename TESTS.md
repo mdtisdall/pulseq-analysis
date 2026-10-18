@@ -7891,9 +7891,9 @@ late by 0.4 tolerances give the step 1.
 #### `test_synth_decode_gives_the_events_of_spec`
 
 **Checks:** `synth.decode` of the model of `spec` is a `SpecDecoding` whose interpreter is `Spec()` and whose
-`rf`, `gradients` and `adc` equal the results of `decode_rf`, `decode_gradients` and `decode_adc`.
+`gradients` equal the result of `decode_gradients`.
 
-**How:** The test reads `valid_1_5_1.seq` and compares the four fields.
+**How:** The test reads `valid_1_5_1.seq` and compares the two fields.
 
 **Assumptions:** The decoding of a plugin interpreter is tested with the plugin (`cpp-siemens`: `test_interpreter.py`,
 section 3.8; a fake plugin: `test_interpreters.py`, section 2.27).
@@ -10361,8 +10361,8 @@ the same lines in these files.
 
 **Checks:** `synth.decode` gives a `CppSiemensDecoding` for `cpp-siemens`, with the interpreter,
 the number of blocks, each block in play order, and the reader's `gradients_at`; and a
-`SpecDecoding` with the events for `spec`. `events.decode_rf` refuses the model of
-`cpp-siemens` with `TypeError` that names `synth.decode`.
+`SpecDecoding` for `spec`. `events.decode_rf` gives the RF event of the model of `spec` (ID 1),
+and refuses the model of `cpp-siemens` with `TypeError` that names `synth.decode`.
 
 **How:** The test decodes `valid_1_5_1.seq` with both interpreters.
 

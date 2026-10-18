@@ -615,14 +615,12 @@ def test_events_are_read_only_equal_by_value_and_pickle(time_shaped):
 
 def test_synth_decode_gives_the_events_of_spec():
     """`synth.decode` of the model of `spec` is a `SpecDecoding` with the interpreter and the
-    events of the three decode functions."""
+    gradient events of `decode_gradients`."""
     data = seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq")
     decoding = synth.decode(data)
     assert isinstance(decoding, synth.SpecDecoding)
     assert decoding.interpreter == interpreters.Spec()
-    assert decoding.rf == decode_rf(data)
     assert decoding.gradients == decode_gradients(data)
-    assert decoding.adc == decode_adc(data)
 
 
 FILES = sorted(SEQFILES.glob("valid_*.seq")) + sorted(ORACLE.glob("*.seq"))

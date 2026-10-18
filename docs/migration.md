@@ -246,8 +246,9 @@ adc = decode_adc(snap.data)  # {ADC ID: AdcEvent}
   ([The block table](#7-the-block-table)).
 - **`spec` only.** The three functions raise `TypeError` for the model of
   `cpp-siemens`, whose decoding is the reader's own. For `spec`,
-  `snap.decoding.rf`, `snap.decoding.gradients` and `snap.decoding.adc` are the
-  same events, decoded once by `load`.
+  `snap.decoding.gradients` has the same gradient events, decoded once by
+  `load`. `load` decodes no RF or ADC event: each call of `decode_rf` or
+  `decode_adc` decodes them.
 - **No value of the target.** The events do not have `dead_time` or
   `ringdown_time`: pypulseq copies them from `seq.system`, and the model has no
   target. A project takes them from its own target.
