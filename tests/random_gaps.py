@@ -3,6 +3,9 @@
 `random_gap_sequence(rng)` is the input of the oracle comparisons of `gradient_peaks`,
 `GradientSampler`, `pns_levels` and `gradient_spectrum`. Moved from `test_grad_peaks.py` so
 that each test file can use it. It imports nothing from the package, so the oracles can use it.
+`spec` rejects most of its sequences (`gradient.nonzero-start-delay`,
+`gradient.nonzero-end-align`), so the tests of the `cpp-siemens` plugin load them;
+`random_gap_sequence(rng, for_spec=True)` makes sequences that `spec` reads, for the root tests.
 """
 
 import math
@@ -31,13 +34,15 @@ def end_value(rng: np.random.Generator, previous: float) -> float:
     return float(np.clip(value, -0.9 * _MAX_STEP, 0.9 * _MAX_STEP))
 
 
-def gap_event(rng: np.random.Generator, channel: str, previous_last: float):
-    """A random gradient event on `channel`, and its last value: a trapezoid (it starts and ends
-    at 0), an extended trapezoid or an arbitrary gradient. The last two have a first value and a
-    last value from `end_value` (not 0 for most events, `previous_last` is the last value of
-    the block before). The event has a delay of 0 to 7 raster times, so the gap before it is
-    zero, short or long. An event with a delay has a first value that is not 0 for 70% of its
-    calls: `add_block` accepts it below `max_slew * grad_raster_time`."""
+def gap_event(rng: np.random.Generator, channel: str, previous_last: float, for_spec: bool = False):
+    """A random gradient event on `channel`, its last value, and the same event with a last
+    value of 0: a trapezoid (it starts and ends at 0), an extended trapezoid or an arbitrary
+    gradient. The last two have a first value and a last value from `end_value` (not 0 for
+    most events, `previous_last` is the last value of the block before). The event has a delay
+    of 0 to 7 raster times, so the gap before it is zero, short or long. An event with a delay
+    has a first value that is not 0 for 70% of its calls: `add_block` accepts it below
+    `max_slew * grad_raster_time`. With `for_spec`, an event with a delay has a first value of
+    0, as `spec` needs (`gradient.nonzero-start-delay`)."""
     kind = int(rng.integers(0, 3))
     delay = float(rng.choice([0, 0, 0, 1, 2, 3, 7]) * _RASTER)
     if kind == 0:
@@ -48,19 +53,25 @@ def gap_event(rng: np.random.Generator, channel: str, previous_last: float):
             channel=channel, amplitude=amplitude, rise_time=rise, flat_time=flat, system=SYSTEM
         )
         g.delay = delay
-        return g, 0.0
-    first = end_value(rng, previous_last) if delay == 0 or rng.random() < 0.7 else 0.0
+        return g, 0.0, g
+    if delay == 0 or (not for_spec and rng.random() < 0.7):
+        first = end_value(rng, previous_last)
+    else:
+        first = 0.0
     last = end_value(rng, 0.0)
     if kind == 1:
         peak = rng.uniform(0.05, 0.6) * SYSTEM.max_grad * rng.choice([-1.0, 1.0])
         ramp = math.ceil(max(abs(peak) / (0.7 * SYSTEM.max_slew), 50e-6) / _RASTER) * _RASTER
         flat = round(rng.uniform(_RASTER, 200e-6) / _RASTER) * _RASTER
-        g = pp.make_extended_trapezoid(
-            channel=channel,
-            times=[0.0, ramp, ramp + flat, 2 * ramp + flat],
-            amplitudes=[first, peak, peak, last],
-            system=SYSTEM,
-        )
+
+        def build(last: float):
+            return pp.make_extended_trapezoid(
+                channel=channel,
+                times=[0.0, ramp, ramp + flat, 2 * ramp + flat],
+                amplitudes=[first, peak, peak, last],
+                system=SYSTEM,
+            )
+
     else:
         # A waveform that is slow enough for the slew limit, with the first and the last value
         # of 0.2 of the largest step at most.
@@ -70,24 +81,31 @@ def gap_event(rng: np.random.Generator, channel: str, previous_last: float):
         waveform = amplitude * np.sin(np.pi * np.arange(1, n + 1) / (n + 1))
         first = float(np.clip(first, -0.2 * _MAX_STEP, 0.2 * _MAX_STEP))
         last = float(np.clip(last, -0.2 * _MAX_STEP, 0.2 * _MAX_STEP))
-        g = pp.make_arbitrary_grad(
-            channel=channel,
-            waveform=waveform * rng.choice([-1.0, 1.0]),
-            first=first,
-            last=last,
-            system=SYSTEM,
-        )
-    g.delay = delay
-    return g, last
+        sign = rng.choice([-1.0, 1.0])
+
+        def build(last: float):
+            return pp.make_arbitrary_grad(
+                channel=channel, waveform=waveform * sign, first=first, last=last, system=SYSTEM
+            )
+
+    g, at_0 = build(last), build(0.0)
+    g.delay = at_0.delay = delay
+    return g, last, at_0
 
 
-def random_gap_sequence(rng: np.random.Generator) -> pp.Sequence:
+def random_gap_sequence(rng: np.random.Generator, for_spec: bool = False) -> pp.Sequence:
     """A sequence of 2 to 8 blocks (a block of zero duration among them for 12% of the blocks),
     each with 0 to 3 random gradient events (`gap_event`) that start and end at values that are
     not 0 for most of them, and each block with a delay event of 0 to 5 raster times after
     its events for half of them. The gaps between the events of one axis are zero, short and long,
     with steps, lines and ramps. A block that `add_block` refuses (a step at a block
-    junction of more than `max_slew * grad_raster_time`) is not added."""
+    junction of more than `max_slew * grad_raster_time`) is not added.
+
+    With `for_spec`, the sequence is one that `spec` reads: an event with a delay starts at 0
+    (`gap_event`), and an event that ends before the end of its block ends at 0
+    (`gradient.nonzero-end-align`), so every block with a delay event has events that end at 0.
+    A gradient then ends at a value that is not 0 only at the end of its block, and starts at
+    one only at the start of its block."""
     seq = pp.Sequence(SYSTEM)
     last = dict.fromkeys(AXES, 0.0)
     for _ in range(int(rng.integers(2, 9))):
@@ -95,12 +113,20 @@ def random_gap_sequence(rng: np.random.Generator) -> pp.Sequence:
             seq.add_block(pp.make_label(label="LIN", type="SET", value=1))
             continue
         new_last = dict.fromkeys(AXES, 0.0)
-        events = []
+        events, at_0 = {}, {}
         for axis in AXES:
             if rng.random() < 0.55:
-                event, new_last[axis] = gap_event(rng, axis, last[axis])
-                events.append(event)
+                events[axis], new_last[axis], at_0[axis] = gap_event(
+                    rng, axis, last[axis], for_spec
+                )
         extra = float(rng.choice([0, 0, 1, 2, 5]) * _RASTER)
+        if for_spec and events:
+            # The end of the block: the end of its longest event, and the delay event after it.
+            end = pp.calc_duration(*events.values()) + extra
+            for axis, event in events.items():
+                if pp.calc_duration(event) < end - _RASTER / 2:
+                    events[axis], new_last[axis] = at_0[axis], 0.0
+        events = list(events.values())
         if events and extra:
             events.append(pp.make_delay(pp.calc_duration(*events) + extra))
         elif not events:

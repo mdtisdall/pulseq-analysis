@@ -446,8 +446,8 @@ def _off_raster_events_sequence() -> pp.Sequence:
     return seq
 
 
-def _random_gap_builder(seed: int):
-    return lambda: random_gap_sequence(np.random.default_rng(seed))
+def _random_gap_builder(seed: int, for_spec: bool = False):
+    return lambda: random_gap_sequence(np.random.default_rng(seed), for_spec=for_spec)
 
 
 # The sequences of the model: each gap rule (a zero gap, a short gap, a long gap, the first and the
@@ -471,7 +471,9 @@ _MODEL_SEQUENCES = {
     "short_gap_to_0": short_gap_to_0_sequence,
 }
 # The sequences of `gap_sequences` with every amplitude negated (the gap rules do not depend on the
-# sign), and the random sequences of `random_gaps` (random signs, zero, short and long gaps).
+# sign), and the random sequences of `random_gaps` (random signs, zero, short and long gaps): those
+# of `random_gap_sequence(rng)`, which `spec` rejects, and those of `random_gap_sequence(rng,
+# for_spec=True)`, which it reads (with blocks of zero duration).
 _MODEL_SEQUENCES |= {
     f"negated_{name}": (lambda build=_MODEL_SEQUENCES[name]: negated(build()))
     for name in (
@@ -484,6 +486,9 @@ _MODEL_SEQUENCES |= {
     )
 }
 _MODEL_SEQUENCES |= {f"random_gaps_{seed}": _random_gap_builder(seed) for seed in range(8)}
+_MODEL_SEQUENCES |= {
+    f"random_gaps_for_spec_{seed}": _random_gap_builder(seed, for_spec=True) for seed in range(8)
+}
 
 
 def _model_sequence(name: str) -> pp.Sequence:

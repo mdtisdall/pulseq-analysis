@@ -199,6 +199,94 @@ def test_stored_bins_are_the_extremes_of_the_model_totals(build):
     np.testing.assert_allclose(levels.level_max_hz_per_t, ref_max, rtol=1e-6, atol=atol)
 
 
+# The sequences with an end that is not 0 next to a gap that `spec` reads: the hand sequences of
+# `gap_sequences` that it reads, three of them also with every amplitude negated (the gap rules
+# do not depend on the sign), and the 8 random sequences of `random_gap_sequence(rng,
+# for_spec=True)` (random signs, zero, short and long gaps, and blocks of zero duration). The
+# names that end in `_off_raster` have a last block of 1.5 raster times (`_add_a_delay`), which
+# is not on the raster, so that `pns_levels` samples the whole sequence with
+# `GradientSampler.sample`.
+_GAP_ON_RASTER = [
+    "long_gap",
+    "non_zero_ends",
+    "short_gap_from_0",
+    "negated_zero_gap",
+    "negated_long_gap",
+    "negated_non_zero_ends",
+    *(f"random_gaps_for_spec_{seed}" for seed in range(8)),
+]
+_GAP_NAMES = _GAP_ON_RASTER + [
+    f"{name}_off_raster"
+    for name in [
+        "long_gap",
+        "short_gap_from_0",
+        "negated_long_gap",
+        *(f"random_gaps_for_spec_{seed}" for seed in range(8)),
+    ]
+]
+
+
+def _gap_sequence(name: str) -> pp.Sequence:
+    """The sequence `name` of `_GAP_NAMES`: `gap_sequences.<name>_sequence()` or
+    `random_gap_sequence(np.random.default_rng(seed), for_spec=True)`, negated
+    (`gap_sequences.negated`) for a name that starts with `negated_`, and with a last block of 1.5
+    raster times (`_add_a_delay`) for a name that ends in `_off_raster`. `gap_sequences` and
+    `random_gaps` import pypulseq, so they are imported here: the module also runs without it."""
+    import gap_sequences
+    from random_gaps import random_gap_sequence
+
+    base = name.removesuffix("_off_raster").removeprefix("negated_")
+    if base.startswith("random_gaps_for_spec_"):
+        seed = int(base.removeprefix("random_gaps_for_spec_"))
+        seq = random_gap_sequence(np.random.default_rng(seed), for_spec=True)
+    else:
+        seq = getattr(gap_sequences, f"{base}_sequence")()
+    if name.startswith("negated_"):
+        seq = gap_sequences.negated(seq)
+    if name.endswith("_off_raster"):
+        _add_a_delay(seq, 1.5)
+    return seq
+
+
+def check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
+    snap, on_raster: bool
+) -> None:
+    """`pns_levels` of `snap` (example hardware, `bin_s` of one gradient raster time) is the SAFE
+    model of the oracle samples (`_oracle_model`): `on_raster` is that of the levels, the summary
+    is the model's (`_assert_summary_is_the_model`), and each bin of one sample holds the total of
+    its sample, to a relative 1e-6 (the float32 cast) and an absolute 1e-12 of the peak."""
+    from oracles.blocks import sequence_of
+
+    levels = pns_levels(snap, hardware=EXAMPLE_HW, bin_s=sequence_of(snap).grad_raster_time)
+    axis_values, total = _oracle_model(snap, levels)
+
+    assert levels.on_raster is on_raster
+    _assert_summary_is_the_model(levels, axis_values, total)
+    # The total of a sample at 0 can be a rounding residue of about 1e-16 of the peak, where a
+    # sample at the last point of a ramp is not exactly 0 in one of the two paths.
+    atol = 1e-12 * total.max()
+    np.testing.assert_allclose(levels.level_max_hz_per_t, total, rtol=1e-6, atol=atol)
+    np.testing.assert_allclose(levels.level_min_hz_per_t, total, rtol=1e-6, atol=atol)
+
+
+@pytest.mark.pypulseq
+@pytest.mark.parametrize("name", _GAP_NAMES)
+def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
+    name,
+):
+    """For a sequence that `spec` reads with a long gap, a short gap from 0, or a step at a
+    junction, and an end that is not 0 next to it (and the first value and the last value of an
+    axis that are not 0), `pns_levels` is the SAFE model of the oracle samples
+    (`check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`),
+    on the raster and, for the names that end in `_off_raster`, off it (`_GAP_NAMES`).
+    `calculate_pns` of pypulseq is not the reference: it draws a line across each gap
+    (pypulseq-issues 12). The test of the same name of the `cpp-siemens` plugin has the sequences
+    that `spec` rejects."""
+    check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples(
+        load(_gap_sequence(name)), on_raster=not name.endswith("_off_raster")
+    )
+
+
 def test_cast_outward_bounds_every_input_value():
     """`_cast_outward` (the float32 rounding of item 4 of `pns_levels`'s docstring)
     never lands on the wrong side of its float64 input: the downward cast (used for a
