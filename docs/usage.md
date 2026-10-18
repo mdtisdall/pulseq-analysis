@@ -1084,7 +1084,10 @@ snap = load("my_sequence.seq", session=session)
 The simulation is the package's own, shared by the interpreters (rule 6):
 `scanner.soft_delay_durations`, `scanner.fov_flags`,
 `scanner.physical_gradients` and `scanner.fov_record`, with `scanner.SoftDelay`
-for the soft delays that an interpreter attaches to its blocks. A plugin applies
+for the soft delays that an interpreter attaches to its blocks,
+`scanner.pure_delay_blocks` for the pure delay blocks, and
+`scanner.block_physical_gradients` and `scanner.rotation_rows` for the
+gradients of the blocks of a call of `gradients_at`. A plugin applies
 the session in its own decoding, with its reader's hooks where they exist;
 `cpp-siemens` sets the duration of a block with the reader's
 `setActualSoftDelay_ru`, and turns the gradients with the reader's

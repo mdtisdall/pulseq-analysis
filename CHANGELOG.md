@@ -315,7 +315,8 @@ A caller moves in this order:
   a decoding applied. `ScannerSettingWarning` is given only where content of
   the file is left unapplied.
 - The shared simulation is in `synth.scanner` (`soft_delay_durations`,
-  `fov_flags`, `physical_gradients`, `fov_record`, `SoftDelay`), which a
+  `fov_flags`, `physical_gradients`, `fov_record`, `SoftDelay`, and
+  `pure_delay_blocks`, `rotation_rows` and `block_physical_gradients`), which a
   plugin may import. `cpp-siemens` applies the session with the reader's own
   hooks (`setActualSoftDelay_ru`).
 

@@ -42,9 +42,11 @@ from .scanner import (
     Session,
     SoftDelay,
     SoftDelayRecord,
+    block_physical_gradients,
     fov_flags,
     fov_record,
-    physical_gradients,
+    pure_delay_blocks,
+    rotation_rows,
     soft_delay_durations,
 )
 from .seq_utils import gradient_offsets
@@ -164,14 +166,12 @@ class SpecDecoding:
     fov_record: FovRecord
     norot: np.ndarray
     noscale: np.ndarray
-    # The row of `rotation_quaternions` of each block, -1 for a block with no rotation: built once
-    # for `gradients_at` (`__post_init__`), read-only.
+    # The row of `rotation_quaternions` of each block, -1 for a block with no rotation
+    # (`scanner.rotation_rows`): built once for `gradients_at` (`__post_init__`), read-only.
     _rotation_rows: np.ndarray = dataclasses.field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        rows = np.full(self.block_count, -1, dtype=np.int64)
-        rows[self.rotation_blocks] = np.arange(self.rotation_blocks.size)
-        rows.flags.writeable = False
+        rows = rotation_rows(self.block_count, self.rotation_blocks)
         object.__setattr__(self, "_rotation_rows", rows)
 
     @property
@@ -214,8 +214,8 @@ class SpecDecoding:
         after it; every value is 0 before and after the block (its actual duration).
 
         `rotated` None or True gives the gradients on the physical axes
-        (`scanner.physical_gradients`): the session's gradient scaling of each block without
-        NOSLC, the rotation of each block with a rotation (`rotations`) by its quaternion
+        (`scanner.block_physical_gradients`): the session's gradient scaling of each block
+        without NOSLC, the rotation of each block with a rotation (`rotations`) by its quaternion
         (`rotate`), as `spec` applies the rotations of the file from version 1.5.1, and the
         rotation of the session's field of view of each block without NOROT. False gives the
         logical gradients, as the events store them."""
@@ -250,16 +250,15 @@ class SpecDecoding:
         out[outside] = 0.0
         if rotated is not None and not rotated:
             return out
-        row = self._rotation_rows
-        turned = row[block_index] >= 0
-        return physical_gradients(
+        return block_physical_gradients(
             out,
             self.session,
-            scale_rows=~self.noscale[block_index],
-            block_rows=turned,
-            block_quaternions=self.rotation_quaternions[row[block_index[turned]]],
-            fov_rows=~self.norot[block_index],
-            rotate=rotate,
+            block_index,
+            self.norot,
+            self.noscale,
+            rotate,
+            self._rotation_rows,
+            self.rotation_quaternions,
         )
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points:
@@ -291,7 +290,7 @@ def decode(data: SequenceData, session: Session | None = None) -> Decoding:
         _soft_delays(data),
         stored,
         data.rasters.block_duration,
-        _pure_delay(data.blocks),
+        pure_delay_blocks(data.blocks),
         interpreter=Spec.name,
         version=data.version,
         unavailable=None
@@ -325,11 +324,6 @@ def decode(data: SequenceData, session: Session | None = None) -> Decoding:
         norot=norot,
         noscale=noscale,
     )
-
-
-def _pure_delay(blocks: np.ndarray) -> np.ndarray:
-    """Whether each block has no RF, gradient or ADC event (spec:545)."""
-    return np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
 
 
 def _extension_objects(

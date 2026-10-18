@@ -946,6 +946,8 @@ the interpreters (rule 6), and a plugin may import it:
   of each block in units of the raster, `value / factor + offset` rounded half
   away from 0, and the `SoftDelayRecord`. It raises `SettingError` where the
   setting does not apply (`docs/usage.md`, "The scanner session").
+  `scanner.pure_delay_blocks(blocks)` gives its `pure_delay` from the block
+  table: the blocks with no RF, gradient or ADC event.
 - `scanner.fov_flags(block_count, label_sets, scaling_flag)` gives the flag
   NOROT and the scaling flag of each block from the (block, name, value) of the
   LABELSET objects: a state across blocks, set by the LABELSET of a block for
@@ -955,9 +957,18 @@ the interpreters (rule 6), and a plugin may import it:
   by the block's quaternion, then by the field of view, with the interpreter's
   `rotate` (MATLAB Pulseq's order, D2.20). `scanner.fov_record` gives the
   `FovRecord`.
+- `scanner.block_physical_gradients(logical, session, block_index, norot,
+  noscale, rotate, rows=None, quaternions=None)` is `physical_gradients` of
+  the rows whose blocks are `block_index`. It takes the three masks from the
+  flags of each row's block (`norot` and `noscale`, of `fov_flags`) and from
+  the block's quaternion: the row `rows[block]` of `quaternions`, with `rows`
+  from `scanner.rotation_rows(block_count, blocks)` (-1 for a block with no
+  rotation). `rows` None turns no block by its own rotation.
 
-`SpecDecoding.gradients_at` applies `physical_gradients` to its logical values,
-and stops each block at its actual duration. The measurements take the actual
+`SpecDecoding.gradients_at` applies `block_physical_gradients` to its logical
+values, and stops each block at its actual duration. The `gradients_at` of
+`cpp-siemens` applies it, with the reader's `rotate_vec3_by_quat`, when the
+session rotates or scales the field of view. The measurements take the actual
 durations (`seq_index`, `_played`) and, for each block that the field of view
 rotates or scales, its events from `gradients_at` (section 1.2).
 
