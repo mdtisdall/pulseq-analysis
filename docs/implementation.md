@@ -7,9 +7,12 @@ you need to know exactly what a value is, why it differs from pypulseq, or how
 long a call takes. (`docs/plans/implementation.md` is the plan of the first
 version of the package, not this document.)
 
-The names that the two documents give are the interface of the package. A
-name that they do not give, or that starts with `_`, can change in any
-release.
+The names that the two documents give are the interface of the package, and
+each public module gives its names of the interface in its `__all__`. A name
+that they do not give, or that starts with `_`, can change in any release. So
+can a name that a module only imports from another module (for example
+`NO_GRADIENTS` in `analyses.pns_levels`): import it from the module whose
+`__all__` gives it (`synth.seq_index`).
 
 The package has three subpackages in layers, and a base of shared helpers at
 the top level (`_equality`, `_validate`). A layer imports only from the layers

@@ -60,6 +60,17 @@ import numpy as np
 from ..seqfile.interpreters import Spec
 from ..seqfile.model import SequenceData, _model, rf_time_step
 
+__all__ = [
+    "AdcEvent",
+    "ArbitraryGradient",
+    "GradEvent",
+    "RfEvent",
+    "Trapezoid",
+    "decode_adc",
+    "decode_gradients",
+    "decode_rf",
+]
+
 
 @_model
 class Trapezoid:

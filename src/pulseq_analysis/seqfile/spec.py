@@ -97,7 +97,16 @@ from .model import (
     rf_time_step,
 )
 
-__all__ = ["MAX_LOCATIONS", "RANGE_TOLERANCE", "RULES", "Rule", "read_spec"]
+__all__ = [
+    "FIRST_TIME_TOLERANCE",
+    "MAX_LOCATIONS",
+    "RANGE_TOLERANCE",
+    "RATIO_TOLERANCE",
+    "RULES",
+    "TOLERANCE_NS",
+    "Rule",
+    "read_spec",
+]
 
 # The most violations of one rule that an error lists.
 MAX_LOCATIONS = 20

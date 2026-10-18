@@ -27,6 +27,14 @@ from ._played import played_gradients
 from .seq_utils import _GRAD_COLUMNS
 from .snapshot import Snapshot, _check_snapshot, _kept_results
 
+__all__ = [
+    "NO_GRADIENTS",
+    "NO_GRADIENTS_IN_WINDOW",
+    "SequenceIndex",
+    "has_gradients",
+    "sequence_index",
+]
+
 
 @value_dataclass
 class SequenceIndex:

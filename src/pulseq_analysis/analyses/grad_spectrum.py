@@ -62,6 +62,14 @@ from ..synth.seq_index import NO_GRADIENTS, has_gradients, sequence_index
 from ..synth.seq_utils import _AXES, _GRAD_COLUMNS
 from ..synth.snapshot import Snapshot, _check_snapshot, _kept_results
 
+__all__ = [
+    "FFT_WINDOW_S",
+    "FREQUENCY_OVERSAMPLING",
+    "MAX_FREQUENCY_HZ",
+    "GradientSpectrum",
+    "gradient_spectrum",
+]
+
 MAX_FREQUENCY_HZ = 2000.0
 FFT_WINDOW_S = 0.05
 FREQUENCY_OVERSAMPLING = 3.0

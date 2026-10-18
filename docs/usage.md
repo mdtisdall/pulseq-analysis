@@ -8,8 +8,12 @@ main tasks.
 
 [`docs/implementation.md`](implementation.md) gives the exact definitions, the
 rules for the rare cases, and the algorithms and the cost of each call. The
-names that the two documents give are the interface of the package. A name
-that they do not give, or that starts with `_`, can change in any release.
+names that the two documents give are the interface of the package, and each
+public module gives its names of the interface in its `__all__`. A name that
+they do not give, or that starts with `_`, can change in any release. So can a
+name that a module only imports from another module (for example
+`NO_GRADIENTS` in `analyses.pns_levels`): import it from the module whose
+`__all__` gives it (`synth.seq_index`).
 
 Contents:
 
