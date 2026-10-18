@@ -668,9 +668,10 @@ def test_compute_of_pns_safe_levels_without_hardware_raises_before_the_sequence_
 def test_compute_of_pns_safe_levels_passes_bin_s_on():
     """`PNS_SAFE_LEVELS.compute(snap, hardware=..., bin_s=...)` is the object (`is`) that
     `pns_levels` gives with that `bin_s` (and not the object of the default), its
-    `bin_samples` is that of the `bin_s`, and `to_series` gives `pns_total` with the
-    `coord_step` of that bin. A `bin_s` that `pns_levels` refuses raises the same
-    error before the sequence is read."""
+    `bin_samples` is that of the `bin_s` and its `bin_s` is the `bin_s`, and `to_series`
+    gives `pns_total` with the `coord_step` of that bin and that `bin_s` in its `meta`, also
+    for a `bin_s` that is not `bin_samples * dt_s`. A `bin_s` that `pns_levels` refuses
+    raises the same error before the sequence is read."""
     snap = load(gre_sequence(num_trs=4))
 
     default = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW)
@@ -680,8 +681,13 @@ def test_compute_of_pns_safe_levels_passes_bin_s_on():
     assert levels is not default
     assert default.bin_samples == 500
     assert levels.bin_samples == 100
+    assert levels.bin_s == 1e-3
     (total,) = PNS_SAFE_LEVELS.to_series(levels)
     assert total.coord_step == levels.bin_samples * levels.dt_s
+    assert total.meta["bin_s"] == 1e-3
+    near = PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW, bin_s=1.0001e-3)  # 100.01 samples
+    assert near.bin_samples == 100
+    assert PNS_SAFE_LEVELS.to_series(near)[0].meta["bin_s"] == 1.0001e-3
 
     class Unreadable:
         def __getattr__(self, name):
@@ -696,9 +702,10 @@ def test_compute_of_pns_safe_levels_passes_bin_s_on():
 @pytest.mark.pypulseq
 def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_gradient_asc):
     """For a sequence with runs above the limit, `to_series` gives `pns_total` (an ENVELOPE of
-    `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times and the `meta`
-    of design 4.4) and `pns_above_0` (a RUNS series of `above[_LIMIT]`, in the array order of
-    design 4.4), each with the unit "Hz/T"."""
+    `level_min_hz_per_t` and `level_max_hz_per_t` as they are, with the times, the `meta`
+    of design 4.4 and the `bin_s` of the call in its `meta`) and `pns_above_0` (a RUNS
+    series of `above[_LIMIT]`, in the array order of design 4.4), each with the unit
+    "Hz/T"."""
     snap = load(gre_sequence(num_trs=20))
     levels = PNS_SAFE_LEVELS.compute(
         snap, hardware=hardware_for_peak(snap, 1.5), thresholds_hz_per_t=(_LIMIT,)
@@ -722,6 +729,7 @@ def test_the_pns_series_equal_the_level_and_the_runs_of_the_same_call(write_grad
     assert total.meta == {
         "hardware": "SCALED",
         "dt_s": levels.dt_s,
+        "bin_s": BIN_S,
         "bin_samples": levels.bin_samples,
         "num_samples": levels.num_samples,
         "peak": levels.peak_hz_per_t,
