@@ -2297,10 +2297,10 @@ includes the steps, the lines and the ramps. The tests, in the order of the file
   the polyline of the oracle, and the play order, the shape and the dtype of its arrays. A window of
   `gradient_peaks` gives the same result with and without the kept data.
 - The equality and the hash of the results, and their read-only arrays and frozen dicts.
-- The `window` argument: the refusal of a bad window before the sequence or its events are read,
-  a window as a list or with numpy scalars, a window within `TIME_TOLERANCE` of the ends of the
-  sequence (also one that gives a range of length 0), and a window that does not calculate the
-  values of all the blocks again.
+- The `range_s` argument: the refusal of a bad range before the sequence or its events are read,
+  a range as a list or with numpy scalars, the range given as `range_s` and the refusal of the old
+  name `window`, a range within `TIME_TOLERANCE` of the ends of the sequence (also one that gives
+  a range of length 0), and a range that does not calculate the values of all the blocks again.
 - The gap sequences of `tests/gap_sequences.py`, with their hand-computed values: a zero gap, a
   window with a step at an edge, a long gap, a first value and a last value that are not 0, the
   vector peak of two axes in one block, and the credit of a segment before a step of the same slew.
@@ -2891,7 +2891,7 @@ float arrays and that `start_s` increases.
 **Checks:** Two `GradientPeaks` of two separate computations of the same values are equal by
 value, a result with another value in a field is unequal, and a result is not hashable.
 
-**How:** The test calls `gradient_peaks(snap, window=(0.0, 1e-3))` two times on the spin echo (a
+**How:** The test calls `gradient_peaks(snap, range_s=(0.0, 1e-3))` two times on the spin echo (a
 window is not kept): two objects, `==` true. Two calls without a window on two snapshots of separately built
 spin echo sequences are `==`. A `dataclasses.replace` with another `vector_peak_hz_per_m` and the
 result for the window `(0.0, 2e-3)` are `!=`. `hash(first)` is in `pytest.raises(TypeError)`.
@@ -2963,7 +2963,7 @@ and calls `gradient_peaks` with the window from 0 to half the duration of block 
 **Assumptions:** None.
 #### `test_gradient_peaks_refuses_a_window_with_no_start_before_its_end`
 
-**Checks:** `gradient_peaks` raises `ValueError` for a `window` whose start is not
+**Checks:** `gradient_peaks` raises `ValueError` for a `range_s` whose start is not
 before its end.
 
 **How:** The synthetic spin echo, with two cases: a start equal to the end, and a start
@@ -2976,7 +2976,7 @@ fail the test, so it also checks that the error comes before the sequence is rea
 
 #### `test_gradient_peaks_refuses_a_window_outside_the_sequence`
 
-**Checks:** `gradient_peaks` raises `ValueError` for a `window` that is outside the
+**Checks:** `gradient_peaks` raises `ValueError` for a `range_s` that is outside the
 sequence by more than `TIME_TOLERANCE`.
 
 **How:** The synthetic spin echo, with two cases: a start of `-2 * TIME_TOLERANCE`, and
@@ -3007,7 +3007,7 @@ functions that fail the test, so it also checks that the error comes before the 
 a string or None.
 
 **How:** The spin echo, with six cases (a `bool`, a `str` and `None`, each as the start and as the
-end), in `pytest.raises(TypeError, match="window (start|end)")`. The test replaces
+end), in `pytest.raises(TypeError, match="range_s (start|end)")`. The test replaces
 `grad_peaks.sequence_index` and `grad_peaks._event_values` (`monkeypatch`) with functions that
 fail the test, so it also checks that the error comes before the sequence is read.
 
@@ -3035,9 +3035,25 @@ window as a tuple of floats.
 `==` to it.
 
 **Assumptions:** None.
+
+#### `test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window`
+
+**Checks:** `gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range,
+and the old name of the argument, `window`, raises `TypeError` (decision Q18 of
+`docs/plans/remaining-review-fixes.md`).
+
+**How:** The spin echo and the range from 0 to half the length of the sequence. The `range_s` of
+the result is that range, and the result matches the oracle of the gradient waveform for it
+(`oracle.peaks(seq, range)` of `sequence_of(snap)`, with `_assert_matches_oracle` and
+`_rounding_tol`, as in the comparisons with the oracle above). The call with `window=` is in
+`pytest.raises(TypeError, match="window")`: Python's message for an unexpected keyword argument
+names it.
+
+**Assumptions:** None.
+
 #### `test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence`
 
-**Checks:** `gradient_peaks` accepts a `window` that is outside the sequence by less
+**Checks:** `gradient_peaks` accepts a `range_s` that is outside the sequence by less
 than `TIME_TOLERANCE`, and `range_s` is the sequence.
 
 **How:** The synthetic spin echo and the window
@@ -3189,14 +3205,14 @@ that names `load` for a `pp.Sequence` and for a path.
 
 #### `test_gradient_peaks_refuses_a_bad_window_before_the_snapshot_type`
 
-**Checks:** A bad `window` raises its own error before the type of the first argument is
+**Checks:** A bad `range_s` raises its own error before the type of the first argument is
 checked: a window with its start equal to its end and a window with a non-finite end raise
 `ValueError`, and a window that is not a pair raises `TypeError`.
 
 **How:** Parametrized over `(0.5, 0.5)`, `(0.0, inf)` and `[0.0]`. The call
-`gradient_peaks(gre_sequence(), window=window)` has a `pp.Sequence` as its first argument,
+`gradient_peaks(gre_sequence(), range_s=window)` has a `pp.Sequence` as its first argument,
 which is not a snapshot and would raise the `TypeError` that names `load`. The error must be
-the one of the window (`match` "start before its end", "window end" and "window").
+the one of the range (`match` "start before its end", "range_s end" and "range_s").
 
 **Assumptions:** The checks of the window that need the sequence (a window outside it) come
 after the type check, and are tested with a snapshot above.
@@ -4306,7 +4322,7 @@ parameters of the plan `docs/plans/second-review-fixes.md` (D13) and of the rule
 rasters of the plan `docs/plans/third-review-fixes.md` (D18). `seq.index` has the rasters
 `("BlockDurationRaster",)`, and the four other analyses have
 `("GradientRasterTime", "BlockDurationRaster")`. `seq.index` and
-`gradient.blocks` have no parameter; `gradient.peaks` has `window` with the default None;
+`gradient.blocks` have no parameter; `gradient.peaks` has `range_s` with the default None;
 `pns.safe.levels` has `hardware` as the only necessary name, and the defaults `()` and `BIN_S`
 for `thresholds_hz_per_t` and `bin_s`; `gradient.spectrum` has the three names
 `max_frequency_hz`, `window_s` and `frequency_oversampling`, all with the defaults of
@@ -4407,7 +4423,7 @@ runs the checks again) equals the spec, and each of its rasters is in `RASTERS`.
 
 #### `test_compute_of_gradient_peaks_with_a_window_gives_the_result_of_the_window`
 
-**Checks:** `GRADIENT_PEAKS.compute(snap, window=w)` equals `gradient_peaks(snap, window=w)`,
+**Checks:** `GRADIENT_PEAKS.compute(snap, range_s=w)` equals `gradient_peaks(snap, range_s=w)`,
 and is not equal to the result of the whole sequence, for the windows `(0, T/2)`,
 `(T/4, T/2)` and `(T/2, T)` of a sequence of length `T`.
 
@@ -4420,12 +4436,24 @@ the whole sequence, so that a `compute` that does not pass the window on fails t
 
 #### `test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result`
 
-**Checks:** `GRADIENT_PEAKS.compute(snap)` and `compute(snap, window=None)` are the object
+**Checks:** `GRADIENT_PEAKS.compute(snap)` and `compute(snap, range_s=None)` are the object
 (`is`) that `gradient_peaks(snap)` gives. A result with a window is not that object, equals
-`gradient_peaks(snap, window=window)`, and is not kept: a second call gives another object.
+`gradient_peaks(snap, range_s=window)`, and is not kept: a second call gives another object.
 The kept result of the whole sequence is still the same object after the calls with a window.
 
 **How:** `gre_sequence(num_trs=4)` and the window `(0, T/2)`.
+
+**Assumptions:** None.
+
+#### `test_compute_of_gradient_peaks_takes_range_s_and_refuses_window`
+
+**Checks:** `GRADIENT_PEAKS.compute(snap, range_s=r)` gives the result of the range `r`, and the
+old name of the parameter, `window`, raises `TypeError` (decision Q18 of
+`docs/plans/remaining-review-fixes.md`).
+
+**How:** `gre_sequence(num_trs=4)` and the range `(0, T/2)`. The `range_s` of the result is
+`(0, T/2)`, and the result is not `==` to `compute(snap)`, the result of the whole sequence.
+The call with `window=` is in `pytest.raises(TypeError, match="window")`.
 
 **Assumptions:** None.
 
@@ -5329,12 +5357,12 @@ object, and each field must be equal to the field of the first (`array_equal`).
 #### `test_a_windowed_gradient_peaks_is_a_new_object_for_each_call_and_is_not_kept`
 
 **Checks:** Two calls of `gradient_peaks` with one window give equal results that are two
-objects, and a call with a window does not change the kept result of `window=None`.
+objects, and a call with a window does not change the kept result of `range_s=None`.
 
 **How:** On a snapshot of `spin_echo_sequence()` with the window `(0, end_s / 2)`: two
 windowed calls must give two objects (`is not`) that are `==`, and not the object of the call
 with no window. After them, `gradient_peaks(snap)` must be the same object as before. On a
-new snapshot, the call with the window must not make the result of `window=None`: the next
+new snapshot, the call with the window must not make the result of `range_s=None`: the next
 call with no window gives another object.
 
 **Assumptions:** None.
@@ -8671,7 +8699,7 @@ comparison is the helper `compare_gradient_peaks`.
   integral of the square of the segments; and the vector peak at the edges of the window and at the
   times of the points of the three axes, on each side of a time (not before the start of the window,
   not after its end).
-- The windows are the whole file (`window=None`) and each block, without the intervals that the test
+- The windows are the whole file (`range_s=None`) and each block, without the intervals that the test
   leaves out (`_left_out`); a window that they cut becomes the windows between them. A block that has
   no interval left out, and no neighbour of duration 0, also has the vector peak of
   `block_gradient_values` compared with that of its window: the candidates of a block are the times in
@@ -9432,7 +9460,7 @@ each file that loaded, and the registry has `pns.safe.levels`.
 **How:** The test compares the list of `file:analysis` pairs that the subprocess ran with each
 loaded file times each analysis ID.
 
-**Assumptions:** The optional parameters have their defaults (no `window`, no thresholds).
+**Assumptions:** The optional parameters have their defaults (no `range_s`, no thresholds).
 
 #### `test_read_pypulseq_refuses_an_object_that_is_not_a_sequence`
 

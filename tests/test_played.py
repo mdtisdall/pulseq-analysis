@@ -431,7 +431,7 @@ def check_an_event_of_length_0_plays_0_in_the_measurements(
 ) -> None:
     """The measurements of `_length_0_file` of `kind` (written in `directory`) through
     `interpreter` with `session` are those of the same file with the amplitude 0:
-    `gradient_peaks` with `window` (the peak of x, its block and its time, the vector peak, then
+    `gradient_peaks` with `range_s` (the peak of x, its block and its time, the vector peak, then
     the whole result), and `block_gradient_values` (the peak of x in block 2, then the whole
     result). A warning of the scanner settings (an interpreter that leaves the rotations of the
     file unapplied) is ignored."""
@@ -439,7 +439,7 @@ def check_an_event_of_length_0_plays_0_in_the_measurements(
         warnings.simplefilter("ignore", ScannerSettingWarning)
         snap = load(_length_0_file(directory, 0, kind=kind), interpreter, session=session)
         zero = load(_length_0_file(directory, 0, 0, kind), interpreter, session=session)
-    peaks, expected = gradient_peaks(snap, window=window), gradient_peaks(zero, window=window)
+    peaks, expected = gradient_peaks(snap, range_s=window), gradient_peaks(zero, range_s=window)
     x, x_zero = peaks.axes["x"], expected.axes["x"]
     assert (x.peak_hz_per_m, x.peak_block, x.peak_time_s) == (
         x_zero.peak_hz_per_m,

@@ -17,7 +17,7 @@ times each call:
 4. `gradient_peaks(snap)`: the first call of a gradient measurement. It reads the points of
    the unique gradient events and makes the values of each block, and keeps them.
 5. `block_gradient_values(snap)`: with the kept values of each block.
-6. `gradient_peaks(snap, window=...)`: the median of `WINDOWS` windows at random places, of
+6. `gradient_peaks(snap, range_s=...)`: the median of `WINDOWS` windows at random places, of
    one block, of one TR and of 1000 TRs.
 7. `gradient_sampler(snap).sample("gx", t)`: `SAMPLE_TIMES` sorted times over the sequence.
 8. `gradient_spectrum(snap)`: the default arguments.
@@ -70,7 +70,7 @@ def median_window_time(snap, index, n_blocks, rng):
         lo = float(index.start_s[first])
         last = first + n_blocks - 1
         hi = float(index.start_s[last] + index.duration_s[last])
-        seconds, _ = timed(lambda lo=lo, hi=hi: gradient_peaks(snap, window=(lo, hi)))
+        seconds, _ = timed(lambda lo=lo, hi=hi: gradient_peaks(snap, range_s=(lo, hi)))
         times.append(seconds)
     return float(np.median(times[1:]))
 

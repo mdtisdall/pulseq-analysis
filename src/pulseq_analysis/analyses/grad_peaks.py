@@ -65,13 +65,13 @@ for each snapshot). It then makes the values of each block one time for each sna
 for each axis the peak, the slew with the ramps, the junction (the step or the line into the
 event) and the RMS integral of the piece of the block, with their times, and the vector peak. The
 piece of a block is its event, the ramps of its event, the line into it and the step after the
-last point of the axis. A window of `gradient_peaks` is then an `argmax` over the columns of the
-blocks whose time range is whole in the window and a sum of their RMS integrals, plus the edge
-blocks: the blocks whose time range a window edge crosses. The time range of a block holds its
-pieces: the line into it starts at the last point of the earlier event, up to `dt +
-TIME_TOLERANCE` before the event, and can cross blocks shorter than `dt`, and a ramp to 0 ends
-`dt / 2` after the event. It decodes no block for a window, and
-its cost is the number of blocks of the window, not the number of unique events or the number
+last point of the axis. A range of `gradient_peaks` (`range_s`) is then an `argmax` over the
+columns of the blocks whose time range is whole in the range and a sum of their RMS integrals,
+plus the edge blocks: the blocks whose time range an edge of the range crosses. The time range
+of a block holds its pieces: the line into it starts at the last point of the earlier event, up
+to `dt + TIME_TOLERANCE` before the event, and can cross blocks shorter than `dt`, and a ramp to
+0 ends `dt / 2` after the event. It decodes no block for a range, and
+its cost is the number of blocks of the range, not the number of unique events or the number
 of blocks of the file. An edge block is made from the exact polylines of the axes near it
 (`_exact_edge_blocks`, from the points of `_events.event_points`). The vector peak of each block
 is read from the exact polylines of the whole file (`_exact_vector_peaks`).
@@ -84,10 +84,10 @@ of its event. The junction of a block is the step or the line into its event, an
 gap and for a block with no event on the axis.
 
 Both public functions take a `snapshot.Snapshot` (`analyses.load`) as their first argument
-and keep their results on it (`snapshot._kept_results`): `gradient_peaks` for `window=None`,
+and keep their results on it (`snapshot._kept_results`): `gradient_peaks` for `range_s=None`,
 and `block_gradient_values`. The values of each block (`_BlockData`) are kept too, so a call of
-`gradient_peaks` with a window uses them. A result with a window is not kept, because a caller
-can ask for many windows. The sequence of a snapshot does not change, so a kept result is
+`gradient_peaks` with a range uses them. A result with a range is not kept, because a caller
+can ask for many ranges. The sequence of a snapshot does not change, so a kept result is
 never old. Each kept result is read-only, because all callers share it.
 """
 
@@ -137,7 +137,7 @@ class AxisResult:
     time is the first time in that block where the value is reached (the step or the line into
     the event of a block is before the segments of that block). A largest value of 0 credits no
     block (None) and has the time 0.0. `rms_hz_per_m` is the RMS amplitude over the range that
-    `GradientPeaks.range_s` gives, not over the whole sequence when a window is used.
+    `GradientPeaks.range_s` gives, not over the whole sequence when a range is given.
     """
 
     peak_hz_per_m: float
@@ -154,13 +154,13 @@ class GradientPeaks:
     """The result of `gradient_peaks`.
 
     `reason` is None when the range has a part of a gradient event, or a ramp, a line or a step
-    with a value that is not 0 (`docs/implementation.md` section 2.1). A window that has only
+    with a value that is not 0 (`docs/implementation.md` section 2.1). A range that has only
     a ramp, a line or a step also gives None. Otherwise it is `seq_index.NO_GRADIENTS`
-    (`window` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW` (`window` was given), and every
-    numeric field is its zero value. The
-    zero value is 0.0 for an amplitude, slew or RMS field, and 0.0 for a time field; every
-    block field (`AxisResult.peak_block`, `AxisResult.slew_block`, `vector_peak_block`) is
-    None. `range_s` still holds the range that was used.
+    (the argument `range_s` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW` (`range_s` was
+    given), and every numeric field is its zero value. The zero value is 0.0 for an amplitude,
+    slew or RMS field, and 0.0 for a time field; every block field (`AxisResult.peak_block`,
+    `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that
+    was used.
 
     `vector_peak_hz_per_m` is the largest magnitude of the three-axis gradient vector over the
     range, `vector_peak_time_s` is the first time in the range where it is reached, and
@@ -339,7 +339,7 @@ def _event_values(points: EventPoints) -> _EventData:
 
 
 # The kept results of a snapshot (`snapshot._kept_results`) that this module makes, under the keys
-# "block_data" (the `_BlockData`), "peaks" (the `GradientPeaks` of `window=None`) and
+# "block_data" (the `_BlockData`), "peaks" (the `GradientPeaks` of `range_s=None`) and
 # "block_values" (the `BlockGradientValues`).
 
 
@@ -988,7 +988,7 @@ def _range_result(
     """`axes`, `vector_peak_hz_per_m`, `vector_peak_time_s`, `vector_peak_block` and whether any
     axis has an event, for the range `[lo, hi]`.
 
-    The range `(0.0, index.end_s)` (`window=None`) is the whole file: the largest of each column
+    The range `(0.0, index.end_s)` (`range_s=None`) is the whole file: the largest of each column
     of `blocks` over all the blocks (`_first_largest`) and the sum of the RMS integrals.
 
     For another range, the blocks that can have a value in it are the play indexes `[a, b)`:
@@ -1084,76 +1084,77 @@ def _range_result(
     return axes, vector.value, vector.time, vector_peak_block, has_event_any
 
 
-def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None) -> GradientPeaks:
+def gradient_peaks(snap: Snapshot, *, range_s: tuple[float, float] | None = None) -> GradientPeaks:
     """The peak amplitude, the peak slew rate and the RMS amplitude of the gradients of `snap`
     (`analyses.load`), on each axis and as a three-axis vector.
 
-    With `window=None`, the range is the whole sequence, `(0.0, total_duration)`.
-    Otherwise `window` is `(start_s, end_s)` in seconds from the sequence start; it
+    With `range_s=None`, the range is the whole sequence, `(0.0, total_duration)`.
+    Otherwise `range_s` is `(start_s, end_s)` in seconds from the sequence start; it
     must have `start_s < end_s` and lie within the sequence
     (`0.0 <= start_s` and `end_s <= total_duration`, each within `TIME_TOLERANCE`).
-    A `window` that is not a tuple or a list of two items raises `TypeError`, as does a
+    A `range_s` that is not a tuple or a list of two items raises `TypeError`, as does a
     start or an end that is a `bool` or not a real number (`_validate.real`). A start or an
-    end that is NaN or an infinity, a window with no start before its end, and a window that
+    end that is NaN or an infinity, a range with no start before its end, and a range that
     is not within the sequence raise `ValueError`. A segment of the gradient (of an event, a
     ramp or a line, see the module docstring) that crosses a range edge is cut at the edge, with
     the amplitude at the edge found by linear interpolation. A step counts in the range when its
     time is at the start of the range or after it, and before the end of the range, and more than
     `TIME_TOLERANCE` before the end of the sequence.
-    `range_s` is the window clipped to `(0.0, total_duration)`, so its start is never after its
-    end: a window that lies past an end of the sequence by less than `TIME_TOLERANCE` gives a
-    range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and zero values.
+    `GradientPeaks.range_s` is the `range_s` argument clipped to `(0.0, total_duration)`, so its
+    start is never after its end: a range that lies past an end of the sequence by less than
+    `TIME_TOLERANCE` gives a range of length 0, which has `reason == NO_GRADIENTS_IN_WINDOW` and
+    zero values.
 
-    The result for `window=None` is kept on the snapshot, so that callers of one snapshot
-    calculate it one time. A result with a window is not kept, because a caller can
-    ask for many windows, but it uses the kept values of each block (`_BlockData`), so its cost is
-    the number of blocks in the window. The kept result is read-only: `axes` is a `FrozenDict`
+    The result for `range_s=None` is kept on the snapshot, so that callers of one snapshot
+    calculate it one time. A result with a range is not kept, because a caller can
+    ask for many ranges, but it uses the kept values of each block (`_BlockData`), so its cost is
+    the number of blocks in the range. The kept result is read-only: `axes` is a `FrozenDict`
     and the result is a frozen dataclass.
 
     The values are in Hz/m and Hz/m/s, the units of pypulseq, with no gamma. To get T/m and
     T/m/s, divide them by the magnitude of the gamma of the target, in Hz/T (`docs/usage.md`
     section 9).
 
-    This checks `window` (its form, its numbers and their order), then the type of `snap`. Then
-    it builds `seq_index.sequence_index(snap)`, returns the kept result for `window=None` when
-    there is one, and checks the window against the length of the sequence. Only then does it
+    This checks `range_s` (its form, its numbers and their order), then the type of `snap`. Then
+    it builds `seq_index.sequence_index(snap)`, returns the kept result for `range_s=None` when
+    there is one, and checks the range against the length of the sequence. Only then does it
     take the values of each block (`_BlockData`, built one time for each snapshot from the
     per-event values `_event_values` of the points of `_events.event_points`), and combine them
     with numpy over the blocks of the range: an `argmax` and a sum of the RMS integrals over the
     blocks that lie whole in the range, and the points of `_events.event_points` for the few
-    edge blocks (`_range_result`). It decodes no block for a window: each unique gradient event
+    edge blocks (`_range_result`). It decodes no block for a range: each unique gradient event
     is taken from the decoding in `_events.event_points`, one time for each snapshot.
 
     Raises TypeError for a `snap` that is not a `snapshot.Snapshot` (the message names `load`).
     The axes are those of the decoding (the module docstring): a block's rotation is in the
     numbers where the decoding applies it.
     """
-    if window is not None:
-        if not isinstance(window, tuple | list) or len(window) != 2:
-            raise TypeError(f"window must be a pair (start_s, end_s), not {window!r}")
-        start_s = real("window start", window[0])
-        end_s = real("window end", window[1])
+    if range_s is not None:
+        if not isinstance(range_s, tuple | list) or len(range_s) != 2:
+            raise TypeError(f"range_s must be a pair (start_s, end_s), not {range_s!r}")
+        start_s = real("range_s start", range_s[0])
+        end_s = real("range_s end", range_s[1])
         if not start_s < end_s:
-            raise ValueError(f"window {window!r} must have a start before its end")
+            raise ValueError(f"range_s {range_s!r} must have a start before its end")
 
     _check_snapshot(snap)
     index = sequence_index(snap)
     kept = _kept_results(snap)
-    if window is None and "peaks" in kept:
+    if range_s is None and "peaks" in kept:
         return kept["peaks"]
     total_duration = index.end_s
 
-    if window is None:
-        range_s = (0.0, total_duration)
+    if range_s is None:
+        clipped = (0.0, total_duration)
     else:
         if start_s < -TIME_TOLERANCE or end_s > total_duration + TIME_TOLERANCE:
             raise ValueError(
-                f"window {window!r} is not within the sequence (0.0, {total_duration})"
+                f"range_s {range_s!r} is not within the sequence (0.0, {total_duration})"
             )
         # Clip to the sequence exactly: start_s/end_s can be off by a rounding error of
         # up to TIME_TOLERANCE and still pass the check above. Each end is clipped to
         # `[0.0, total_duration]`, so the start is never after the end.
-        range_s = (
+        clipped = (
             min(max(start_s, 0.0), total_duration),
             min(max(end_s, 0.0), total_duration),
         )
@@ -1161,27 +1162,27 @@ def gradient_peaks(snap: Snapshot, *, window: tuple[float, float] | None = None)
     points = event_points(snap)
     blocks = _kept_block_data(snap, index, points)
 
-    lo, hi = range_s
+    lo, hi = clipped
     axes, vector_peak_hz_per_m, vector_peak_time_s, vector_peak_block, has_event = _range_result(
         index, points, blocks, lo, hi
     )
 
     if has_event:
         reason = None
-    elif window is not None:
+    elif range_s is not None:
         reason = NO_GRADIENTS_IN_WINDOW
     else:
         reason = NO_GRADIENTS
 
     result = GradientPeaks(
         reason=reason,
-        range_s=range_s,
+        range_s=clipped,
         axes=FrozenDict(axes),
         vector_peak_hz_per_m=vector_peak_hz_per_m,
         vector_peak_time_s=vector_peak_time_s,
         vector_peak_block=vector_peak_block,
     )
-    if window is None:
+    if range_s is None:
         kept["peaks"] = result
     return result
 

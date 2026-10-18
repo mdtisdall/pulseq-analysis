@@ -29,7 +29,7 @@ The analyses of this package:
 
 - `seq.index` (`SEQ_INDEX`): `seq_index.sequence_index`, no parameters, no series. The
   layout of `SequenceIndex` is the contract of version 1.
-- `gradient.peaks` (`GRADIENT_PEAKS`): `grad_peaks.gradient_peaks`, the parameter `window`
+- `gradient.peaks` (`GRADIENT_PEAKS`): `grad_peaks.gradient_peaks`, the parameter `range_s`
   (default None: the whole sequence), no series.
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
@@ -41,9 +41,9 @@ The analyses of this package:
   the spectrum.
 
 Each of these functions keeps its result on the snapshot, so `compute` of a second call for
-one snapshot gives the kept object. `gradient.peaks` with a `window` gives the result of
-`gradient_peaks(snap, window=window)`, which is not kept (a caller can ask for many
-windows); with the default `window=None` it gives the kept result of the whole sequence.
+one snapshot gives the kept object. `gradient.peaks` with a `range_s` gives the result of
+`gradient_peaks(snap, range_s=range_s)`, which is not kept (a caller can ask for many
+ranges); with the default `range_s=None` it gives the kept result of the whole sequence.
 """
 
 import importlib.metadata
@@ -275,26 +275,26 @@ class _GradientPeaks:
             "they are not the physical axes of a scanner. They are not compared with a limit. "
             "The values are in the units of pypulseq, "
             "with no gamma. Divide them by the magnitude of gamma (Hz/T) to get T/m and "
-            "T/m/s. The result is read-only. `window` is None or `(start_s, end_s)` in "
-            "seconds from the start of the sequence. With a window, the values are those of "
-            "that range, as `gradient_peaks(snap, window=window)` gives them, and the result "
+            "T/m/s. The result is read-only. `range_s` is None or `(start_s, end_s)` in "
+            "seconds from the start of the sequence. With a range, the values are those of "
+            "that range, as `gradient_peaks(snap, range_s=range_s)` gives them, and the result "
             "is not kept. With the default None, the values are those of the whole sequence, "
             "and the result is kept on the snapshot."
         ),
-        params=("window",),
+        params=("range_s",),
         rasters=_GRADIENT_RASTERS,
         cost="fast",
         series=None,
-        defaults=(("window", None),),
+        defaults=(("range_s", None),),
     )
 
     def compute(
-        self, snap: Snapshot, *, window: tuple[float, float] | None = None
+        self, snap: Snapshot, *, range_s: tuple[float, float] | None = None
     ) -> GradientPeaks:
-        """`grad_peaks.gradient_peaks(snap, window=window)`: for `window=None`, the kept result
-        of the whole sequence for the snapshot; for a window, the result of that range, which
-        is not kept."""
-        return gradient_peaks(snap, window=window)
+        """`grad_peaks.gradient_peaks(snap, range_s=range_s)`: for `range_s=None`, the kept
+        result of the whole sequence for the snapshot; for a range, the result of that range,
+        which is not kept."""
+        return gradient_peaks(snap, range_s=range_s)
 
     def to_series(self, value: GradientPeaks) -> tuple[Series, ...]:
         """`()`: this analysis has no series."""

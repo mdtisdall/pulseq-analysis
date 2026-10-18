@@ -1,7 +1,7 @@
 """The one rule for the number arguments of the package.
 
 `real` checks a number argument and returns it as a `float`. The thresholds and `bin_s` of
-`pns_levels`, the arguments of `gradient_spectrum`, the `window` of `gradient_peaks` and
+`pns_levels`, the arguments of `gradient_spectrum`, the `range_s` of `gradient_peaks` and
 the coordinates of a `Series` use it, so that one value gives the same error everywhere.
 """
 

@@ -186,13 +186,13 @@ def test_window_that_cuts_the_ramp_from_zero_of_a_delayed_event_has_the_part_ins
     segment_slope = 0.3 * SYSTEM.max_grad / 100e-6  # the ramps of block 1
     assert segment_slope < 2 * 0.9 * _MAX_STEP / _RASTER
 
-    cut = gradient_peaks(snap, window=(ramp_start + _RASTER / 4, index.end_s))
+    cut = gradient_peaks(snap, range_s=(ramp_start + _RASTER / 4, index.end_s))
     assert cut.reason is None
     assert cut.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(2 * 0.9 * _MAX_STEP / _RASTER)
     assert cut.axes["x"].slew_block == block_b_id
     assert cut.axes["x"].slew_time_s == pytest.approx(ramp_start + _RASTER / 4, abs=1e-12)
 
-    before_the_ramp = gradient_peaks(snap, window=(0.0, ramp_start))
+    before_the_ramp = gradient_peaks(snap, range_s=(0.0, ramp_start))
     assert before_the_ramp.reason is None
     assert before_the_ramp.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(
         segment_slope, rel=_WRITER_REL
@@ -437,7 +437,7 @@ def test_a_short_gap_gives_a_line_credited_to_the_later_block():
     np.testing.assert_allclose(values.peak_hz_per_m["x"], [3 * U, 2 * U], rtol=1e-9)
     np.testing.assert_allclose(values.peak_time_s["x"], [100e-6, 110e-6], rtol=0, atol=1e-12)
 
-    window = gradient_peaks(snap, window=(105e-6, 150e-6))
+    window = gradient_peaks(snap, range_s=(105e-6, 150e-6))
     rms = U * math.sqrt(
         (5 * (2.5**2 + 2.5 * 2 + 2**2) / 3 + 40 * (2**2 + 2 * 1.2 + 1.2**2) / 3) / 45
     )
@@ -474,14 +474,14 @@ def test_a_window_edge_next_to_a_block_edge_credits_the_vector_peak_by_time():
     end_s, edge = float(index.end_s), float(index.start_s[1])
     top, step_to = 16e-3 * GAMMA_1H, 15.76e-3 * GAMMA_1H
 
-    before_the_step = gradient_peaks(snap, window=(edge - 1e-12, end_s))
+    before_the_step = gradient_peaks(snap, range_s=(edge - 1e-12, end_s))
     assert before_the_step.axes["y"].peak_hz_per_m == pytest.approx(top, rel=_WRITER_REL)
     assert before_the_step.axes["y"].peak_block == block_1
     assert before_the_step.vector_peak_hz_per_m == pytest.approx(top, rel=_WRITER_REL)
     assert before_the_step.vector_peak_time_s == pytest.approx(edge - 1e-12, rel=0, abs=1e-15)
     assert before_the_step.vector_peak_block == block_2
 
-    after_the_step = gradient_peaks(snap, window=(edge + 1e-12, end_s))
+    after_the_step = gradient_peaks(snap, range_s=(edge + 1e-12, end_s))
     assert after_the_step.axes["y"].peak_hz_per_m == pytest.approx(step_to, rel=_WRITER_REL)
     assert after_the_step.axes["y"].peak_block == block_2
     assert after_the_step.vector_peak_hz_per_m == pytest.approx(step_to, rel=_WRITER_REL)

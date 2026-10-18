@@ -111,7 +111,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 | `pulseq_analysis.synth.snapshot` | `Snapshot`: the interpreter's reading and its decoding, which the measurements read. | [2](#2-before-you-start) |
 | `pulseq_analysis.synth.scanner` | `Session`: the inputs of the scanner that are not in the file; the records of what a decoding applied; `ScannerSettingWarning` and `SettingError`. | [8](#the-scanner-session) |
 | `pulseq_analysis.synth.events` | `decode_rf`, `decode_gradients` and `decode_adc`: the events of a `spec` model by file ID, as `RfEvent`, `Trapezoid`, `ArbitraryGradient` and `AdcEvent`. | [8](#the-events) |
-| `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-the-gradient-peaks), [4](#4-find-where-a-value-occurs) |
+| `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a range of time and for each block. | [3](#3-the-gradient-peaks), [4](#4-find-where-a-value-occurs) |
 | `pulseq_analysis.analyses.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
@@ -211,7 +211,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   ([implementation, sections 4 and 5](implementation.md#4-kept-results)).
 - **No result.** A result without a value has the `reason`
   `seq_index.NO_GRADIENTS` ("no gradients"), or
-  `seq_index.NO_GRADIENTS_IN_WINDOW` for a window of `gradient_peaks`. Its
+  `seq_index.NO_GRADIENTS_IN_WINDOW` for a range of `gradient_peaks` (`range_s`). Its
   numbers are 0.0, its block fields are `None` and its arrays are empty, but
   the fields that say how it was made stay. `GradientPeaks` keeps `range_s`.
   `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_samples` and `on_raster`, has
@@ -226,7 +226,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   raises `TypeError` that names `load`. (`gradient_spectrum` checks
   that each argument is a finite number, then the snapshot, then the limits that
   need the gradient raster of the file.) The arguments after `snap` are keyword-only:
-  `window`, `hardware`, `thresholds_hz_per_t`, `bin_s` and the three arguments of
+  `range_s`, `hardware`, `thresholds_hz_per_t`, `bin_s` and the three arguments of
   `gradient_spectrum`
   ([implementation, section 6](implementation.md#6-argument-checks)).
 
@@ -270,7 +270,7 @@ raster time.
 | Field | Meaning |
 |---|---|
 | `reason` | `None`, or `NO_GRADIENTS` (or `NO_GRADIENTS_IN_WINDOW`) when the range has no gradient. |
-| `range_s` | The range of the measurement: `(0.0, end_s)`, or the window clipped to `(0.0, end_s)` ([section 4](#4-find-where-a-value-occurs)). |
+| `range_s` | The range of the measurement: `(0.0, end_s)`, or the argument `range_s` clipped to `(0.0, end_s)` ([section 4](#4-find-where-a-value-occurs)). |
 | `axes` | A dict from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector (Hz/m). |
 | `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and its block ID. |
@@ -338,23 +338,27 @@ block with no event on an axis has the values 0 there, at the time `start_s`.
 [Implementation, section 2.1](implementation.md#21-gradient_peaks-and-block_gradient_values)
 gives each field exactly.
 
-**A window.** `gradient_peaks(snap, window=(start_s, end_s))` gives the largest
-values in that range of time, for example one TR or the time of one ADC:
+**A range of time.** `gradient_peaks(snap, range_s=(start_s, end_s))` gives
+the largest values in that range of time, for example one TR or the time of one
+ADC:
 
 ```python
 tr = 6e-3
-peaks_tr_10 = gradient_peaks(snap, window=(10 * tr, 11 * tr))
+peaks_tr_10 = gradient_peaks(snap, range_s=(10 * tr, 11 * tr))
 ```
 
-`window` is a tuple or a list of two real numbers. It must be in the sequence
-(each end within `seq_utils.TIME_TOLERANCE`, 1e-9 s), with `start_s < end_s`.
-A window that is not a pair, or has an end that is not a real number, raises
-`TypeError`, and another bad window raises `ValueError`. A segment that crosses
-an end of the window is cut there. A step is in the window when
-`start_s <= t < end_s` (and more than `seq_utils.TIME_TOLERANCE` before the end
-of the sequence). A result with a window is not kept, because a caller can ask
-for many windows, but it uses the kept values of each block. So after the first
-call, a window costs about the number of blocks in it.
+`range_s` is a tuple or a list of two real numbers, in seconds from the start
+of the sequence. It must be in the sequence (each end within
+`seq_utils.TIME_TOLERANCE`, 1e-9 s), with `start_s < end_s`. A range that is
+not a pair, or has an end that is not a real number, raises `TypeError`, and
+another bad range raises `ValueError`. A segment that crosses an end of the
+range is cut there. A step is in the range when `start_s <= t < end_s` (and
+more than `seq_utils.TIME_TOLERANCE` before the end of the sequence). A result
+with a range is not kept, because a caller can ask for many ranges, but it uses
+the kept values of each block. So after the first call, a range costs about the
+number of blocks in it. The result field `GradientPeaks.range_s` is the range
+clipped to the sequence. The argument was `window` in `0.1.0rc6`; `window=`
+raises `TypeError`.
 
 ## 5. Predict the PNS on a scanner
 
@@ -550,7 +554,7 @@ An analysis is an object that has the following, as the protocol
   `(name, default)`), `rasters` (the rasters of the file that change its
   value), `cost` and `series` (the text that says what `to_series` gives).
 - `compute(snap, **params)`: the full Python value, the kept result of its
-  function (`gradient.peaks` with a `window` is not kept). `snap` is a
+  function (`gradient.peaks` with a `range_s` is not kept). `snap` is a
   `Snapshot`. The parameters are keyword-only: a runner gives the names in
   `Analysis.spec.necessary` and can leave out the others, which then have their
   `Analysis.spec.defaults`.
@@ -563,7 +567,7 @@ The analyses of this package (each `version` is 1):
 | ID | `compute` | Necessary | Defaults | Cost | `to_series` |
 |---|---|---|---|---|---|
 | `seq.index` | `sequence_index(snap)` | none | none | fast | `()` |
-| `gradient.peaks` | `gradient_peaks(snap, window=window)` | none | `window=None` | fast | `()` |
+| `gradient.peaks` | `gradient_peaks(snap, range_s=range_s)` | none | `range_s=None` | fast | `()` |
 | `gradient.blocks` | `block_gradient_values(snap)` | none | none | fast | `()` |
 | `pns.safe.levels` | `pns_levels(snap, hardware=..., thresholds_hz_per_t=..., bin_s=...)` | `hardware` | `thresholds_hz_per_t=()`, `bin_s=BIN_S` | slow | `pns_total`, `pns_above_<k>` |
 | `gradient.spectrum` | `gradient_spectrum(snap, max_frequency_hz=..., window_s=..., frequency_oversampling=...)` | none | the defaults of `grad_spectrum` | slow | `gradient_spectrum` |

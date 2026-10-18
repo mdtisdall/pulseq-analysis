@@ -116,7 +116,7 @@ def test_the_values_of_a_negated_waveform_are_equal():
     assert gradient_peaks(positive).reason is None
     _assert_limits_equal(gradient_peaks(positive), gradient_peaks(negative))
     _assert_limits_equal(
-        gradient_peaks(positive, window=window), gradient_peaks(negative, window=window)
+        gradient_peaks(positive, range_s=window), gradient_peaks(negative, range_s=window)
     )
     assert_block_values_equal(block_gradient_values(positive), block_gradient_values(negative))
 
@@ -203,7 +203,7 @@ def test_window_that_cuts_a_ramp_gives_the_slew_of_the_part_inside_the_window():
     # (900 to 1100 us, 750 * mg) is outside the window.
 
     snap = load(seq)
-    result = gradient_peaks(snap, window=window)
+    result = gradient_peaks(snap, range_s=window)
 
     expected_slew_hz_per_m_per_s = 500 * mg  # the slope of the 0-200 us segment
 
@@ -422,14 +422,14 @@ def check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_bef
     assert expected["slew_block"] == (block_b_id if counted else block_a_id)
     for result in (
         gradient_peaks(snap).axes["x"],
-        gradient_peaks(snap, window=(0.0, index.end_s)).axes["x"],
+        gradient_peaks(snap, range_s=(0.0, index.end_s)).axes["x"],
     ):
         assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
         assert result.slew_block == expected["slew_block"]
         assert result.slew_time_s == pytest.approx(expected["slew_time"], abs=1e-12)
     window = (0.0, index.end_s - 0.5 * TIME_TOLERANCE)
     expected_window = oracle.peaks(seq, window)["x"]
-    result = gradient_peaks(snap, window=window).axes["x"]
+    result = gradient_peaks(snap, range_s=window).axes["x"]
     assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
     assert expected_window["slew_block"] == expected["slew_block"]
     assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
@@ -465,17 +465,17 @@ def test_window_inside_a_block_with_no_gradient_ignores_the_step_to_zero_before_
     block_a_id, _block_b_id = seq.block_events
 
     snap = load(seq)
-    inside_result = gradient_peaks(snap, window=(0.5e-3, 1.0e-3))
+    inside_result = gradient_peaks(snap, range_s=(0.5e-3, 1.0e-3))
     assert inside_result.reason == NO_GRADIENTS_IN_WINDOW
     assert inside_result.axes["x"].max_slew_hz_per_m_per_s == 0.0
     assert inside_result.axes["x"].slew_block is None
 
-    at_the_step = gradient_peaks(snap, window=(0.2e-3, 1.0e-3))
+    at_the_step = gradient_peaks(snap, range_s=(0.2e-3, 1.0e-3))
     assert at_the_step.reason is None
     assert at_the_step.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(step / _RASTER)
     assert at_the_step.axes["x"].slew_block == block_a_id
 
-    before_the_step = gradient_peaks(snap, window=(0.0, 0.2e-3))
+    before_the_step = gradient_peaks(snap, range_s=(0.0, 0.2e-3))
     assert before_the_step.axes["x"].max_slew_hz_per_m_per_s == pytest.approx(step / 100e-6)
     assert before_the_step.axes["x"].slew_block == block_a_id
 
@@ -505,7 +505,7 @@ def test_window_that_cuts_a_block_credits_it_on_a_tie_with_a_later_block():
     block_1_id = next(iter(seq.block_events))
 
     snap = load(seq)
-    result = gradient_peaks(snap, window=(0.4e-3, 2.0e-3))
+    result = gradient_peaks(snap, range_s=(0.4e-3, 2.0e-3))
 
     axis = result.axes["x"]
     assert axis.peak_block == block_1_id
@@ -595,7 +595,7 @@ def test_vector_peak_tie_goes_to_the_earliest_time_when_a_later_block_has_it(tmp
     assert blocks.vector_peak_time_s[0] == pytest.approx(20e-6 + 0.5e-12, rel=0, abs=1e-14)
     assert blocks.vector_peak_time_s[1] == pytest.approx(20e-6, rel=0, abs=1e-14)
 
-    for result in (gradient_peaks(snap), gradient_peaks(snap, window=(10e-6, 40e-6))):
+    for result in (gradient_peaks(snap), gradient_peaks(snap, range_s=(10e-6, 40e-6))):
         assert result.vector_peak_hz_per_m == 5e5
         assert result.vector_peak_time_s == pytest.approx(20e-6, rel=0, abs=1e-14)
         assert result.vector_peak_block == 2
@@ -793,7 +793,7 @@ def _assert_matches_oracle_on_windows(snap: Snapshot, windows: list) -> None:
     seq = sequence_of(snap)
     for window in [None, *windows]:
         _assert_matches_oracle(
-            gradient_peaks(snap, window=window), oracle.peaks(seq, window), tol, seq, window
+            gradient_peaks(snap, range_s=window), oracle.peaks(seq, window), tol, seq, window
         )
 
 
@@ -1279,11 +1279,11 @@ def check_a_window_gives_the_same_result_with_and_without_the_kept_data(
     kept = _kept_results(snap)
     kept_data = None
     for window in windows:
-        with_kept = gradient_peaks(snap, window=window)
+        with_kept = gradient_peaks(snap, range_s=window)
         if kept_data is None:
             kept_data = kept["block_data"]
         assert kept["block_data"] is kept_data
-        assert with_kept == gradient_peaks(load(seq, interpreter), window=window), window
+        assert with_kept == gradient_peaks(load(seq, interpreter), range_s=window), window
 
 
 @pytest.mark.parametrize(
@@ -1467,13 +1467,13 @@ def test_gradient_peaks_of_two_equal_computations_are_equal_and_not_hashable():
     seq = spin_echo_sequence()
     window = (0.0, 1e-3)
     snap = load(seq)
-    first, second = gradient_peaks(snap, window=window), gradient_peaks(snap, window=window)
+    first, second = gradient_peaks(snap, range_s=window), gradient_peaks(snap, range_s=window)
     assert first is not second
     assert first == second
     assert gradient_peaks(load(spin_echo_sequence())) == gradient_peaks(load(spin_echo_sequence()))
     other = dataclasses.replace(first, vector_peak_hz_per_m=first.vector_peak_hz_per_m + 1.0)
     assert other != first
-    assert first != gradient_peaks(snap, window=(0.0, 2e-3))
+    assert first != gradient_peaks(snap, range_s=(0.0, 2e-3))
     with pytest.raises(TypeError):
         hash(first)
 
@@ -1534,7 +1534,7 @@ def test_the_dicts_of_block_gradient_values_are_frozen_dicts_that_refuse_a_chang
 
 @pytest.mark.parametrize("window", [None, (0.0, 1e-3)], ids=["whole", "window"])
 def test_the_axes_of_gradient_peaks_are_a_frozen_dict_that_refuses_a_change(window):
-    result = gradient_peaks(load(spin_echo_sequence()), window=window)
+    result = gradient_peaks(load(spin_echo_sequence()), range_s=window)
     assert isinstance(result.axes, FrozenDict)
     assert list(result.axes) == ["x", "y", "z"]
     with pytest.raises(TypeError):
@@ -1549,14 +1549,14 @@ def test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window()
     snap = load(seq)
     index = sequence_index(snap)
     assert index.gx[0] == 0 and index.gy[0] == 0 and index.gz[0] == 0
-    result = gradient_peaks(snap, window=(0.0, index.duration_s[0] / 2))
+    result = gradient_peaks(snap, range_s=(0.0, index.duration_s[0] / 2))
     assert result.reason == NO_GRADIENTS_IN_WINDOW
     assert gradient_peaks(snap).reason is None
 
 
 def _fail_if_read(monkeypatch, *names: str) -> None:
     """Make each of the functions `names` of `grad_peaks` fail the test when it is called: the
-    sequence or its events must not be read before a bad `window` is refused."""
+    sequence or its events must not be read before a bad `range_s` is refused."""
 
     def fail(*args, **kwargs):
         raise AssertionError("the sequence was read before the window was refused")
@@ -1573,14 +1573,14 @@ def _fail_if_read(monkeypatch, *names: str) -> None:
     ],
 )
 def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of, monkeypatch):
-    """A `window` with a start equal to its end or after its end raises `ValueError`, before
+    """A `range_s` with a start equal to its end or after its end raises `ValueError`, before
     `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="must have a start before its end"):
-        gradient_peaks(snap, window=window)
+        gradient_peaks(snap, range_s=window)
 
 
 @pytest.mark.parametrize(
@@ -1593,7 +1593,7 @@ def test_gradient_peaks_refuses_a_window_with_no_start_before_its_end(window_of,
     ],
 )
 def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_of, monkeypatch):
-    """A `window` with a start or an end that is NaN or an infinity raises `ValueError`
+    """A `range_s` with a start or an end that is NaN or an infinity raises `ValueError`
     ("finite"), before the rules of the order and of the range, and before `gradient_peaks`
     reads the sequence index or the events."""
     seq = spin_echo_sequence()
@@ -1601,7 +1601,7 @@ def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_o
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(ValueError, match="finite"):
-        gradient_peaks(snap, window=window)
+        gradient_peaks(snap, range_s=window)
 
 
 @pytest.mark.parametrize(
@@ -1616,14 +1616,14 @@ def test_gradient_peaks_refuses_a_window_with_an_end_that_is_not_finite(window_o
     ],
 )
 def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of, monkeypatch):
-    """A `window` with a start or an end that is a `bool`, a string or `None` raises
+    """A `range_s` with a start or an end that is a `bool`, a string or `None` raises
     `TypeError`, before `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
-    with pytest.raises(TypeError, match="window (start|end)"):
-        gradient_peaks(snap, window=window)
+    with pytest.raises(TypeError, match="range_s (start|end)"):
+        gradient_peaks(snap, range_s=window)
 
 
 @pytest.mark.parametrize(
@@ -1638,26 +1638,45 @@ def test_gradient_peaks_refuses_a_window_end_that_is_not_a_real_number(window_of
     ],
 )
 def test_gradient_peaks_refuses_a_window_that_is_not_a_pair(window_of, monkeypatch):
-    """A `window` that is not a tuple or a list of two items raises `TypeError`, before
+    """A `range_s` that is not a tuple or a list of two items raises `TypeError`, before
     `gradient_peaks` reads the sequence index or the events."""
     seq = spin_echo_sequence()
     snap = load(seq)
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "sequence_index", "_event_values")
     with pytest.raises(TypeError, match="must be a pair"):
-        gradient_peaks(snap, window=window)
+        gradient_peaks(snap, range_s=window)
 
 
 def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
-    """A `window` that is a list, or has an `int` or numpy scalars, gives the result of the
+    """A `range_s` that is a list, or has an `int` or numpy scalars, gives the result of the
     same window as a tuple of floats."""
     seq = spin_echo_sequence()
     snap = load(seq)
     total = sequence_index(snap).end_s
-    expected = gradient_peaks(snap, window=(0.0, total / 2))
-    assert gradient_peaks(snap, window=[0.0, total / 2]) == expected
-    assert gradient_peaks(snap, window=(0, np.float64(total / 2))) == expected
-    assert gradient_peaks(snap, window=(np.int64(0), np.float64(total / 2))) == expected
+    expected = gradient_peaks(snap, range_s=(0.0, total / 2))
+    assert gradient_peaks(snap, range_s=[0.0, total / 2]) == expected
+    assert gradient_peaks(snap, range_s=(0, np.float64(total / 2))) == expected
+    assert gradient_peaks(snap, range_s=(np.int64(0), np.float64(total / 2))) == expected
+
+
+def test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window():
+    """`gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range: they
+    match the oracle of the gradient waveform for that range, and the `range_s` of the result is
+    the range given. The old name of the argument, `window`, raises `TypeError` (decision
+    Q18)."""
+    snap = load(spin_echo_sequence())
+    seq = sequence_of(snap)
+    time_range = (0.0, sequence_index(snap).end_s / 2)
+
+    result = gradient_peaks(snap, range_s=time_range)
+
+    assert result.range_s == time_range
+    _assert_matches_oracle(
+        result, oracle.peaks(seq, time_range), _rounding_tol(snap), seq, time_range
+    )
+    with pytest.raises(TypeError, match="window"):
+        gradient_peaks(snap, window=time_range)
 
 
 @pytest.mark.parametrize(
@@ -1668,7 +1687,7 @@ def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
     ],
 )
 def test_gradient_peaks_refuses_a_window_outside_the_sequence(window_of, monkeypatch):
-    """A `window` that starts more than `TIME_TOLERANCE` before 0 or ends more than
+    """A `range_s` that starts more than `TIME_TOLERANCE` before 0 or ends more than
     `TIME_TOLERANCE` after the end of the sequence raises `ValueError`, before
     `gradient_peaks` reads the events (it needs the sequence index for the length)."""
     seq = spin_echo_sequence()
@@ -1676,16 +1695,16 @@ def test_gradient_peaks_refuses_a_window_outside_the_sequence(window_of, monkeyp
     window = window_of(sequence_index(snap).end_s)
     _fail_if_read(monkeypatch, "_event_values")
     with pytest.raises(ValueError, match="is not within the sequence"):
-        gradient_peaks(snap, window=window)
+        gradient_peaks(snap, range_s=window)
 
 
 def test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence():
-    """A `window` that starts `TIME_TOLERANCE / 2` before 0 and ends `TIME_TOLERANCE / 2`
+    """A `range_s` that starts `TIME_TOLERANCE / 2` before 0 and ends `TIME_TOLERANCE / 2`
     after the end of the sequence is accepted, and `range_s` is clipped to the sequence."""
     seq = spin_echo_sequence()
     snap = load(seq)
     total = sequence_index(snap).end_s
-    result = gradient_peaks(snap, window=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
+    result = gradient_peaks(snap, range_s=(-TIME_TOLERANCE / 2, total + TIME_TOLERANCE / 2))
     assert result.range_s == (0.0, total)
 
 
@@ -1700,7 +1719,7 @@ def test_a_window_outside_the_sequence_within_the_tolerance_gives_an_empty_range
     window = (total + 5e-10, total + 9e-10) if at_end else (-9e-10, -5e-10)
     edge = total if at_end else 0.0
 
-    result = gradient_peaks(snap, window=window)
+    result = gradient_peaks(snap, range_s=window)
 
     assert result.range_s == (edge, edge)
     assert result.reason == NO_GRADIENTS_IN_WINDOW
@@ -1741,7 +1760,7 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
     seq = build_repeating(1000)
     snap = load(seq)
     index = sequence_index(snap)
-    gradient_peaks(snap, window=(index.start_s[10], index.start_s[20]))  # builds the kept data
+    gradient_peaks(snap, range_s=(index.start_s[10], index.start_s[20]))  # builds the kept data
     window = _window_over_tr_edges(index, first_play, last_play, cut)
 
     # The values over all the blocks are kept, so a window does not calculate them again.
@@ -1754,7 +1773,7 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
     ):
         monkeypatch.setattr(grad_peaks, name, fail)
 
-    assert gradient_peaks(snap, window=window).reason is None
+    assert gradient_peaks(snap, range_s=window).reason is None
 
 
 # ---- The gradient between two events (the model of the module docstring) ----
@@ -1826,7 +1845,7 @@ def test_a_window_has_the_step_at_its_start_and_not_the_step_at_its_end():
 
     snap = load(seq)
     _assert_axis(
-        gradient_peaks(snap, window=(150e-6, 250e-6)).axes["x"],
+        gradient_peaks(snap, range_s=(150e-6, 250e-6)).axes["x"],
         peak=2 * U,
         peak_time=200e-6,
         peak_block=block_1,
@@ -1836,7 +1855,7 @@ def test_a_window_has_the_step_at_its_start_and_not_the_step_at_its_end():
         rms=U * math.sqrt(11 / 6),
     )
     _assert_axis(
-        gradient_peaks(snap, window=(100e-6, 200e-6)).axes["x"],
+        gradient_peaks(snap, range_s=(100e-6, 200e-6)).axes["x"],
         peak=2 * U,
         peak_time=200e-6,
         peak_block=block_1,
@@ -1846,7 +1865,7 @@ def test_a_window_has_the_step_at_its_start_and_not_the_step_at_its_end():
         rms=U * math.sqrt(7 / 3),
     )
     _assert_axis(
-        gradient_peaks(snap, window=(200e-6, 300e-6)).axes["x"],
+        gradient_peaks(snap, range_s=(200e-6, 300e-6)).axes["x"],
         peak=U,
         peak_time=200e-6,
         peak_block=block_2,
@@ -1872,7 +1891,7 @@ def test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step(
     block_1, block_2 = seq.block_events
 
     snap = load(seq)
-    at_the_step = gradient_peaks(snap, window=(100e-6, 200e-6))
+    at_the_step = gradient_peaks(snap, range_s=(100e-6, 200e-6))
 
     assert at_the_step.vector_peak_hz_per_m == pytest.approx(U, rel=1e-9)
     assert at_the_step.vector_peak_time_s == pytest.approx(100e-6, rel=0, abs=1e-12)
@@ -1889,7 +1908,7 @@ def test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step(
     )
     assert oracle.peaks(seq, (100e-6, 200e-6))["vector_peak"] == pytest.approx(U, rel=1e-9)
 
-    past_the_step = gradient_peaks(snap, window=(100e-6, 250e-6))
+    past_the_step = gradient_peaks(snap, range_s=(100e-6, 250e-6))
 
     assert past_the_step.vector_peak_hz_per_m == pytest.approx(3 * U, rel=1e-9)
     assert past_the_step.vector_peak_time_s == pytest.approx(200e-6, rel=0, abs=1e-12)
@@ -1938,12 +1957,12 @@ def test_a_long_gap_gives_the_ramps_of_its_ends_credited_to_the_blocks_of_their_
         values.vector_peak_time_s, [100e-6, 100e-6, 300e-6], rtol=0, atol=1e-12
     )
 
-    in_the_gap = gradient_peaks(snap, window=(150e-6, 250e-6))
+    in_the_gap = gradient_peaks(snap, range_s=(150e-6, 250e-6))
     assert in_the_gap.reason == NO_GRADIENTS_IN_WINDOW
     _assert_axis(in_the_gap.axes["x"], 0.0, 0.0, None, 0.0, 0.0, None, 0.0)
     assert (in_the_gap.vector_peak_hz_per_m, in_the_gap.vector_peak_block) == (0.0, None)
 
-    half_ramp = gradient_peaks(snap, window=(102.5e-6, 150e-6))
+    half_ramp = gradient_peaks(snap, range_s=(102.5e-6, 150e-6))
     assert half_ramp.reason is None
     _assert_axis(
         half_ramp.axes["x"],
@@ -1993,7 +2012,7 @@ def test_a_first_value_and_a_last_value_that_are_not_zero_are_steps_at_the_ends_
     )
 
     _assert_axis(
-        gradient_peaks(snap, window=(100e-6, 200e-6)).axes["x"],
+        gradient_peaks(snap, range_s=(100e-6, 200e-6)).axes["x"],
         peak=2 * U,
         peak_time=200e-6,
         peak_block=block_2,
@@ -2003,7 +2022,7 @@ def test_a_first_value_and_a_last_value_that_are_not_zero_are_steps_at_the_ends_
         rms=2 * U / math.sqrt(3),
     )
     _assert_axis(
-        gradient_peaks(snap, window=(50e-6, 200e-6)).axes["x"],
+        gradient_peaks(snap, range_s=(50e-6, 200e-6)).axes["x"],
         peak=2 * U,
         peak_time=200e-6,
         peak_block=block_2,
@@ -2028,7 +2047,7 @@ def test_the_vector_peak_of_one_block_with_two_axes_is_at_a_point_of_one_axis():
     assert result.vector_peak_time_s == pytest.approx(150e-6, rel=0, abs=1e-12)
     assert result.vector_peak_block == block
 
-    window = gradient_peaks(snap, window=(160e-6, 400e-6))
+    window = gradient_peaks(snap, range_s=(160e-6, 400e-6))
     assert window.vector_peak_hz_per_m == pytest.approx(math.hypot(3 * U, 3.84 * U), rel=1e-9)
     assert window.vector_peak_time_s == pytest.approx(160e-6, rel=0, abs=1e-12)
     assert window.vector_peak_block == block
@@ -2048,7 +2067,7 @@ def test_a_window_credits_the_segment_before_a_step_of_the_same_slew():
     block_1, block_2 = seq.block_events
 
     snap = load(seq)
-    x = gradient_peaks(snap, window=(12e-6, 60e-6)).axes["x"]
+    x = gradient_peaks(snap, range_s=(12e-6, 60e-6)).axes["x"]
 
     assert x.peak_hz_per_m == pytest.approx(U, rel=1e-9)
     assert x.peak_time_s == pytest.approx(20e-6, rel=0, abs=1e-12)
@@ -2071,13 +2090,13 @@ def test_a_measurement_raises_type_error_that_names_load_for_a_non_snapshot(func
     ("window", "error", "match"),
     [
         pytest.param((0.5, 0.5), ValueError, "start before its end", id="start_equals_end"),
-        pytest.param((0.0, math.inf), ValueError, "window end", id="end_inf"),
-        pytest.param([0.0], TypeError, "window", id="not_a_pair"),
+        pytest.param((0.0, math.inf), ValueError, "range_s end", id="end_inf"),
+        pytest.param([0.0], TypeError, "range_s", id="not_a_pair"),
     ],
 )
 def test_gradient_peaks_refuses_a_bad_window_before_the_snapshot_type(window, error, match):
-    """A bad `window` raises its own error, before the type of the first argument is checked:
+    """A bad `range_s` raises its own error, before the type of the first argument is checked:
     the first argument is a `pp.Sequence`, which is not a snapshot and would raise the `TypeError`
     that names `load`."""
     with pytest.raises(error, match=match):
-        gradient_peaks(gre_sequence(), window=window)
+        gradient_peaks(gre_sequence(), range_s=window)

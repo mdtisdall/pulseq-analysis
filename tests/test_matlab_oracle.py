@@ -784,7 +784,7 @@ def compare_gradient_peaks(case, path):
     (`_Expected`) in each window: the peak, the slew and the RMS of each axis and the vector
     peak, each with a time of MATLAB's that has the value. The windows are the whole file and
     each block, without the intervals of `_left_out`; a window of the whole file without one is
-    `window=None`. `block_gradient_values` has the vector peak of each block that has no
+    `range_s=None`. `block_gradient_values` has the vector peak of each block that has no
     interval left out and no neighbour of duration 0, which is that of the window of the block.
 
     A value is compared to a relative `REL` of the largest value of MATLAB's axis, a slew to a
@@ -817,7 +817,7 @@ def compare_gradient_peaks(case, path):
     for b, window in windows:
         lo, hi = (0.0, end_s) if window is None else window
         where = f"window ({lo!r}, {hi!r})" + ("" if b is None else f" in block {b + 1}")
-        peaks = gradient_peaks(snap, window=window)
+        peaks = gradient_peaks(snap, range_s=window)
         expected = _Expected(waves, dt, end_s, lo, hi)
         for axis, ours in peaks.axes.items():
             at = f"{where} {axis}"
