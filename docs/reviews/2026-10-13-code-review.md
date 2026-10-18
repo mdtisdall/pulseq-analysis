@@ -230,8 +230,8 @@ Method:
    - `Sequence.read` (`implementation.md:721`).
    - `pns_levels.SAFE_FIELDS`, which moved to `analyses.safe`.
    - The test `test_matches_scipy_spectrogram`, cited in three places and gone.
-   - "pypulseq-issues" in three module docstrings that `help()` shows, and 14
-     times in `TESTS.md`.
+   - Citations of the private drafts of upstream pypulseq reports in three
+     module docstrings that `help()` shows, and 14 times in `TESTS.md`.
 9. **The docs-only path of CI** checks only `usage.md` and
    `implementation.md`, so findings 3.1 to 3.3 got through.
 

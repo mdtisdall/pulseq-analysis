@@ -327,13 +327,13 @@ The check of C17 found it; the user made it a task on 2026-10-18.
 | D2 | `docs/plugin-version` | 3.2 | S | Q12; after D0 |
 | D3 | `docs/readme-example` | 3.3 | S | after D0 |
 | D4 | `docs/implementation-claims` | 3.7, 4.2; 2.3, 2.4c, 2.5a | S | after D0 |
-| D5 | `docs/stale-names` | 3.8 (not pypulseq-issues) | S | after D0, D4 |
+| D5 | `docs/stale-names` | 3.8 (not the private drafts) | S | after D0, D4 |
 | D6 | `docs/usage-not-a-checker` | 6 | S | after D4 |
 | D7 | `fix/analysis-contracts` | 3.4 | S | Q13 |
 | D8 | `fix/one-scope-gate` | 3.5, 4.3 | M | Q14 |
 | D9 | `refactor/one-extension-walk` | 4.5 | S | after C10, C16 |
 | D10 | `refactor/plugin-shared-helpers` | 4.4 | M | after D9, C8 |
-| D11 | `docs/no-pypulseq-issues` | 3.8 (pypulseq-issues) | M | Q15; last, before 0.1.0 |
+| D11 | `docs/no-private-drafts` | 3.8 (the private drafts) | M | Q15; last, before 0.1.0 |
 
 ### D0. The checks of the documents (3.9, 4.1, 4.2)
 
@@ -404,7 +404,7 @@ Also:
 - Close 2.3, 2.4c and 2.5a with what section 6 of this plan says. C12 fixes
   the "few percent".
 
-### D5. Stale names (3.8, but not "pypulseq-issues")
+### D5. Stale names (3.8, but not the private drafts)
 
 - **The fixes:**
   - `Sequence.read`: `implementation.md:774`, and the comment
@@ -469,15 +469,17 @@ change `decoding.py`.
   other two, used by both decodings.
 - **The tests:** this is a refactor, and the session tests cover it.
 
-### D11. No "pypulseq-issues" (3.8)
+### D11. No citation of the private drafts (3.8)
 
-- **Where it is:** 66 lines in 18 files:
+- **Where it is:** the name of the private folder of the drafts of upstream
+  pypulseq reports, in 66 lines in 18 files:
   - `TESTS.md`, three module docstrings, and tests;
   - `pyproject.toml:47` and `TODO.md:13`;
   - plans and reviews.
 - **The fix (Q15):** each citation becomes the behaviour, with its source in
   pypulseq.
-- **The check:** `scripts/check` fails on the string, in both paths.
+- **The check:** `scripts/check` fails on the name of the folder, in both
+  paths.
 - **When:** this task goes last, after the API track, and before 0.1.0.
 
 ## 5. Track A: the API
@@ -883,7 +885,7 @@ Answer (2026-10-14): (a), one gate in `read_seqfile` for every interpreter.
   `cpp-siemens` does, and removes the duplicated gate.
 - (b) document the difference between the two interpreters.
 
-**Q15. What replaces each "pypulseq-issues" citation (D11).**
+**Q15. What replaces each citation of the private drafts of upstream reports (D11).**
 Answer (2026-10-14): (a), the behaviour with the file and line of the pinned
 fork, in every file, the plans and the reviews too.
 - **The evidence:** 66 lines in 18 files. Of the drafts, 12 is cited 32 times

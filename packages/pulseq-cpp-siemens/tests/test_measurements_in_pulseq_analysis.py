@@ -220,8 +220,8 @@ def test_matches_oracle_on_synthetic_sequences():
 )
 def test_matches_oracle_on_the_sequences_of_the_oracle_tests(build):
     """`gradient_peaks` matches the oracle on the whole file and on 40 windows that cut the
-    gradients, for each sequence of `gap_sequences.py` that `spec` rejects: the two sequences of
-    pypulseq-issues 12 (a delay before a first value that is not 0,
+    gradients, for each sequence of `gap_sequences.py` that `spec` rejects: `delayed_sequence`
+    and `early_end_sequence` (a delay before a first value that is not 0,
     `gradient.nonzero-start-delay`, and an end that is not 0 before the end of its block,
     `gradient.nonzero-end-align`) and a short gap (an end that is not 0 before the end of its
     block); `cpp-siemens` plays them. The test of the same name of the root tests has the
@@ -350,7 +350,7 @@ def test_a_window_gives_the_same_result_with_and_without_the_kept_data(make_seq)
 def test_the_values_of_each_sequence_of_pypulseq_issue_12_are_those_of_matlab_pulseq(
     build, vector_time_2
 ):
-    """The two sequences of pypulseq-issues 12 (a first value A after a delay, and an end at A
+    """The two sequences, `delayed` and `early_end` (a first value A after a delay, and an end at A
     before the end of its block), each with a gap of 100 us, have the polyline of MATLAB Pulseq: at
     0, 100, 200, 205, 295, 300 and 400 us the values 0, A, A, 0, 0, A and 0, with A half of
     `max_slew * grad_raster_time`. The whole file has the peak A at 100 us in block 1, and the
@@ -596,14 +596,15 @@ def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_wavefor
     """The spectrum of a sequence with a short gap, a long gap, or a step at a junction, and
     ends that are not 0 next to it, equals the spectrum that the oracle calculates from
     `oracle.sample` (the model of MATLAB Pulseq), for the sequences that `spec` rejects.
-    pypulseq's `calculate_gradient_spectrum` draws a line across a long gap
-    (pypulseq-issues 12) and gives another spectrum, so it is not the reference here. The
-    sequences are the hand sequences of `gap_sequences` that `spec` rejects (a short gap and the
-    two sequences of pypulseq-issues 12), each also with every amplitude negated, a gap of 1.5
-    raster times between two values that are not 0, a short gap from a value that is not 0 to 0,
-    and the 8 random sequences of `random_gaps` (seeds 0 to 7). The oracle reads the gradients as
-    the snapshot plays them (`sequence_of`). The test of the same name of the root tests has the
-    sequences that `spec` reads."""
+    pypulseq's `calculate_gradient_spectrum` draws a line across a long gap (pypulseq
+    `Sequence/calc_grad_spectrum.py:76` and `Sequence/sequence.py:1683-1691`, at the fork
+    commit `3c3bd85` that uv.lock pins) and gives another spectrum, so it is not the reference
+    here. The sequences are the hand sequences of `gap_sequences` that `spec` rejects (a short
+    gap, `delayed_sequence` and `early_end_sequence`), each also with every amplitude negated, a
+    gap of 1.5 raster times between two values that are not 0, a short gap from a value that is
+    not 0 to 0, and the 8 random sequences of `random_gaps` (seeds 0 to 7). The oracle reads the
+    gradients as the snapshot plays them (`sequence_of`). The test of the same name of the root
+    tests has the sequences that `spec` reads."""
     # `spec` rejects a gradient that ends above 0 before its block ends
     # (`gradient.nonzero-end-align`), a delay off the gradient raster (`raster.gradient-delay`) and
     # a gradient that starts above 0 after a delay (`gradient.nonzero-start-delay`);
@@ -696,14 +697,14 @@ def test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_
     next to it (and the first value and the last value of an axis that are not 0), `pns_levels`
     is the SAFE model of the oracle samples
     (`check_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`),
-    on the raster and, for the names that end in `_off_raster`, off it. The sequences are the two
-    sequences of pypulseq-issues 12 of `gap_sequences`, each also with every amplitude negated,
-    `short_gap_sequence` negated, a short gap on two axes, a gap of 1.5 raster times between two
-    values that are not 0, a short gap from a value that is not 0 to 0, and the 8 random sequences
-    of `random_gaps` (seeds 0 to 7). Three of them (`gap_of_1_5_raster_times`, `short_gap_to_0`
-    and `negated_short_gap`) and the random ones are also run with a last block that is not on the
-    raster. The 14 ramps of `DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` (a delay of half a raster
-    time behind filler blocks, review 1.3) and the arbitrary gradient of 3 samples of
+    on the raster and, for the names that end in `_off_raster`, off it. The sequences are
+    `delayed_sequence` and `early_end_sequence` of `gap_sequences`, each also with every
+    amplitude negated, `short_gap_sequence` negated, a short gap on two axes, a gap of 1.5 raster
+    times between two values that are not 0, a short gap from a value that is not 0 to 0, and the 8
+    random sequences of `random_gaps` (seeds 0 to 7). Three of them (`gap_of_1_5_raster_times`,
+    `short_gap_to_0` and `negated_short_gap`) and the random ones are also run with a last block
+    that is not on the raster. The 14 ramps of `DELAYED_RAMP_CASES` and `ULP_EDGE_CASES` (a delay of
+    half a raster time behind filler blocks, review 1.3) and the arbitrary gradient of 3 samples of
     `short_arbitrary_sequence` (review 1.4) have the last sample of an event at a sample time. The
     test of the same name of the root tests has the sequences that `spec` reads."""
     # `spec` rejects a gradient that ends above 0 before its block ends

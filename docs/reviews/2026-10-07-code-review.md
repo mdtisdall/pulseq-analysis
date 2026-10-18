@@ -298,9 +298,10 @@ otherwise. The times are on an Apple M1 Max.
    `docs/implementation.md` section 4 must name `mod_grad_axis`,
    `flip_grad_axis` and `set_block` until section 1, item 1 is fixed.
 
-8. **pypulseq-issues in docstrings.** `help()` shows the module docstrings of
-   `extensions` (line 58), `grad_peaks` (27), `sampling` (21) and
-   `pns_levels` (33), which cite pypulseq-issues. The plan is to remove all
+8. **The private drafts in docstrings.** `help()` shows the module docstrings
+   of `extensions` (line 58), `grad_peaks` (27), `sampling` (21) and
+   `pns_levels` (33), which cite the private drafts of upstream pypulseq
+   reports. The plan is to remove all
    these references before 0.1.0, so this is listed here only.
 
 ## 4. Duplication and simplification
@@ -434,7 +435,7 @@ an input that gives a different result.
 
 7. **`TESTS.md`.** The contents list the sections in an order that is not
    their numbers. The tests of `asc.py` are in `test_pns_levels_kept.py`,
-   under "The kept PNS levels". The pypulseq-issues references (22 in
+   under "The kept PNS levels". The citations of the private drafts (22 in
    `TESTS.md`, 22 in the tests, and the names `test_*_pypulseq_issue_12_*`)
    go with the cleanup before 0.1.0.
 

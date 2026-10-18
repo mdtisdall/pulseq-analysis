@@ -36,6 +36,23 @@ docs_only() {
   done <<<"$changed"
 }
 
+# No tracked file names the private folder of the drafts of upstream pypulseq reports: a citation
+# gives the behaviour and its source in pypulseq instead. It runs in both paths. The name is in
+# two pieces, so that this file does not match it.
+echo "# the private drafts"
+drafts="pypulseq-""issues"
+status=0
+git grep -l -F -e "$drafts" || status=$?
+case $status in
+  0)
+    echo "FAIL  the files above name $drafts" >&2
+    exit 1
+    ;;
+  1) echo "ok    no tracked file names $drafts" ;;
+  *) exit "$status" ;;
+esac
+echo
+
 if [[ -n $base ]] && docs_only "$base"; then
   echo "# documentation only (the files changed since $base)"
   git diff --name-only "$base" HEAD | sed 's/^/  /'

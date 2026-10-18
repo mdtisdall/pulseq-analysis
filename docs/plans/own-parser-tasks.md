@@ -374,7 +374,8 @@ entries in their reports. The main agent writes them and runs the baseline.
 - Show the commit message and wait for approval. Merge only when told.
 - No docstring or comment states a fact that was not verified. A sub-agent
   reports what it could not verify.
-- `docs/usage.md` and `docs/implementation.md` do not cite pypulseq-issues.
+- `docs/usage.md` and `docs/implementation.md` do not cite the private drafts
+  of upstream reports.
 
 ## 6. Task 4: `feature/pypulseq-converter`
 
@@ -827,7 +828,7 @@ reader. The user decided each one.
 | U24 | MATLAB and the C++ reader decode a file differently. | In general, follow the C++ reader: MATLAB is a writer, not an ideal reader. Each such difference still goes to the user. |
 | U25 | An RF time shape that the C++ reader takes as regular (3 or 4 stored values): it plays N samples in cells of the step d from the delay, and ignores the first time. | Decode it as the reader plays it: `t = (i + 0.5) d`, `shape_dur = N d`. A new rule `shape.rf-time-grid` rejects such a shape whose times are not the centres of its cells: the reader would play its samples at other times than the file says. |
 | U26 | Any other RF time shape: the C++ reader resamples it to the RF raster (`decodeBlock`, `ExternalSequence.cpp:2026-2046`). | Decode it as the reader plays it: `int(0.5 + t_last)` samples on the RF raster, each the stored value that the reader's loop picks. |
-| U27 | The signature of a CRLF file: the C++ reader drops the whole empty line (`\r\n`) before `[SIGNATURE]`; the specification strips only the `\n`. | Follow the C++ reader. The discrepancy is issue 14 of pypulseq-issues. |
+| U27 | The signature of a CRLF file: the C++ reader drops the whole empty line (`\r\n`) before `[SIGNATURE]`; the specification strips only the `\n`. | Follow the C++ reader. It holds back an empty line (`\n` or `\r\n`) and drops it when the next line is `[SIGNATURE]` (`ExternalSequence.cpp:1770-1787`). |
 
 Decisions with no question:
 

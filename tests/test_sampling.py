@@ -44,8 +44,8 @@ from pulseq_analysis.synth.snapshot import Snapshot
 
 _AXES = ("x", "y", "z")
 _RASTER = SYSTEM.grad_raster_time
-# The largest end value that `add_block` accepts next to a gap, halved (the value of the
-# sequences of pypulseq-issues 12).
+# The largest end value that `add_block` accepts next to a gap, halved (the value A of
+# `delayed_sequence` and `early_end_sequence`).
 _A = 0.5 * SYSTEM.max_slew * _RASTER
 
 
@@ -298,8 +298,10 @@ def test_a_tolerated_step_at_a_block_junction_is_a_step_that_the_oracle_has():
     """A step of half of `max_slew * grad_raster_time` at the junction in the middle of the
     flat top: the value at the time of the step is the earlier value, and the value after
     it is the later one (flat) until the fall. pypulseq draws a line from the earlier value
-    to the end of the flat of the later block instead (pypulseq-issues 12), so the test
-    compares with the oracle and with the hand values."""
+    to the end of the flat of the later block instead: it drops the first point of the later
+    event, at the time of the last point of the earlier event (pypulseq
+    `Sequence/sequence.py:1683-1689`, at the fork commit `3c3bd85` that uv.lock pins). So the
+    test compares with the oracle and with the hand values."""
     step = 0.5 * SYSTEM.max_slew * SYSTEM.grad_raster_time
     seq, junction_s = _junction_sequence(step_hz_per_m=step)
     base = pp.make_trapezoid(channel="x", area=1000, system=SYSTEM)
@@ -328,8 +330,10 @@ def test_sample_matches_the_added_events_for_an_oversampled_arbitrary_gradient(t
     """`sample` for a file with an oversampled arbitrary gradient against a reference built
     from the added events (the objects that `make_*` returns, before `add_block`), not
     from `get_block` and not from `seq.get_gradients()`: `get_gradients()` itself leaves
-    out the first and the last point of an oversampled gradient (draft 03 of
-    `github.com/mdtisdall/pypulseq-issues`).
+    out the first and the last point of an oversampled gradient. Its times are not at the
+    centres of the raster, so `waveforms()` takes the branch of an extended trapezoid, which
+    has no `first` and no `last` (pypulseq `Sequence/sequence.py:1582-1614`, at the fork
+    commit `3c3bd85` that uv.lock pins).
 
     The sequence: an oversampled ramp of 21 samples at 50 % of
     `max_slew` over half a raster (`make_arbitrary_grad(oversampling=True)` checks the
@@ -481,7 +485,7 @@ def _random_gap_builder(seed: int, for_spec: bool = False):
 
 
 # The sequences of the model: each gap rule (a zero gap, a short gap, a long gap, the first and the
-# last value not 0, the two sequences of pypulseq-issues 12), the synthetic sequences, and
+# last value not 0, `delayed_sequence` and `early_end_sequence`), the synthetic sequences, and
 # events that are not on a raster edge.
 _MODEL_SEQUENCES = {
     "zero_gap": zero_gap_sequence,

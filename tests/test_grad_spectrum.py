@@ -214,8 +214,10 @@ def test_a_gap_with_ends_that_are_not_0_gives_the_spectrum_of_the_oracle_wavefor
     sequences that `spec` reads: the hand sequences of `gap_sequences` that it reads, three of
     them also with every amplitude negated, and the 8 random sequences of
     `random_gap_sequence(rng, for_spec=True)` (seeds 0 to 7). pypulseq's
-    `calculate_gradient_spectrum` draws a line across a long gap (pypulseq-issues 12) and gives
-    another spectrum, so it is not the reference here. The oracle reads the gradients as the
+    `calculate_gradient_spectrum` draws a line across a long gap (pypulseq
+    `Sequence/calc_grad_spectrum.py:76` and `Sequence/sequence.py:1683-1691`, at the fork
+    commit `3c3bd85` that uv.lock pins) and gives another spectrum, so it is not the reference
+    here. The oracle reads the gradients as the
     snapshot plays them (`sequence_of`). The test of the same name of the `cpp-siemens` plugin has
     the sequences that `spec` rejects."""
     snap = load(build())

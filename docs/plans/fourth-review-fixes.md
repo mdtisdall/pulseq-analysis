@@ -128,8 +128,11 @@ breaks them.
 6. **The signature hash.** `extensions.refuse_unsigned` checks only that
    `seq.signature_value` is a `str` that is not `''`. No code uses the hash as
    an identity: D21 of the second plan keeps it out of the stamp, because the
-   hash can be stale (pypulseq-issues 11: `read`, `add_block` and `set_block`
-   do not clear it). Issue 11 does not name the calls of fact 5.
+   hash can be stale: `read`, `add_block` and `set_block` do not clear it
+   (pypulseq sets the signature fields only in `__init__`, in `write` and for
+   a `[SIGNATURE]` section in `read`: `Sequence/sequence.py:92-94` and
+   `1803-1805`, and `Sequence/read_seq.py:98-102`, at `3c3bd85`). The private
+   draft of the upstream report does not name the calls of fact 5.
 7. **The cost of a copy** (Apple M1 Max, `tests/scale_sequences.py`):
 
    | | 100k blocks | 100k blocks, K = 20k | 1M blocks |
@@ -153,7 +156,7 @@ to U10 on 2026-10-07, in answer to the questions of the draft of this plan.
 
 | # | Decision | Answer | Alternative (not chosen) |
 |---|---|---|---|
-| U1 | The kept results and the changes of pypulseq in place | An explicit step makes a snapshot that the package owns. The measurements and the kept results work on it. The documents say that the step is necessary, because pypulseq lets a caller change a sequence in place. | (a) A content hash in the stamp on each call (25 ms for 100k blocks, 25 times the cost of a window). (b) The signature hash as the stamp, after a fork fix of issue 11 for every call that changes a sequence. (c) Document the limit. |
+| U1 | The kept results and the changes of pypulseq in place | An explicit step makes a snapshot that the package owns. The measurements and the kept results work on it. The documents say that the step is necessary, because pypulseq lets a caller change a sequence in place. | (a) A content hash in the stamp on each call (25 ms for 100k blocks, 25 times the cost of a window). (b) The signature hash as the stamp, after a fork fix of the stale hash (fact 6) for every call that changes a sequence. (c) Document the limit. |
 | U2 | The copy | `load(path)` reads the file into a sequence that only the package holds: no copy. `load(seq)` makes `copy.deepcopy(seq)`. | A copy of each mutable object by type (6 times faster, about 50 lines and its own tests). |
 | U3 | The callers | The design of this package does not follow the present use of pulseq-checks and pulseq-reports. They change to fit it. | Keep the present call shapes. |
 | U4 | The release | All the work goes into `0.1.0rc6`. Task 2.7 replaces task 2.6 of the third plan. The callers move one time. | Tag `0.1.0rc6` now, and this plan makes `0.1.0rc7`. |
@@ -606,12 +609,14 @@ Before the tag, X checks:
 
 ## 9. Later
 
-- **Extend pypulseq-issues 11** to each call of fact 5 (`mod_grad_axis`,
-  `flip_grad_axis`, `apply_soft_delay`, `remove_duplicates(in_place=True)`,
-  `set_definition`), in 11a and 11b, with the rule "a method that changes what
+- **Extend the private draft of the upstream report of the stale hash** to
+  each call of fact 5 (`mod_grad_axis`, `flip_grad_axis`, `apply_soft_delay`,
+  `remove_duplicates(in_place=True)`, `set_definition`), in its MATLAB Pulseq
+  and its pypulseq version, with the rule "a method that changes what
   `write` writes clears the signature fields". After task 2.1 the package
   does not depend on it, so it is a report for pypulseq, not a task here.
-- **The pypulseq-issues references** in the docstrings, `TESTS.md`,
+- **The citations of the private drafts of upstream reports** in the
+  docstrings, `TESTS.md`,
   `TODO.md`, `pyproject.toml` and the tests go away before 0.1.0.
 - **A faster `load(seq)`.** A copy of each mutable object by type (fact 7),
   if a profile shows that `copy.deepcopy` is a cost for the callers. Guard

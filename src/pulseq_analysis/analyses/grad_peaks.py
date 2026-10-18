@@ -26,8 +26,9 @@ last_time`, with the first point of the later event and the last point of the ea
 - A long gap has a ramp to 0 in `dt / 2` after the earlier event when its last value is not 0,
   and a ramp from 0 in `dt / 2` before the later event when its first value is not 0. The value
   is 0 between them. This is MATLAB Pulseq's rule (`waveforms_and_times`); pypulseq's
-  `waveforms()` draws a line across a long gap (pypulseq-issues 12). A value of 1e-6 Hz/m or
-  less also gets its ramp.
+  `waveforms()` joins the points of the events of an axis with nothing at a gap, so it draws a
+  line across a long gap (pypulseq `Sequence/sequence.py:1683-1691`, at the fork commit
+  `3c3bd85` that uv.lock pins). A value of 1e-6 Hz/m or less also gets its ramp.
 
 The rule of the gaps (the zero, the short and the long gap, and the ramp points) is in
 `_events` (`gap_kinds` and `polyline`), where `sampling` uses it too.
