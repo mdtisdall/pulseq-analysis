@@ -16,10 +16,10 @@ Contents:
 0. [Install](#0-install)
 1. [Quick start](#1-quick-start)
 2. [Before you start](#2-before-you-start)
-3. [Check the gradient limits](#3-check-the-gradient-limits)
+3. [The gradient peaks](#3-the-gradient-peaks)
 4. [Find where a value occurs](#4-find-where-a-value-occurs)
 5. [Predict the PNS on a scanner](#5-predict-the-pns-on-a-scanner)
-6. [Check the acoustic resonances](#6-check-the-acoustic-resonances)
+6. [The gradient spectrum](#6-the-gradient-spectrum)
 7. [Run the analyses and write JSON](#7-run-the-analyses-and-write-json)
 8. [The block table and the other modules](#8-the-block-table-and-the-other-modules)
 9. [Units and gamma](#9-units-and-gamma)
@@ -45,8 +45,6 @@ uv add "pulseq-analysis[pypulseq] @ git+https://github.com/mdtisdall/pulseq-anal
 - `asc_to_hw` and `safe_example_hw` are functions of pypulseq. They make a
   hardware struct for `pns_levels`
   ([section 5](#5-predict-the-pns-on-a-scanner)).
-- The examples that use `pp.Opts`
-  ([section 3](#3-check-the-gradient-limits)).
 
 `load(path)`, all the measurements, `asc.hardware_from_asc` and `safe.SafeHardware`
 need no pypulseq. Each example below that needs the extra says so.
@@ -86,7 +84,7 @@ print((peaks.axes["x"].peak_hz_per_m / abs(gamma)) * 1e3, "mT/m")  # T/m -> mT/m
 print(peaks.axes["x"].max_slew_hz_per_m_per_s / abs(gamma), "T/m/s")
 
 levels = pns_levels(snap, hardware=hardware_from_asc("MP_GPA_K2309_2250V_951A_AS82.asc"))
-print(f"PNS: {levels.peak_hz_per_t / abs(gamma):.0%} of the limit")
+print(f"PNS: {levels.peak_hz_per_t / abs(gamma):.0%} of the stimulation limit")
 
 spectrum = gradient_spectrum(snap)
 print(spectrum.frequency_hz[spectrum.rss.argmax()], "Hz")
@@ -109,11 +107,11 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 | `pulseq_analysis.synth.snapshot` | `Snapshot`: the interpreter's reading and its decoding, which the measurements read. | [2](#2-before-you-start) |
 | `pulseq_analysis.synth.scanner` | `Session`: the inputs of the scanner that are not in the file; the records of what a decoding applied; `ScannerSettingWarning` and `SettingError`. | [8](#the-scanner-session) |
 | `pulseq_analysis.synth.events` | `decode_rf`, `decode_gradients` and `decode_adc`: the events of a `spec` model by file ID, as `RfEvent`, `Trapezoid`, `ArbitraryGradient` and `AdcEvent`. | [8](#the-events) |
-| `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-check-the-gradient-limits), [4](#4-find-where-a-value-occurs) |
+| `pulseq_analysis.analyses.grad_peaks` | The peak amplitude, the peak slew and the RMS of the gradients, for the whole file, for a window and for each block. | [3](#3-the-gradient-peaks), [4](#4-find-where-a-value-occurs) |
 | `pulseq_analysis.analyses.pns_levels` | The SAFE PNS prediction. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.safe` | `SafeHardware` and `SafeAxis`: the SAFE hardware that `pns_levels` takes. | [5](#5-predict-the-pns-on-a-scanner) |
 | `pulseq_analysis.analyses.asc` | The read of a Siemens gradient `.asc` file into the hardware of `pns_levels`. | [5](#5-predict-the-pns-on-a-scanner) |
-| `pulseq_analysis.analyses.grad_spectrum` | The spectrum of the gradients. | [6](#6-check-the-acoustic-resonances) |
+| `pulseq_analysis.analyses.grad_spectrum` | The spectrum of the gradients. | [6](#6-the-gradient-spectrum) |
 | `pulseq_analysis.analyses.registry` | The analyses of the package by ID, their registry, and the `Analysis` protocol. | [7](#7-run-the-analyses-and-write-json) |
 | `pulseq_analysis.analyses.series` | `Series`, the part of a value that goes into JSON, its `SeriesKind`, and `FrozenDict`. | [7](#7-run-the-analyses-and-write-json) |
 | `pulseq_analysis.synth.seq_index` | The block table. | [8](#8-the-block-table-and-the-other-modules) |
@@ -236,32 +234,27 @@ measured times of each call, and
 [section 3](implementation.md#3-algorithms-and-cost) the algorithms and their
 complexity.
 
-## 3. Check the gradient limits
+## 3. The gradient peaks
 
 `gradient_peaks(snap)` gives the largest values of the gradients over the whole
 file: for each axis the peak amplitude, the peak slew and the RMS, and the
-peak of the three-axis vector. The function does not compare them with
-limits: compare them with the limits of your scanner. pypulseq's `Opts` keeps
-`max_grad` in Hz/m and `max_slew` in Hz/m/s, so the limits and the values have
-the same units.
-
-This example needs the extra `pypulseq` for `pp.Opts` ([Install](#0-install)):
+peak of the three-axis vector. The package has no limits: the comparison of
+the values with the limits of a scanner is the caller's
+([section 9](#9-units-and-gamma) gives the units).
 
 ```python
-import pypulseq as pp
-
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.grad_peaks import gradient_peaks
 
-system = pp.Opts(max_grad=40, grad_unit="mT/m", max_slew=200, slew_unit="T/m/s")
+gamma = 42.576e6  # Hz/T, the gamma of the target: here 1H
 
 snap = load("sequence.seq")
 peaks = gradient_peaks(snap)
 for axis, result in peaks.axes.items():
-    if result.peak_hz_per_m > system.max_grad:
-        print(f"{axis}: amplitude over the limit in block {result.peak_block}")
-    if result.max_slew_hz_per_m_per_s > system.max_slew:
-        print(f"{axis}: slew over the limit at {result.slew_time_s:.6f} s")
+    amplitude = (result.peak_hz_per_m / abs(gamma)) * 1e3  # T/m -> mT/m
+    slew = result.max_slew_hz_per_m_per_s / abs(gamma)  # T/m/s
+    print(f"{axis}: amplitude {amplitude:.2f} mT/m in block {result.peak_block}")
+    print(f"{axis}: slew {slew:.1f} T/m/s at {result.slew_time_s:.6f} s")
 ```
 
 The slew includes the steps of the waveform: a step at a block junction counts
@@ -311,7 +304,7 @@ two ways.
 
 **The values of each block.** `block_gradient_values(snap)` gives the same
 values for each block, as arrays in play order. Use it to plot the values
-along the sequence, or to find all the blocks over a limit:
+along the sequence, or to find the blocks with the largest values:
 
 ```python
 import numpy as np
@@ -320,9 +313,9 @@ from pulseq_analysis.analyses.grad_peaks import block_gradient_values
 
 values = block_gradient_values(snap)
 slew_x = np.maximum(values.slew_hz_per_m_per_s["x"], values.junction_hz_per_m_per_s["x"])
-over = np.flatnonzero(slew_x > system.max_slew)
-for i in over:
-    print(f"block {values.block_id[i]} at {values.start_s[i]:.6f} s")
+for i in np.argsort(-slew_x, kind="stable")[:5]:  # the 5 largest; on a tie, play order
+    slew = slew_x[i] / abs(gamma)  # T/m/s
+    print(f"block {values.block_id[i]} at {values.start_s[i]:.6f} s: {slew:.1f} T/m/s")
 ```
 
 | Field | Meaning |
@@ -409,7 +402,7 @@ if levels.peak_time_s is None:  # the peak is 0: no gradient, or all have the am
 else:
     print(f"peak {levels.peak_hz_per_t / abs(gamma):.0%} at {levels.peak_time_s:.4f} s")
 for run in levels.above[0.8 * abs(gamma)]:
-    print(f"over 80 % from {run.start_s:.4f} s to {run.end_s:.4f} s")
+    print(f"at or above 80 % from {run.start_s:.4f} s to {run.end_s:.4f} s")
 ```
 
 **The level, for a plot.** `level_min_hz_per_t` and `level_max_hz_per_t`
@@ -457,12 +450,13 @@ or 1 s for 2 minutes. A change of
 `hardware`, of the thresholds or of `bin_s` is a new result, which runs the
 model again.
 
-## 6. Check the acoustic resonances
+## 6. The gradient spectrum
 
 `gradient_spectrum(snap)` gives the spectrum of the gradients: for each
-frequency, the largest amplitude over 50 ms windows of the sequence. Compare
-it with the acoustic resonances of the gradient coil of the scanner (the
-frequency and the bandwidth of each):
+frequency, the largest amplitude over 50 ms windows of the sequence. This
+example prints the largest value of each band of frequencies that the caller
+gives (the centre and the width of each), for example the bands of the acoustic
+resonances of a gradient coil:
 
 ```python
 import numpy as np
@@ -471,11 +465,11 @@ from pulseq_analysis.analyses.grad_spectrum import gradient_spectrum
 
 gamma = 42.576e6  # Hz/T
 
-resonances = [(590.0, 100.0), (1140.0, 220.0)]  # (Hz, Hz): the resonances of the coil
+bands = [(590.0, 100.0), (1140.0, 220.0)]  # (Hz, Hz): the centre and the width
 
 s = gradient_spectrum(snap)
-for frequency, bandwidth in resonances:
-    band = np.abs(s.frequency_hz - frequency) <= bandwidth / 2
+for frequency, width in bands:
+    band = np.abs(s.frequency_hz - frequency) <= width / 2
     peak = (s.rss[band].max() / abs(gamma)) * 1e3  # T/m/sqrt(Hz) -> mT/m/sqrt(Hz)
     print(f"{frequency:.0f} Hz: {peak:.3g} mT/m/sqrt(Hz)")
 ```
@@ -1452,8 +1446,8 @@ the oracles.
 **The limits of a scanner.** Convert the values to the unit of the limits, or
 convert the limits to the unit of the values. pypulseq's `Opts` keeps
 `max_grad` in Hz/m and `max_slew` in Hz/m/s, converted with its own gamma.
-Thus the `Opts` of a target gives limits in the units of the values
-([section 3](#3-check-the-gradient-limits)).
+Thus the `Opts` of a target gives limits in the units of the values of
+`gradient_peaks` ([section 3](#3-the-gradient-peaks)).
 
 The arrays of a result are read-only. Convert an array to a new array
 (`(s.rss / abs(gamma)) * 1e3`, `(levels.level_max_hz_per_t / abs(gamma)) * 100`).
