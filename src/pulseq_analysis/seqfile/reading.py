@@ -4,6 +4,7 @@ of layer 1 (`model.SequenceData`)."""
 from pathlib import Path
 
 from . import spec
+from .errors import _read_in_scope
 from .interpreters import Interpreter, Spec
 from .interpreters import interpreter as _interpreter
 from .model import SequenceData
@@ -20,9 +21,16 @@ def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "spec") ->
     Returns the `SequenceData` of the interpreter; its `interpreter` field records the
     interpreter and its settings. Raises `SeqFileError` (a `ValueError`) when the interpreter
     rejects the file, with the code of each reason, `NotSupported` (a `NotImplementedError`) for
-    a file that the package does not read (a version outside 1.4.0 to 1.5.x), and `OSError` when
-    the file cannot be read. A name that no installed interpreter has is a `ValueError`."""
+    a file that the package does not read, and `OSError` when the file cannot be read. A name
+    that no installed interpreter has is a `ValueError`.
+
+    The scope is checked before the interpreter reads the file, so it is one for every
+    interpreter, with one message for each case (`errors._read_in_scope`; the
+    user, 2026-10-14): a folder, a binary Pulseq file, or a version
+    outside 1.4.0 to 1.5.x is `NotSupported`. `spec` reads the "as written" reading of the check;
+    a plugin reads the file again from `path`."""
     chosen = _interpreter(interpreter)
+    written = _read_in_scope(path)
     if isinstance(chosen, Spec):
-        return spec.read_spec(path)
+        return spec._read_written(written)
     return chosen.read(Path(path))

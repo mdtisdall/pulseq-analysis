@@ -4,7 +4,9 @@ of `seqfile.read_seqfile`; a plugin interpreter is read by name (`interpreters`)
 
 `read_spec(path)`, which `seqfile.read_seqfile(path)` calls, reads a file and returns a
 `model.SequenceData`, or raises `SeqFileError` (a `ValueError`) with every violation of its rules,
-and `NotSupported` for a version outside 1.4.0 to 1.5.x (Q1 of `docs/plans/parser-redesign.md`).
+and `NotSupported` for a file outside the package's scope (Q1 of `docs/plans/parser-redesign.md`):
+a folder, a binary Pulseq file, or a version outside 1.4.0 to 1.5.x, by the check of
+`errors._read_in_scope`, which `read_seqfile` makes for every interpreter.
 Each violation is a `Violation(rule, section, line, message)`. The error lists at most
 `MAX_LOCATIONS` violations of each rule and counts the rest (`SeqFileError.omitted`). The reader
 does not import pypulseq, uses no default for a value that the file must define, and does not
@@ -79,8 +81,8 @@ from typing import Any, NamedTuple
 import numpy as np
 
 from . import as_written
-from .as_written import AsWritten, read_as_written
-from .errors import NotSupported, SeqFileError, Violation
+from .as_written import AsWritten
+from .errors import SeqFileError, Violation, _read_in_scope
 from .interpreters import Spec
 from .model import (
     TABLE_DTYPES,
@@ -356,7 +358,6 @@ RULES: Mapping[str, Rule] = MappingProxyType(
     }
 )
 
-_MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
 _SECTIONS = (
     "VERSION",
     "DEFINITIONS",
@@ -516,14 +517,19 @@ def read_spec(path: str | Path) -> SequenceData:
     rules of the `spec` interpreter. `seqfile.read_seqfile(path)` calls it.
 
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
-    (see the module docstring), `NotSupported` for a version outside 1.4.0 to 1.5.x, and
-    `OSError` when the file cannot be read.
+    (see the module docstring), `NotSupported` for a file outside the package's scope
+    (`errors._read_in_scope`), and `OSError` when the file cannot be read.
     """
-    written = read_as_written(path)
+    return _read_written(_read_in_scope(path))
+
+
+def _read_written(written: AsWritten) -> SequenceData:
+    """`read_spec` of the file that `written` reads, a file in the package's scope
+    (`errors._read_in_scope`)."""
     report = _Report()
     data = _build(written, report)
     if report or data is None:
-        raise report.error(str(path))
+        raise report.error(written.path)
     return data
 
 
@@ -607,13 +613,7 @@ def _read_version(
     if missing:
         report.add("version.invalid", "VERSION", sections[0].line, f"{', '.join(missing)} missing")
         return None
-    version = (values["major"], values["minor"], values["revision"])
-    if not _MIN_VERSION <= version < _MAX_VERSION:
-        name = ".".join(map(str, version))
-        raise NotSupported(
-            f"version {name} is outside 1.4.0 to 1.5.x; the package does not read it"
-        )
-    return version
+    return values["major"], values["minor"], values["revision"]
 
 
 def _read_definitions(

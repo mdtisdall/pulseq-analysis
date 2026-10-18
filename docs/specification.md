@@ -43,7 +43,12 @@ file otherwise, pulseq-checks reports a finding (P17).
 **D4.1: a version before 1.4.0 or from 1.6.0.** `spec` raises `NotSupported`,
 which says nothing about the file, and also for a binary file or a folder
 (`bad_version_unsupported_1_3.seq`, `bad_version_unsupported_1_6.seq`). The
-specification has no rule for a version that a reader does not know.
+check is that of `read_seqfile`, before the interpreter reads the file, so
+every interpreter has it, with one message for each case (Q14 of
+`docs/plans/remaining-review-fixes.md`). The version is that of the "as
+written" reading (`AsWritten.version`), and a binary Pulseq file is one whose
+first 8 bytes are `\x01pulseq\x02`. The specification has no rule for a
+version that a reader does not know.
 
 Why: the package reads 1.4.0 to 1.5.x only (Q1), so a version that it does not
 know fails loudly, not wrongly.

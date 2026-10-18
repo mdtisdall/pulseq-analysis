@@ -322,9 +322,10 @@ These are the reader's values bit for bit, on each platform (section 6).
   `violations`; `interpreter` is the name; `path` is the file (or
   `from_pypulseq.SOURCE`, `"<pypulseq.Sequence>"`, for a sequence in memory).
 - `seqfile.NotSupported` (a `NotImplementedError`): the package does not read
-  the file in either interpreter: a version outside 1.4.0 to 1.5.x (Q1), and for
-  `cpp-siemens` a binary Pulseq file or a folder. It says nothing about the
-  file.
+  the file in either interpreter: a version outside 1.4.0 to 1.5.x (Q1), a
+  binary Pulseq file or a folder. `read_seqfile` checks them before the
+  interpreter reads the file, with one message for each. It says nothing about
+  the file.
 - `ValueError` for a name that no installed interpreter has, for example
   `cpp-siemens` when pulseq-cpp-siemens is not installed: "no interpreter is
   named 'cpp-siemens'; the installed interpreters are spec. A distribution adds

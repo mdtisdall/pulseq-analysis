@@ -15,11 +15,13 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
 
 `CppSiemens.read(path)` (`read_cpp_siemens`) reads a file in four steps:
 
-1. **The version gate** (Q1 of the plan). The "as written" reading (`as_written`) gives the
-   version of the first `[VERSION]` section. A version outside 1.4.0 to 1.5.x raises
-   `NotSupported` before the C++ reader runs. `load` then reads the version again
-   as the reader does (the reader takes the last row of each key), and refuses it in the same
-   way; a binary Pulseq file and a folder are `NotSupported` too.
+1. **The version gate** (Q1 of the plan). `read_seqfile` of pulseq-analysis checks the scope
+   before it calls `read`, for every interpreter (Q14 of `docs/plans/remaining-review-fixes.md`
+   in pulseq-analysis): a folder, a binary Pulseq file, and a version outside 1.4.0 to 1.5.x in
+   the "as written" reading (`as_written`, the first row of each key) raise `NotSupported`.
+   `load` then reads the version again as the reader does (the reader takes the last row of each
+   key), and refuses a version outside 1.4.0 to 1.5.x and a binary Pulseq file before the C++
+   reader runs: `NotSupported` too.
 2. **`ExternalSequence::load`**, then the checks of this package for the undefined
    behaviour of the reader (section 5.3 of the plan): a file with a case is a rejection, with a
    reason for each case and its `ub.*` code.
@@ -178,9 +180,6 @@ class CppSiemens:
         return CppSiemensDecoding(data, session)
 
 
-# The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
-_MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
-
 # The codes of the rejections of `cpp-siemens`: each code, the ID of its entry ("—" for none: the
 # reader rejects it and `cpp-siemens` follows the rule; section 2.5 of docs/specification.md), and
 # what the reader rejects. The `ub.*` codes are those of the checks of this
@@ -302,19 +301,13 @@ _KNOWN_EXT_TYPES = {"TRIGGERS", "ROTATIONS", "LABELSET", "LABELINC", "DELAYS", "
 def read_cpp_siemens(path: str | Path, interpreter: CppSiemens | None = None) -> SequenceData:
     """Read the Pulseq text file `path` as the C++ reader reads it (the module docstring).
 
-    Raises `NotSupported` for a file outside the package's scope (the reader is not run),
-    `SeqFileError` (a `ValueError`) with the code of `CODES` when the reader rejects the file,
-    and `OSError` when the file cannot be read."""
+    `read_seqfile` of pulseq-analysis checks the scope before it calls this. Raises
+    `NotSupported` when `load` refuses the file (the reader's version is outside 1.4.0 to 1.5.x,
+    or a binary Pulseq file; the reader is not run), `SeqFileError` (a `ValueError`) with the code
+    of `CODES` when the reader rejects the file, and `OSError` when the file cannot be read."""
     interpreter = interpreter or CppSiemens()
     path = Path(path)
-    if path.is_dir():
-        raise NotSupported(f"{path} is a folder; the package reads one .seq file")
     written = read_as_written(path)
-    if written.version is not None and not _MIN_VERSION <= written.version < _MAX_VERSION:
-        name = ".".join(map(str, written.version))
-        raise NotSupported(
-            f"{path}: version {name} is outside 1.4.0 to 1.5.x; the package does not read it"
-        )
     try:
         sequence = cs.load(written.raw, oversampling=interpreter.oversampling)
     except cs.NotSupported as error:

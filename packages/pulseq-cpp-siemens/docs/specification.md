@@ -41,7 +41,11 @@ D4.1 is the decision of both interpreters; its record is in
 - The reader: ports 1.2 and 1.3 files (`cpp:1656-1711`) and reads 1.6.0 with the 1.5 layouts (no
   upper bound, `cpp:918-922`).
 - `cpp-siemens`: raises `NotSupported` before the reader runs, and also for a binary file or a
-  folder.
+  folder. `read_seqfile` of pulseq-analysis makes this check for every interpreter, on the
+  "as written" reading (the first row of each key of `[VERSION]`), before it calls
+  `CppSiemens.read`. `load` of this package then reads the version as the reader does (the last
+  row of each key), and refuses a version outside 1.4.0-1.5.x and a binary file before
+  `ExternalSequence::load` runs, also when it is used without pulseq-analysis.
 - Why: the package reads 1.4.0 to 1.5.x only (Q1), and a version it does not know must fail
   loudly, not be read wrongly. The gate must come first: for a file older than 1.4.0, `load` itself
   calls `GetBlock` on each block (`cpp:1656-1663`), before the checks of section 2.2 can run.

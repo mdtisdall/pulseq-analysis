@@ -1,5 +1,5 @@
-"""The rejection of a file by an interpreter, and the exception for a file outside the package's
-scope.
+"""The rejection of a file by an interpreter, the exception for a file outside the package's
+scope, and the check of that scope.
 
 - `SeqFileError` (a `ValueError`): an interpreter gives no waveform for the file. It has every
   reason that the interpreter gives, each a `Violation` with a stable code (`Violation.rule`):
@@ -9,14 +9,27 @@ scope.
 - `NotSupported` (a `NotImplementedError`): the package does not read the file, whatever the
   interpreter (Q1 of `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary
   Pulseq file, or a folder. It says nothing about whether the file is valid.
+- `_read_in_scope(path)`: the check of the scope, with one message for each case, which
+  `reading.read_seqfile` makes before an interpreter reads the file, so for every interpreter
+  (the user, 2026-10-14), and `spec.read_spec` too.
 """
 
 import dataclasses
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from .as_written import AsWritten, read_as_written
+
 __all__ = ["NotSupported", "SeqFileError", "Violation"]
+
+# The versions that the package reads (Q1): 1.4.0 up to, not including, 1.6.0.
+_MIN_VERSION, _MAX_VERSION = (1, 4, 0), (1, 6, 0)
+
+# The first 8 bytes of a binary Pulseq file: those that `ExternalSequence::load(path)` of the C++
+# reader reads as one, with `loadBinary` (`pulseqBinaryMagic`, cpp:48-54).
+_BINARY_MAGIC = b"\x01pulseq\x02"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -81,3 +94,24 @@ class NotSupported(NotImplementedError):
     """The package does not read the file (Q1 of `docs/plans/parser-redesign.md`): a version
     outside 1.4.0 to 1.5.x, a binary Pulseq file, or a folder. No interpreter reads it, and the
     exception says nothing about whether the file is valid."""
+
+
+def _read_in_scope(path: str | Path) -> AsWritten:
+    """The "as written" reading of the file `path` (`as_written.read_as_written`), after the
+    check of the package's scope. Raises `NotSupported` for a folder, a binary Pulseq file (its
+    first 8 bytes are `_BINARY_MAGIC`) and a version outside 1.4.0 to 1.5.x (`AsWritten.version`),
+    in this order, and `OSError` when the file cannot be read. A file whose version the "as
+    written" reading does not give (`AsWritten.version` None) is in the scope: the interpreter
+    rejects it."""
+    if Path(path).is_dir():
+        raise NotSupported(f"{path} is a folder; the package reads one Pulseq text file")
+    written = read_as_written(path)
+    if written.raw[:8] == _BINARY_MAGIC:
+        raise NotSupported(f"{path} is a binary Pulseq file; the package reads the text format")
+    version = written.version
+    if version is not None and not _MIN_VERSION <= version < _MAX_VERSION:
+        name = ".".join(map(str, version))
+        raise NotSupported(
+            f"{path}: version {name} is outside 1.4.0 to 1.5.x; the package does not read it"
+        )
+    return written

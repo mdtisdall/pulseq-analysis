@@ -1126,8 +1126,10 @@ Example: `tests/seqfiles/bad_version_unsupported_1_6.seq` (a 1.5.1 file with
 keeps the 1.5 tables, so the C++ reader fails on its tables, not on its version.
 
 `spec`: raises `NotSupported` for a version before 1.4.0 or from 1.6.0, and also
-for a binary file or a folder. Both fixtures of the example raise it.
-`cpp-siemens` has the same gate (its record cites this entry).
+for a binary file or a folder. Both fixtures of the example raise it. It is one
+gate for both interpreters: `read_seqfile` checks the scope before the
+interpreter reads the file, with one message for each case (the record of
+`cpp-siemens` cites this entry).
 
 Reason: the package reads the versions 1.4.0 to 1.5.x (decision Q1). It refuses
 another version as not supported by the package, with an exception that says

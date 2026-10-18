@@ -232,14 +232,17 @@ It is about six times as long as the `spec` interpreter of pulseq-analysis, whic
 the default. On an Apple M1 Max, a file of 21 MB with 899 912 blocks takes about 4 s: 0.3 s for the
 "as written" reading, 1.4 s for `load` and the checks, and 2.2 s for `decodeBlock` of every block.
 
-**Reading.** `read_cpp_siemens(path, interpreter)` reads a file in four steps: the version gate on
-the "as written" reading of pulseq-analysis (before the C++ reader runs); `load` and the checks of
-this package for the reader's undefined behaviour; `decodeBlock` of every block, as the C++ oracle
-does (a block that it rejects rejects the file, and no decoded block is kept); and the model from
-the reader's own libraries. The version gate reads `AsWritten.version`; the package then reads the
-version again with the reader's own code. It raises what `read_seqfile` of pulseq-analysis raises:
-`SeqFileError` with the code of each reason, `NotSupported` for a version outside 1.4.0 to 1.5.x, a
-binary Pulseq file or a folder, and `OSError`.
+**Reading.** `read_seqfile` of pulseq-analysis checks the scope before it calls
+`read_cpp_siemens`, for every interpreter: a folder, a binary Pulseq file and a version outside
+1.4.0 to 1.5.x in `AsWritten.version` raise `NotSupported`. This check reads the "as written"
+reading of the file, and `read_cpp_siemens` reads it again. `read_cpp_siemens(path, interpreter)`
+then reads the file in four steps: the "as written" reading of pulseq-analysis, and `load`, whose
+version gate reads the version again with the reader's own code (before the C++ reader runs);
+the checks of this package for the reader's undefined behaviour; `decodeBlock` of every block, as
+the C++ oracle does (a block that it rejects rejects the file, and no decoded block is kept); and
+the model from the reader's own libraries. It raises `SeqFileError` with the code of each reason,
+`NotSupported` when `load` refuses the version or a binary Pulseq file, and `OSError`, also for
+a folder when it is called without `read_seqfile`.
 
 **Settings.** `CppSiemens(oversampling=...)` is the reader's sampling mode of an oversampled
 arbitrary gradient (time shape -1, D6.1): `"center"` (the reader's default, the samples at the
