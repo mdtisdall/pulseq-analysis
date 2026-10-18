@@ -123,7 +123,7 @@ def test_the_values_of_a_negated_waveform_are_equal():
 
 def test_no_gradients_sets_reason():
     """A sequence with no gradient at all: `reason` is set, and every numeric
-    field is its zero value (0.0, or None for a block field)."""
+    field is its zero value (0.0, or None for a block field and a time field)."""
     seq = pp.Sequence(SYSTEM)
     seq.add_block(pp.make_delay(2e-3))
 
@@ -132,12 +132,15 @@ def test_no_gradients_sets_reason():
 
     assert result.reason == NO_GRADIENTS
     assert result.vector_peak_hz_per_m == 0.0
-    assert result.vector_peak_time_s == 0.0
+    assert result.vector_peak_time_s is None
+    assert result.vector_peak_block is None
     for axis in ("x", "y", "z"):
         a = result.axes[axis]
         assert a.peak_hz_per_m == 0.0
+        assert a.peak_time_s is None
         assert a.peak_block is None
         assert a.max_slew_hz_per_m_per_s == 0.0
+        assert a.slew_time_s is None
         assert a.slew_block is None
         assert a.rms_hz_per_m == 0.0
 
@@ -616,6 +619,47 @@ def test_axis_whose_only_event_is_zero_credits_no_block():
     assert axis.max_slew_hz_per_m_per_s == 0.0
     assert axis.peak_block is None
     assert axis.slew_block is None
+    assert axis.peak_time_s is None
+    assert axis.slew_time_s is None
+
+
+def _all_zero_amplitudes() -> tuple[pp.Sequence, None]:
+    """One block with a trapezoid on each axis, each scaled to the amplitude 0, and no range."""
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(*(pp.scale_grad(_tie_trapezoid(channel), 0.0) for channel in "xyz"))
+    return seq, None
+
+
+def _window_with_no_gradient() -> tuple[pp.Sequence, tuple[float, float]]:
+    """The spin echo, with a range in the first half of its first block, which has no gradient
+    event (`test_the_reason_of_a_window_with_no_gradient_is_no_gradients_in_the_window`)."""
+    seq = spin_echo_sequence()
+    return seq, (0.0, float(sequence_index(load(seq)).duration_s[0]) / 2)
+
+
+@pytest.mark.parametrize(
+    ("build", "reason"),
+    [(_all_zero_amplitudes, None), (_window_with_no_gradient, NO_GRADIENTS_IN_WINDOW)],
+    ids=["all-amplitudes-zero", "window-with-no-gradient"],
+)
+def test_a_largest_value_of_zero_has_no_block_and_no_time(build, reason):
+    """When the largest value is 0, `gradient_peaks` credits no block and gives no time: the
+    peak, the slew and the vector peak are 0.0 and their blocks and their times are None. The
+    two cases are a sequence whose gradient events all have the amplitude 0 (`reason` None)
+    and a range of a sequence with gradients that has none (`NO_GRADIENTS_IN_WINDOW`)."""
+    seq, range_s = build()
+    result = gradient_peaks(load(seq), range_s=range_s)
+
+    assert result.reason == reason
+    for axis in _AXES:
+        a = result.axes[axis]
+        assert (a.peak_hz_per_m, a.peak_block, a.peak_time_s) == (0.0, None, None), axis
+        assert (a.max_slew_hz_per_m_per_s, a.slew_block, a.slew_time_s) == (0.0, None, None), axis
+    assert (result.vector_peak_hz_per_m, result.vector_peak_block, result.vector_peak_time_s) == (
+        0.0,
+        None,
+        None,
+    )
 
 
 # ---- Comparisons with the oracle ----

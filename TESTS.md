@@ -2400,14 +2400,15 @@ in the sign. The test checks that the values are equal for this sequence.
 
 #### `test_no_gradients_sets_reason`
 
-**Checks:** A sequence with no gradient at all gives a set `reason`, a vector peak and a vector
-peak time of 0.0, and on each axis a peak, a slew and an RMS of 0.0, with no credited block (None).
+**Checks:** A sequence with no gradient at all gives a set `reason`, a vector peak of 0.0, and
+on each axis a peak, a slew and an RMS of 0.0. No block is credited and no time is given: each
+block field and each time field is None.
 
 **How:** The test builds a sequence with one delay block and no gradients, and
 calls `gradient_peaks`. It checks that `reason` is
-`seq_index.NO_GRADIENTS`, that the vector peak and its time are
-0.0, and that every axis's peak, slew and RMS are 0.0 with `peak_block` and
-`slew_block` both None.
+`seq_index.NO_GRADIENTS`, that the vector peak is 0.0 with `vector_peak_block` and
+`vector_peak_time_s` None, and that every axis's peak, slew and RMS are 0.0 with `peak_block`,
+`peak_time_s`, `slew_block` and `slew_time_s` all None.
 
 **Assumptions:** None.
 
@@ -2642,12 +2643,30 @@ first block in play order (`tied[0]` in place of the `argmin` of the times, in
 #### `test_axis_whose_only_event_is_zero_credits_no_block`
 
 **Checks:** An axis whose only event has amplitude 0 has a peak and a slew of 0, and no block
-is credited for either (`peak_block` and `slew_block` are None).
+is credited for either and no time is given (`peak_block`, `slew_block`, `peak_time_s` and
+`slew_time_s` are None), while another axis has values.
 
 **How:** The test builds one block with an x trapezoid and a y trapezoid scaled to amplitude
-0 with `pp.scale_grad`, and checks the y axis's peak, slew and block fields.
+0 with `pp.scale_grad`, and checks the y axis's peak, slew, block and time fields.
 
 **Assumptions:** None.
+
+#### `test_a_largest_value_of_zero_has_no_block_and_no_time`
+
+**Checks:** When the largest value of the peak, of the slew and of the vector peak is 0,
+`gradient_peaks` gives 0.0 for it, and None for its block and for its time (decision Q20 of
+`docs/plans/remaining-review-fixes.md`), whether the `reason` is None or not.
+
+**How:** Two cases. In the first, one block has a trapezoid on each axis, each scaled to the
+amplitude 0 with `pp.scale_grad`, and `range_s` is None: `reason` is None, because the axes have
+events. In the second, the range is the first half of the first block of the synthetic spin
+echo, which has no gradient event: `reason` is `seq_index.NO_GRADIENTS_IN_WINDOW`. For each
+axis, the test checks that the peak, its block and its time are `(0.0, None, None)`, and the
+same for the slew, and the same for the vector peak.
+
+**Assumptions:** The writer and `spec` keep an event of amplitude 0 (the `reason` None of the
+first case shows it). The case of a sequence with no gradient event is
+`test_no_gradients_sets_reason`.
 
 #### `test_a_zero_event_after_a_long_gap_has_the_start_of_its_block_as_slew_time`
 
