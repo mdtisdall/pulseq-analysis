@@ -1994,6 +1994,27 @@ def test_a_gradient_time_shape_must_increase_and_have_its_vertices_on_the_raster
         assert carries_choice(violation)
 
 
+def test_a_gradient_time_shape_that_starts_before_0_is_shape_time_order(tmp_path):
+    """D3.9, spec:395: the specification does not say how to read a time shape whose first time
+    is below 0, and MATLAB Pulseq and pypulseq write a first time of 0. A gradient time shape
+    `-2 1 3 6 10` is `shape.time-order` on the line of its `shape_id`, as for an RF time shape
+    (the package's choice, the user, 2026-10-14; the message says so). A first time of 0 reads."""
+    text = _text("valid_no_signature.seq")
+    old = "shape_id 6\nnum_samples 5\n0\n1\n3\n6\n10\n"
+    assert old in text
+    line = text[: text.index(old)].count("\n") + 1
+    assert 6 in read_seqfile(_write(tmp_path, text, "zero.seq")).grad["time_id"].tolist()
+    new = old.replace("\n0\n1\n", "\n-2\n1\n")
+    (violation,) = violations_of(_write(tmp_path, text.replace(old, new), "g.seq")).violations
+    assert (violation.rule, violation.section, violation.line) == (
+        "shape.time-order",
+        "SHAPES",
+        line,
+    )
+    assert "before the start" in violation.message
+    assert carries_choice(violation)
+
+
 @pytest.mark.parametrize(
     ("first_time", "codes"),
     [
