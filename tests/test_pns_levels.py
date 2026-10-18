@@ -499,9 +499,10 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
     """`bin_s=1e-3` at the 10 us raster gives `bin_samples == 100` (`bin_samples * dt_s` is
     the bin) and `ceil(num_samples / 100)` bins, and each total of a bin (the totals of the
     model, recorded from `_chunk_total`) is in `[level_min_hz_per_t, level_max_hz_per_t]` of
-    that bin, with the minimum and the maximum of the bin as its ends. Every other field
-    (the summary and the intervals) equals that of the default `bin_s`. The levels of a
-    `bin_s` shorter than `dt` have one sample in each bin, and so one bin for each sample."""
+    that bin, with the minimum and the maximum of the bin as its ends. `bin_s` is the
+    `bin_s` of each call. Every other field (the summary and the intervals) equals that of
+    the default `bin_s`. The levels of a `bin_s` shorter than `dt` have one sample in each
+    bin, and so one bin for each sample."""
     snap = load(gre_sequence(num_trs=6))
     hardware = hardware_for_peak(snap, 1.5)
     default = _compute(snap, hardware=hardware, thresholds_hz_per_t=(_LIMIT,))
@@ -519,6 +520,8 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
 
     assert levels is not default  # two calculations
     assert levels.dt_s == 1e-5
+    assert levels.bin_s == 1e-3
+    assert default.bin_s == BIN_S
     assert levels.bin_samples == 100
     assert levels.bin_samples * levels.dt_s == pytest.approx(1e-3)
     assert len(levels.level_min_hz_per_t) == math.ceil(levels.num_samples / 100)
@@ -531,10 +534,11 @@ def test_bin_s_sets_the_bin_of_the_level_and_holds_every_total(monkeypatch):
     assert np.all(levels.level_max_hz_per_t >= bin_max)
     assert np.array_equal(levels.level_min_hz_per_t, _cast_outward(bin_min, down=True))
     assert np.array_equal(levels.level_max_hz_per_t, _cast_outward(bin_max, down=False))
-    ignore = ("bin_samples", "level_min_hz_per_t", "level_max_hz_per_t")
+    ignore = ("bin_s", "bin_samples", "level_min_hz_per_t", "level_max_hz_per_t")
     assert_levels_equal(levels, default, ignore=ignore)
 
     fine = _compute(snap, hardware=hardware, bin_s=1e-9)
+    assert fine.bin_s == 1e-9
     assert fine.bin_samples == 1
     assert len(fine.level_min_hz_per_t) == fine.num_samples
     assert np.array_equal(fine.level_min_hz_per_t[:100].min(), levels.level_min_hz_per_t[0])
@@ -651,7 +655,8 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
 @pytest.mark.pypulseq
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
-    bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware."""
+    bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware and the
+    `bin_s` of the call."""
     levels = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW)
     assert levels.reason == NO_GRADIENTS
     assert levels.hardware == EXAMPLE_HW.name
@@ -662,6 +667,8 @@ def test_no_gradients():
     assert levels.axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}
     assert levels.hw == _hw_dict(safe_example_hw())
     assert levels.above == {}
+    assert levels.bin_s == BIN_S
+    assert pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW, bin_s=1e-3).bin_s == 1e-3
 
 
 @pytest.mark.pypulseq
@@ -1125,14 +1132,14 @@ def test_pns_levels_raises_type_error_that_names_load_for_a_non_snapshot(source)
 def test_pns_levels_takes_an_int_or_a_numpy_bin_s():
     """A `bin_s` that is an `int` or a NumPy float (any real number, not a `bool`) is
     accepted and gives the levels of the equal `float` (the calculation of `bin_s=1.0`, with
-    no keep)."""
+    no keep), with `bin_s` the `float` 1.0."""
     snap = load(spin_echo_sequence())
     expected = _compute(snap, hardware=EXAMPLE_HW, bin_s=1.0)
     assert len(expected.level_min_hz_per_t) == 1  # a bin of 1 s holds the whole sequence
-    assert_levels_equal(pns_levels(snap, hardware=EXAMPLE_HW, bin_s=1), expected, ignore=())
-    assert_levels_equal(
-        pns_levels(snap, hardware=EXAMPLE_HW, bin_s=np.float64(1.0)), expected, ignore=()
-    )
+    for bin_s in (1, np.float64(1.0)):
+        levels = pns_levels(snap, hardware=EXAMPLE_HW, bin_s=bin_s)
+        assert_levels_equal(levels, expected, ignore=())
+        assert type(levels.bin_s) is float  # `==` does not tell 1 or numpy.float64 from 1.0
 
 
 @pytest.mark.pypulseq

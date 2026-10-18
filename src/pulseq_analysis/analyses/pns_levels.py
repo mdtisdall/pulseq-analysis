@@ -124,15 +124,18 @@ class PnsLevels:
     `peak_hz_per_t`, `peak_time_s`, `axis_peaks_hz_per_t` and `above` are the summary.
     `level_min_hz_per_t` and `level_max_hz_per_t` are the level: bin `i` holds the samples
     `i * bin_samples` to `(i + 1) * bin_samples - 1` (the last bin can have fewer), and every
-    total of those samples is in `[level_min_hz_per_t[i], level_max_hz_per_t[i]]`.
+    total of those samples is in `[level_min_hz_per_t[i], level_max_hz_per_t[i]]`. `bin_s` is
+    the `bin_s` of the call and `bin_samples` the bin that it gives (`bin_samples_for`), so
+    two results with the same `bin_samples` can have two values of `bin_s`.
 
     Without a gradient event in the sequence, `reason` is `NO_GRADIENTS` (the object of
-    `seq_index.NO_GRADIENTS`), `num_samples` is 0, the level has no bins, `peak_hz_per_t`
-    and each axis peak are 0, `peak_time_s` is None and `above` has an empty tuple for each
-    threshold. When the gradients all have the amplitude 0, the peak is 0 and `peak_time_s`
-    is None too, and the model does not run a second time for the peak time. When a total is
-    NaN (a NaN of the gradients, which the filters carry to every later sample), the peak is
-    NaN and `peak_time_s` is the time of the first sample whose total is NaN.
+    `seq_index.NO_GRADIENTS`), `num_samples` is 0, `bin_s` is still the `bin_s` of the call,
+    the level has no bins, `peak_hz_per_t` and each axis peak are 0, `peak_time_s` is None
+    and `above` has an empty tuple for each threshold. When the gradients all have the
+    amplitude 0, the peak is 0 and `peak_time_s` is None too, and the model does not run a
+    second time for the peak time. When a total is NaN (a NaN of the gradients, which the
+    filters carry to every later sample), the peak is NaN and `peak_time_s` is the time of
+    the first sample whose total is NaN.
 
     `level_min_hz_per_t` and `level_max_hz_per_t` are read-only, so that the callers of
     `pns_levels` can share one result: convert to a new array
@@ -152,7 +155,8 @@ class PnsLevels:
     # a3, stim_limit, g_scale, as the `SafeHardware` has them
     dt_s: float  # the gradient raster
     num_samples: int  # the number of samples of the whole sequence
-    bin_samples: int  # samples in each bin of the level (`bin_samples_for`)
+    bin_s: float  # the `bin_s` of `pns_levels`, as `float(bin_s)`
+    bin_samples: int  # samples in each bin of the level (`bin_samples_for` of `bin_s`)
     level_min_hz_per_t: np.ndarray  # float32, one for each bin: the minimum of the total
     level_max_hz_per_t: np.ndarray  # float32, one for each bin: the maximum of the total
     peak_hz_per_t: float  # the largest total
@@ -247,7 +251,8 @@ def pns_levels(
     (`_validate.real`): a `bool` or a value that is not a real number raises TypeError, and
     a value that is not finite, not above 0 or too large for a float raises ValueError,
     both before the type of `snap` is checked. `bin_s` changes only the bins of
-    the level: the summary and the intervals do not depend on it.
+    the level: the summary and the intervals do not depend on it. `PnsLevels.bin_s` is
+    `float(bin_s)`.
 
     The model is `calc_pns` of the pinned fork, on other samples:
 
@@ -373,6 +378,7 @@ def _compute_levels(
             hw=hw,
             dt_s=dt,
             num_samples=0,
+            bin_s=bin_s,
             bin_samples=bin_samples_for(0, dt, bin_s),
             level_min_hz_per_t=empty,
             level_max_hz_per_t=empty,
@@ -455,6 +461,7 @@ def _compute_levels(
         hw=hw,
         dt_s=dt,
         num_samples=num_samples,
+        bin_s=bin_s,
         bin_samples=bin_samples,
         level_min_hz_per_t=level_min,
         level_max_hz_per_t=level_max,

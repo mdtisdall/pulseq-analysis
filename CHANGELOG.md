@@ -442,6 +442,14 @@ A caller moves in this order:
   hardware, with the thresholds 20, 25 and 30 MHz/T (645,361, 57,831 and
   29,697 intervals): 11.4 s before and 10.8 s now, against 8.9 s with no
   threshold. The output is the same, bit for bit.
+- `PnsLevels.bin_s` and the `meta` key `bin_s` of the series `pns_total`: the
+  `bin_s` of the call, as a `float` (the key of the kept result), so that the
+  result records the method parameter that it was given, as the rule of
+  `docs/usage.md` (section 2) says. Before, a result had only `bin_samples`.
+  The other fields, the other keys of `meta` and their values do not change.
+  Two results of one sequence whose two values of `bin_s` give the same
+  `bin_samples` (`0.005` and `0.0050001` at the 10 µs raster) were equal
+  (`==`), and they are no longer equal.
 
 ### The modules
 

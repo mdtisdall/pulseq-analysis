@@ -257,7 +257,8 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     """`bin_s` is part of the key of a kept result: another `bin_s` runs the model and does
     not give the result of the default (`BIN_S`); the same `bin_s` again gives the kept
     result (the same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s`
-    and the equal `float` are one key; and the bins are those of the `bin_s`."""
+    and the equal `float` are one key; a `bin_s` that gives the `bin_samples` of the default
+    is another key; and the bins and `bin_s` of each result are those of its `bin_s`."""
     calls = _count_pns_levels_calls(monkeypatch)
     snap = load(spin_echo_sequence())
 
@@ -270,6 +271,8 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     assert six is not default
     assert six.bin_samples == 600
     assert default.bin_samples == 500
+    assert six.bin_s == 0.006
+    assert default.bin_s == BIN_S
     assert pns_levels(snap, hardware=EXAMPLE_HW, bin_s=0.006) is six
     assert pns_levels(snap, hardware=EXAMPLE_HW) is default
     assert len(calls) == 2
@@ -277,11 +280,17 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     assert len(calls) == 3
     assert pns_levels(snap, hardware=EXAMPLE_HW, bin_s=1.0) is one
     assert len(calls) == 3
+    assert one.bin_s == 1.0
+    near = pns_levels(snap, hardware=EXAMPLE_HW, bin_s=0.0050001)  # 500.01 samples: 500
+    assert len(calls) == 4
+    assert near.bin_samples == default.bin_samples
+    assert near.bin_s == 0.0050001  # its own `bin_s`, not `bin_samples * dt_s` or `BIN_S`
+    assert near != default
     with_thresholds = pns_levels(
         snap, hardware=EXAMPLE_HW, thresholds_hz_per_t=(_LIMIT,), bin_s=0.006
     )
     assert with_thresholds is not six  # the thresholds and `bin_s` are both in the key
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_pns_levels_shares_a_read_only_result():

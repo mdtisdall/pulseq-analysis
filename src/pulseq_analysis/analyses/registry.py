@@ -399,16 +399,17 @@ class _PnsSafeLevels:
             '`pns_total`, ENVELOPE, unit "Hz/T", arrays `min` and `max` (float32: '
             '`level_min_hz_per_t` and `level_max_hz_per_t`), `coord_unit` "s", '
             "`coord_start` 0, `coord_step` `bin_samples * dt_s`, `coord_end` "
-            "`num_samples * dt_s`, `meta` `hardware`, `dt_s`, `bin_samples`, "
-            "`num_samples`, `peak`, `peak_time_s`, `axis_peaks_x`, `axis_peaks_y` and "
-            "`axis_peaks_z`. And one series for each threshold, in the order of "
-            "`thresholds_hz_per_t`: `pns_above_<k>`, with `<k>` the position of the "
-            'threshold from 0 (`pns_above_0`, `pns_above_1`), RUNS, unit "Hz/T", '
-            '`coord_unit` "s", arrays `start`, `end`, `num_samples` (int64), `peak` and '
-            "`peak_time_s` (float64), one entry for each run (`start` and `end` are the "
-            "edges of its samples, `first * dt_s` and `(last + 1) * dt_s`, so a run of one "
-            "sample has `end - start == dt_s`), `meta` `threshold` (the value in Hz/T). "
-            "With no threshold, `to_series` gives only `pns_total`. The values of `min`, `max`, `peak`, "
+            "`num_samples * dt_s`, `meta` `hardware`, `dt_s`, `bin_s` (the `bin_s` of the "
+            "call, as a float), `bin_samples`, `num_samples`, `peak`, `peak_time_s`, "
+            "`axis_peaks_x`, `axis_peaks_y` and `axis_peaks_z`. And one series for each "
+            "threshold, in the order of `thresholds_hz_per_t`: `pns_above_<k>`, with `<k>` "
+            "the position of the threshold from 0 (`pns_above_0`, `pns_above_1`), RUNS, "
+            'unit "Hz/T", `coord_unit` "s", arrays `start`, `end`, `num_samples` (int64), '
+            "`peak` and `peak_time_s` (float64), one entry for each run (`start` and `end` "
+            "are the edges of its samples, `first * dt_s` and `(last + 1) * dt_s`, so a run "
+            "of one sample has `end - start == dt_s`), `meta` `threshold` (the value in "
+            "Hz/T). With no threshold, `to_series` gives only `pns_total`. The values of "
+            "`min`, `max`, `peak`, "
             "`axis_peaks_<axis>` and `threshold` are in Hz/T."
         ),
     )
@@ -453,6 +454,7 @@ class _PnsSafeLevels:
             meta={
                 "hardware": value.hardware,
                 "dt_s": value.dt_s,
+                "bin_s": value.bin_s,
                 "bin_samples": value.bin_samples,
                 "num_samples": value.num_samples,
                 "peak": value.peak_hz_per_t,

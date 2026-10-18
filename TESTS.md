@@ -635,10 +635,10 @@ tolerance.
 `bin_samples * dt_s` is the bin, which is not that of the default) and `ceil(num_samples /
 100)` bins. Each total of a bin is in `[level_min_hz_per_t, level_max_hz_per_t]` of that
 bin, and the two ends are the minimum and the maximum of the totals of the bin cast
-outward (`_cast_outward`). Every other field (the summary, the intervals, the hardware)
-equals that of the default `bin_s`. A `bin_s` of `1e-9` gives one sample in each bin, and
-the minimum of the first 100 bins of that level is the minimum of the first bin of the level
-of `1e-3`.
+outward (`_cast_outward`). The field `bin_s` is `1e-3` (`BIN_S` for the default). Every
+other field (the summary, the intervals, the hardware) equals that of the default `bin_s`. A
+`bin_s` of `1e-9` gives `bin_s == 1e-9` and one sample in each bin, and the minimum of the
+first 100 bins of that level is the minimum of the first bin of the level of `1e-3`.
 
 **How:** `gre_sequence(num_trs=6)` with `hardware_for_peak(snap, 1.5)` and
 `thresholds_hz_per_t=(_LIMIT,)`. The calls are `_compute` calls (`_compute_levels`), and
@@ -647,7 +647,8 @@ the result of `bin_s=1e-3` must not be the object of the default one. The defaul
 records its total, so the first recorded total is that of the whole sequence. It takes the
 minimum and the maximum of each 100 samples with `numpy.minimum.reduceat` and
 `numpy.maximum.reduceat`, and compares with `<=`, `>=` and `numpy.array_equal` to the
-outward cast. Then `assert_levels_equal` with the three fields of the bins ignored.
+outward cast. Then `assert_levels_equal` with `bin_s` and the three fields of the bins
+ignored.
 
 **Assumptions:** The minimum of the outward casts of samples equals the outward cast of
 their minimum, because the cast is monotone, so the test can use exact equality.
@@ -722,12 +723,14 @@ every field. The samples of a delay are 0 in both, so the totals are equal.
 
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
 stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no threshold (the
-default, so `above == {}`), and still the hardware of `EXAMPLE_HW` and its `hw` fields.
+default, so `above == {}`), and still the hardware of `EXAMPLE_HW`, its `hw` fields and
+the `bin_s` of the call.
 
 **How:** `pns_levels(empty_sequence(), hardware=EXAMPLE_HW)`. Checks `reason`, `hardware`,
 the `(0,)` shape of `level_min_hz_per_t`/`level_max_hz_per_t`, `peak_hz_per_t == 0.0`,
 `peak_time_s is None`, `axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw`
-against the 8 kept fields of `safe_example_hw()`, and `above == {}`.
+against the 8 kept fields of `safe_example_hw()`, `above == {}` and `bin_s == BIN_S`. Then
+the call with `bin_s=1e-3` has `bin_s == 1e-3`.
 
 **Assumptions:** None.
 
@@ -949,13 +952,14 @@ calls `assert_levels_equal` (`ignore=()`).
 #### `test_pns_levels_takes_an_int_or_a_numpy_bin_s`
 
 **Checks:** A `bin_s` that is an `int` (`1`) or a NumPy float (`numpy.float64(1.0)`) gives
-exactly the levels of the equal `float` (`1.0`), every field. A `bin_s` of 1 s holds the
-whole spin echo in one bin.
+exactly the levels of the equal `float` (`1.0`), every field, and the field `bin_s` is a
+`float`. A `bin_s` of 1 s holds the whole spin echo in one bin.
 
 **How:** `spin_echo_sequence()` with `EXAMPLE_HW`. `expected` is a `_compute` call
 (`_compute_levels`, a new calculation) with `bin_s=1.0`; the two `pns_levels` calls with
 `bin_s=1` and `bin_s=numpy.float64(1.0)` are compared with it with `assert_levels_equal`
-and `ignore=()`.
+and `ignore=()`, and `type(levels.bin_s) is float` for each (`==` does not tell `1` or a
+`numpy.float64` from `1.0`).
 
 **Assumptions:** None.
 
@@ -3462,15 +3466,19 @@ ones (the `int` call gives the second result), and that `list(result.above)` is 
 **Checks:** `bin_s` is part of the key of a kept result: another `bin_s` runs the model and
 does not give the result of the default; the same `bin_s` again gives the kept result (the
 same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s` and the equal
-`float` are one key; the same `bin_s` with thresholds is another result. The bins of each
-result are those of its `bin_s` (`bin_samples` 500 for the default and 600 for `0.006` at
-the 10 us raster).
+`float` are one key; a `bin_s` that gives the `bin_samples` of the default (`0.0050001`,
+500.01 samples, rounded down to 500) is another result, and not equal to the default; the
+same `bin_s` with thresholds is another result. The bins of each result are those of its
+`bin_s` (`bin_samples` 500 for the default and 600 for `0.006` at the 10 us raster), and its
+field `bin_s` is the `bin_s` of its call, also for `0.0050001` (not `bin_samples * dt_s`).
 
 **How:** The test counts the calls of `_compute_levels` as above and calls `pns_levels(snap)` with
 `EXAMPLE_HW` (the default, then `bin_s=BIN_S`), `bin_s=0.006` two times, the default again,
-`bin_s=1` and `bin_s=1.0`, and `bin_s=0.006` with `thresholds_hz_per_t=(_LIMIT,)`. The call
-counts are 1, 1, 2, 2, 3, 3 and 4. It checks the identities (`is`) of the repeats and
-`bin_samples` of the default and of the `0.006` result.
+`bin_s=1` and `bin_s=1.0`, `bin_s=0.0050001`, and `bin_s=0.006` with
+`thresholds_hz_per_t=(_LIMIT,)`. The call counts are 1, 1, 2, 2, 3, 3, 4 and 5. It checks the
+identities (`is`) of the repeats, `bin_samples` of the default, of the `0.006` result and of
+the `0.0050001` result, and `bin_s` of the default, of the `0.006`, the `1` and the
+`0.0050001` results.
 
 **Assumptions:** None.
 
@@ -4542,8 +4550,10 @@ analyses have their own tests of `compute`.
 
 **Checks:** `PNS_SAFE_LEVELS.compute(snap, hardware=EXAMPLE_HW, bin_s=1e-3)` gives the same
 object (`is`) as `pns_levels` with that `bin_s`, and not the object of the default. Its
-`bin_samples` is 100 (500 for the default), and the `coord_step` of its `pns_total` series
-is `bin_samples * dt_s`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
+`bin_samples` is 100 (500 for the default) and its `bin_s` is `1e-3`. The `coord_step` of
+its `pns_total` series is `bin_samples * dt_s`, and `meta["bin_s"]` is `1e-3`. With
+`bin_s=1.0001e-3` (100.01 samples, rounded down to 100, so `bin_samples * dt_s` is `1e-3`),
+`meta["bin_s"]` is `1.0001e-3`. A `bin_s` that is a `bool` raises `TypeError` and a `bin_s` of 0
 raises `ValueError`, both before the sequence is read.
 
 **How:** `gre_sequence(num_trs=4)`. For the two refusals, `compute` gets an object that
@@ -4576,10 +4586,11 @@ the sequence gives another error.
 `coord_start` 0, `coord_step` `bin_samples * dt_s`, `coord_end` `num_samples * dt_s`, and the
 `meta` of design 4.4 (`hardware`, `dt_s`, `bin_samples`, `num_samples`, `peak`,
 `peak_time_s` and the three `axis_peaks_*`, the values from `peak_hz_per_t` and
-`axis_peaks_hz_per_t`). It gives `pns_above_0`, a RUNS series of unit "Hz/T"
-and `coord_unit` "s", with the arrays `start`, `end`, `num_samples` (int64), `peak` and `peak_time_s` (float64),
-in this order, with one entry for each interval of `above[_LIMIT]` (`start` and `end` are
-`start_s` and `end_s` of the interval, `peak` is `peak_hz_per_t`) and the `meta`
+`axis_peaks_hz_per_t`) and `bin_s`, the default `BIN_S` of the call. It gives
+`pns_above_0`, a RUNS series of unit "Hz/T" and `coord_unit` "s", with the arrays `start`,
+`end`, `num_samples` (int64), `peak` and `peak_time_s` (float64), in this order, with one
+entry for each interval of `above[_LIMIT]` (`start` and `end` are `start_s` and `end_s` of
+the interval, `peak` is `peak_hz_per_t`) and the `meta`
 `{"threshold": _LIMIT}`. For a `PnsLevels` of `hardware_from_asc(path)`, `meta["hardware"]`
 is the name in the file.
 
