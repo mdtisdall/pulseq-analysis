@@ -786,6 +786,15 @@ of the fields.
 `TODO.md`).**
 Answer (2026-10-14): (a), check the specification and the writers first, in
 C17, then decide.
+Decided (2026-10-18): `spec` reads it, as now (option (c)). The specification
+allows it (0 is a multiple of the raster, spec:290); `makeTrapezoid` and
+`make_trapezoid` never make one, but MATLAB Pulseq and pypulseq write it when
+the times are set on the event, and their timing checks pass it; the C++
+reader, MATLAB Pulseq and pypulseq play 0 for it. C17 removes the item of
+`TODO.md`. The check also found that MATLAB Pulseq can write a gradient
+amplitude of NaN (`makeTrapezoid` with `FlatArea` 0 and `FlatTime` 0), and
+that `gradient_peaks` counts the amplitude of such an event, which plays 0, as
+a peak: task C18.
 - **The evidence:** `spec` reads one today, and its event has all its points
   at one time. B6 (#138) makes the measurements handle it. Not yet checked:
   what the specification says, and whether pypulseq or MATLAB Pulseq write

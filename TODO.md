@@ -31,16 +31,6 @@
   release in the `dev` group, remove `[tool.uv.sources]`, and run the tests
   with it. Do this in the three repositories at the same time.
 
-- **Whether `spec` reads a `[TRAP]` row whose rise, flat and fall times are
-  all 0 (decision D4 of the plan of the fixes of `cpp-siemens`, open on
-  2026-10-14).** `spec` reads one today, and its event has all its points at
-  one time. The measurements handle such an event (B6, PR #138): a block that
-  they read through `gradients_at` always has two times or more. Before a
-  decision, check what the specification says, and whether pypulseq or
-  MATLAB Pulseq write such a row. A rejection would be a rule of
-  `spec.RULES` and an entry of `docs/discrepancies.md`, on a branch of its
-  own. Also not yet checked: whether pypulseq or MATLAB Pulseq write a
-  gradient amplitude of NaN, which `cpp-siemens` reads (B7, PR #140).
 - **The other findings of the review of 2026-10-13**
   (`docs/reviews/2026-10-13-code-review.md`). The plan of the fixes of
   `cpp-siemens` (PRs #134 to #141) fixed four of its bugs, and three that the
