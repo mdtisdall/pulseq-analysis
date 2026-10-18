@@ -331,6 +331,15 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             'spec:420 ("N-1 additional points"), slides 4 and 8 (the samples alternate between '
             'centres and edges, and the shape "starts and ends at the cell centers")',
         ),
+        "limit.shape-samples": Rule(
+            "a shape declares more than 2^27 samples",
+            "the package's limit of memory, not a rule of the specification: spec:619 (the "
+            "number of samples is an integer, with no limit)",
+            choice="the specification has no limit of the number of samples of a shape, and the "
+            "C++ reader stores it in an `int` (cpp:936); this is the package's limit of memory: "
+            "a short file can declare any number of samples, and `spec` does not decompress "
+            "more than 2^27, 1 GiB of float64",
+        ),
         "rotation.zero": Rule(
             "a quaternion of ROTATIONS has a norm of 0",
             'spec:567 ("a normalized rotation quaternion"); D3.10',
@@ -377,7 +386,8 @@ _RASTERS = (
     ("AdcRasterTime", "adc"),
     ("BlockDurationRaster", "block_duration"),
 )
-# A shape of more samples is not decompressed: a short file can declare any number of samples.
+# A shape of more samples is not decompressed: a short file can declare any number of samples
+# (`limit.shape-samples`, the package's limit of memory).
 _MAX_SHAPE_SAMPLES = 2**27
 # Each extension that the interpreter knows, and the first version that has it (spec:526-584;
 # TRIGGERS from 1.3.0 and the labels from 1.3.1, so in every version that the package reads).
@@ -871,7 +881,7 @@ def _read_shapes(sections: list[as_written.Section], report: _Report) -> dict[in
             continue
         if d.num_samples > _MAX_SHAPE_SAMPLES:
             report.add(
-                "shape.length",
+                "limit.shape-samples",
                 "SHAPES",
                 d.line,
                 f"shape {d.id} declares {d.num_samples} samples, more than the "

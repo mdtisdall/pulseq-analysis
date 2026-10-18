@@ -333,7 +333,7 @@ These are the reader's values bit for bit, on each platform (section 6).
   extra to install. `ImportError` (chained) for a plugin that does not load;
   `OSError` when the file cannot be read.
 
-**The codes of `spec`** are the keys of `seqfile.spec.RULES` (41 codes). Each
+**The codes of `spec`** are the keys of `seqfile.spec.RULES` (42 codes). Each
 is a `spec.Rule`: `text`, `source` (the lines of the specification as
 `spec:N`, the slides as "slide N", the entries of the record), `choice` (None
 when the specification or the slides state the rule; otherwise why the package
@@ -355,8 +355,8 @@ interpreters"; the codes are:
 `raster.gradient-vertex`, `gradient.nonzero-start-delay`,
 `gradient.nonzero-end-align`, `shape.length`, `shape.range`, `shape.empty`,
 `shape.event-length`, `shape.time-order`, `shape.oversampled-length`,
-`extension.required-unknown`, `extension.per-block`, `layer1.gradient-ends`,
-`rotation.zero`, `signature.invalid`.
+`limit.shape-samples`, `extension.required-unknown`, `extension.per-block`,
+`layer1.gradient-ends`, `rotation.zero`, `signature.invalid`.
 
 The limits of the rules are `spec.TOLERANCE_NS`, `spec.RANGE_TOLERANCE`,
 `spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and

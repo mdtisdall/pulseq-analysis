@@ -165,6 +165,8 @@ VERDICTS = {
 NO_FIXTURE: dict[str, str] = {
     "rotation.zero": "no fixture has a quaternion of norm 0 (`test_rotation_quaternions_are_"
     "normalized_and_a_quaternion_of_norm_0_is_rejected` writes one)",
+    "limit.shape-samples": "no fixture declares more than 2^27 samples (`test_a_shape_that_"
+    "declares_more_samples_than_the_package_reads_is_limit_shape_samples` writes one)",
 }
 
 # The oracle files (`tests/seqfiles/oracle/SOURCES.md`): the version, the rule that the file

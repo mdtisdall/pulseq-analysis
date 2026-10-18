@@ -230,11 +230,18 @@ the package's choice.
 | `shape.event-length` | D3.8 | the shapes of one event with different numbers of samples, or an ADC phase shape without one sample for each ADC sample | spec:349, spec:443, spec:120; choice |
 | `shape.time-order` | D3.9 | an RF time shape of one sample at 0 or before, or a time shape (RF or gradient) whose times do not increase or whose first time is below 0 | spec:349, spec:395; choice |
 | `shape.oversampled-length` | — | an oversampled gradient with an even number of samples | spec:420, slides 4 and 8 |
+| `limit.shape-samples` | — | a shape that declares more than 2^27 samples | the package's limit of memory; choice |
 | `rotation.zero` | D3.10 | a quaternion of norm 0 | spec:567; choice |
 | `extension.required-unknown` | — | a required extension that `spec` does not know | spec:460 |
 | `extension.per-block` | — | a block with more than one ROTATIONS or RF_SHIMS object | spec:567, spec:584 |
 | `layer1.gradient-ends` | D4.4, D4.5 | a 1.4.x arbitrary gradient with no value at its start or end | spec:290; choice |
 | `signature.invalid` | — | a `[SIGNATURE]` without one `Type` and one `Hash` | spec:223-232 |
+
+`limit.shape-samples` is not a reading of the specification, which has no
+limit of `num_samples` (spec:619), but the package's limit of memory: `spec`
+does not decompress a shape of more than 2^27 samples (1 GiB of float64), so a
+short file cannot make it allocate without bound. Its message says that the
+specification does not state the rule.
 
 A version outside 1.4.0 to 1.5.x, a binary file and a folder are not a
 rejection: they raise `NotSupported` (section 2.1).
