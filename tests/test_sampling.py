@@ -423,6 +423,36 @@ def test_invalid_axis_name_raises_value_error():
         sampler.sample("gw", np.array([0.0]))
 
 
+def test_the_axes_are_x_y_and_z():
+    """`sample` and `block_samples` take the axis names of the results, "x", "y" and "z", and
+    give the waveform of that axis: the values of `oracle.sample` and `oracle.block_samples`
+    on a sequence with gradient events on each of the three axes."""
+    snap = load(gre_sequence(num_trs=2))
+    seq = sequence_of(snap)
+    index = sequence_index(snap)
+    sampler = gradient_sampler(snap)
+    t = _model_times(snap)
+    for axis in "xyz":
+        ref = oracle.sample(seq, axis, t)
+        assert np.any(ref), axis
+        peak = float(np.max(np.abs(ref)))
+        np.testing.assert_allclose(sampler.sample(axis, t), ref, rtol=1e-12, atol=1e-12 * peak)
+        got = sampler.block_samples(axis, 0, index.num_blocks, _RASTER)
+        _assert_samples_match(got, oracle.block_samples(seq, axis, _RASTER))
+
+
+@pytest.mark.parametrize("column", ["gx", "gy", "gz"])
+def test_the_block_table_column_names_are_not_axis_names(column):
+    """`sample` and `block_samples` raise `ValueError` for the names of the block table's
+    gradient columns, "gx", "gy" and "gz", with a message that names the axes "x", "y" and
+    "z"."""
+    sampler = gradient_sampler(load(gre_sequence(num_trs=1)))
+    with pytest.raises(ValueError, match=r"\('x', 'y', 'z'\)"):
+        sampler.sample(column, np.array([0.0]))
+    with pytest.raises(ValueError, match=r"\('x', 'y', 'z'\)"):
+        sampler.block_samples(column, 0, 1, _RASTER)
+
+
 def _off_raster_events_sequence() -> pp.Sequence:
     """Two blocks of 8 raster times on x, with events that do not start or end on a raster
     edge (a delay of `0.3` and of `0.7` raster times, which `add_block` accepts). Block 0:

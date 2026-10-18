@@ -1902,6 +1902,30 @@ checks the result's dtype and shape.
 
 **Assumptions:** None.
 
+#### `test_the_axes_are_x_y_and_z`
+
+**Checks:** `sample` and `block_samples` take the axis names of the results, "x", "y" and "z", and
+give the waveform of that axis.
+
+**How:** `gre_sequence(num_trs=2)` has trapezoids on x, y and z. For each axis, the oracle's
+`oracle.sample` at `_model_times(snap)` is not all 0, `sample(axis, t)` equals it as in
+`_assert_matches_oracle` (a relative 1e-12 and an absolute 1e-12 times the peak), and
+`block_samples(axis, 0, num_blocks, dt)` at the gradient raster equals `oracle.block_samples` within
+`_assert_samples_match`.
+
+**Assumptions:** None.
+
+#### `test_the_block_table_column_names_are_not_axis_names`
+
+**Checks:** `sample` and `block_samples` raise `ValueError` for "gx", "gy" and "gz", the names of the
+block table's gradient columns, and the message names the axes "x", "y" and "z".
+
+**How:** Parametrized over the three column names on `gre_sequence(num_trs=1)`. `sample(column,
+[0.0])` and `block_samples(column, 0, 1, dt)` each inside `pytest.raises(ValueError, match=...)`
+with the pattern `('x', 'y', 'z')`.
+
+**Assumptions:** None.
+
 The remaining tests of this section are for `GradientSampler.block_samples` and
 `raster_block_lengths`. `block_samples` gives the samples of the PNS lane at the local times
 `(j + 0.5) * dt` of each block, with the value of the own event of the block (0 before its
