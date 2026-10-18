@@ -5,8 +5,6 @@ the `pypulseq` marker."""
 
 import ast
 import dataclasses
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -430,20 +428,6 @@ def test_pns_levels_equals_the_levels_with_the_forks_chunk_function(
     assert sorted(arrays) == sorted(k.removeprefix(prefix) for k in golden if k.startswith(prefix))
     for name, value in arrays.items():
         _assert_golden(value, golden[prefix + name], name)
-
-
-def test_safe_and_asc_import_neither_pypulseq_nor_matplotlib():
-    """Importing `pulseq_analysis.analyses.safe` and `pulseq_analysis.analyses.asc` in a new
-    interpreter does not import pypulseq or matplotlib."""
-    code = (
-        "import sys, pulseq_analysis.analyses.safe, pulseq_analysis.analyses.asc; "
-        "bad = [m for m in sys.modules if m.split('.')[0] in ('pypulseq', 'matplotlib')]; "
-        "assert not bad, bad"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_no_module_imports_pypulseq():

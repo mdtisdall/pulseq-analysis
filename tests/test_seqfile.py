@@ -1597,18 +1597,16 @@ def test_a_syntax_error_in_the_blocks_keeps_the_raster_checks_of_the_event_table
     assert codes_of(path) == {"syntax.integer", "raster.gradient-flat"}
 
 
-def test_an_arbitrary_gradient_plays_on_the_raster_of_the_file():
+def test_a_gradient_raster_of_5_us_with_a_block_raster_of_10_us_reads():
     """The specification accepts any gradient raster (spec:273: "Default raster time"). The
     raster must divide or be a multiple of the block raster (slide 11, in
     `test_a_raster_that_is_not_commensurate_with_the_block_raster_is_rejected`):
-    `valid_arbitrary_gradient_5us_raster.seq` has 5 us and a block raster of 10 us, and reads;
-    its gradient has the shape of the file, played on the raster of the file."""
+    `valid_arbitrary_gradient_5us_raster.seq` has 5 us and a block raster of 10 us, and reads
+    with its gradient. `test_decoding.py` decodes the gradient on the raster of the file."""
     data = read_seqfile(SEQFILES / "valid_arbitrary_gradient_5us_raster.seq")
     assert data.rasters.gradient == 5e-6
     assert data.rasters.block_duration == 1e-5
     assert len(data.grad) == 1
-    decoded = events.decode_gradients(data)[1]
-    assert decoded.tt[:2].tolist() == pytest.approx([2.5e-6, 7.5e-6])
 
 
 def test_a_raster_that_is_not_commensurate_with_the_block_raster_is_rejected(tmp_path):
@@ -1889,30 +1887,11 @@ def test_a_regular_rf_time_shape_is_cells_and_any_other_is_points():
     of a regular pulse (`model.rf_time_step` gives `d`); this is the package's choice, since every
     regular pulse that MATLAB Pulseq and pypulseq write has this form. Any other time shape is
     points. `valid_rf_time_shapes.seq`: RF 2 `1 2 2 47` (cells of 2 us), RF 3 `0.5 1.5 2.5` (cells
-    of 1 us), RF 4 the block pulse `0 100` and RF 5 vertices `1 2 4 7 10` (points)."""
+    of 1 us), RF 4 the block pulse `0 100` and RF 5 vertices `1 2 4 7 10` (points).
+    `test_decoding.py` decodes the RF events."""
     data = read_seqfile(SEQFILES / "valid_rf_time_shapes.seq")
     steps = {i: rf_time_step(data.shapes[i].samples()) for i in (12, 15, 18, 21)}
     assert steps == {12: 2.0, 15: 1.0, 18: None, 21: None}
-    decoded = events.decode_rf(data)
-    assert decoded[2].dwell == pytest.approx(2e-6)
-    assert decoded[3].dwell == pytest.approx(1e-6)
-    assert decoded[4].dwell is None
-    assert decoded[5].dwell is None
-    assert decoded[2].t[:3].tolist() == pytest.approx([1e-6, 3e-6, 5e-6])
-
-
-def test_an_rf_time_shape_of_points_is_joined_by_straight_lines_of_the_complex_signal():
-    """D2.11, slide 9 ("defined by vertices"), slide 4: points are joined by straight lines: the
-    package's choice (the user, 2026-10-12: linear interpolation of the complex signal, as the
-    FIXME of the C++ reader intends). RF 5 of `valid_rf_time_shapes.seq` has the points 1, 2, 4,
-    7, 10 us, magnitudes 0.2 0.6 1 0.6 0.2 and phases 0 0.25 0.5 0.25 0 turns: halfway between the
-    first two it is the mean of 200 and 600i."""
-    data = read_seqfile(SEQFILES / "valid_rf_time_shapes.seq")
-    event = events.decode_rf(data)[5]
-    assert event.t.tolist() == pytest.approx([1e-6, 2e-6, 4e-6, 7e-6, 1e-5])
-    signal = event.signal(np.array([1.5e-6, 5.5e-7, 1.1e-5]))
-    assert signal[0] == pytest.approx(100 + 300j)
-    assert signal[1] == 0 and signal[2] == 0  # before the first time, and after the last
 
 
 def test_an_rf_time_shape_that_other_tools_write_is_read(tmp_path):
@@ -2088,36 +2067,26 @@ def test_an_arbitrary_gradient_on_the_default_raster_has_a_sample_at_each_cell_c
     assert event.shape_dur == pytest.approx(1e-4)
 
 
-def test_an_oversampled_gradient_has_its_samples_half_a_raster_apart_and_an_odd_count():
+def test_an_oversampled_gradient_of_an_even_count_is_shape_oversampled_length():
     """spec:395 and spec:420 ("N-1 additional points"), slides 4 and 8 (the shape "starts and
     ends at the cell centers"): the samples of a gradient with time ID -1 are half a raster apart,
     the first and the last at cell centres, so their number is odd (derived: the slides do not
     state a count); `shape.oversampled-length` rejects an even count
-    (`bad_shape_oversampled_length.seq`, 4 samples)."""
+    (`bad_shape_oversampled_length.seq`, 4 samples). `test_decoding.py` decodes the samples."""
     (violation,) = violations_of(SEQFILES / "bad_shape_oversampled_length.seq").violations
     assert (violation.rule, violation.section) == ("shape.oversampled-length", "GRADIENTS")
     assert not carries_choice(violation)
-    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
-    event = events.decode_gradients(data)[6]
-    assert event.tt.tolist() == pytest.approx(np.arange(1, 6) / 2 * 1e-5)
-    assert event.shape_dur == pytest.approx(3e-5)
 
 
-def test_the_phase_modulation_of_an_adc_event_is_in_rad_one_value_for_each_sample(tmp_path):
+def test_an_adc_phase_shape_of_another_length_is_shape_event_length():
     """D2.15, D3.8, spec:443 (the phase shape "of the phase modulation", no unit), spec:120 (an ADC phase
     offset per sample): `spec` reads it in rad, one value for each ADC sample (the package's
     choice: as C++ and MATLAB, and `makeAdc` requires); a shape of another length is
-    `shape.event-length` (`bad_shape_adc_phase_length.seq`: 9 samples for 8)."""
+    `shape.event-length` (`bad_shape_adc_phase_length.seq`: 9 samples for 8). `test_decoding.py`
+    decodes the values."""
     (violation,) = violations_of(SEQFILES / "bad_shape_adc_phase_length.seq").violations
     assert (violation.rule, violation.section) == ("shape.event-length", "ADC")
     assert carries_choice(violation)
-    text = _text("valid_no_signature.seq")
-    old = "shape_id 8\nnum_samples 8\n0\n0\n6\n"
-    assert old in text
-    values = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5]
-    new = "shape_id 8\nnum_samples 8\n" + "\n".join(map(str, values)) + "\n"
-    data = read_seqfile(_write(tmp_path, text.replace(old, new), "p.seq"))
-    assert events.decode_adc(data)[2].phase_modulation.tolist() == values
 
 
 # ---- The rows of section 6: extensions, values that a reader changes, the signature ----

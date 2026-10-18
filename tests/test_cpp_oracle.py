@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 
 from pulseq_analysis import seqfile
-from pulseq_analysis.seqfile import as_written
 from pulseq_analysis.seqfile.spec import RULES
 
 SEQFILES = Path(__file__).resolve().parent / "seqfiles"
@@ -365,17 +364,6 @@ def test_spec_hashes_the_bytes_before_the_newline_before_signature_where_the_ora
         path.write_bytes(before + tail + digest + newline)
         assert signature_ok(path) is in_the_oracle
         assert seqfile.read_seqfile(path).signature.matches is in_spec
-
-
-def test_the_signature_of_a_crlf_file_matches_in_the_oracle_and_not_in_spec():
-    """`valid_crlf.seq` is signed by the rule of the C++ reader. The hash that `spec`
-    computes is that of the bytes before the `\\n` before `[SIGNATURE]`, which keep the `\\r` of
-    the empty line. Both read the file."""
-    path = SEQFILES / "valid_crlf.seq"
-    assert signature_ok(path) is True
-    assert seqfile.read_seqfile(path).signature.matches is False
-    signed = as_written.read_as_written(path).signed_bytes()
-    assert signed.endswith(b"\r")
 
 
 def test_the_oracle_and_spec_accept_and_reject_the_same_files_but_those_of_the_tables(

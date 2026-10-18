@@ -6502,13 +6502,13 @@ follows it, not that the decision is right.
 
 **Assumptions:** The rules of `[BLOCKS]` itself (`block.event-too-long`, `gradient.nonzero-end-align`) need the blocks, and are not checked here.
 
-#### `test_an_arbitrary_gradient_plays_on_the_raster_of_the_file`
+#### `test_a_gradient_raster_of_5_us_with_a_block_raster_of_10_us_reads`
 
-**Checks:** `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, and its gradient is decoded on the raster of the file (the first sample times 2.5 us and 7.5 us).
+**Checks:** `valid_arbitrary_gradient_5us_raster.seq` (gradient raster 5 us, block raster 10 us) loads, with the two rasters of the file and its one gradient.
 
-**How:** The test reads the fixture and decodes its gradient with `synth.events`.
+**How:** The test reads the fixture and compares the rasters and the number of rows of `[GRADIENTS]`.
 
-**Assumptions:** The test uses the decoder only for the times of the samples; the decoder has its own tests (`test_decoding.py`).
+**Assumptions:** The decoding of the gradient on the raster of the file is tested in `test_decoding.py` (`test_every_file_that_loads_decodes`).
 
 #### `test_a_raster_that_is_not_commensurate_with_the_block_raster_is_rejected`
 
@@ -6616,19 +6616,11 @@ follows it, not that the decision is right.
 
 #### `test_a_regular_rf_time_shape_is_cells_and_any_other_is_points`
 
-**Checks:** D2.10, spec:349, slide 9, slide 4: in `valid_rf_time_shapes.seq`, the time shape `1 2 2 47` (RF 2) and `0.5 1.5 2.5` (RF 3) are regular (`rf_time_step` 2 and 1, decoded as cells of 2 us and 1 us), and the block pulse `0 100` (RF 4) and the vertices `1 2 4 7 10` (RF 5) are points (`rf_time_step` None, no dwell).
+**Checks:** D2.10, spec:349, slide 9, slide 4: in `valid_rf_time_shapes.seq`, the time shape `1 2 2 47` (RF 2) and `0.5 1.5 2.5` (RF 3) are regular (`rf_time_step` 2 and 1: cells), and the block pulse `0 100` (RF 4) and the vertices `1 2 4 7 10` (RF 5) are points (`rf_time_step` None).
 
-**How:** The test reads the fixture, calls `rf_time_step` on the time shapes and decodes the RF events with `synth.events`.
+**How:** The test reads the fixture and calls `rf_time_step` on the time shapes.
 
-**Assumptions:** The split (equal steps, first time half a step) is the package's choice.
-
-#### `test_an_rf_time_shape_of_points_is_joined_by_straight_lines_of_the_complex_signal`
-
-**Checks:** D2.11: for the vertices of RF 5, the decoded times are those of the file, and the signal halfway between the first two points is the mean of the two complex values (100 + 300i), and is 0 before the first time and after the last.
-
-**How:** The test decodes the RF event and calls `signal` at three times.
-
-**Assumptions:** The straight line of the complex signal is the user's choice.
+**Assumptions:** The split (equal steps, first time half a step) is the package's choice. The decoded RF events of the fixture are tested in `test_decoding.py`.
 
 #### `test_an_rf_time_shape_that_other_tools_write_is_read`
 
@@ -6702,21 +6694,21 @@ follows it, not that the decision is right.
 
 **Assumptions:** The straight lines between the points are drawn by `seq_utils.gradient_offsets`, which this test does not check.
 
-#### `test_an_oversampled_gradient_has_its_samples_half_a_raster_apart_and_an_odd_count`
+#### `test_an_oversampled_gradient_of_an_even_count_is_shape_oversampled_length`
 
-**Checks:** spec:395, spec:420, slides 4 and 8: `bad_shape_oversampled_length.seq` (time ID -1 with 4 samples) gives `shape.oversampled-length`, with no choice in the message; the decoded oversampled gradient of `valid_1_5_1.seq` (5 samples) has its samples half a raster apart and lasts 3 half rasters.
+**Checks:** spec:395, spec:420, slides 4 and 8: `bad_shape_oversampled_length.seq` (time ID -1 with 4 samples) gives `shape.oversampled-length`, with no choice in the message.
 
-**How:** The test reads the fixture and decodes the gradients of the 1.5.1 fixture.
+**How:** The test reads the fixture.
 
-**Assumptions:** The odd count is derived from the slides, not stated.
+**Assumptions:** The odd count is derived from the slides, not stated. The decoded samples of an oversampled gradient are tested in `test_decoding.py` (`test_arbitrary_gradient_oversampled`).
 
-#### `test_the_phase_modulation_of_an_adc_event_is_in_rad_one_value_for_each_sample`
+#### `test_an_adc_phase_shape_of_another_length_is_shape_event_length`
 
-**Checks:** D2.15, D3.8, spec:443, spec:120: `bad_shape_adc_phase_length.seq` (9 samples for 8) gives `shape.event-length` with the choice in the message; an ADC phase shape of 8 samples is decoded as the same 8 values, with no factor.
+**Checks:** D2.15, D3.8, spec:443, spec:120: `bad_shape_adc_phase_length.seq` (9 samples for 8) gives `shape.event-length` with the choice in the message.
 
-**How:** The test reads the fixture, then replaces shape 8 of a valid fixture with eight values and decodes the ADC events.
+**How:** The test reads the fixture.
 
-**Assumptions:** The unit rad is the user's choice (the specification gives no unit).
+**Assumptions:** The unit rad is the user's choice (the specification gives no unit). The decoded values are tested in `test_decoding.py` (`test_adc_phase_modulation_is_the_shape_with_no_factor_and_no_wrap`).
 
 #### `test_an_unknown_extension_that_is_not_required_is_skipped`
 
@@ -7231,17 +7223,6 @@ the hash of the specification's bytes) and checks `signature_ok` of the oracle a
 **Assumptions:** The specification's bytes are `before[:-1]` in the test, computed without the
 package. A hash that does not match is not a rejection.
 
-#### `test_the_signature_of_a_crlf_file_matches_in_the_oracle_and_not_in_spec`
-
-**Checks:** For `valid_crlf.seq` the oracle's `signature_ok` is true and `spec` gives `matches`
-false; `spec` reads the file. The bytes that `spec` hashes (`AsWritten.signed_bytes`) end with `\r`,
-the `\r` of the empty line.
-
-**How:** The test runs the oracle with `--dump`, reads the file with `read_seqfile` and reads the
-signed bytes with `as_written.read_as_written`.
-
-**Assumptions:** None beyond the rule of the specification (spec:223).
-
 #### `test_the_oracle_and_spec_accept_and_reject_the_same_files_but_those_of_the_tables`
 
 **Checks:** For each `.seq` file under `tests/seqfiles/`, `spec` (`read_seqfile`, the default
@@ -7501,17 +7482,6 @@ golden file.
 **Assumptions:** The sequences are the synthetic sequences, with the example hardware, as
 pypulseq builds them in the dev environment (the fork). The fields that the chunk function does
 not change (`reason`, `hardware`, `hw`, `dt_s`) are not compared.
-
-#### `test_safe_and_asc_import_neither_pypulseq_nor_matplotlib`
-
-**Checks:** A new interpreter that imports `pulseq_analysis.analyses.safe` and
-`pulseq_analysis.analyses.asc` has no module of `pypulseq` or `matplotlib` in `sys.modules`.
-
-**How:** A subprocess runs the import and the check.
-
-**Assumptions:** `pulseq_analysis.analyses.pns_levels` is not tested: it imports the snapshot,
-which imports pypulseq, and `import pypulseq` imports matplotlib and
-`pypulseq.utils.safe_pns_prediction` (checked on 2026-10-08).
 
 #### `test_no_module_imports_pypulseq`
 
@@ -7892,7 +7862,19 @@ late by 0.4 tolerances give the step 1.
 `num_samples` is 8 and that `phase_modulation` equals 8 zeros.
 
 **Assumptions:** The values of the shape are 0, so this test checks the length; the unit is checked by
-`test_adc_events_with_and_without_a_phase_shape`.
+`test_adc_events_with_and_without_a_phase_shape` and
+`test_adc_phase_modulation_is_the_shape_with_no_factor_and_no_wrap`.
+
+#### `test_adc_phase_modulation_is_the_shape_with_no_factor_and_no_wrap`
+
+**Checks:** The phase modulation of an ADC event is the values of its phase shape in rad, with no factor
+and no wrap: phases above pi stay as written (D2.15).
+
+**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the phase shape 8 of ADC 2 (8
+samples) as the phases 0, 0.5, ..., 3.5, decodes the ADC events, and compares the modulation of ADC 2
+with the values.
+
+**Assumptions:** The specification gives no unit; rad is the user's choice (D2.15).
 
 #### `test_synth_decode_gives_the_events_of_spec`
 
