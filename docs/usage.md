@@ -777,7 +777,8 @@ settings. It raises:
   `interpreter` the name of the interpreter, and `path` the file.
 - `errors.NotSupported` (a `NotImplementedError`) for a file that the package
   does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x (Q1
-  of the plan), and for `cpp-siemens` a binary Pulseq file or a folder. It says
+  of the plan), a binary Pulseq file or a folder. `read_seqfile` checks them
+  before the interpreter reads the file, with one message for each. It says
   nothing about whether the file is valid.
 - `ValueError` for a name that no installed interpreter has. The message gives
   the installed names and the entry-point group: "no interpreter is named

@@ -71,8 +71,10 @@ class Plugin(Protocol):
       the package uses it only when it is `PROTOCOL`.
     - `read(path)`: the Pulseq text file `path` (a `Path`) into a `SequenceData` whose
       `interpreter` is this object, as `seqfile.read_seqfile` returns it: `SeqFileError` with the
-      code of each reason when the interpreter rejects the file, `NotSupported` for a file
-      outside the package's scope (Q1), `OSError` when the file cannot be read.
+      code of each reason when the interpreter rejects the file, `OSError` when the file cannot
+      be read. `read_seqfile` checks the package's scope (Q1) before it calls `read`, so `read`
+      gets no folder, binary Pulseq file or version outside 1.4.0 to 1.5.x of the "as written"
+      reading; a plugin may raise `NotSupported` for a file that it reads outside the scope.
     - `decode(data, session=None)`: the decoding of a `SequenceData` that `read` made under the
       scanner session `session` (a `synth.Session`; `synth.decode` gives one, the neutral one
       by default), an object of the protocol `synth.Decoding`, whose `session` is that session.

@@ -90,6 +90,19 @@ A caller moves in this order:
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package
   does not read, whatever the interpreter (a version outside 1.4.0 to 1.5.x, a
   binary Pulseq file, a folder).
+- `read_seqfile` checks the scope before the interpreter reads the file, with
+  one message for each case, so a folder, a binary Pulseq file and a version
+  outside 1.4.0 to 1.5.x raise `NotSupported` under every interpreter, with
+  the same message (review 2026-10-13 3.5, 4.3). Before, `spec` raised
+  `IsADirectoryError` for a folder and a `SeqFileError` (`syntax.encoding`)
+  for a binary Pulseq file, and the message for a version outside the range
+  was not the same under `spec` and `cpp-siemens`. A file of such a version
+  with a byte that is not UTF-8 is now `NotSupported` under `spec`, not
+  `syntax.encoding`. `read_cpp_siemens` and `CppSiemens.read` no longer check
+  the folder and the "as written" version themselves: `read_seqfile` does (so
+  `cpp-siemens` now does the "as written" reading twice, once for the check),
+  and `load` of pulseq-cpp-siemens still refuses a binary Pulseq file and a
+  version that the reader reads outside the range.
 - `seqfile.read_as_written(path)`, the "as written" reading of a Pulseq text
   file: its sections, the rows of each and the value of each field by the kind
   of its column, with line numbers, without loss and without interpretation

@@ -6123,6 +6123,22 @@ follows it, not that the decision is right.
 
 **Assumptions:** The 1.4.x boundary is covered by the fixtures `valid_1_4_0.seq` and `valid_1_4_1.seq`.
 
+#### `test_spec_raises_not_supported_for_a_folder`
+
+**Checks:** Q1 of `docs/plans/parser-redesign.md` and Q14 of `docs/plans/remaining-review-fixes.md`: `read_seqfile` of a folder raises `NotSupported` under `spec`, not `IsADirectoryError`, with a message that names the folder.
+
+**How:** The test reads `tmp_path`.
+
+**Assumptions:** None.
+
+#### `test_spec_raises_not_supported_for_a_binary_pulseq_file`
+
+**Checks:** Q1 and Q14 (as above): `read_seqfile` of a file that starts with the 8 bytes of a binary Pulseq file (`\x01pulseq\x02`) raises `NotSupported` under `spec`, not a `SeqFileError` (`syntax.encoding`), with a message that names the file.
+
+**How:** The test writes the 8 bytes and then every byte value (0 to 255, so bytes that are not UTF-8) to a file in `tmp_path`, and reads it.
+
+**Assumptions:** The magic bytes are those that the C++ reader's `load` reads as a binary file (`_BINARY_MAGIC` of `pulseq_cpp_siemens`).
+
 #### `test_a_version_line_that_is_not_an_integer_is_version_invalid`
 
 **Checks:** spec:193-198: `minor 5.0` gives `version.invalid`, at the line of `minor`.
@@ -10167,6 +10183,18 @@ before the reader.
 `NotSupported`.
 
 **How:** The test writes the bytes and reads the file and its folder.
+
+**Assumptions:** None.
+
+#### `test_both_interpreters_give_one_message_for_a_file_outside_the_scope`
+
+**Checks:** Q14 of `docs/plans/remaining-review-fixes.md`: for a folder, a binary Pulseq file and
+a file of version 1.3.0, `read_seqfile` with `spec` and with `cpp-siemens` raise `NotSupported`
+with one and the same message, which names the path.
+
+**How:** For each case (parametrized), the test makes the path in `tmp_path` (the folder itself;
+the 8 magic bytes and then every byte value; `MINIMAL_SEQ` with `minor 3`) and reads it with each
+interpreter.
 
 **Assumptions:** None.
 
