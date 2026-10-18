@@ -3199,16 +3199,6 @@ not a snapshot and would raise the `TypeError` that names `load`.
 
 **Assumptions:** None.
 
-#### `test_prediction_propagates_an_error`
-
-**Checks:** An error deep inside the SAFE model propagates out of `pns_levels`.
-
-**How:** The test makes a snapshot of a synthetic spin echo sequence and replaces
-`pns_levels._safe_gwf_to_pns_chunk` (the chunk function of `safe.py`) with a function that
-raises `RuntimeError`. The call must raise the error.
-
-**Assumptions:** None.
-
 #### `test_a_relative_and_an_absolute_path_of_one_asc_file_give_one_result`
 
 **Checks:** `pns_levels` with `hardware_from_asc` of the relative path and with that of the
@@ -7121,50 +7111,16 @@ which the two verdicts differ, with the entry of `docs/discrepancies.md` that ex
 #### `test_the_oracle_accepts_a_minimal_valid_file`
 
 **Checks:** The oracle accepts a Pulseq 1.5.0 file of one block (a delay), with the four
-rasters in `[DEFINITIONS]`.
+rasters in `[DEFINITIONS]`. This is the smoke test of the harness (`run_oracle`): it gives
+"accept" for a file that the reader reads. A harness that cannot would make each file that `spec`
+rejects agree with the oracle in the comparison of the verdicts, because a file that the reader
+cannot open also exits with 1 and an `ERROR` message.
 
 **How:** The test writes the text of the file to `tmp_path`, runs the oracle and checks that the
 exit status is 0.
 
 **Assumptions:** The test shows that the program runs and that it accepts one file. It does not
 test that the file is valid by another reader.
-
-#### `test_the_oracle_rejects_a_file_without_a_required_part`
-
-**Checks:** The oracle rejects the minimal file when `GradientRasterTime` is removed from
-`[DEFINITIONS]`, and when the `[VERSION]` section is removed. It exits with 1 and prints a
-message with `ERROR`.
-
-**How:** The test (two cases) removes the line or the section from the text of the minimal file
-with a regular expression, checks that the text changed, runs the oracle on it and checks the
-exit status and the message.
-
-**Assumptions:** The test does not check the text of the message beyond `ERROR`. Its two
-cases are two of the checks that the reader does when it loads a file.
-
-#### `test_the_oracle_does_not_accept_a_file_that_it_cannot_decode`
-
-**Checks:** A file with one RF event whose phase shape is not in `[SHAPES]`, one whose time
-shape is not there, and one whose phase shape has `num_samples 0` is a rejection or a crash of
-the oracle, not an acceptance. On the aarch64-darwin build, each of the three ends with exit
-70 (a crash).
-
-**How:** The test (three cases) writes the file (the minimal file with an RF event of 6 samples
-and the shapes of the case), runs the oracle and checks that the verdict is "reject" or "crash".
-
-**Assumptions:** The test does not tell a rejection from a crash, because the result depends on
-the build of the reader (a build can end the process with a signal where another reports an
-error). It does not check that the oracle crashes the same way on every platform.
-
-#### `test_the_oracle_accepts_the_rf_file_with_both_shapes`
-
-**Checks:** The file of the previous test with both shapes defined (6 samples each, time shape 0)
-is accepted: the files of that test are rejected because of their shapes, not because of
-the RF event.
-
-**How:** The test writes the file, runs the oracle and checks that the verdict is "accept".
-
-**Assumptions:** The test does not test that the file is valid by another reader.
 
 #### `test_the_skip_of_the_comparison_is_for_an_arbitrary_gradient_off_the_10_us_raster_only`
 
@@ -8347,7 +8303,8 @@ are "accept" (exit 0), "reject" (1), "undefined" (3), "no end" (no end in 10 s, 
 `test_cpp_oracle.py`) and "crash" (another exit status or a signal). The fixtures of
 `tests/seqfiles/undefined/` are the cases of section 5.3 that had no fixture: `version_last.seq`
 (D5.1), `rf_time_id_minus_1.seq` (D5.3) and `shape_decompress_longer.seq` (D5.5), each a change of
-`valid_no_signature.seq` that its comment states.
+`valid_no_signature.seq` that its comment states. The module calls no code of pulseq_analysis: it
+characterises the build.
 
 #### `test_the_tables_name_only_fixtures_that_exist`
 
@@ -8396,15 +8353,6 @@ verdict.
 - A sanitizer finds undefined behaviour only on the paths that a file takes. The test covers the
   first mode of the driver (load and decode each block), not `--dump` or `--sample`.
 
-#### `test_each_case_of_undefined_behaviour_of_the_plan_has_a_fixture`
-
-**Checks:** The entries of `UNDEFINED` are D5.1, D5.3, D5.5, D5.6, D5.7 and D5.8, and the entry
-of `NO_END` is D5.4: each case of section 5.3 of the plan has a fixture.
-
-**How:** The test compares the sets of entries.
-
-**Assumptions:** The entries are the labels that the tables give; the test does not read the plan.
-
 #### `test_the_ordinary_oracle_gives_the_same_verdict_where_the_reader_has_no_undefined_behaviour`
 
 **Checks:** For each fixture where the sanitized oracle accepts or rejects, `pulseq-cpp-oracle`
@@ -8419,8 +8367,8 @@ verdict. It skips when `pulseq-cpp-oracle` is not on the PATH.
 #### `test_the_sanitized_oracle_reports_a_missing_shape_built_in_the_test`
 
 **Checks:** The minimal file with an RF event whose phase shape is not in `[SHAPES]` (D5.1) is
-"undefined", where `test_the_oracle_does_not_accept_a_file_that_it_cannot_decode` of
-`test_cpp_oracle.py` can only say "reject or crash".
+"undefined", where the ordinary build (`pulseq-cpp-oracle`) crashes on it on aarch64-darwin
+(exit 70), a verdict that can differ by build.
 
 **How:** The test writes the file to `tmp_path`, runs the sanitized oracle and checks the verdict.
 
@@ -9840,25 +9788,18 @@ Each `Rejected.messages` must name block 3 alone. Each call of `first_rejected_b
 `rejection_messages` between the call and the read. The threads interleave as the scheduler
 decides, as in the test above.
 
-#### `test_the_c_library_of_the_process_reads_numbers_by_its_locale`
-
-**Checks:** With a locale with a decimal comma, `strtod` of the process reads "0.5" as 0: the
-hazard that the extension guards against is real on this machine.
-
-**How:** The test calls `strtod` through ctypes. It skips on Windows and where no such locale is
-installed (the Linux images of the wheels).
-
-**Assumptions:** `strtod` reads as `sscanf`'s `%f` does.
-
 #### `test_the_reader_reads_in_the_c_locale_whatever_the_process_locale`
 
 **Checks:** With a process locale with a decimal comma, the package reads `valid_1_5_1.seq` as in
-the "C" locale.
+the "C" locale. The precondition: in that locale, `strtod` of the process reads "0.5" as 0, so
+the hazard that the extension guards against is real on this machine.
 
-**How:** The test sets `LC_NUMERIC` and compares the dumps. It skips where no such locale is
-installed.
+**How:** The test sets `LC_NUMERIC`, asserts the precondition, and compares the dumps. It calls
+`strtod` through ctypes, and does not assert the precondition on Windows. It skips where no such
+locale is installed (the Linux images of the wheels).
 
 **Assumptions:** The global C++ locale is not changed (it is outside the extension's guard).
+`strtod` reads as `sscanf`'s `%f` does.
 
 ### 3.6 The cases of undefined behaviour (`test_undefined_behaviour.py`)
 

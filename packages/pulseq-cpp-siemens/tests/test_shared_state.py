@@ -192,23 +192,6 @@ def _a_locale_with_a_decimal_comma():
     return None
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the C library of the process is not checked")
-def test_the_c_library_of_the_process_reads_numbers_by_its_locale():
-    # strtod as sscanf's %f: ctypes cannot call the variadic sscanf on every platform.
-    name = _a_locale_with_a_decimal_comma()
-    if name is None:
-        pytest.skip("no locale with a decimal comma")
-    libc = ctypes.CDLL(ctypes.util.find_library("c"))
-    libc.strtod.restype = ctypes.c_double
-    libc.strtod.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
-    try:
-        locale.setlocale(locale.LC_NUMERIC, name)
-        value = libc.strtod(b"0.5", None)
-    finally:
-        locale.setlocale(locale.LC_NUMERIC, "C")
-    assert value == 0.0  # "0.5" reads as 0 with a decimal comma
-
-
 def test_the_reader_reads_in_the_c_locale_whatever_the_process_locale():
     name = _a_locale_with_a_decimal_comma()
     if name is None:
@@ -216,6 +199,14 @@ def test_the_reader_reads_in_the_c_locale_whatever_the_process_locale():
     expected = canonical_dump(wrapper_dump(cs.load(VALID)))
     try:
         locale.setlocale(locale.LC_NUMERIC, name)
+        if sys.platform != "win32":  # the C library of the process is not checked on Windows
+            # The precondition: the C library of the process reads "0.5" as 0 in this locale,
+            # so the hazard that the extension guards against is real. strtod as sscanf's %f:
+            # ctypes cannot call the variadic sscanf on every platform.
+            libc = ctypes.CDLL(ctypes.util.find_library("c"))
+            libc.strtod.restype = ctypes.c_double
+            libc.strtod.argtypes = [ctypes.c_char_p, ctypes.c_void_p]
+            assert libc.strtod(b"0.5", None) == 0.0
         actual = canonical_dump(wrapper_dump(cs.load(VALID)))
     finally:
         locale.setlocale(locale.LC_NUMERIC, "C")

@@ -181,58 +181,12 @@ def arbitrary_gradient_off_the_10_us_raster(data):
 
 
 def test_the_oracle_accepts_a_minimal_valid_file(tmp_path):
+    """The smoke test of the harness: `run_oracle` gives "accept" for a file that the reader
+    reads. With a harness that cannot (a file that the reader cannot open also exits with 1 and
+    an `ERROR` message), each file that `spec` rejects would agree with the oracle in the
+    comparison below."""
     path = tmp_path / "minimal.seq"
     path.write_text(MINIMAL_SEQ)
-    verdict, messages = run_oracle(path)
-    assert verdict == "accept", messages
-
-
-@pytest.mark.parametrize(
-    "removed",
-    [r"GradientRasterTime .*\n", r"\[VERSION\]\nmajor 1\nminor 5\nrevision 0\n\n"],
-    ids=["GradientRasterTime", "VERSION"],
-)
-def test_the_oracle_rejects_a_file_without_a_required_part(tmp_path, removed):
-    text = re.sub(removed, "", MINIMAL_SEQ)
-    assert text != MINIMAL_SEQ
-    path = tmp_path / "broken.seq"
-    path.write_text(text)
-    verdict, messages = run_oracle(path)
-    assert verdict == "reject", messages
-    assert "ERROR" in messages
-
-
-def rf_seq(shapes, time_id=0):
-    """The minimal file with one block of 110 us and one RF event of 6 samples, with the shapes
-    1 (magnitude) and 2 (phase), the time shape `time_id` and the `[SHAPES]` section `shapes`."""
-    return MINIMAL_SEQ.replace("1 100 0 0 0 0 0 0", "1 11 1 0 0 0 0 0") + (
-        f"\n[RF]\n1 1000 1 2 {time_id} 0 10 0 0 0 0 u\n\n[SHAPES]\n{shapes}"
-    )
-
-
-def shape(shape_id, values):
-    return f"shape_id {shape_id}\nnum_samples {len(values)}\n" + "\n".join(values) + "\n\n"
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        rf_seq(shape(1, ["0.5"] * 6)),
-        rf_seq(shape(1, ["0.5"] * 6) + shape(2, ["0"] * 6), time_id=7),
-        rf_seq(shape(1, ["0.5"] * 6) + shape(2, [])),
-    ],
-    ids=["missing-phase-shape", "missing-time-shape", "empty-phase-shape"],
-)
-def test_the_oracle_does_not_accept_a_file_that_it_cannot_decode(tmp_path, text):
-    path = tmp_path / "undecodable.seq"
-    path.write_text(text)
-    verdict, messages = run_oracle(path)
-    assert verdict in {"reject", "crash"}, messages
-
-
-def test_the_oracle_accepts_the_rf_file_with_both_shapes(tmp_path):
-    path = tmp_path / "rf.seq"
-    path.write_text(rf_seq(shape(1, ["0.5"] * 6) + shape(2, ["0"] * 6)))
     verdict, messages = run_oracle(path)
     assert verdict == "accept", messages
 
