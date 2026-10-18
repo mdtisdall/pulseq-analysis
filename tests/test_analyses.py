@@ -55,7 +55,7 @@ _LIMIT = GAMMA_1H  # Hz/T: the stimulation limit for 1H, a fraction of 1 times G
 # `defaults`, `rasters` and `cost`.
 _SPECS = [
     (SEQ_INDEX, "seq.index", (), (), (), _INDEX_RASTERS, "fast"),
-    (GRADIENT_PEAKS, "gradient.peaks", ("window",), (), (("window", None),), _RASTERS, "fast"),
+    (GRADIENT_PEAKS, "gradient.peaks", ("range_s",), (), (("range_s", None),), _RASTERS, "fast"),
     (GRADIENT_BLOCKS, "gradient.blocks", (), (), (), _RASTERS, "fast"),
     (
         PNS_SAFE_LEVELS,
@@ -589,6 +589,22 @@ def test_compute_of_gradient_peaks_without_a_window_gives_the_kept_result():
     assert first == gradient_peaks(snap, window=window)
     assert first is not GRADIENT_PEAKS.compute(snap, window=window)
     assert GRADIENT_PEAKS.compute(snap) is whole
+
+
+@pytest.mark.pypulseq
+def test_compute_of_gradient_peaks_takes_range_s_and_refuses_window():
+    """`GRADIENT_PEAKS.compute(snap, range_s=r)` gives the result of the range `r`: its `range_s`
+    is `r`, and it is not the result of the whole sequence. The old name of the parameter,
+    `window`, raises `TypeError` (decision Q18)."""
+    snap = load(gre_sequence(num_trs=4))
+    time_range = (0.0, sequence_index(snap).end_s / 2)
+
+    result = GRADIENT_PEAKS.compute(snap, range_s=time_range)
+
+    assert result.range_s == time_range
+    assert result != GRADIENT_PEAKS.compute(snap)
+    with pytest.raises(TypeError, match="window"):
+        GRADIENT_PEAKS.compute(snap, window=time_range)
 
 
 @pytest.mark.pypulseq

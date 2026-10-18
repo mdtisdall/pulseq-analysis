@@ -1660,6 +1660,25 @@ def test_gradient_peaks_takes_a_window_as_a_list_or_with_numpy_scalars():
     assert gradient_peaks(snap, window=(np.int64(0), np.float64(total / 2))) == expected
 
 
+def test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window():
+    """`gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range: they
+    match the oracle of the gradient waveform for that range, and the `range_s` of the result is
+    the range given. The old name of the argument, `window`, raises `TypeError` (decision
+    Q18)."""
+    snap = load(spin_echo_sequence())
+    seq = sequence_of(snap)
+    time_range = (0.0, sequence_index(snap).end_s / 2)
+
+    result = gradient_peaks(snap, range_s=time_range)
+
+    assert result.range_s == time_range
+    _assert_matches_oracle(
+        result, oracle.peaks(seq, time_range), _rounding_tol(snap), seq, time_range
+    )
+    with pytest.raises(TypeError, match="window"):
+        gradient_peaks(snap, window=time_range)
+
+
 @pytest.mark.parametrize(
     "window_of",
     [

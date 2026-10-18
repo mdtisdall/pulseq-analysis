@@ -3035,6 +3035,22 @@ window as a tuple of floats.
 `==` to it.
 
 **Assumptions:** None.
+
+#### `test_gradient_peaks_takes_the_time_range_as_range_s_and_refuses_window`
+
+**Checks:** `gradient_peaks(snap, range_s=(start_s, end_s))` gives the values of that range,
+and the old name of the argument, `window`, raises `TypeError` (decision Q18 of
+`docs/plans/remaining-review-fixes.md`).
+
+**How:** The spin echo and the range from 0 to half the length of the sequence. The `range_s` of
+the result is that range, and the result matches the oracle of the gradient waveform for it
+(`oracle.peaks(seq, range)` of `sequence_of(snap)`, with `_assert_matches_oracle` and
+`_rounding_tol`, as in the comparisons with the oracle above). The call with `window=` is in
+`pytest.raises(TypeError, match="window")`: Python's message for an unexpected keyword argument
+names it.
+
+**Assumptions:** None.
+
 #### `test_gradient_peaks_accepts_a_window_within_the_tolerance_of_the_sequence`
 
 **Checks:** `gradient_peaks` accepts a `window` that is outside the sequence by less
@@ -4426,6 +4442,18 @@ the whole sequence, so that a `compute` that does not pass the window on fails t
 The kept result of the whole sequence is still the same object after the calls with a window.
 
 **How:** `gre_sequence(num_trs=4)` and the window `(0, T/2)`.
+
+**Assumptions:** None.
+
+#### `test_compute_of_gradient_peaks_takes_range_s_and_refuses_window`
+
+**Checks:** `GRADIENT_PEAKS.compute(snap, range_s=r)` gives the result of the range `r`, and the
+old name of the parameter, `window`, raises `TypeError` (decision Q18 of
+`docs/plans/remaining-review-fixes.md`).
+
+**How:** `gre_sequence(num_trs=4)` and the range `(0, T/2)`. The `range_s` of the result is
+`(0, T/2)`, and the result is not `==` to `compute(snap)`, the result of the whole sequence.
+The call with `window=` is in `pytest.raises(TypeError, match="window")`.
 
 **Assumptions:** None.
 
