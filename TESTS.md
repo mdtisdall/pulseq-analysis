@@ -1203,7 +1203,7 @@ and at each point that is not a step, to 1e-7 of the largest value of the file
 rotations left unapplied). A fixture that the interpreter rejects is skipped. For each block and
 axis with an event, the check takes the middle of each segment of positive length (the mean of
 its two values) and each inner point whose neighbours are at other times, and reads
-`gradients_at` of the decoding at the same blocks and times (µs). A NaN of the file must be NaN in
+`gradients_at` of the decoding at the same blocks and times (s). A NaN of the file must be NaN in
 both. The rest must agree to 1e-7 times the largest value (at least 1).
 
 **Assumptions:**
@@ -8353,16 +8353,19 @@ with the values.
 **Assumptions:** The decoding of a plugin interpreter is tested with the plugin (`cpp-siemens`: `test_interpreter.py`,
 section 3.8; a fake plugin: `test_interpreters.py`, section 2.27).
 
-#### `test_spec_gradients_at_are_the_lines_between_the_points_of_each_event`
+#### `test_spec_gradients_at_takes_seconds_and_gives_the_lines_between_the_points_of_each_event`
 
-**Checks:** `SpecDecoding.gradients_at` gives the gradients (Hz/m) at block-relative times in µs, an
-array (n, 3): on block 2 of `valid_1_4_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs, rise
-100 µs, flat 200 µs, fall 100 µs, block 500 µs), 0 at -1 and 50 µs, 0.5e6 at 150 µs, 1e6 at 250 µs,
-0.5e6 at 450 µs, 0 at 500 and 501 µs, and 0 on gy and gz. `block_count` is 4. Empty arguments give
-an array (0, 3); arguments of different lengths and a NaN time raise `ValueError`; a block index of
--1 or 4 raises `IndexError`, as for the decoding of a plugin.
+**Checks:** The protocol `synth.Decoding` names the times of `gradients_at` `time_s` (decision Q23
+of `docs/plans/remaining-review-fixes.md`). `SpecDecoding.gradients_at` gives the gradients (Hz/m)
+at block-relative times in s, the keyword `time_s`, an array (n, 3): on block 2 of
+`valid_1_4_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs, rise 100 µs, flat 200 µs, fall
+100 µs, block 500 µs), 0 at -1 and 50 µs, 0.5e6 at 150 µs, 1e6 at 250 µs, 0.5e6 at 450 µs, 0 at 500
+and 501 µs, and 0 on gy and gz. `block_count` is 4. Empty arguments give an array (0, 3); arguments
+of different lengths and a NaN time raise `ValueError`; a block index of -1 or 4 raises
+`IndexError`, as for the decoding of a plugin. The old keyword `time_us` raises `TypeError`.
 
-**How:** The test reads the file with `spec` and calls `gradients_at`.
+**How:** The test reads the parameters of `synth.Decoding.gradients_at` with `inspect.signature`,
+reads the file with `spec`, and calls `gradients_at` with the times in seconds.
 
 **Assumptions:** The arbitrary gradients and extended trapezoids are compared with `cpp-siemens` by
 `test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply` (`test_interpreter.py`) and with
@@ -11032,6 +11035,24 @@ and refuses the model of `cpp-siemens` with `TypeError` that names `synth.decode
 
 **Assumptions:** None.
 
+#### `test_the_decoding_takes_seconds_and_the_reader_microseconds`
+
+**Checks:** `CppSiemensDecoding.gradients_at` takes block-relative times in s, the keyword `time_s`
+of the protocol `synth.Decoding` of version 1 (decision Q23 of `docs/plans/remaining-review-fixes.md`
+of pulseq-analysis), and the reader's own `Sequence.gradients_at` keeps µs. At -1, 50, 150, 250,
+450, 500 and 501 µs of block 2 of `valid_1_5_1.seq` (a trapezoid on gx of 1e6 Hz/m, delay 100 µs,
+rise 100 µs, flat 200 µs, fall 100 µs, block 500 µs), the reader gives 0, 0, 0.5e6, 1e6, 0.5e6, 0
+and 0 on gx; the decoding at the same times in s gives the reader's values bit for bit under the
+neutral session, and with x doubled under a session that scales x by 2 (the method's path through
+`scanner.block_physical_gradients`). The old keyword `time_us` raises `TypeError` in both.
+
+**How:** The test reads the parameters of `CppSiemensDecoding.gradients_at` with
+`inspect.signature`, calls the reader's `gradients_at` at the times times 1e6, and the decoding's
+at the times, under both sessions.
+
+**Assumptions:** The times times 1e6 are the reader's times: the conversion of the decoding. The
+doubling of a float64 value is exact.
+
 #### `test_the_entry_point_gives_cpp_siemens_to_pulseq_analysis`
 
 **Checks:** pulseq-analysis finds `cpp-siemens` through the entry-point group
@@ -11067,7 +11088,7 @@ are the values of `gradients_at` (not rotated) at the times of the points, to a 
 1e-3 Hz/m.
 
 **How:** For each file, axis and gradient ID, the test takes the first block that plays it and
-compares `gradients_at` at `delay + offsets` (in µs) with the values of the points.
+compares `gradients_at` at `delay + offsets` (in s) with the values of the points.
 
 **Assumptions:** The first and the last point of an event are not compared. The test asserts that it
 compared at least one event in each file.
@@ -12114,7 +12135,7 @@ axis.
 The file is loaded through `cpp-siemens` with `Session(fov_rotation=...)`, 90 degrees about z.
 The probes are those of `_reader_probes`; the sampler is read at the block start plus the probe's
 time, and `CppSiemensDecoding.gradients_at` (the reader's `gradientsAt` with the session's
-rotation, `rotate_vec3_by_quat`) at the block and the time (µs). The values must agree to 1e-7
+rotation, `rotate_vec3_by_quat`) at the block and the time (s). The values must agree to 1e-7
 times the largest value of the axis (at least 1).
 
 **Assumptions:** The file has no NaN, so the test does not compare NaNs.

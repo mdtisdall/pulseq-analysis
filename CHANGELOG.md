@@ -160,6 +160,21 @@ A caller moves in this order:
   count each variant as an event of its own), `gradients_at` (the
   gradients of a block at given times, rotated where the decoding rotates) and
   the records of what it applied.
+- `Decoding.gradients_at(block_index, time_s, rotated=None)` takes the times
+  in s from the start of each block, as the rest of the API (review 2026-10-13
+  6, Q23 of `docs/plans/remaining-review-fixes.md`). Before, it took
+  `time_us`, in µs, the unit of the C++ reader; `time_us=` raises `TypeError`.
+  Version 1 of the protocol is not released, so it changes in place and
+  `seqfile.PROTOCOL` stays 1. A plugin converts the times to its reader's unit
+  itself: `cpp-siemens` gives its reader `time_s * 1e6`, and
+  `pulseq_cpp_siemens.Sequence.gradients_at` keeps µs. The measurements of
+  `cpp-siemens` do not change, bit for bit. `spec` no longer converts the
+  times from s to µs and back: its gradients of the blocks that it reads
+  through `gradients_at` (a block that it rotates, or that the session's field
+  of view turns or scales) change in the last bits, so a time of
+  `gradient_peaks` among equal values can move. On the fixtures, the peak of
+  x of `valid_1_4_1.seq` under a field of view is at 0.5 ms, as without one
+  and as in `cpp-siemens`; before, it was at 0.7 ms.
 - Rotations: from 1.5.1, `spec` rotates the gradients of each block with a
   ROTATIONS object by its normalized quaternion (`synth.decoding.rotate`, the
   active rotation `R(q) v`); before 1.5.1, ROTATIONS is an unknown extension

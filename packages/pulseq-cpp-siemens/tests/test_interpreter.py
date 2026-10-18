@@ -10,6 +10,7 @@ devShell. The module is not collected without pulseq-analysis (`conftest.py`).
 
 import copy
 import dataclasses
+import inspect
 import pickle
 import re
 import subprocess
@@ -444,8 +445,8 @@ def test_a_cpp_siemens_model_compares_and_survives_pickle_and_deepcopy():
     for clone in (pickle.loads(pickle.dumps(data)), copy.deepcopy(data)):
         assert clone == data
         assert clone.reading.libraries.version == data.reading.libraries.version
-        assert synth.decode(clone).gradients_at([1], [150.0]).tolist() == (
-            synth.decode(data).gradients_at([1], [150.0]).tolist()
+        assert synth.decode(clone).gradients_at([1], [150e-6]).tolist() == (
+            synth.decode(data).gradients_at([1], [150e-6]).tolist()
         )
     with pytest.raises(dataclasses.FrozenInstanceError):
         data.reading = None
@@ -459,16 +460,40 @@ def test_synth_decode_gives_the_readers_decoding_or_the_spec_events():
     assert decoding.interpreter == data.interpreter
     assert decoding.block_count == len(data.blocks)
     assert [b["index"] for b in decoding.blocks()] == list(range(len(data.blocks)))
-    times = np.array([0.0, 100.0, 150.0, 300.0])
+    times = np.array([0.0, 100e-6, 150e-6, 300e-6])
     np.testing.assert_array_equal(
         decoding.gradients_at(np.ones(4, int), times),
-        data.reading.gradients_at(np.ones(4, int), times),
+        data.reading.gradients_at(np.ones(4, int), times * 1e6),
     )
     spec_data = read_seqfile(path, "spec")
     assert isinstance(synth.decode(spec_data), synth.SpecDecoding)
     assert set(synth.events.decode_rf(spec_data)) == {1}
     with pytest.raises(TypeError, match="synth.decode"):
         synth.events.decode_rf(data)
+
+
+def test_the_decoding_takes_seconds_and_the_reader_microseconds():
+    """`CppSiemensDecoding.gradients_at` takes block-relative times in s, the argument `time_s` of
+    the protocol `synth.Decoding` of version 1 (Q23 of `docs/plans/remaining-review-fixes.md` of
+    pulseq-analysis), and the reader's own `Sequence.gradients_at` takes us. At the times of the
+    trapezoid of block 2 of valid_1_5_1.seq (1e6 Hz/m, delay 100 us, rise 100 us, flat 200 us,
+    fall 100 us, block 500 us) on gx, the decoding gives the reader's values at the same times in
+    us, bit for bit: without a session, and with one that doubles x (the two paths of the
+    method). The old keyword `time_us` raises `TypeError`."""
+    parameters = ["self", "block_index", "time_s", "rotated"]
+    assert list(inspect.signature(CppSiemensDecoding.gradients_at).parameters) == parameters
+    data = read_seqfile(SEQFILES / "valid_1_5_1.seq", "cpp-siemens")
+    seconds = np.array([-1e-6, 50e-6, 150e-6, 250e-6, 450e-6, 500e-6, 501e-6])
+    blocks = np.ones(seconds.size, int)
+    reader = data.reading.gradients_at(blocks, seconds * 1e6)
+    np.testing.assert_allclose(reader[:, 0], [0, 0, 0.5e6, 1e6, 0.5e6, 0, 0], rtol=0, atol=1e-6)
+    doubled = synth.Session(gradient_scaling=(2, 1, 1))
+    for session, scale in ((synth.Session(), 1.0), (doubled, 2.0)):
+        decoding = synth.decode(data, session)
+        values = decoding.gradients_at(blocks, time_s=seconds)
+        np.testing.assert_array_equal(values, reader * [scale, 1.0, 1.0])
+        with pytest.raises(TypeError, match="time_us"):
+            decoding.gradients_at(blocks, time_us=seconds * 1e6)
 
 
 RADIAL = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"
@@ -508,13 +533,13 @@ def test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches():
 
 def test_rotation_apply_rotates_the_gradients_of_each_block_that_has_a_rotation():
     block_index = np.repeat(np.arange(5), 4)
-    time_us = np.tile([50.0, 150.0, 200.0, 350.0], 5)
+    time_s = np.tile([50e-6, 150e-6, 200e-6, 350e-6], 5)
     reader = synth.decode(read_seqfile(RADIAL, "cpp-siemens"))
     applied = synth.decode(read_seqfile(RADIAL, CppSiemens(rotation="apply")))
-    logical = reader.gradients_at(block_index, time_us)
-    assert np.array_equal(logical, applied.gradients_at(block_index, time_us, rotated=False))
-    rotated = applied.gradients_at(block_index, time_us)
-    assert np.array_equal(rotated, reader.gradients_at(block_index, time_us, rotated=True))
+    logical = reader.gradients_at(block_index, time_s)
+    assert np.array_equal(logical, applied.gradients_at(block_index, time_s, rotated=False))
+    rotated = applied.gradients_at(block_index, time_s)
+    assert np.array_equal(rotated, reader.gradients_at(block_index, time_s, rotated=True))
     assert np.array_equal(logical[:, 1:], np.zeros((20, 2)))  # the file's gradients are on x
     # Blocks 1 to 5 are rotated by 0, 45, 90, 45 and 0 degrees about z.
     angle = np.radians(np.repeat([0, 45, 90, 45, 0], 4))
@@ -559,7 +584,7 @@ def test_the_rotation_record_and_the_warning_for_rotations_left_unapplied(tmp_pa
 
 def test_the_decoding_emits_no_warning_for_rotations(recwarn):
     decoding = synth.decode(read_seqfile(RADIAL, "cpp-siemens"))
-    decoding.gradients_at([1], [200.0])
+    decoding.gradients_at([1], [200e-6])
     assert decoding.rotation_record.unapplied == 3
     assert not [w for w in recwarn if issubclass(w.category, synth.ScannerSettingWarning)]
 
@@ -588,12 +613,12 @@ def test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply(path):
     spec = synth.decode(spec_data)
     block_index = np.repeat(np.arange(spec.block_count), 7)
     fraction = np.tile(np.linspace(0.05, 0.95, 7), spec.block_count)
-    time_us = fraction * spec.block_durations[block_index] * 1e6
-    expected = cpp.gradients_at(block_index, time_us)
+    time_s = fraction * spec.block_durations[block_index]
+    expected = cpp.gradients_at(block_index, time_s)
     tolerance = 1e-6 * max(np.abs(expected).max(), 1.0)
     if spec_data.version < (1, 5, 1):
         assert spec.rotations()[0].size == 0 and cpp.rotation_record.not_identity
-        expected = cpp.gradients_at(block_index, time_us, rotated=False)
+        expected = cpp.gradients_at(block_index, time_s, rotated=False)
     else:
         spec_indices, spec_quaternions = spec.rotations()
         cpp_indices, cpp_quaternions = cpp.rotations()
@@ -601,7 +626,7 @@ def test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply(path):
         np.testing.assert_allclose(spec_quaternions, cpp_quaternions, rtol=0, atol=1e-12)
         assert spec.rotation_record == cpp.rotation_record
     np.testing.assert_allclose(
-        spec.gradients_at(block_index, time_us), expected, rtol=0, atol=tolerance
+        spec.gradients_at(block_index, time_s), expected, rtol=0, atol=tolerance
     )
 
 
@@ -650,10 +675,10 @@ def test_the_gradient_points_are_the_values_of_gradients_at():
             for key in np.unique(ids[ids != 0]).tolist():
                 block = int(np.flatnonzero(ids == key)[0])
                 delay, offsets, values = decoding.gradient_points(key, block, axis)
-                times_us = (delay + offsets[1:-1]) * 1e6
-                inside = times_us < data.block_durations_s[block] * 1e6
+                times_s = delay + offsets[1:-1]
+                inside = times_s < data.block_durations_s[block]
                 at = decoding.gradients_at(
-                    np.full(int(inside.sum()), block), times_us[inside], rotated=False
+                    np.full(int(inside.sum()), block), times_s[inside], rotated=False
                 )[:, axis]
                 np.testing.assert_allclose(at, values[1:-1][inside], rtol=1e-6, atol=1e-3)
                 checked += 1

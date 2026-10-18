@@ -20,7 +20,7 @@ from test_played import (
     FIXTURES,
     LENGTH_0_KINDS,
     LENGTH_0_SESSIONS,
-    LENGTH_0_TIMES_US,
+    LENGTH_0_TIMES_S,
     LENGTH_0_WINDOWS,
     QUARTER_Z,
     RTOL,
@@ -370,7 +370,7 @@ def test_the_waveform_of_an_event_of_length_0_that_the_session_rotates_is_the_re
         blocks, times, values = _reader_probes(snap, axis)
         if blocks.size == 0:
             continue
-        reader = snap.decoding.gradients_at(blocks, times * 1e6)[:, axis]
+        reader = snap.decoding.gradients_at(blocks, times)[:, axis]
         scale = max(float(np.abs(reader).max(initial=0.0)), 1.0)
         bad = np.abs(values - reader) > RTOL * scale
         assert not bad.any(), (axis, blocks[bad], times[bad] * 1e6)
@@ -439,8 +439,8 @@ def test_the_played_points_of_an_event_of_length_0_are_0_through_cpp_siemens(tmp
     (`test_played.check_the_played_points_of_an_event_of_length_0_are_0`), and the reader's
     `gradientsAt` is 0 in the block away from the one time of the event."""
     snap = check_the_played_points_of_an_event_of_length_0_are_0(tmp_path, "cpp-siemens", kind)
-    blocks = np.ones(LENGTH_0_TIMES_US.size, dtype=np.int64)
-    reader = snap.data.reading.gradients_at(blocks, LENGTH_0_TIMES_US)
+    blocks = np.ones(LENGTH_0_TIMES_S.size, dtype=np.int64)
+    reader = snap.data.reading.gradients_at(blocks, LENGTH_0_TIMES_S * 1e6)
     assert np.array_equal(reader, np.zeros(reader.shape))
 
 

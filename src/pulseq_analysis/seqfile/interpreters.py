@@ -46,7 +46,9 @@ GROUP = "pulseq_analysis.interpreters"
 # (P22, task R16): `decode(data, session)` takes the scanner session, and a decoding gives the
 # actual and stored durations, the records of the session and the flags of the field of view.
 # Before it the protocol had no version. A change of the protocol is a change of the contract
-# with pulseq-checks (section 7.3 of the plan): a new version, noted in `CHANGELOG.md`.
+# with pulseq-checks (section 7.3 of the plan): a new version, noted in `CHANGELOG.md`. Version
+# 1 is not released yet, and changes in place until it is, as for `gradient_variants` and the
+# times of `gradients_at` in s (Q23 of `docs/plans/remaining-review-fixes.md`).
 PROTOCOL = 1
 
 

@@ -78,8 +78,8 @@ class Decoding(Protocol):
       field of view (`scanner.SoftDelayRecord`, `scanner.FovRecord`).
     - `fov_flags()`: the flag NOROT and the flag that turns off the scaling, of each block
       (two bool arrays, `scanner.fov_flags`).
-    - `gradients_at(block_index, time_us, rotated=None)`: the gradients (Hz/m) at each pair of
-      a block index and a time in us from the start of that block, an array (n, 3), 0 after the
+    - `gradients_at(block_index, time_s, rotated=None)`: the gradients (Hz/m) at each pair of
+      a block index and a time in s from the start of that block, an array (n, 3), 0 after the
       actual end of the block; `rotated` None follows the interpreter and the session, False
       gives the logical gradients, True also rotates each block by its rotation.
     - `gradient_points(key, block, axis)`: the `Points` of the gradient event with the file ID
@@ -118,7 +118,7 @@ class Decoding(Protocol):
     def fov_flags(self) -> tuple[np.ndarray, np.ndarray]: ...
 
     def gradients_at(
-        self, block_index: Any, time_us: Any, rotated: bool | None = None
+        self, block_index: Any, time_s: Any, rotated: bool | None = None
     ) -> np.ndarray: ...
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points: ...
@@ -205,10 +205,10 @@ class SpecDecoding:
         return self.norot.copy(), self.noscale.copy()
 
     def gradients_at(
-        self, block_index: Any, time_us: Any, rotated: bool | None = None
+        self, block_index: Any, time_s: Any, rotated: bool | None = None
     ) -> np.ndarray:
         """The gradients (Hz/m) at each pair of a block index (play order from 0) and a time in
-        us from the start of that block: an array (n, 3) of gx, gy and gz
+        s from the start of that block: an array (n, 3) of gx, gy and gz
         (`Decoding.gradients_at`). Each event is the straight lines between
         its points (`seq_utils.gradient_offsets`), from its delay to its end, and 0 before and
         after it; every value is 0 before and after the block (its actual duration).
@@ -220,16 +220,15 @@ class SpecDecoding:
         rotation of the session's field of view of each block without NOROT. False gives the
         logical gradients, as the events store them."""
         block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
-        time_us = np.asarray(time_us, dtype=np.float64).reshape(-1)
-        if block_index.shape != time_us.shape:
-            raise ValueError("block_index and time_us differ in length")
-        if np.isnan(time_us).any():
+        t = np.asarray(time_s, dtype=np.float64).reshape(-1)
+        if block_index.shape != t.shape:
+            raise ValueError("block_index and time_s differ in length")
+        if np.isnan(t).any():
             raise ValueError("a time is NaN")
         if not block_index.size:
             return np.zeros((0, 3))
         if block_index.min() < 0 or block_index.max() >= self.block_count:
             raise IndexError("a block index is not a block of the sequence")
-        t = time_us * 1e-6
         out = np.zeros((block_index.size, 3))
         for axis, column in enumerate(_GRAD_COLUMNS):
             # The reads in the order of their event ID, sorted once: the reads of one event are

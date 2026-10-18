@@ -782,12 +782,16 @@ class CppSiemensDecoding:
         return self._rotation_record
 
     def gradients_at(
-        self, block_index: Any, time_us: Any, rotated: bool | None = None
+        self, block_index: Any, time_s: Any, rotated: bool | None = None
     ) -> np.ndarray:
-        """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index and a time in us from the
+        """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index and a time in s from the
         start of that block: an array (n, 3) of gx, gy and gz (0 before and after the block, at
         its actual duration: the reader's hook `setActualSoftDelay_ru` with the session's soft
-        delays).
+        delays). The reader takes the time in us, `time_s` times 1e6 (`Sequence.gradients_at`).
+        The product is not always the whole us of a time on the us grid (1020e-6 times 1e6 is
+        1020.0000000000001), and `gradientsAt` compares times exactly, so at a step (the end of a
+        block of 1020 us) it can give the value on the other side: `Sequence.gradients_at` takes
+        the whole us.
 
         `rotated` None follows the interpreter's setting `rotation` and the session's field of
         view. False gives the values as the reader gives them, the logical gradients. True turns
@@ -796,13 +800,16 @@ class CppSiemensDecoding:
         rotation, and applies the field of view too. The field of view scales the logical axes of
         each block without NOSCL before the block's rotation, and turns each block without NOROT
         after it (`pulseq_analysis.synth.scanner.block_physical_gradients`)."""
+        block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
+        time_us = np.asarray(time_s, dtype=np.float64).reshape(-1) * _US
+        if block_index.shape != time_us.shape:
+            raise ValueError("block_index and time_s differ in length")
         rotate_blocks = self.interpreter.rotation == "apply" if rotated is None else rotated
         session = self.session
         if (rotated is not None and not rotated) or not (session.rotates or session.scales):
             return self._reading.gradients_at(
                 block_index, time_us, rotated=rotate_blocks, actual_ru=self._actual_ru
             )
-        block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
         logical = self._reading.gradients_at(
             block_index, time_us, rotated=False, actual_ru=self._actual_ru
         )

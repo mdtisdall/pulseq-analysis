@@ -210,7 +210,7 @@ def test_spec_sets_the_duration_of_each_soft_delay_by_its_hint():
     assert only_te.soft_delay_record.unset == ("TR",)
     assert only_te.block_durations[7] == data.block_durations_s[7]
     short = _short_block_decoding(data)
-    assert short.gradients_at([0], [450.0])[0, 0] == 0
+    assert short.gradients_at([0], [450e-6])[0, 0] == 0
 
 
 def _short_block_decoding(data: seqfile.SequenceData):
@@ -302,7 +302,7 @@ def test_spec_turns_and_scales_the_field_of_view_in_the_order_of_matlab_pulseq()
     session = Session(fov_rotation=QUARTER_X, gradient_scaling=(2, 3, 4))
     decoding = synth.decode(data, session)
     blocks = np.array([0, 2, 3, 4, 5, 8])
-    times = np.full(blocks.size, 300.0)
+    times = np.full(blocks.size, 300e-6)
     logical = decoding.gradients_at(blocks, times, rotated=False)
     np.testing.assert_array_equal(logical, synth.decode(data).gradients_at(blocks, times, False))
     fov, block_rotation = _matrix(session.fov_rotation), _matrix((np.sqrt(0.5), 0, 0, np.sqrt(0.5)))
@@ -333,7 +333,7 @@ def test_the_flags_of_1_4_1_have_no_effect_in_an_older_file(tmp_path):
     assert not norot.any() and not noscale.any()
     assert decoding.fov_record.rotated == decoding.fov_record.scaled == 9
     # Block 3 plays gx with NOROT: turned about x and scaled, so 2 * 1e6 on x.
-    assert decoding.gradients_at([3], [300.0])[0, 0] == pytest.approx(2e6)
+    assert decoding.gradients_at([3], [300e-6])[0, 0] == pytest.approx(2e6)
 
 
 # ---- `load` and the measurements ----
