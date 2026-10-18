@@ -118,6 +118,21 @@ def test_a_safe_hardware_refuses_a_name_that_is_not_a_str_and_an_axis_that_is_no
             SafeHardware("NAME", *axes)
 
 
+@pytest.mark.parametrize("name", ["nan", "inf", "-inf"])
+def test_a_safe_hardware_refuses_a_name_that_the_meta_of_a_series_refuses(name):
+    """A `SafeHardware` whose name is "nan", "inf" or "-inf" (the strings of the JSON form of
+    a `Series` for a float that is not finite, which its `meta` refuses) raises `ValueError`
+    that names the name, from the constructor and from `from_namespace`: the name is the label
+    that `pns_levels` gives and that `to_series` puts into `meta`."""
+    axis = _example_axis()
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware(name, axis, axis, axis)
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware.from_namespace(_namespace(), name)
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware.from_namespace(_namespace(name))
+
+
 def test_safe_hardware_values_compare_and_hash_by_their_fields():
     first, second = _example_hardware(), _example_hardware()
     assert first == second

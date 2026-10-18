@@ -1105,6 +1105,39 @@ the two results with `assert_levels_equal` (`tests/asserts.py`) and `ignore=()`.
 
 **Assumptions:** None.
 
+#### `test_pns_levels_takes_a_safe_hardware_and_gives_its_name_as_the_label`
+
+**Checks:** `pns_levels(snap, hardware=h)` takes a `SafeHardware` `h` alone, gives `h.name`
+as `PnsLevels.hardware` and the fields of `h` as `PnsLevels.hw`, and `to_series` puts the
+name into the `meta` of `pns_total` as `hardware`. A `SafeHardware` with the same fields and
+another name gives that name, and the same levels otherwise.
+
+**How:** `gre_sequence(num_trs=4)`, with
+`SafeHardware.from_namespace(safe_example_hw(), "LABEL")`. The test checks
+`levels.hardware == "LABEL"`, `levels.hw` against `_hw_dict` of the hardware (the 8 fields
+of each axis), and `meta["hardware"]` of the one series of `PNS_SAFE_LEVELS.to_series`. It
+calls `pns_levels` again with the name `"OTHER"`, checks `hardware == "OTHER"`, and compares
+the two results with `assert_levels_equal` and `ignore=("hardware",)`.
+
+**Assumptions:** The meta key is the one of design 4.4; the other keys of `meta` are
+checked in `test_analyses.py`.
+
+#### `test_pns_levels_refuses_a_pair_of_a_struct_and_a_label_with_the_name_of_from_namespace`
+
+**Checks:** `pns_levels` with the pair `(struct, label)` of the earlier interface raises
+`TypeError` whose message names `SafeHardware.from_namespace`, for a struct that is a
+namespace in the form of pypulseq's `asc_to_hw` and for one that is a `SafeHardware`. It
+does so before the type of the first argument is checked.
+
+**How:** Parametrized over `safe_example_hw()` and its `SafeHardware`. The test calls
+`pns_levels("sequence.seq", hardware=(struct, "LABEL"))` inside `pytest.raises(TypeError)`
+with the escaped text `SafeHardware.from_namespace(`. The first argument is a path, which is
+not a snapshot and would raise the `TypeError` that names `load`, which does not have that
+text.
+
+**Assumptions:** The other values of `hardware` that are not a `SafeHardware` (a struct
+that is not one, a path, `None`) are cases of a test of `test_pns_levels_kept.py`.
+
 #### `test_pns_levels_refuses_a_hardware_label_that_a_series_refuses_before_the_snapshot_type`
 
 **Checks:** `pns_levels` raises `ValueError` for a hardware label that the `meta` of a
@@ -7721,6 +7754,22 @@ that is not a `SafeAxis` (a namespace with the same fields), with the name of th
 **How:** The test makes the objects for the name and for each of `x`, `y` and `z`.
 
 **Assumptions:** None.
+
+#### `test_a_safe_hardware_refuses_a_name_that_the_meta_of_a_series_refuses`
+
+**Checks:** A `SafeHardware` whose name is `"nan"`, `"inf"` or `"-inf"` raises `ValueError`
+that names `SafeHardware.name`, from the constructor and from `from_namespace` (with the
+name as the argument and as the name of the namespace). These are the strings that the JSON
+form of a `Series` uses for a float that is not finite, so its `meta` refuses them, and
+`to_series` of `pns.safe.levels` puts the name into `meta`.
+
+**How:** Parametrized over the three strings. The test makes `SafeHardware(name, axis, axis,
+axis)` with a valid `SafeAxis`, `SafeHardware.from_namespace(ns, name)` and
+`SafeHardware.from_namespace(ns)` of a namespace with that name, each inside
+`pytest.raises(ValueError, match="SafeHardware.name")`.
+
+**Assumptions:** The `meta` of a `Series` refuses these three strings only, in lower case:
+`"NaN"` or `"Inf"` is a valid name, and is not a case.
 
 #### `test_safe_hardware_values_compare_and_hash_by_their_fields`
 

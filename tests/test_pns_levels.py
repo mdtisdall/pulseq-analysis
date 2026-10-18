@@ -3,6 +3,7 @@ import dataclasses
 import itertools
 import math
 import pickle
+import re
 import sys
 from fractions import Fraction
 from pathlib import Path
@@ -46,6 +47,7 @@ from pulseq_analysis.analyses.pns_levels import (
     bin_samples_for,
     pns_levels,
 )
+from pulseq_analysis.analyses.registry import PNS_SAFE_LEVELS
 from pulseq_analysis.analyses.safe import SafeHardware, _safe_gwf_to_pns_chunk
 from pulseq_analysis.synth import seq_index
 from pulseq_analysis.synth.seq_index import sequence_index
@@ -1084,6 +1086,41 @@ def test_pns_levels_refuses_a_bad_bin_s_before_the_snapshot_type(bin_s, error):
     `load`, and the error is still the one of `bin_s`."""
     with pytest.raises(error, match="bin_s"):
         pns_levels(spin_echo_sequence(), hardware=EXAMPLE_HW, bin_s=bin_s)
+
+
+@pytest.mark.pypulseq
+def test_pns_levels_takes_a_safe_hardware_and_gives_its_name_as_the_label():
+    """`pns_levels(snap, hardware=h)` with a `SafeHardware` `h` gives `h.name` as
+    `PnsLevels.hardware` and the fields of `h` as `PnsLevels.hw`, and `to_series` puts the
+    name into the `meta` of `pns_total` as `hardware`. A `SafeHardware` with the same fields
+    and another name gives that name, and the same levels otherwise."""
+    snap = load(gre_sequence(num_trs=4))
+    hardware = SafeHardware.from_namespace(safe_example_hw(), "LABEL")
+    levels = pns_levels(snap, hardware=hardware)
+    assert levels.hardware == "LABEL"
+    assert levels.hw == _hw_dict(hardware)
+    (total,) = PNS_SAFE_LEVELS.to_series(levels)
+    assert total.meta["hardware"] == "LABEL"
+    other = pns_levels(snap, hardware=SafeHardware.from_namespace(safe_example_hw(), "OTHER"))
+    assert other.hardware == "OTHER"
+    assert_levels_equal(other, levels, ignore=("hardware",))
+
+
+@pytest.mark.parametrize(
+    "struct",
+    [
+        pytest.param(safe_example_hw, id="namespace"),
+        pytest.param(lambda: SafeHardware.from_namespace(safe_example_hw()), id="safe-hardware"),
+    ],
+)
+def test_pns_levels_refuses_a_pair_of_a_struct_and_a_label_with_the_name_of_from_namespace(struct):
+    """`pns_levels` with the pair `(struct, label)` of the earlier interface, of a namespace in
+    the form of pypulseq's `asc_to_hw` or of a `SafeHardware`, raises `TypeError` whose message
+    names `SafeHardware.from_namespace`, which makes the `SafeHardware` of a struct and a label.
+    This is so before the type of the first argument is checked: the first argument is a path,
+    which is not a snapshot and would raise the `TypeError` that names `load`."""
+    with pytest.raises(TypeError, match=re.escape("SafeHardware.from_namespace(")):
+        pns_levels("sequence.seq", hardware=(struct(), "LABEL"))
 
 
 @pytest.mark.parametrize("label", ["nan", "inf", "-inf"])
