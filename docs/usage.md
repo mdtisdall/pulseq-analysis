@@ -47,8 +47,8 @@ uv add "pulseq-analysis[pypulseq] @ git+https://github.com/mdtisdall/pulseq-anal
 - `load(seq)` and `seqfile.read_pypulseq(seq)` read a `pypulseq.Sequence`, which
   you build with pypulseq.
 - `asc_to_hw` and `safe_example_hw` are functions of pypulseq. They make a
-  hardware struct for `pns_levels`
-  ([section 5](#5-predict-the-pns-on-a-scanner)).
+  hardware struct, which `safe.SafeHardware.from_namespace` makes into the
+  hardware of `pns_levels` ([section 5](#5-predict-the-pns-on-a-scanner)).
 
 `load(path)`, all the measurements, `asc.hardware_from_asc` and `safe.SafeHardware`
 need no pypulseq. Each example below that needs the extra says so.
@@ -363,27 +363,31 @@ SAFE PNS model of pypulseq on the gradients of the sequence. The three
 arguments after `snap` are keyword-only.
 
 **The hardware.** The model needs the SAFE parameters of the gradient coil of
-the scanner. There is no default. `hardware` is a pair `(struct, label)`: a
-`safe.SafeHardware` (or a struct in the form of pypulseq's `asc_to_hw`, which
-`SafeHardware.from_namespace` converts; pypulseq's `asc_to_hw` needs the extra
-`pypulseq`), and a name for it. A `SafeHardware`
-has a `name` and the `SafeAxis` of `x`, `y` and `z`, and is checked when it is
-made. `asc.hardware_from_asc(path)` makes the pair from the Siemens gradient
-`.asc` file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the
-files of its `$INCLUDE` lines. A file with no gradient scale factors
+the scanner. There is no default. `hardware` is a `safe.SafeHardware`: a
+`name`, which is the label of the result, and the `SafeAxis` of `x`, `y` and
+`z`. `asc.hardware_from_asc(path)` makes it from the Siemens gradient `.asc`
+file of the scanner (`MP_GPA_*.asc` or `MP_GradSys_*.asc`), with the files of
+its `$INCLUDE` lines, and names it after the component in the file. A file
+with no gradient scale factors
 (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y` and `Z`) raises
 `ValueError`: the model multiplies each PNS value by the factor, so the
-package does not assume one. For a test, pypulseq's example hardware, which is
-not a real scanner, is `hardware=(safe_example_hw(), "a label")`
+package does not assume one. `SafeHardware.from_namespace(struct, "a label")`
+makes it from a struct in the form of pypulseq's `asc_to_hw` (which needs the
+extra `pypulseq`). For a test, pypulseq's example hardware, which is not a
+real scanner, is
+`hardware=SafeHardware.from_namespace(safe_example_hw(), "a label")`
 (`safe_example_hw` is in `pypulseq.utils.safe_pns_prediction`, so it needs the
-extra `pypulseq`). A `hardware`
-that is not such a pair raises `TypeError`. A label `"nan"`, `"inf"` or `"-inf"`
-raises `ValueError`: the JSON form of a `Series` uses these strings for a float
-that is not finite, so the label could not go into the `meta` of `pns_total`.
-A struct with a missing axis or a missing field of `safe.SAFE_FIELDS`, a
+extra `pypulseq`). A `hardware` that is not a `SafeHardware` raises
+`TypeError`, also the pair `(struct, label)` of `0.1.0rc6`, also for a
+sequence with no gradient.
+
+A `SafeHardware` is checked when it is made, so `pns_levels` does not check it
+again. A struct with a missing axis or a missing field of `safe.SAFE_FIELDS`, a
 field that is not a finite number, a `stim_limit` not above 0, or an axis with
-`a1 + a2 + a3` more than 0.001 from 1 raises `ValueError` (or `TypeError` for a field that is not a number). These
-checks run also for a sequence with no gradient.
+`a1 + a2 + a3` more than 0.001 from 1 raises `ValueError` (or `TypeError` for a
+field that is not a number). A name `"nan"`, `"inf"` or `"-inf"` raises
+`ValueError`: the JSON form of a `Series` uses these strings for a float that
+is not finite, so the name could not go into the `meta` of `pns_total`.
 
 **The limit.** The PNS values are in Hz/T. The stimulation limit is `abs(gamma)`,
 and a value divided by `abs(gamma)` is the fraction of the limit. To find the
@@ -429,7 +433,7 @@ percent = (levels.level_max_hz_per_t / abs(gamma)) * 100  # fraction -> %, a new
 | Field | Meaning |
 |---|---|
 | `reason` | `None`, or `NO_GRADIENTS`: then the peaks are 0, `peak_time_s` is `None`, and there are no bins and no runs. |
-| `hardware` | The label of the hardware. |
+| `hardware` | The label of the hardware: its `SafeHardware.name`. |
 | `hw` | The SAFE parameters of each axis that the model used. |
 | `peak_hz_per_t`, `peak_time_s` | The largest total (Hz/T), and the time of its first sample (`None` when the peak is 0). A NaN of the gradients makes the totals from it NaN: then the peak is NaN, at the time of the first NaN total. |
 | `axis_peaks_hz_per_t` | A dict from each axis to its largest value (Hz/T). |

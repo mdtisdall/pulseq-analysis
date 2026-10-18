@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from pns_hardware import EXAMPLE_HARDWARE
+from pns_hardware import EXAMPLE_HW
 from synthetic import EXAMPLE_AXES, safe_example_hw
 
 from pulseq_analysis.analyses.safe import (
@@ -116,6 +116,21 @@ def test_a_safe_hardware_refuses_a_name_that_is_not_a_str_and_an_axis_that_is_no
         axes[position] = SimpleNamespace(**dataclasses.asdict(axis))
         with pytest.raises(TypeError, match=rf"SafeHardware.{'xyz'[position]} must be a SafeAxis"):
             SafeHardware("NAME", *axes)
+
+
+@pytest.mark.parametrize("name", ["nan", "inf", "-inf"])
+def test_a_safe_hardware_refuses_a_name_that_the_meta_of_a_series_refuses(name):
+    """A `SafeHardware` whose name is "nan", "inf" or "-inf" (the strings of the JSON form of
+    a `Series` for a float that is not finite, which its `meta` refuses) raises `ValueError`
+    that names the name, from the constructor and from `from_namespace`: the name is the label
+    that `pns_levels` gives and that `to_series` puts into `meta`."""
+    axis = _example_axis()
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware(name, axis, axis, axis)
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware.from_namespace(_namespace(), name)
+    with pytest.raises(ValueError, match="SafeHardware.name"):
+        SafeHardware.from_namespace(_namespace(name))
 
 
 def test_safe_hardware_values_compare_and_hash_by_their_fields():
@@ -321,7 +336,8 @@ def _assert_golden(value: np.ndarray, expected: np.ndarray, name: str) -> None:
 @pytest.mark.pypulseq
 def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
     """`synthetic.safe_example_hw()` has the attributes and values of pypulseq's
-    `safe_example_hw()`, and `EXAMPLE_HARDWARE` is its `SafeHardware`."""
+    `safe_example_hw()`, and `EXAMPLE_HW` is its `SafeHardware`, with the label of the tests
+    as its name."""
     module = pytest.importorskip("pypulseq.utils.safe_pns_prediction")
     hardware = module.safe_example_hw()
     own = safe_example_hw()
@@ -331,7 +347,7 @@ def test_the_example_hardware_of_the_tests_is_pypulseqs_example_hardware():
             assert vars(getattr(own, key)) == vars(value)
         else:
             assert getattr(own, key) == value
-    assert SafeHardware.from_namespace(hardware) == EXAMPLE_HARDWARE
+    assert SafeHardware.from_namespace(hardware, EXAMPLE_HW.name) == EXAMPLE_HW
 
 
 @pytest.mark.parametrize("dt_id", CHUNK_DTS)

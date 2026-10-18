@@ -34,7 +34,7 @@ The analyses of this package:
 - `gradient.blocks` (`GRADIENT_BLOCKS`): `grad_peaks.block_gradient_values`, no parameters,
   no series.
 - `pns.safe.levels` (`PNS_SAFE_LEVELS`): `pns_levels.pns_levels`, the parameters `hardware`
-  (necessary: a pair of a SAFE hardware struct and its name), `thresholds_hz_per_t` and
+  (necessary: a `safe.SafeHardware`, whose name is the label), `thresholds_hz_per_t` and
   `bin_s`, and the series of the level and of the runs above each threshold.
 - `gradient.spectrum` (`GRADIENT_SPECTRUM`): `grad_spectrum.gradient_spectrum`, the
   parameters `max_frequency_hz`, `window_s` and `frequency_oversampling`, and the series of
@@ -50,7 +50,6 @@ import importlib.metadata
 import math
 import warnings
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any, Protocol
 
 import numpy as np
@@ -66,6 +65,7 @@ from .grad_spectrum import (
     gradient_spectrum,
 )
 from .pns_levels import BIN_S, PnsLevels, pns_levels
+from .safe import SafeHardware
 from .series import Series, SeriesKind
 
 __all__ = [
@@ -364,15 +364,17 @@ class _PnsSafeLevels:
             "only if the peak is at or above it, for a peak that is not NaN. A NaN of the "
             "gradients makes the peak NaN, at the time of its first NaN sample; a NaN total is "
             "at or above no threshold, so the runs are then those of the finite totals before "
-            "it. The hardware is necessary: `hardware` is a pair of a "
-            "SAFE hardware struct and its name (`asc.hardware_from_asc(path)` makes one from "
-            "a Siemens gradient .asc file). There is no default hardware; for "
-            "pypulseq's example hardware, which is not a real scanner, give "
-            '`hardware=(safe_example_hw(), "<a label>")`. A value that is not such a pair '
-            "raises `TypeError`. A struct with a missing axis or field, a field that is not a "
-            "finite real number, a `stim_limit` not above 0 or an axis with `a1 + a2 + a3` "
-            "not within 0.001 of 1 raises `TypeError` or `ValueError`, before the snapshot is "
-            "read. "
+            "it. The hardware is necessary: `hardware` is a `safe.SafeHardware`, and its "
+            "name is the label of the result (`asc.hardware_from_asc(path)` makes one from "
+            "a Siemens gradient .asc file). There is no default hardware; for a struct in "
+            "the form of pypulseq's `asc_to_hw`, such as pypulseq's example hardware, which "
+            "is not a real scanner, give "
+            '`hardware=SafeHardware.from_namespace(struct, "<a label>")`. A value that is not '
+            "a `SafeHardware` raises `TypeError`, before the snapshot is read. A "
+            "`SafeHardware` is checked when it is made: a missing axis or field, a field that "
+            "is not a finite real number, a `stim_limit` not above 0, an axis with "
+            '`a1 + a2 + a3` not within 0.001 of 1, or the name "nan", "inf" or "-inf" '
+            "raises `TypeError` or `ValueError` there. "
             "`thresholds_hz_per_t` is a tuple of finite numbers above 0, in Hz/T, with no two "
             "equal. For a fraction f of the limit, give f times the magnitude of gamma. The "
             "default is `()`: no runs. A sequence with no gradient event has no "
@@ -414,15 +416,15 @@ class _PnsSafeLevels:
         self,
         snap: Snapshot,
         *,
-        hardware: tuple[SimpleNamespace, str],
+        hardware: SafeHardware,
         thresholds_hz_per_t: tuple[float, ...] = (),
         bin_s: float = BIN_S,
     ) -> PnsLevels:
         """`pns_levels.pns_levels(snap, hardware=hardware,
         thresholds_hz_per_t=thresholds_hz_per_t, bin_s=bin_s)`: the kept result for the
         snapshot, the hardware, the thresholds and the bin size. `hardware` is necessary; a
-        call without it, or with a value that is not a pair, raises TypeError before the
-        snapshot is read."""
+        call without it, or with a value that is not a `safe.SafeHardware`, raises TypeError
+        before the snapshot is read."""
         return pns_levels(
             snap,
             hardware=hardware,

@@ -17,9 +17,9 @@ from fractions import Fraction
 
 import numpy as np
 import pytest
+from pns_hardware import EXAMPLE_HW
 from scale_sequences import build_repeating
 from synthetic import (
-    EXAMPLE_HW,
     GAMMA_1H,
     arbitrary_gradient_sequence,
     border_sequence,

@@ -16,8 +16,8 @@ import weakref
 
 import numpy as np
 import pypulseq as pp
+from pns_hardware import EXAMPLE_HW
 from synthetic import (
-    EXAMPLE_HW,
     SYSTEM,
     arbitrary_gradient_sequence,
     empty_sequence,

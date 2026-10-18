@@ -22,7 +22,7 @@ import json, sys
 sys.modules["pypulseq"] = None
 sys.path.insert(0, sys.argv[1])
 from pathlib import Path
-from pns_hardware import EXAMPLE_HARDWARE
+from pns_hardware import EXAMPLE_HW
 from pulseq_analysis.analyses import load
 from pulseq_analysis.analyses.registry import registry
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, read_pypulseq
@@ -34,7 +34,6 @@ except ImportError:
 else:
     raise AssertionError("pypulseq imports")
 
-hardware = (EXAMPLE_HARDWARE, "pypulseq example hardware (not a real scanner)")
 analyses = registry()
 loaded, ran = [], []
 for path in sorted(Path(sys.argv[2]).glob("*.seq")):
@@ -44,7 +43,7 @@ for path in sorted(Path(sys.argv[2]).glob("*.seq")):
         continue
     loaded.append(path.name)
     for analysis_id, analysis in analyses.items():
-        params = {"hardware": hardware} if "hardware" in analysis.spec.necessary else {}
+        params = {"hardware": EXAMPLE_HW} if "hardware" in analysis.spec.necessary else {}
         analysis.to_series(analysis.compute(snap, **params))
         ran.append(f"{path.name}:{analysis_id}")
 

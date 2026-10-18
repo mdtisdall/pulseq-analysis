@@ -28,8 +28,8 @@ from typing import Any, ClassVar
 
 import pytest
 from optional_pypulseq import pp
+from pns_hardware import EXAMPLE_HW
 from synthetic import (
-    EXAMPLE_HW,
     arbitrary_gradient_sequence,
     border_sequence,
     empty_sequence,

@@ -428,11 +428,14 @@ have fewer samples.
 
 **The hardware.** `safe.SAFE_FIELDS` is the nine fields of each axis of a SAFE
 hardware struct, in the order of `safe_example_hw` and `asc_to_hw`.
-`safe.SafeHardware` and `safe.SafeAxis` check the fields
+`safe.SafeHardware` and `safe.SafeAxis` check the fields and the name
 when they are made, and `SafeHardware.from_namespace` converts the struct of
-`asc_to_hw`. Section 6 gives the checks of the struct. Two pairs of one `.asc` file,
-whatever the spelling of its path, have the same label and values, so
-`pns_levels` keeps one result for them.
+`asc_to_hw`. `pns_levels` takes only a `SafeHardware`, so it neither checks nor
+converts the hardware again: it reads the fields once, for the key of the kept
+result and for `PnsLevels.hw`. Section 6 gives the checks. The key of the
+hardware is its name and the values of its axes, not `stim_thresh`. Two
+`SafeHardware`s of one `.asc` file, whatever the spelling of its path, have the
+same name and values, so `pns_levels` keeps one result for them.
 
 ### 2.3 `gradient_spectrum`
 
@@ -864,19 +867,26 @@ message says "finite"), for a window with no start before its end, and for a
 window that is not in the sequence.
 
 **`pns_levels`, `hardware`.** A required keyword argument: a call without it
-raises Python's own `TypeError`. A value that is not a tuple of two items with
-a `str` second item raises `TypeError` with a message that says how to make a
-hardware. A label `"nan"`, `"inf"` or `"-inf"` raises `ValueError`: the `meta`
-of a `Series` refuses these strings, which its JSON form uses for a float that
-is not finite, and `to_series` puts the label there. A struct with no `x`, `y`
-or `z`, or an axis with no field of `safe.SAFE_FIELDS`, raises
-`ValueError` that names it, for example
-`'x.stim_thresh' missing in the hardware struct`. Each field is a finite real
-number: a value that is not a real number raises `TypeError`, and one that is
-not finite raises `ValueError`. `stim_limit` must be above 0, and
-`a1 + a2 + a3` of each axis must be within 0.001 of 1 (the rule of pypulseq's
-`safe_hw_check`, which the module `safe` keeps), or `ValueError`. These
-checks run also for a sequence with no gradient event.
+raises Python's own `TypeError`. A value that is not a `safe.SafeHardware`
+raises `TypeError` with a message that says how to make one
+(`asc.hardware_from_asc(path)`, or
+`SafeHardware.from_namespace(struct, "<a label>")`), also the pair
+`(struct, label)` of `0.1.0rc6`, and also for a sequence with no gradient
+event.
+
+**`safe.SafeHardware`.** It is checked when it is made, so a value that breaks
+a rule cannot reach `pns_levels`. A `name` that is not a `str`, or an axis that
+is not a `SafeAxis`, raises `TypeError`. A name `"nan"`, `"inf"` or `"-inf"`
+raises `ValueError`: the `meta` of a `Series` refuses these strings, which its
+JSON form uses for a float that is not finite, and `to_series` puts the name
+there. For `SafeHardware.from_namespace`, a struct with no `x`, `y` or `z`, or
+an axis with no field of `safe.SAFE_FIELDS`, raises `ValueError` that names
+it, for example `'x.stim_thresh' missing in the hardware struct`. Each field of
+a `SafeAxis` is a finite real number: a value that is not a real number raises
+`TypeError`, and one that is not finite raises `ValueError`. `stim_limit` must
+be above 0, and `a1 + a2 + a3` of each axis must be within 0.001 of 1 (the
+rule of pypulseq's `safe_hw_check`, which the module `safe` keeps), or
+`ValueError`.
 
 **`pns_levels`, `thresholds_hz_per_t`.** A tuple, which can be empty. Each
 element is a real number above 0, and no two are equal as floats. A value that

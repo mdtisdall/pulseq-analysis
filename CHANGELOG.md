@@ -30,8 +30,11 @@ A caller moves in this order:
    `decode_rf(snap.data)`, `decode_gradients(snap.data)` and
    `decode_adc(snap.data)` of `synth.events`: the package's own events, by file
    ID.
-6. Give the PNS hardware as a `SafeHardware` (`asc.safe_hardware(asc)`), or as
-   pypulseq's namespace, which still works.
+6. Give the PNS hardware as a `SafeHardware`, whose name is the label:
+   `hardware=hardware_from_asc(path)` does not change, and
+   `hardware=(ns, label)` becomes
+   `hardware=SafeHardware.from_namespace(ns, label)`. The pair raises
+   `TypeError`.
 
 ### Reading files and the interpreters
 
@@ -338,13 +341,33 @@ A caller moves in this order:
 - `analyses.safe.SafeHardware` and `SafeAxis`: the SAFE hardware, immutable and
   checked when it is made. `SafeHardware.from_namespace` converts a
   `SimpleNamespace` in the form of pypulseq's `asc_to_hw` or
-  `safe_example_hw()`. `pns_levels` takes a `SafeHardware` or such a
-  namespace as the struct of `hardware=(struct, label)`.
+  `safe_example_hw()`.
+- `pns_levels` and `PNS_SAFE_LEVELS.compute` take `hardware` as a
+  `SafeHardware` only, and its `name` is the label of the result (review
+  2026-10-13 6). Before, `hardware` was the pair `(struct, label)`, whose
+  struct was a `SafeHardware` or such a namespace, so the label repeated the
+  name. Any other value, the pair too, raises `TypeError`, whose message names
+  `asc.hardware_from_asc(path)` and
+  `SafeHardware.from_namespace(struct, "<a label>")`.
+
+  | Before | Now |
+  |---|---|
+  | `hardware=(ns, label)` | `hardware=SafeHardware.from_namespace(ns, label)` |
+  | `hardware=(safe_hardware, label)` | `hardware=safe_hardware`, or `dataclasses.replace(safe_hardware, name=label)` for another label |
+  | `hardware=hardware_from_asc(path)` | no change |
+
+  `PnsLevels.hardware` and the `meta` key `hardware` of the series `pns_total`
+  are the name: for a call that gave the same label, the values and the JSON
+  do not change. The hardware is checked once, when its `SafeHardware` is
+  made, and `pns_levels` no longer converts it (review 2026-10-13 4.6):
+  before, it converted a namespace to a `SafeHardware` in its check and again
+  when it ran the model, and read the fields of the struct for the key of the
+  kept result.
 - `asc.safe_hardware(asc)`, in place of pypulseq's `asc_to_hw`.
-- `asc.hardware_from_asc` returns `(SafeHardware, label)`. The `SafeHardware`
-  has the same `name`, `x`, `y` and `z` attributes as the namespace before. Its
-  `name` is `hardware_name(asc)`, also for a scanner file (`asCOMP[0].tName`),
-  where the namespace had "unknown".
+- `asc.hardware_from_asc` returns a `SafeHardware`, whose name is the label.
+  It has the same `name`, `x`, `y` and `z` attributes as the namespace before.
+  Its `name` is `hardware_name(asc)`, also for a scanner file
+  (`asCOMP[0].tName`), where the namespace had "unknown".
 - A gradient `.asc` file with no gradient scale factors
   (`asGPAParameters[0].sGCParameters.flGScaleFactorX`, `Y`, `Z`) raises
   `ValueError` from `asc.hardware_from_asc` and `asc.safe_hardware`. Before,
@@ -361,10 +384,12 @@ A caller moves in this order:
   byte that is not ASCII no longer raises `UnicodeDecodeError`, and it leaves
   out a line with `=` after `### ASCCONV END ###` that is not a field, as its
   docstring said, where before it raised `ValueError`.
-- `pns_levels` raises `ValueError` for a hardware label `"nan"`, `"inf"` or
-  `"-inf"`, before it reads the snapshot (review 2026-10-13 1.3.3). The JSON
-  form of a `Series` uses these strings for a float that is not finite, so
-  before, `to_series` of such a result raised `ValueError`.
+- A `SafeHardware` whose name is `"nan"`, `"inf"` or `"-inf"` raises
+  `ValueError` when it is made, also from `SafeHardware.from_namespace` and
+  `asc.hardware_from_asc` (review 2026-10-13 1.3.3). The name is the label of
+  the result of `pns_levels`, and the JSON form of a `Series` uses these
+  strings for a float that is not finite, so before, `to_series` of such a
+  result raised `ValueError`.
 - `pns_levels` finds the largest total of each run at or above a threshold,
   and its first sample, with NumPy over each chunk, in place of a Python loop
   over the runs (review 2026-10-13 2.5c). The minimum of three runs in one
