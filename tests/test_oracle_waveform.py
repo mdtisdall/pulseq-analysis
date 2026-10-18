@@ -234,7 +234,7 @@ def test_a_window_cuts_the_ramp_of_a_long_gap_and_credits_it_to_the_block_of_the
 
     # (150, 250) us is in the gap, where the value is 0.
     values = oracle.peaks(seq, window=(150e-6, 250e-6))
-    _assert_values(values["x"], 0.0, 0.0, None, 0.0, 0.0, None, 0.0)
+    _assert_values(values["x"], 0.0, None, None, 0.0, None, None, 0.0)
     assert (values["vector_peak"], values["vector_peak_block"]) == (0.0, None)
 
     # (102.5, 150) us has the half of the ramp to 0, from 1.5 U to 0 in 2.5 us. The
@@ -379,7 +379,7 @@ def test_an_axis_with_no_event_has_no_point_and_is_zero():
     assert poly.block_id == (1,)
     np.testing.assert_array_equal(oracle.sample(seq, "z", np.array([0.0, 100e-6, 400e-6])), 0.0)
     np.testing.assert_array_equal(oracle.block_samples(seq, "z", DT), np.zeros(40))
-    _assert_values(oracle.peaks(seq)["z"], 0.0, 0.0, None, 0.0, 0.0, None, 0.0)
+    _assert_values(oracle.peaks(seq)["z"], 0.0, None, None, 0.0, None, None, 0.0)
 
 
 def test_a_segment_of_length_zero_inside_an_event_is_kept_and_has_no_slope():

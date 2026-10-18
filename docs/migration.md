@@ -34,7 +34,7 @@ where this guide gives the details.
 | It reads from `0.1.0rc6` | Now | Section |
 |---|---|---|
 | The registry: `registry()`, `Analysis.compute`, `to_series`, the `AnalysisSpec` fields `id`, `version`, `params` and `rasters`; `Series` | The same API and the same `spec.version` (1 for each analysis), in `analyses.registry` and `analyses.series`. One parameter changes its name: `window` of `gradient.peaks` is `range_s`, the name of the result field `GradientPeaks.range_s` (`spec.params == ("range_s",)`, `compute(snap, range_s=(start_s, end_s))`); `window=` raises `TypeError`. | [3](#3-the-modules-that-moved) |
-| The values of `seq.index` (`block_id`, `start_s`), `gradient.peaks`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum` | The same meaning. `block_id` is the block ID of the file. | [7](#7-the-block-table), [9](#9-the-values-that-changed) |
+| The values of `seq.index` (`block_id`, `start_s`), `gradient.peaks`, `gradient.blocks`, `pns.safe.levels` and `gradient.spectrum` | The same meaning. `block_id` is the block ID of the file. A time of `gradient.peaks` whose block is `None` (a value of 0) is `None`, not 0.0. | [7](#7-the-block-table), [9](#9-the-values-that-changed) |
 | A read of each file once for each target, with the target's `pp.Opts` | One `load(path)` for all targets. The snapshot has no target. The read for pypulseq's `check_timing` stays pulseq-checks' own. | [4](#4-load) |
 | `ctx.sequence` of a check | It becomes the snapshot. The snapshot has no `sequence`: use `snap.data` and `snap.decoding`. | [5](#5-the-snapshot) |
 | A file that breaks a rule: the check `timing.rasters` | `load` raises `SeqFileError` (a `ValueError`) with `violations`, each a `Violation(rule, section, line, message)`. `definitions.raster-missing` and `definitions.raster-invalid` are the codes of a missing and an invalid raster. | [4](#4-load) |
@@ -54,7 +54,7 @@ where this guide gives the details.
 | `block_events` columns, `block_durations`, `pp.calc_duration` | `snap.data.blocks` (the IDs of the events of each block, in play order) and `snap.data.block_durations_s`. | [7](#7-the-block-table) |
 | `definitions`, `rf_raster_time` | `snap.data.definitions` (the text of each definition) and `snap.data.rasters.rf`. | [5](#5-the-snapshot) |
 | `seq.system.gamma`, the fallback gamma | None. The model has no gamma: the caller chooses it. | |
-| `gradient_peaks(snap, window=(start_s, end_s))` (the `gradient_limits(seq, window=...)` of `0.1.0rc5`, after the entry of `0.1.0rc6` in `CHANGELOG.md`) | `gradient_peaks(snap, range_s=(start_s, end_s))`, the name of the result field `GradientPeaks.range_s`. `window=` raises `TypeError`. The values do not change. | |
+| `gradient_peaks(snap, window=(start_s, end_s))` (the `gradient_limits(seq, window=...)` of `0.1.0rc5`, after the entry of `0.1.0rc6` in `CHANGELOG.md`) | `gradient_peaks(snap, range_s=(start_s, end_s))`, the name of the result field `GradientPeaks.range_s`. `window=` raises `TypeError`. The values do not change. A time whose block is `None` (a value of 0) is `None`, not 0.0. | [9](#9-the-values-that-changed) |
 | `hold_samples`, `peak_tr_window` | Unchanged: they stay in pulseq-reports. | |
 
 pypulseq is not needed to read a file. A project needs it only to build
@@ -410,7 +410,7 @@ The values of the measurements change from those of the reading of
 
 The versions of the analyses count from `0.1.0`. Until then, each analysis
 stays at version 1, also when its contract changes. From `0.1.0`, a change of
-the contract of an analysis raises its `spec.version`. Two contracts change in
+the contract of an analysis raises its `spec.version`. Three contracts change in
 `0.1.0rc7` with no new version:
 
 - **The axes.** The gradient values are of the axes of the gradients as the
@@ -423,6 +423,20 @@ the contract of an analysis raises its `spec.version`. Two contracts change in
   analysis gave it to the first block in play order. It now gives it to the
   block of the earliest time with the largest value, which is what the code of
   `0.1.0rc6` already did.
+- **The time of a value of 0** of `gradient.peaks`. `AxisResult.peak_time_s`,
+  `AxisResult.slew_time_s` and `GradientPeaks.vector_peak_time_s` were 0.0
+  when their value was 0 and their block `None`. They are now `None` whenever
+  their block is `None`, as `PnsLevels.peak_time_s` already was for a peak of
+  0. A caller checks for `None` before it formats or compares a time. The
+  values, the blocks and the other times do not change, and the times of
+  `gradient.blocks` do not change: each is the time of its block, `start_s`
+  for a value of 0.
+
+  | `0.1.0rc6` | `0.1.0rc7` |
+  |---|---|
+  | `axis.peak_time_s == 0.0`, with `axis.peak_block is None` | `axis.peak_time_s is None` |
+  | `axis.slew_time_s == 0.0`, with `axis.slew_block is None` | `axis.slew_time_s is None` |
+  | `peaks.vector_peak_time_s == 0.0`, with `peaks.vector_peak_block is None` | `peaks.vector_peak_time_s is None` |
 
 | What | `0.1.0rc6` | `0.1.0rc7` |
 |---|---|---|

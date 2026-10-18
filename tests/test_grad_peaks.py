@@ -1770,7 +1770,7 @@ def test_a_window_outside_the_sequence_within_the_tolerance_gives_an_empty_range
     assert result.vector_peak_hz_per_m == 0.0
     assert result.vector_peak_block is None
     for axis in ("x", "y", "z"):
-        assert result.axes[axis] == AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0)
+        assert result.axes[axis] == AxisResult(0.0, None, None, 0.0, None, None, 0.0)
 
 
 _EDGE_WINDOWS = pytest.mark.parametrize(
@@ -1832,14 +1832,15 @@ def test_a_window_does_not_calculate_the_values_over_all_the_blocks_again(
 def _assert_axis(
     axis: AxisResult,
     peak: float,
-    peak_time: float,
+    peak_time: float | None,
     peak_block: int | None,
     slew: float,
-    slew_time: float,
+    slew_time: float | None,
     slew_block: int | None,
     rms: float,
 ) -> None:
-    """The values of `axis` are the hand-computed ones. The times are equal to 1 ps."""
+    """The values of `axis` are the hand-computed ones. The times are equal to 1 ps, and an
+    expected time of None (a value of 0, with no block) must be None."""
     assert axis.peak_hz_per_m == pytest.approx(peak, rel=1e-9, abs=1e-6)
     assert axis.peak_time_s == pytest.approx(peak_time, rel=0, abs=1e-12)
     assert axis.peak_block == peak_block
@@ -1946,7 +1947,7 @@ def test_a_window_that_ends_at_a_step_up_does_not_have_the_value_after_the_step(
         peak_time=100e-6,
         peak_block=block_1,
         slew=0.0,
-        slew_time=0.0,
+        slew_time=None,
         slew_block=None,
         rms=U,
     )
@@ -2003,7 +2004,7 @@ def test_a_long_gap_gives_the_ramps_of_its_ends_credited_to_the_blocks_of_their_
 
     in_the_gap = gradient_peaks(snap, range_s=(150e-6, 250e-6))
     assert in_the_gap.reason == NO_GRADIENTS_IN_WINDOW
-    _assert_axis(in_the_gap.axes["x"], 0.0, 0.0, None, 0.0, 0.0, None, 0.0)
+    _assert_axis(in_the_gap.axes["x"], 0.0, None, None, 0.0, None, None, 0.0)
     assert (in_the_gap.vector_peak_hz_per_m, in_the_gap.vector_peak_block) == (0.0, None)
 
     half_ramp = gradient_peaks(snap, range_s=(102.5e-6, 150e-6))

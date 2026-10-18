@@ -3114,7 +3114,8 @@ and `range_s` equals `(0.0, total_duration)`.
 
 **How:** The synthetic spin echo, with two cases: the window `(T + 5e-10, T + 9e-10)` and the
 window `(-9e-10, -5e-10)`, for `T` the length of the sequence. The test checks `range_s` with `==`,
-the `reason`, the vector peak and its block, and each `AxisResult` against all zero values.
+the `reason`, the vector peak and its block, and each `AxisResult` against the zero values: 0.0
+for each value, and None for each block and each time.
 
 **Assumptions:** `TIME_TOLERANCE` is 1e-9, so both windows pass the check of the range.
 
@@ -3170,8 +3171,8 @@ step has the value after it and the slew of the step.
 
 **How:** Block 1 on x goes from 0 to U and stays at U to its end at 200 µs. Block 2 starts at 3U,
 a step of 2U at 200 µs. The window from 100 to 200 µs has the vector peak U at 100 µs in block 1,
-the x peak U, the slew 0 and the RMS U (hand values), and the oracle of the builder's
-`pp.Sequence` gives the same vector peak. The window from 100 to 250 µs has the vector peak 3U at
+the x peak U, the slew 0 with no block and no time (None) and the RMS U (hand values), and the
+oracle of the builder's `pp.Sequence` gives the same vector peak. The window from 100 to 250 µs has the vector peak 3U at
 200 µs in block 2, and the slew 2U/DT of the step, in block 2.
 
 **Assumptions:** None.
@@ -3203,8 +3204,8 @@ slew 3 U / 5 µs at 100 µs in block 1, and the RMS (U sqrt(455 / 400)). For the
 the junction 0, the slew (6e9, 0 and 4e9 with the start times 100, 100 and 295 µs), the peak
 (3 U, 0 and 2 U) and the vector peak (3 U, 3 U and 2 U with the times 100, 100 and 300 µs).
 Block 2 starts at 100 µs, where the ramp to 0 starts. The window from 150 to 250 µs is in the gap: `reason` is
-`seq_index.NO_GRADIENTS_IN_WINDOW`, and all the values are 0 with no block. The window from
-102.5 to 150 µs has half of the ramp to 0. The peak 1.5 U and the slew 6e9 are each at 102.5 µs
+`seq_index.NO_GRADIENTS_IN_WINDOW`, and all the values are 0 with no block and no time. The
+window from 102.5 to 150 µs has half of the ramp to 0. The peak 1.5 U and the slew 6e9 are each at 102.5 µs
 in block 1, and the vector peak is in block 2.
 
 **Assumptions:** None.
@@ -5589,8 +5590,8 @@ at the edge, and credits it to the block of the ramp. The vector peak is credite
 block that has its time.
 
 **How:** The sequence is the one of the test above. The window from 150 to 250 µs is in the
-gap, so each value is 0 and each block is None. The window from 102.5 to 150 µs has half of
-the ramp to 0. The peak is 1.5 U at 102.5 µs, and the slew 6e9 at 102.5 µs, both in block 1.
+gap, so each value is 0 and each block and each time is None. The window from 102.5 to 150 µs
+has half of the ramp to 0. The peak is 1.5 U at 102.5 µs, and the slew 6e9 at 102.5 µs, both in block 1.
 The RMS is the square root of (1.5 U)² times 2.5 µs / 3, over 47.5 µs. The vector peak is
 the same value at the same time, in block 2, because 102.5 µs is in block 2. The window
 from 102.5 to 400 µs has also the ramp from 0 and block 3. The peak is 2 U at 300 µs in
@@ -5648,7 +5649,7 @@ axis is 0 with no block.
 **How:** The sequence is the one of the test above, with no z event. The polyline of z has
 no point and no step, and it has the block ID of the one block. `sample` at 0, 100 and 400
 µs gives 0, `block_samples` gives 40 zeros, and each value of `peaks` for z is 0 with the
-blocks None.
+blocks and the times None.
 
 **Assumptions:** None.
 

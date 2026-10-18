@@ -136,15 +136,16 @@ class AxisResult:
     reach the same largest value, the credited block is the first of them in play order, and the
     time is the first time in that block where the value is reached (the step or the line into
     the event of a block is before the segments of that block). A largest value of 0 credits no
-    block (None) and has the time 0.0. `rms_hz_per_m` is the RMS amplitude over the range that
-    `GradientPeaks.range_s` gives, not over the whole sequence when a range is given.
+    block and has no time: the block and the time are both None. `rms_hz_per_m` is the RMS
+    amplitude over the range that `GradientPeaks.range_s` gives, not over the whole sequence
+    when a range is given.
     """
 
     peak_hz_per_m: float
-    peak_time_s: float
+    peak_time_s: float | None
     peak_block: int | None
     max_slew_hz_per_m_per_s: float
-    slew_time_s: float
+    slew_time_s: float | None
     slew_block: int | None
     rms_hz_per_m: float
 
@@ -158,14 +159,17 @@ class GradientPeaks:
     a ramp, a line or a step also gives None. Otherwise it is `seq_index.NO_GRADIENTS`
     (the argument `range_s` was None) or `seq_index.NO_GRADIENTS_IN_WINDOW` (`range_s` was
     given), and every numeric field is its zero value. The zero value is 0.0 for an amplitude,
-    slew or RMS field, and 0.0 for a time field; every block field (`AxisResult.peak_block`,
-    `AxisResult.slew_block`, `vector_peak_block`) is None. `range_s` still holds the range that
-    was used.
+    slew or RMS field; every block field (`AxisResult.peak_block`, `AxisResult.slew_block`,
+    `vector_peak_block`) and every time field (`AxisResult.peak_time_s`,
+    `AxisResult.slew_time_s`, `vector_peak_time_s`) is None. A time is None whenever its block
+    is None: a value of 0 has neither, with or without a `reason`. `range_s` still holds the
+    range that was used.
 
     `vector_peak_hz_per_m` is the largest magnitude of the three-axis gradient vector over the
     range, `vector_peak_time_s` is the first time in the range where it is reached, and
     `vector_peak_block` is the block ID of the block that has that time, seen from the side where
-    the value is (the module docstring; 0.0 and None when the peak is 0). There is no vector
+    the value is (the module docstring; the time and the block are None when the peak is 0).
+    There is no vector
     slew field. The RMS of the vector magnitude is the square root of the sum of the squares of
     the three axis RMS values, because the mean of |G|² is the sum of the three axis means of G².
 
@@ -186,7 +190,7 @@ class GradientPeaks:
     range_s: tuple[float, float]
     axes: dict[str, AxisResult]  # a FrozenDict
     vector_peak_hz_per_m: float
-    vector_peak_time_s: float
+    vector_peak_time_s: float | None
     vector_peak_block: int | None
 
 
@@ -815,7 +819,8 @@ def _first_largest(column: np.ndarray, i0: int, i1: int) -> tuple[float, int | N
 
 class _Best:
     """The largest value so far, with its time and the play index that has the credit
-    (`_credit_goes_to`). With `by_time`, the credit of an equal value goes to the earlier time
+    (`_credit_goes_to`). The time and the play index are None until a value above 0 (or a NaN)
+    takes the credit. With `by_time`, the credit of an equal value goes to the earlier time
     (and, at one time, to the smaller play index), not to the smaller play index: the vector
     peak is credited to the block that has its time within `TIME_TOLERANCE`, so a later block
     can have an earlier time. A NaN is larger than every number, and two NaN are equal."""
@@ -825,7 +830,7 @@ class _Best:
     def __init__(self, by_time: bool = False) -> None:
         self.by_time = by_time
         self.value = 0.0
-        self.time = 0.0
+        self.time: float | None = None
         self.play: int | None = None
 
     def offer(self, value: float, time: float, play: int | None) -> None:
@@ -984,7 +989,7 @@ def _range_result(
     blocks: _BlockData,
     lo: float,
     hi: float,
-) -> tuple[dict[str, AxisResult], float, float, int | None, bool]:
+) -> tuple[dict[str, AxisResult], float, float | None, int | None, bool]:
     """`axes`, `vector_peak_hz_per_m`, `vector_peak_time_s`, `vector_peak_block` and whether any
     axis has an event, for the range `[lo, hi]`.
 
@@ -1018,8 +1023,8 @@ def _range_result(
     vector = _Best(by_time=True)
 
     if n == 0 or not lo < hi:
-        axes = {axis: AxisResult(0.0, 0.0, None, 0.0, 0.0, None, 0.0) for axis in _AXES}
-        return axes, 0.0, 0.0, None, False
+        axes = {axis: AxisResult(0.0, None, None, 0.0, None, None, 0.0) for axis in _AXES}
+        return axes, 0.0, None, None, False
 
     whole_file = lo == 0.0 and hi == index.end_s
     if whole_file:

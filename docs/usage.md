@@ -212,8 +212,9 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 - **No result.** A result without a value has the `reason`
   `seq_index.NO_GRADIENTS` ("no gradients"), or
   `seq_index.NO_GRADIENTS_IN_WINDOW` for a range of `gradient_peaks` (`range_s`). Its
-  numbers are 0.0, its block fields are `None` and its arrays are empty, but
-  the fields that say how it was made stay. `GradientPeaks` keeps `range_s`.
+  numbers are 0.0, its block fields and the times of its peaks are `None` and its
+  arrays are empty, but the fields that say how it was made stay. `GradientPeaks` keeps
+  `range_s`.
   `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_samples` and `on_raster`, has
   `num_samples` 0, and has `peak_time_s` `None` and an empty tuple in `above`
   for each threshold (`peak_time_s` is also `None` when all the gradients have
@@ -258,7 +259,10 @@ for axis, result in peaks.axes.items():
     amplitude = (result.peak_hz_per_m / abs(gamma)) * 1e3  # T/m -> mT/m
     slew = result.max_slew_hz_per_m_per_s / abs(gamma)  # T/m/s
     print(f"{axis}: amplitude {amplitude:.2f} mT/m in block {result.peak_block}")
-    print(f"{axis}: slew {slew:.1f} T/m/s at {result.slew_time_s:.6f} s")
+    if result.slew_time_s is None:  # a slew of 0 has no time and no block
+        print(f"{axis}: slew {slew:.1f} T/m/s")
+    else:
+        print(f"{axis}: slew {slew:.1f} T/m/s at {result.slew_time_s:.6f} s")
 ```
 
 The slew includes the steps of the waveform: a step at a block junction counts
@@ -273,16 +277,16 @@ raster time.
 | `range_s` | The range of the measurement: `(0.0, end_s)`, or the argument `range_s` clipped to `(0.0, end_s)` ([section 4](#4-find-where-a-value-occurs)). |
 | `axes` | A dict from `"x"`, `"y"` and `"z"` to an `AxisResult`. |
 | `vector_peak_hz_per_m` | The largest magnitude of the three-axis vector (Hz/m). |
-| `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and its block ID. |
+| `vector_peak_time_s`, `vector_peak_block` | The first time with that magnitude, and its block ID (both `None` when it is 0). |
 
 `AxisResult`, for one axis:
 
 | Field | Meaning |
 |---|---|
 | `peak_hz_per_m` | The largest absolute amplitude (Hz/m). |
-| `peak_time_s`, `peak_block` | The first time with it, and its block ID. |
+| `peak_time_s`, `peak_block` | The first time with it, and its block ID (both `None` when it is 0). |
 | `max_slew_hz_per_m_per_s` | The largest slew: the slope of a segment, or a step (Hz/m/s). |
-| `slew_time_s`, `slew_block` | The start of that segment or the time of that step, and its block ID. |
+| `slew_time_s`, `slew_block` | The start of that segment or the time of that step, and its block ID (both `None` when it is 0). |
 | `rms_hz_per_m` | The RMS amplitude over the range (Hz/m). |
 
 When several blocks have the largest value, the first of them in play order
@@ -290,8 +294,8 @@ is the block of the value. For the vector peak, the block is the block of the
 earliest time with the largest value
 ([implementation, section 1.8](implementation.md#18-the-rms-and-the-vector-peak)).
 A largest value of 0 has the block `None` and the
-time 0.0. A ramp or a line between two events can belong to the block before
-or after it ([implementation, section 1.6](implementation.md#16-the-credit-of-each-item-to-a-block)).
+time `None`, as in `PnsLevels`. A ramp or a line between two events can belong
+to the block before or after it ([implementation, section 1.6](implementation.md#16-the-credit-of-each-item-to-a-block)).
 
 A NaN of the gradients (a plugin can read the amplitude `nan` of a file, which
 `spec` rejects) propagates. A NaN is larger than every number: the peak, the

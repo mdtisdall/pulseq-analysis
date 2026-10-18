@@ -42,6 +42,10 @@ A caller moves in this order:
 8. Name the axis of `GradientSampler.sample` and `GradientSampler.block_samples`
    `"x"`, `"y"` or `"z"`, in place of `"gx"`, `"gy"` or `"gz"`. The old axis
    names raise `ValueError`, as an unknown axis does.
+9. Read a time of `gradient_peaks` whose block is `None` as `None`, not 0.0:
+   `AxisResult.peak_time_s`, `AxisResult.slew_time_s` and
+   `GradientPeaks.vector_peak_time_s` of a value of 0. Check for `None` before
+   a time is formatted or compared, as for `PnsLevels.peak_time_s`.
 
 ### Reading files and the interpreters
 
@@ -457,6 +461,25 @@ public module.
   |---|---|
   | `gradient_peaks(snap, window=(start_s, end_s))` | `gradient_peaks(snap, range_s=(start_s, end_s))` |
   | `GRADIENT_PEAKS.compute(snap, window=(start_s, end_s))` | `GRADIENT_PEAKS.compute(snap, range_s=(start_s, end_s))` |
+
+- A time of `gradient_peaks` is `None` whenever its block is `None`: a largest
+  value of 0 has no block and no time (review 2026-10-13 6: `peak_time_s` was
+  `None` in `PnsLevels` and 0.0 in `GradientPeaks`). `AxisResult.peak_time_s`,
+  `AxisResult.slew_time_s` and `GradientPeaks.vector_peak_time_s` are
+  `float | None`. Before, each was 0.0 for a value of 0, with its block `None`:
+  for a sequence with no gradient event (`NO_GRADIENTS`), for a range with none
+  (`NO_GRADIENTS_IN_WINDOW`), and also with the `reason` None, for an axis
+  whose gradients all have the amplitude 0, or for the slew of a range in a
+  flat top. The values, the blocks, the times of a
+  value that is not 0, `spec.version` (1) and the series (`gradient.peaks` has
+  none) do not change. `block_gradient_values` does not change: each of its
+  times is the time of its block, `start_s` for a value of 0.
+
+  | `0.1.0rc6` | Now |
+  |---|---|
+  | `axis.peak_time_s == 0.0` with `axis.peak_block is None` | `axis.peak_time_s is None` |
+  | `axis.slew_time_s == 0.0` with `axis.slew_block is None` | `axis.slew_time_s is None` |
+  | `peaks.vector_peak_time_s == 0.0` with `peaks.vector_peak_block is None` | `peaks.vector_peak_time_s is None` |
 
 ### The gradient sampler
 
