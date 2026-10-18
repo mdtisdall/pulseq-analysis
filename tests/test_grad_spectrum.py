@@ -186,7 +186,7 @@ _MANY_CHUNK_BLOCKS = 1_000
 def test_matches_oracle_with_many_chunks(case, monkeypatch):
     """The builders of `scale_sequences`: `build_repeating` and `build_worst` at 1000 blocks,
     with `_CHUNK_WINDOWS` of 4 so that each has more than one chunk, as in
-    `test_matches_scipy_spectrogram`. The tolerance is `1e-12 * max(1, duration in s)`, not
+    `test_matches_oracle_with_other_arguments`. The tolerance is `1e-12 * max(1, duration in s)`, not
     1e-12 (the user, 2026-09-28). It was set when the oracle sampled
     `Sequence.get_gradients()`, which adds the segment durations one at a time and not
     `(block start + delay) + offset` as the sampler does: the rounding of an absolute time

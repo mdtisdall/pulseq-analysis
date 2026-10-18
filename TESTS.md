@@ -4404,9 +4404,8 @@ RSS peak must be within 20 Hz of 600 Hz.
 **Checks:** A gradient at the end of the sequence gives the same spectrum as the
 same gradient in the middle of the sequence. This holds when the number of
 samples is a whole number of hops and when it is not, for a window of an even and
-of an odd number of samples. The test replaces
-`test_gradients_at_the_end_are_not_attenuated`: that test had a sequence of a
-whole number of hops, so it could not find the bug.
+of an odd number of samples. The test replaces an earlier test whose sequence
+had a whole number of hops, so that test could not find the bug.
 
 **How:** For 5000, 6000, 7000 and 7499 samples, and for a window of 5000 samples
 (`window_s=0.05`) and one of 4999 samples (`window_s=0.04999`), the test makes a
@@ -7635,7 +7634,7 @@ and checks that ADC 2 has `phase_modulation` `None`.
 **Checks:** Each decode function gives every row of its table, in table order, including an event
 that no block uses.
 
-**How:** The file of `test_rf_event_with_a_time_shape` has RF 3 and trapezoid 7, which no block
+**How:** The file of the fixture `time_shaped` has RF 3 and trapezoid 7, which no block
 uses. The test checks the keys of the three mappings and the values of RF 3 and trapezoid 7.
 
 **Assumptions:** None.
@@ -7655,7 +7654,7 @@ file. The events use the shapes 1, 2 (twice), 3, 6, 7 and 8, and the time shape 
 **Checks:** Each decoded event equals the same event of another call, survives `pickle`, cannot be
 changed, and has read-only arrays that cannot be made writable.
 
-**How:** For each decode function on the file of `test_rf_event_with_a_time_shape`, the test
+**How:** For each decode function on the file of the fixture `time_shaped`, the test
 compares each event with the same event of a second call and with a pickled copy. For each array
 field it checks that `writeable` is false and that setting it raises `ValueError`, and that setting
 a field raises `AttributeError`.

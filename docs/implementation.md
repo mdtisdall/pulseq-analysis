@@ -414,9 +414,9 @@ longer, so that the level has at most that many. Only the level depends on
 `[level_min_hz_per_t, level_max_hz_per_t]` of the bin, and the last bin can
 have fewer samples.
 
-**The hardware.** `pns_levels.SAFE_FIELDS` is the nine fields of each axis of
-a SAFE hardware struct, in the order of `safe_example_hw` and `asc_to_hw`
-(`safe.SAFE_FIELDS`). `safe.SafeHardware` and `safe.SafeAxis` check the fields
+**The hardware.** `safe.SAFE_FIELDS` is the nine fields of each axis of a SAFE
+hardware struct, in the order of `safe_example_hw` and `asc_to_hw`.
+`safe.SafeHardware` and `safe.SafeAxis` check the fields
 when they are made, and `SafeHardware.from_namespace` converts the struct of
 `asc_to_hw`. Section 6 gives the checks of the struct. Two pairs of one `.asc` file,
 whatever the spelling of its path, have the same label and values, so
@@ -799,11 +799,11 @@ results go away with the snapshot. `gradient_sampler(snap)` makes a new sampler
 for each call, from the kept points and gaps.
 
 **The rasters.** The `rasters` of an analysis are the rasters of the file
-whose value changes the value of the analysis. `Sequence.read` makes each block
-duration from the `BlockDurationRaster`, and each analysis reads the
-durations. The block table (`seq.index`) does not use the
-`GradientRasterTime`. The gradient, PNS and spectrum measurements use both
-rasters.
+whose value changes the value of the analysis. The decoding of each interpreter
+makes each block duration (`Decoding.block_durations`) from the
+`BlockDurationRaster`, and each analysis reads the durations. The block table
+(`seq.index`) does not use the `GradientRasterTime`. The gradient, PNS and
+spectrum measurements use both rasters.
 
 ## 5. The result objects
 
@@ -857,7 +857,7 @@ a `str` second item raises `TypeError` with a message that says how to make a
 hardware. A label `"nan"`, `"inf"` or `"-inf"` raises `ValueError`: the `meta`
 of a `Series` refuses these strings, which its JSON form uses for a float that
 is not finite, and `to_series` puts the label there. A struct with no `x`, `y`
-or `z`, or an axis with no field of `pns_levels.SAFE_FIELDS`, raises
+or `z`, or an axis with no field of `safe.SAFE_FIELDS`, raises
 `ValueError` that names it, for example
 `'x.stim_thresh' missing in the hardware struct`. Each field is a finite real
 number: a value that is not a real number raises `TypeError`, and one that is

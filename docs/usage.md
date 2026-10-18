@@ -383,7 +383,7 @@ extra `pypulseq`). A `hardware`
 that is not such a pair raises `TypeError`. A label `"nan"`, `"inf"` or `"-inf"`
 raises `ValueError`: the JSON form of a `Series` uses these strings for a float
 that is not finite, so the label could not go into the `meta` of `pns_total`.
-A struct with a missing axis or a missing field of `pns_levels.SAFE_FIELDS`, a
+A struct with a missing axis or a missing field of `safe.SAFE_FIELDS`, a
 field that is not a finite number, a `stim_limit` not above 0, or an axis with
 `a1 + a2 + a3` more than 0.001 from 1 raises `ValueError` (or `TypeError` for a field that is not a number). These
 checks run also for a sequence with no gradient.
