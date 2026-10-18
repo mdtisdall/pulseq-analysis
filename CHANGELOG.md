@@ -85,6 +85,10 @@ A caller moves in this order:
   than `spec.FIRST_TIME_TOLERANCE`) as `shape.time-order`, as it does an RF
   time shape (D3.9; review 2026-10-13 1.2.1). Before, a gradient time shape
   `-2 1 3 6 10` read, and the gradient started before its event.
+- A shape that declares more than 2^27 samples is `limit.shape-samples`, the
+  package's limit of memory, which the specification does not state; the
+  message says so (review 2026-10-13 1.2.4d). Before, it was `shape.length`, a
+  rule of the specification (spec:626).
 - `seqfile.SeqFileError` (a `ValueError`): a file that the interpreter
   rejects, with all its `Violation` values, its `interpreter` and its `codes`.
   `seqfile.NotSupported` (a `NotImplementedError`): a file that the package

@@ -6226,7 +6226,7 @@ and has a reason.
 
 #### `test_each_rule_that_a_fixture_can_give_has_a_fixture`
 
-**Checks:** Each code of `spec.RULES` is given by a fixture of the table, or is in `NO_FIXTURE` with its reason. Only `rotation.zero` has no fixture (a quaternion of norm 0; its test writes the file). Each code of the table is a rule, and a code is not in both.
+**Checks:** Each code of `spec.RULES` is given by a fixture of the table, or is in `NO_FIXTURE` with its reason. Only `rotation.zero` (a quaternion of norm 0) and `limit.shape-samples` (a shape that declares more than 2^27 samples) have no fixture; their tests write the files. Each code of the table is a rule, and a code is not in both.
 
 **How:** The test collects the codes of the table and compares them with the keys of `RULES` and of `NO_FIXTURE`.
 
@@ -6858,6 +6858,14 @@ follows it, not that the decision is right.
 **How:** The test reads the two fixtures and a valid fixture with `num_samples 11` for a shape of 10 values.
 
 **Assumptions:** None.
+
+#### `test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples`
+
+**Checks:** Q7 of the plan: a shape that declares 200 000 000 samples, more than the package's limit of 2^27, gives `limit.shape-samples` once, in `[SHAPES]` on the line of its `shape_id`, and not `shape.length`; the message says that the specification does not state the rule.
+
+**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the header of shape 3 changed from `num_samples 10` to `num_samples 200000000` (its 10 samples stay), and reads it.
+
+**Assumptions:** The specification has no limit of `num_samples`; the limit is the package's, against a short file that makes the reader allocate without bound. `limit.shape-samples` has no fixture (it is in `NO_FIXTURE`); this test writes the file.
 
 #### `test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance`
 
