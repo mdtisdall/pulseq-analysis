@@ -466,6 +466,12 @@ sequence against the code before each change:
   MATLAB Pulseq run under GNU Octave (`pulseq-matlab-oracle`). The tests that
   compared with functions of the pypulseq fork compare with golden values
   (`tests/golden/`).
+- The tests compare the SAFE model with the original SAFE package
+  (filip-szczepankiewicz/safe_pns_prediction, BSD-3-Clause, fetched by Nix) run
+  under GNU Octave (`pulseq-safe-oracle`): the filter and the hardware check
+  with its functions, and `pns_levels` with `calcPNS` of MATLAB Pulseq. The
+  golden values of `pns_levels` with the fork's filter, which came from the
+  package's own pipeline, are removed.
 
 ## 0.1.0rc6 (2026-10-07)
 

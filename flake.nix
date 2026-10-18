@@ -57,6 +57,19 @@
           hash = "sha256-Q9XjlghUUVDb9ZLs6UQoh6Q/n+KhrrVlyhcIsVzuuig=";
         };
 
+      # The SAFE PNS model of Szczepankiewicz and Witzel, filip-szczepankiewicz/safe_pns_prediction
+      # (BSD-3-Clause), at one commit, for the SAFE oracle: the package that calcPNS of MATLAB
+      # Pulseq calls, and of which pypulseq's translation is the source of the port in
+      # src/pulseq_analysis/analyses/safe.py. It is not copied into this repository.
+      safe-source =
+        pkgs:
+        pkgs.fetchFromGitHub {
+          owner = "filip-szczepankiewicz";
+          repo = "safe_pns_prediction";
+          rev = "152ab67c086170c40c1988ebba9002e018a0652c";
+          hash = "sha256-ROHkx9zMabFr47K/NqY6t0jTx/EKqk4GMxMLVyjmfRg=";
+        };
+
       # The reader of the Pulseq interpreter on the scanner, ExternalSequence of pulseq/pulseq
       # (MIT), with the small driver in tests/cpp_oracle, compiled with `flags` by the compiler of
       # `stdenv`. `extra` adds attributes to the derivation.
@@ -188,12 +201,77 @@
               '
           '';
         };
+
+      # The original SAFE package of `safe-source`, with MATLAB Pulseq for its calcPNS, run under
+      # GNU Octave by tests/safe_oracle/dump_safe.m, in one Octave process:
+      # - `pulseq-safe-oracle filter REQUEST.json OUT_DIR`: safe_gwf_to_pns and safe_hw_check of
+      #   the cases of REQUEST.json;
+      # - `pulseq-safe-oracle calcpns FILE.asc OUT_DIR FILE.seq...`: calcPNS of each file with
+      #   the hardware of FILE.asc.
+      # tests/safe_oracle/README.md gives the files. Only the default devShell has it, as
+      # pulseq-matlab-oracle.
+      pulseq-safe-oracle =
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "pulseq-safe-oracle";
+          runtimeInputs = [
+            pkgs.coreutils
+            pkgs.octave
+          ];
+          text = ''
+            usage() {
+              echo "usage: pulseq-safe-oracle filter REQUEST.json OUT_DIR" >&2
+              echo "       pulseq-safe-oracle calcpns FILE.asc OUT_DIR FILE.seq..." >&2
+              exit 2
+            }
+            mode=''${1:-}
+            case $mode in
+              filter) [ "$#" -eq 3 ] || usage ;;
+              calcpns)
+                [ "$#" -ge 4 ] || usage
+                for f in "''${@:4}"; do
+                  case $f in
+                    *.seq) ;;
+                    *)
+                      echo "pulseq-safe-oracle: '$f' does not end in .seq" >&2
+                      exit 2
+                      ;;
+                  esac
+                done
+                same=$(for f in "''${@:4}"; do basename "$f" .seq; done | sort | uniq -d)
+                if [ -n "$same" ]; then
+                  echo "pulseq-safe-oracle: more than one file has the name '$same'" >&2
+                  exit 2
+                fi
+                ;;
+              *) usage ;;
+            esac
+            shift
+            # OUT_DIR is the second argument of both modes.
+            out_dir=$2
+            mkdir -p "$out_dir"
+            SAFE_ORACLE_MODE=$mode SAFE_ORACLE_ARGS=$(printf '%s\n' "$@") \
+              exec octave-cli --no-gui --norc --eval '
+                addpath("${pulseq-source pkgs}/matlab");
+                addpath("${safe-source pkgs}");
+                addpath("${
+                  pkgs.lib.fileset.toSource {
+                    root = ./tests/safe_oracle;
+                    fileset = ./tests/safe_oracle/dump_safe.m;
+                  }
+                }");
+                warning("off", "all");
+                dump_safe(getenv("SAFE_ORACLE_MODE"), strsplit(getenv("SAFE_ORACLE_ARGS"), "\n"));
+              '
+          '';
+        };
     in
     {
       packages = forAllSystems (pkgs: {
         pulseq-cpp-oracle = pulseq-cpp-oracle pkgs;
         pulseq-cpp-oracle-sanitized = pulseq-cpp-oracle-sanitized pkgs;
         pulseq-matlab-oracle = pulseq-matlab-oracle pkgs;
+        pulseq-safe-oracle = pulseq-safe-oracle pkgs;
       });
       devShells = forAllSystems (pkgs: {
         default = mkDevShell pkgs [
@@ -206,6 +284,7 @@
           (pulseq-cpp-oracle pkgs)
           (pulseq-cpp-oracle-sanitized pkgs)
           (pulseq-matlab-oracle pkgs)
+          (pulseq-safe-oracle pkgs)
         ];
         # A smaller shell for CI: only the tools that scripts/check needs.
         ci = mkDevShell pkgs [

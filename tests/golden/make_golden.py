@@ -14,12 +14,7 @@ from pypulseq.utils import safe_pns_prediction as module
 TESTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TESTS))
 
-import synthetic
 import test_safe
-
-from pulseq_analysis.analyses import load
-from pulseq_analysis.analyses import pns_levels as pns_levels_module
-from pulseq_analysis.analyses.pns_levels import _compute_levels
 
 
 def chunk_values() -> dict[str, np.ndarray]:
@@ -55,27 +50,7 @@ def hw_check_values() -> dict[str, np.ndarray]:
     return values
 
 
-def levels_values() -> dict[str, np.ndarray]:
-    """The fields of `_compute_levels` with the fork's `_safe_gwf_to_pns_chunk` in place of
-    the package's, for each case of
-    `test_pns_levels_equals_the_levels_with_the_forks_chunk_function`."""
-    values = {}
-    pns_levels_module._CHUNK_SAMPLES = 1000
-    pns_levels_module._safe_gwf_to_pns_chunk = module._safe_gwf_to_pns_chunk
-    for seq_id, builder in test_safe.SEQUENCES.items():
-        snap = load(getattr(synthetic, builder)())
-        for bin_id, bin_s in test_safe.BINS.items():
-            levels = _compute_levels(snap, synthetic.EXAMPLE_HW, test_safe.THRESHOLDS, bin_s)
-            values.update(
-                {
-                    f"levels/{seq_id}/{bin_id}/{k}": np.asarray(v)
-                    for k, v in test_safe.levels_arrays(levels).items()
-                }
-            )
-    return values
-
-
 if __name__ == "__main__":
     out = Path(__file__).resolve().parent / "safe_fork.npz"
-    np.savez_compressed(out, **chunk_values(), **hw_check_values(), **levels_values())
+    np.savez_compressed(out, **chunk_values(), **hw_check_values())
     print(f"wrote {out}")

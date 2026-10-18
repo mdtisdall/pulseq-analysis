@@ -9,10 +9,11 @@ locally with:
 nix develop --command scripts/check
 ```
 
-The `ci` devShell has no MATLAB oracle, so the tests that compare with MATLAB
-Pulseq skip there. `.github/workflows/matlab-oracle.yml` runs them in the
-default devShell, on a pull request or a push to `main` that changes what they
-read (section 2.24). The two other workflows are in section 3: the wheels of
+The `ci` devShell has no MATLAB oracle and no SAFE oracle, so the tests that
+compare with MATLAB Pulseq and with the original SAFE package skip there.
+`.github/workflows/matlab-oracle.yml` runs them in the default devShell, on a
+pull request or a push to `main` that changes what they read (sections 2.24
+and 2.33). The two other workflows are in section 3: the wheels of
 pulseq-cpp-siemens in its introduction, and the fuzzing of its checks in 3.7.
 
 Each check below has:
@@ -45,7 +46,7 @@ Contents:
    oracle; the decoding against MATLAB Pulseq; the sanitized C++ oracle; the "as
    written" reading; the plugin interpreters; a pypulseq sequence in memory; the
    scanner session; the imports of the package; the package without pypulseq; the
-   documents
+   documents; the SAFE model against the original SAFE package
 3. [The package pulseq-cpp-siemens](#3-the-package-pulseq-cpp-siemens): its API;
    the checks of undefined behaviour; the digests of the driver's output; the
    driver of the C++ oracle; the reader's shared state; the cases of undefined
@@ -374,7 +375,8 @@ Pulseq) of `sequence_of(snap)`: `oracle.block_samples` at the gradient raster fo
 the raster, and `oracle.sample` at the file times `(k + 0.5) * dt`, `k < num_samples`, for one
 that is not. The values are the percent times 0.01 and the total is `sqrt(sum of squares)`, as
 `pns_levels` computes them, in Hz/T, so no gamma is divided. The filter is the same as that of
-`pns_levels`, and section 2.21 checks it against the golden values of pypulseq's fork; the
+`pns_levels`, and section 2.21 checks it against the golden values of pypulseq's fork and
+section 2.33 against the original SAFE package; the
 reference tests the samples, the chunks, the bins, the peak search and the summary of
 `pns_levels`. The oracle reads the gradients as the snapshot plays them, so the rounding of the
 written file is not in a difference, and the tolerances are tight: a relative 1e-9 for the
@@ -7627,17 +7629,16 @@ only the pinned fork has as the tests use them. The tests that compare with them
 golden values, the outputs of the fork's functions for the same inputs, in
 `tests/golden/safe_fork.npz`: `tests/golden/make_golden.py` wrote them with the fork pinned,
 and `tests/golden/README.md` gives the fork commit. The comparisons (`_assert_golden`) require
-the dtype and the shape, the integer and bool values exactly, and the float values within
-`_GOLDEN_RTOL` of the value or of the largest magnitude of its array: 1e-14 for float64 and two
-float32 ulp for float32. (A value that comes out of a cancellation, as a filter state can,
-carries the rounding of the large terms of its array.) The port does the
-same float operations as the fork, but the golden values come from one platform (macOS), and
-numpy and scipy on another (Linux in CI) round some of them differently in the last bit (1 to 2
-ulp of a float64, measured on 2026-10-13); a float32 level, the outward cast of a float64 total,
-can then move by one float32 ulp.
+the dtype and the shape, the bool values exactly, and the float64 values within `_GOLDEN_RTOL`
+(1e-14) of the value or of the largest magnitude of its array. (A value that comes out of a
+cancellation, as a filter state can, carries the rounding of the large terms of its array.) The
+port does the same float operations as the fork, but the golden values come from one platform
+(macOS), and numpy and scipy on another (Linux in CI) round some of them differently in the last
+bit (1 to 2 ulp of a float64, measured on 2026-10-13). The same inputs go to the original SAFE
+package in section 2.33, which also compares `pns_levels` with `calcPNS` of MATLAB Pulseq.
 The numbers of pypulseq's example hardware are those of `synthetic.EXAMPLE_AXES`, and one
-test compares them with `safe_example_hw()`. Only that test and the comparison of the levels
-(which builds synthetic sequences) need pypulseq; they have the marker `pypulseq`.
+test compares them with `safe_example_hw()`. Only that test needs pypulseq; it has the marker
+`pypulseq`.
 
 #### `test_a_safe_axis_keeps_its_fields_as_floats_and_is_frozen`
 
@@ -7798,27 +7799,6 @@ namespace with no `x`); a refusal of `from_namespace` is a `ValueError`.
 
 **Assumptions:** `safe_hw_check` does not check that a field is finite, a number or above 0.
 `from_namespace` does, and the test does not compare that.
-
-#### `test_pns_levels_equals_the_levels_with_the_forks_chunk_function`
-
-**Checks:** `_compute_levels` with the package's chunk function gives the same fields of
-`PnsLevels` as with the pinned fork's `_safe_gwf_to_pns_chunk` in its place (the golden
-values): the level, the summary and the intervals above each threshold.
-
-**How:** Marker `pypulseq` (the sequences are built with it). Parametrized over the spin echo,
-the gradient echo, the arbitrary gradient and the border sequence of
-`test_summary_is_the_safe_model_of_the_oracle_samples` and over the default bin and bins of one
-sample. `_CHUNK_SAMPLES` is 1000, so the state passes from chunk to chunk; two thresholds make
-intervals (the test checks that some interval exists and that the peak is above 0).
-`levels_arrays` gives the fields as arrays (`num_samples`, `bin_samples`, the two levels, the
-peak, its time, the axis peaks, `on_raster`, and the rows `start_s, end_s, peak_hz_per_t,
-peak_time_s, num_samples` of the intervals of each threshold); each must have the dtype, shape
-and values of its golden array (`_assert_golden`), and the set of names must be that of the
-golden file.
-
-**Assumptions:** The sequences are the synthetic sequences, with the example hardware, as
-pypulseq builds them in the dev environment (the fork). The fields that the chunk function does
-not change (`reason`, `hardware`, `hw`, `dt_s`) are not compared.
 
 #### `test_no_module_imports_pypulseq`
 
@@ -9607,6 +9587,123 @@ that extra (`pulseq-cpp-siemens[extra]`). The spaces of a requirement are not co
 plugin after the release: until the release, pulseq-analysis has the version before it. The upper
 bound of the requirement is not compared with the version. The wording of the documents around
 the requirement ("require") is not read.
+
+### 2.33 The SAFE model against the original SAFE package (`test_safe_oracle.py`)
+
+`test_safe_oracle.py` compares the SAFE model of the package with the original SAFE package
+(filip-szczepankiewicz/safe_pns_prediction, the commit in `flake.nix`) and with `calcPNS` of
+MATLAB Pulseq (the commit of section 2.24), run under GNU Octave by the command
+`pulseq-safe-oracle` (`tests/safe_oracle/`, `tests/oracles/safe.py`). The filter and the hardware
+check get the inputs of the golden tests of section 2.21 (`CHUNK_NAMESPACES`, `CHUNK_DTS`,
+`CHUNKS`, `chunk_waveform`, `HW_CHECK_CASES` of `test_safe.py`), so the port is compared with the
+package that pypulseq translated as well as with the fork. `pns_levels` is compared, through
+`asc.hardware_from_asc` of the `.asc` file of `write_gradient_asc` (`tests/conftest.py`), with
+`calcPNS` with the same `.asc` file, on the files of `tests/seqfiles/oracle/*.seq` that the `spec`
+interpreter accepts; a file that it rejects is skipped with its rules, and MATLAB never reads it,
+as in section 2.24. The filter and the hardware check are one run of the command for the module.
+`tests/oracles/safe.py` runs `calcPNS` at most one time per test session, on all the files that
+are not in its cache (`.pytest_cache/d/safe-oracle`); the cache key of a file is the SHA-256 of
+the store path of the command, of the bytes of the `.asc` file and of the bytes of the file. The
+whole module skips when the command is not on the PATH: only the default devShell has it, not
+the `ci` shell. `.github/workflows/matlab-oracle.yml` runs the module after the tests of section
+2.24, on a pull request or a push to `main` that changes what it reads (the SAFE model:
+`analyses/safe.py`, `analyses/pns_levels.py` and the modules that it imports, and
+`analyses/asc.py`; the code of the reading and of the decoding, as for section 2.24; the oracle,
+the test module, `test_safe.py`, `conftest.py` and `synthetic.py`; the fixtures, the dependencies
+and the flake), and by hand. It fails before the tests when `safe.command_path()` finds no
+command, where they would skip.
+
+#### `test_the_chunk_function_gives_the_rows_of_the_originals_safe_gwf_to_pns`
+
+**Checks:** `_safe_gwf_to_pns_chunk` of a waveform from the state `None`, in one chunk and in
+chunks with the state of each passed to the next, gives the rows of `safe_gwf_to_pns` of the
+original, for the example hardware and for hardware with other numbers in every field, at the
+rasters 10 µs and 2.5 µs, to 1e-14 of the largest magnitude of the rows of the original
+(`FILTER_REL`).
+
+**How:** Parametrized over the hardware and the raster of `test_safe.py`. A module fixture runs
+the mode `filter` one time, with the 2000 samples of `chunk_waveform()` for each pair. The
+original gets the waveform with a row of 0 in front and no padding, so that its first row is the
+slew from 0 and its filters start from 0, as the state `None` of the port. The 28 inputs that
+Octave read from the JSON (the raster and the 27 fields) must equal those of the test exactly.
+The rows of one chunk and the concatenated rows of the chunks of `CHUNKS` (1, 1, 698, 1 and 1299
+samples) are compared with an absolute tolerance of `FILTER_REL` times the largest magnitude.
+
+**Assumptions:** The port and the original do the same operations in another order (`alpha` is
+`dt_ms / (tau + dt_ms)` in the port and `dt / (tau * 1e-3 + dt)` in the original, and
+`scipy.signal.lfilter` sums in its own order), so they differ by the rounding: at most 5.6e-16
+of the largest magnitude, measured on 2026-10-18 (macOS). A difference below the tolerance is not
+found. The waveform is a random walk, not a gradient of a sequence, and the original is run only
+under Octave, not MATLAB.
+
+#### `test_from_namespace_accepts_a_hardware_if_and_only_if_the_originals_safe_hw_check_does`
+
+**Checks:** `SafeHardware.from_namespace` accepts a hardware struct if and only if `safe_hw_check`
+of the original gives 1: the two hardware of the filter, the eight cases of `HW_CHECK_CASES`
+(an `a` sum 0.0009 from 1 on `x` and `y`; 0.0011 from 1 on `x` and `z`; a sum of 5.6; no `x`, no
+`y.stim_thresh` and no `z.g_scale`), and the example with `x.a1` changed by 0.001 and by -0.001,
+the bound of both checks.
+
+**How:** Parametrized over the cases (`HW_CASES`). The same run of the command as the test above
+gives the result of `safe_hw_check` for each struct, as JSON: `is_ok` 0 or 1, or an `error` for a
+struct without an axis or a field (the field of an Octave struct that is not there), which is
+not 1. A refusal of `from_namespace` is a `ValueError`.
+
+**Assumptions:** The cases are in the domain of the original: each field is a finite number and
+`stim_limit` is above 0. The original does not check these (it accepts a NaN, which the
+comparison of its sum with 0.001 does not refuse, and a `stim_limit` of 0), and the package
+refuses them (section 2.21); the test does not compare them. An empty field, which the original
+refuses, has no form in a Python namespace.
+
+#### `test_pns_levels_gives_the_peaks_and_the_totals_of_calcpns`
+
+**Checks:** For each oracle file that `spec` accepts, `pns_levels` with `hardware_from_asc` of the
+`.asc` file of `write_gradient_asc` gives what `calcPNS` of MATLAB Pulseq gives with the same
+`.asc` file: the peak and the peak of each axis divided by the magnitude of MATLAB's gamma, the
+peak time with the shift of one raster time below, and, with bins of one sample, a level that
+holds the total of each sample of `calcPNS`. For a file with no gradient, `calcPNS` has no
+sample and `pns_levels` has the reason `NO_GRADIENTS`.
+
+**How:** Parametrized over `tests/seqfiles/oracle/*.seq`. The module fixture gives the output of
+`calcPNS` for each file (`CalcPnsOracle.load`, one run for all the accepted files): the axes and
+the total of each sample, as fractions, the time of its first sample `t_axis(1)`, its raster and
+its gamma. Row j of `calcPNS` is the slew from the gradient at `t_axis(j)` to the gradient at
+`t_axis(j + 1)`, which is the sample of the package one raster time later: the sample of `calcPNS`
+at `(m + 0.5) * dt` is the sample `m + 1` of the package. The test checks:
+
+- the raster of the file is `PnsLevels.dt_s`;
+- the peak and the axis peaks, divided by `|gamma|`, against the largest total and the largest
+  value of each axis of `calcPNS`, to a relative `REL` (1e-10), and an absolute `REL` times the
+  peak for an axis peak (an axis without gradients has the peak 0);
+- the peak time against the time of the first total of `calcPNS` at or above
+  `peak * (1 - PEAK_TOLERANCE)`, plus one raster time, to 1e-12 s;
+- `pns_levels` with `bin_s` of one raster time (bins of one sample, so `bin_samples` is 1): for
+  each row of `calcPNS` whose sample of the package is in the sequence, the total of the row is
+  in `[level_min, level_max]` of that sample divided by `|gamma|`, to `REL` times the peak.
+
+**Assumptions:**
+
+- `REL`: `calcPNS` samples MATLAB's polyline at its own times (`interp1` at `t_axis`), and the
+  package samples each block, so the times of a sample are rounded differently. A difference d of
+  a time changes a slew, a difference over one raster time dt, by a relative d / dt, and d is of
+  the order of the ulp of the time, so the difference grows with the number of samples N, of the
+  order of eps * N: 6.7e-11 for `pulseq_epi_rs.seq`, the longest file (300,000 samples). The
+  largest measured difference is 8.2e-12, of that file (2026-10-18, macOS); it is 1.1e-12 or
+  less for the files of 60,000 samples or fewer.
+- `calcPNS` starts at the first gradient point: the samples of the package before it are 0, and
+  the slew from 0 to the first sample of `calcPNS` is not in its output. Its last rows (none to
+  two in these files) are after the end of the last block, where the package has no sample, and
+  `calcPNS` pads the gradients with zeros: they are not compared. A peak in one of these samples
+  would fail the comparison of the peaks.
+- The intervals above a threshold (`PnsLevels.above`) and the level with the default bins are not
+  compared; the bins of one sample hold each total.
+- The `.asc` file is the plain layout of `write_gradient_asc`, with the example hardware; the
+  scanner layout with `$INCLUDE` is not given to `calcPNS`. MATLAB's `readasc` and `asc_to_hw` and
+  the package's `hardware_from_asc` read the same file, so the test also compares the reading of
+  the hardware.
+- The oracle files are all on the gradient raster (`on_raster`); the samples of a file that is
+  not are not compared. Two of the files have rotations, and `calcPNS` reads the rotated
+  waveform of MATLAB.
 
 ## 3. The package pulseq-cpp-siemens
 

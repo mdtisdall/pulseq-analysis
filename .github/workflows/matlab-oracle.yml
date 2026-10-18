@@ -1,21 +1,28 @@
 name: matlab-oracle
 
 # The tests of the decoding against MATLAB Pulseq, run under GNU Octave by pulseq-matlab-oracle
-# (tests/matlab_oracle/README.md), in the default devShell. The ci devShell of
+# (tests/matlab_oracle/README.md), and of the SAFE model against the original SAFE package and
+# calcPNS of MATLAB Pulseq, run under GNU Octave by pulseq-safe-oracle
+# (tests/safe_oracle/README.md), in the default devShell. The ci devShell of
 # .github/workflows/check.yml has no Octave, whose closure is about 2.5 GiB, so these tests skip
 # there. Nix fetches Octave from cache.nixos.org on each run: as in the other workflows, the Nix
 # store is not cached.
 #
-# The workflow runs tests/test_matlab_oracle.py and the test of the plugin that uses the oracle,
-# on a pull request or a push to main that changes what they read:
+# The workflow runs tests/test_matlab_oracle.py, the test of the plugin that uses the MATLAB
+# oracle and tests/test_safe_oracle.py, on a pull request or a push to main that changes what they
+# read:
 # - the code of pulseq-analysis that they import: the reading and the decoding (seqfile, synth),
-#   analyses/loading.py, analyses/grad_peaks.py and the modules at the top of the package;
+#   analyses/loading.py, analyses/grad_peaks.py and the modules at the top of the package, and
+#   the SAFE model (analyses/safe.py, analyses/pns_levels.py and the modules that it imports,
+#   analyses/asc.py);
 # - the interpreter cpp-siemens and its build;
-# - the fixtures, the oracle and the test modules;
+# - the fixtures, the oracles and the test modules, with the test helpers whose values
+#   test_safe_oracle.py uses: the inputs of tests/test_safe.py, and the .asc file of
+#   write_gradient_asc (tests/conftest.py) with the numbers of tests/synthetic.py;
 # - the dependencies (pyproject.toml, uv.lock, the flake) and this file.
-# The other test helpers that the modules import (conftest.py, synthetic.py, test_from_pypulseq.py)
-# are not in the list: the tests do not use them, and check.yml collects both modules on each
-# pull request.
+# The other test helpers that the modules import (pns_hardware.py, test_from_pypulseq.py) are not
+# in the list: the tests do not use them, and check.yml collects the modules on each pull
+# request.
 
 on:
   pull_request:
@@ -23,7 +30,11 @@ on:
       - src/pulseq_analysis/*.py
       - src/pulseq_analysis/analyses/__init__.py
       - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/analyses/asc.py
       - src/pulseq_analysis/analyses/grad_peaks.py
+      - src/pulseq_analysis/analyses/pns_levels.py
+      - src/pulseq_analysis/analyses/safe.py
+      - src/pulseq_analysis/analyses/series.py
       - src/pulseq_analysis/seqfile/**
       - src/pulseq_analysis/synth/**
       - packages/pulseq-cpp-siemens/src/**
@@ -37,6 +48,12 @@ on:
       - tests/oracles/matlab.py
       - tests/matlab_oracle/**
       - tests/test_matlab_oracle.py
+      - tests/oracles/safe.py
+      - tests/safe_oracle/**
+      - tests/test_safe_oracle.py
+      - tests/test_safe.py
+      - tests/conftest.py
+      - tests/synthetic.py
       - pyproject.toml
       - uv.lock
       - flake.nix
@@ -48,7 +65,11 @@ on:
       - src/pulseq_analysis/*.py
       - src/pulseq_analysis/analyses/__init__.py
       - src/pulseq_analysis/analyses/loading.py
+      - src/pulseq_analysis/analyses/asc.py
       - src/pulseq_analysis/analyses/grad_peaks.py
+      - src/pulseq_analysis/analyses/pns_levels.py
+      - src/pulseq_analysis/analyses/safe.py
+      - src/pulseq_analysis/analyses/series.py
       - src/pulseq_analysis/seqfile/**
       - src/pulseq_analysis/synth/**
       - packages/pulseq-cpp-siemens/src/**
@@ -62,6 +83,12 @@ on:
       - tests/oracles/matlab.py
       - tests/matlab_oracle/**
       - tests/test_matlab_oracle.py
+      - tests/oracles/safe.py
+      - tests/safe_oracle/**
+      - tests/test_safe_oracle.py
+      - tests/test_safe.py
+      - tests/conftest.py
+      - tests/synthetic.py
       - pyproject.toml
       - uv.lock
       - flake.nix
@@ -101,3 +128,10 @@ jobs:
           nix develop --command uv run --project packages/pulseq-cpp-siemens --no-sync
           pytest -q -rs
           packages/pulseq-cpp-siemens/tests/test_interpreter_in_pulseq_analysis.py::test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq
+      - name: The SAFE oracle is on the PATH
+        run: >-
+          nix develop --command uv run python -c 'import sys; sys.path.insert(0, "tests");
+          from oracles import safe; sys.exit(0 if safe.command_path() else
+          f"{safe.COMMAND} is not on the PATH: the SAFE tests would skip")'
+      - name: The SAFE model against the original SAFE package and calcPNS
+        run: nix develop --command uv run pytest -q -rs tests/test_safe_oracle.py
