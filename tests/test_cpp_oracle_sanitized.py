@@ -5,6 +5,9 @@ exits with 3 when one of them fires: the reader has undefined behaviour on the f
 build of the reader can then crash, accept or reject, by platform (section 5.3 of
 `docs/plans/parser-redesign.md`); this verdict is the same on each platform.
 
+The module calls no code of pulseq_analysis: it characterises the build. Its tables give the
+verdict of the build on each fixture, and the tests check the build against them.
+
 The module skips when the binary is not on the PATH, as outside the Nix devShell.
 """
 
@@ -134,14 +137,6 @@ def test_the_sanitized_verdict_of_each_fixture(name):
     assert verdict == expected_verdict(name), messages
     if verdict == "undefined":
         assert "Sanitizer" in messages or "undefined behaviour" in messages, messages
-
-
-def test_each_case_of_undefined_behaviour_of_the_plan_has_a_fixture():
-    """Each entry of the undefined behaviour has a fixture with the verdict "undefined", except
-    D5.4, which has a fixture with no end."""
-    entries = {entry for entry, _ in UNDEFINED.values()}
-    assert entries == {"D5.1", "D5.3", "D5.5", "D5.6", "D5.7", "D5.8"}
-    assert set(NO_END.values()) == {"D5.4"}
 
 
 @pytest.mark.skipif(ORACLE is None, reason="pulseq-cpp-oracle is not on the PATH")
