@@ -5,7 +5,8 @@ those of its `pyproject.toml`.
 
 The documents are the Markdown files at the top of the repository, of `docs/` and of `tests/` (and
 its folders), and the same of `packages/pulseq-cpp-siemens/`. The folders of `docs/` (`plans/`,
-`reviews/`) are not read: they keep the text of the time they were written.
+`reviews/`) are not read: they keep the text of the time they were written. The check of the
+names of the tests also reads the Python files of `src/` and `tests/`, and the same of the plugin.
 
 The module imports only `pulseq_analysis` and the standard library, so it needs no build of the
 plugin: it reads `CODES` of `cpp-siemens` from the source of the plugin with `ast`.
@@ -50,6 +51,7 @@ _LINK = re.compile(r"\]\(([^()\s]+)(?:\s+\"[^\"]*\")?\)")
 _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _LINE_ANCHOR = re.compile(r"L(\d+)(?:-L(\d+))?")
 _RECORD_ID = re.compile(r"(?<![\w.])D[1-7]\.\d+(?!\w)")
+_TEST_NAME = re.compile(r"(?<![\w./])test_\w+(?![\w.])")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
 _REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
 _UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
@@ -75,6 +77,16 @@ def _documents() -> list[Path]:
         found += sorted((base / "docs").glob("*.md"))
         found += sorted((base / "tests").rglob("*.md"))
     return found
+
+
+def _python_files() -> list[Path]:
+    """The Python files of `src/` and `tests/` (and their folders), and the same of the plugin."""
+    return [
+        path
+        for base in (ROOT, PLUGIN)
+        for folder in ("src", "tests")
+        for path in sorted((base / folder).rglob("*.py"))
+    ]
 
 
 def _text(path: Path) -> str:
@@ -237,6 +249,51 @@ def test_each_relative_link_with_an_anchor_resolves():
         if not _resolves(target, anchor)
     ]
     assert not broken, f"links whose anchor is not in their target: {broken}"
+
+
+def _tests() -> set[str]:
+    """The name of each test function (a method of a class too) and of each test module of the
+    `tests/` of the repository and of the plugin, read with `ast`: `test_interface` is the
+    module `tests/test_interface.py`."""
+    names = set()
+    for base in (ROOT, PLUGIN):
+        for path in (base / "tests").rglob("test_*.py"):
+            names.add(path.stem)
+            names |= {
+                node.name
+                for node in ast.walk(ast.parse(_text(path)))
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                and node.name.startswith("test_")
+            }
+    return names
+
+
+def test_each_test_that_a_document_names_exists():
+    """Each test name (`test_...`) in a code span of a document, or of the text (the docstrings
+    and the comments) of a Python file of `src/` or `tests/` of the repository or of the plugin,
+    is a test function or a test module of their `tests/`, so a text does not cite a test that
+    was removed or renamed. A name in a path (`tests/test_x.py`) or followed by a dot is not
+    read, and a parametrize ID (`[id]`) after a name is not read."""
+    tests = _tests()
+    cited = [
+        (path, number, name)
+        for path in _documents() + _python_files()
+        for number, line in enumerate(_text(path).splitlines(), 1)
+        for span in _SPAN.findall(line)
+        for name in _TEST_NAME.findall(span)
+    ]
+    # The reading finds the names of a document and of a docstring, of a test and of a module.
+    found = {(path, name) for path, _, name in cited}
+    assert (ROOT / "TESTS.md", "test_each_relative_link_with_an_anchor_resolves") in found
+    assert (ROOT / "TESTS.md", "test_interpreters") in found
+    spectrum_tests = ROOT / "tests" / "test_grad_spectrum.py"
+    assert (spectrum_tests, "test_matches_oracle_with_many_chunks") in found
+    missing = [
+        f"{path.relative_to(ROOT)}:{number}: {name}"
+        for path, number, name in cited
+        if name not in tests
+    ]
+    assert not missing, f"the texts name tests that do not exist: {missing}"
 
 
 def test_no_document_links_a_commit():

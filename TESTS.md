@@ -9072,7 +9072,8 @@ repeat a table of the code, and the version of pulseq-cpp-siemens that the docum
 documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
-time they were written. The module imports only `pulseq_analysis` and the standard library, so
+time they were written. `test_each_test_that_a_document_names_exists` also reads the Python files
+of `src/` and `tests/` of both. The module imports only `pulseq_analysis` and the standard library, so
 the docs-only path of `scripts/check` runs it with `test_interface.py`, with no build of the
 plugin.
 
@@ -9106,6 +9107,25 @@ and one within a document.
 **Assumptions:** Only ATX headings (`#` to `######`) are read, and the reference links
 (`[text][ref]`) are not. A `_` of emphasis in a heading stays in its anchor, where GitHub drops
 it.
+
+#### `test_each_test_that_a_document_names_exists`
+
+**Checks:** Each test name (`test_...`) that a document, or a docstring or a comment of a Python
+file of `src/` or `tests/` (of the repository and of the plugin), gives in a code span is a test
+function or a test module of the `tests/` of the repository or of the plugin (finding 3.8 of
+`docs/reviews/2026-10-13-code-review.md`: a test that was removed was still cited).
+
+**How:** The test reads the names of the test functions (`def test_...`, at any depth) and the
+names of the modules (`test_*.py`) of both `tests/` with `ast`, so it imports no test module. It
+reads each code span of each line of each document and Python file, code blocks too, and each name
+`test_` and letters, digits or `_` in it with no letter, digit, `_`, `.` or `/` before it and no
+letter, digit, `_` or dot after it. It checks that it found a test and a module in `TESTS.md` and a
+test in a docstring of `tests/test_grad_spectrum.py`, and collects each name that is no test.
+
+**Assumptions:** A name outside a code span is not read, and neither is a name in a path
+(`tests/test_x.py`), followed by a dot, or in `scripts/`. A name of a test of another module, or a
+name of a function `test_...` that pytest does not collect, counts as a test. The test does not
+check that the test is the one that the text means.
 
 #### `test_no_document_links_a_commit`
 
