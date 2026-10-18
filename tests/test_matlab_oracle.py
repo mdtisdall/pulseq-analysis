@@ -4,8 +4,10 @@ command `pulseq-matlab-oracle` (`tests/oracles/matlab.py`, `tests/matlab_oracle/
 For each file of `tests/seqfiles/valid_*.seq` and `tests/seqfiles/oracle/*.seq` that the `spec`
 interpreter (`seqfile.read_seqfile`) accepts, the tests compare the package with what MATLAB Pulseq gives for the
 file: the events of each block (`getBlock`) and the block durations, the gradient waveform of
-each axis (`waveforms_and_times`), and the times of the ADC samples. Block `b` of the model, in
-play order, is block `b + 1` of MATLAB. Both read the same text in float64, so a value is
+each axis (`waveforms_and_times`), and the times of the ADC samples. For each such file with a
+ROTATIONS section, and for one file that a test builds from `valid_1_5_1.seq`, they compare the
+gradient peaks of the package with the values of MATLAB's rotated polylines. Block `b` of the
+model, in play order, is block `b + 1` of MATLAB. Both read the same text in float64, so a value is
 compared to a relative 1e-12 of the largest magnitude of its event or axis, and a time to an
 absolute 1e-12 s. A difference fails the test, with the file, the block, the field and the two
 values.
@@ -15,8 +17,10 @@ say why: `shape_dur` of an RF event of cells whose dwell is more than one RF ras
 points whose last time is not a whole number of RF rasters (D2.12: MATLAB rounds the last time up
 to the RF raster), `first` of a 1.4 gradient with a time shape (U23), the polyline of an arbitrary
 gradient of time ID 0 away from its samples and its ends (U21), the waveform of a file older than
-1.5.1 with a rotation (MATLAB rotates in any version, `spec` from 1.5.1 only, D4.6), and the
-midpoints of the waveform at the boundary of a block that plays a rotation (D2.14).
+1.5.1 with a rotation (MATLAB rotates in any version, `spec` from 1.5.1 only, D4.6), the
+midpoints of the waveform at the boundary of a block that plays a rotation (D2.14), and for the
+gradient peaks the segments that start at such a boundary where an event starts or ends at a
+value that is not 0 (D2.14).
 
 The module skips when the command is not on the PATH: only the default devShell has it.
 """
@@ -29,8 +33,10 @@ from oracles import matlab
 
 from pulseq_analysis import seqfile
 from pulseq_analysis.analyses import load
+from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.seqfile import NotSupported, SeqFileError
 from pulseq_analysis.seqfile.model import TIME_TOLERANCE
+from pulseq_analysis.synth import seq_utils
 from pulseq_analysis.synth._events import _points_from_events
 from pulseq_analysis.synth.events import (
     ArbitraryGradient,
@@ -119,6 +125,16 @@ def _rotated_blocks(data):
     return rotated
 
 
+def _cache_dir(request):
+    """The folder of the cache of the oracle (`tests/oracles/matlab.py`)."""
+    cache = getattr(request.config, "cache", None)
+    return (
+        cache.mkdir("matlab-oracle")
+        if cache is not None
+        else Path(request.config.rootpath) / ".pytest_cache" / "d" / "matlab-oracle"
+    )
+
+
 @pytest.fixture(scope="session")
 def cases(request):
     """The model of each file of `FILES` that the `spec` interpreter accepts, and the
@@ -131,13 +147,7 @@ def cases(request):
             models[path] = seqfile.read_seqfile(path)
         except (SeqFileError, NotSupported) as error:
             rejected[path] = error
-    cache = getattr(request.config, "cache", None)
-    cache_dir = (
-        cache.mkdir("matlab-oracle")
-        if cache is not None
-        else Path(request.config.rootpath) / ".pytest_cache" / "d" / "matlab-oracle"
-    )
-    dumps = matlab.MatlabOracle(cache_dir, COMMAND).load(list(models))
+    dumps = matlab.MatlabOracle(_cache_dir(request), COMMAND).load(list(models))
     return models, dumps, rejected, {}
 
 
@@ -573,3 +583,293 @@ def compare_rotated_gradients(case, data, rel):
     diff.check()
     if decoding.rotation_record.not_identity:
         assert unrotated_differs, "the reader's unrotated gradients agree with MATLAB's"
+
+
+# The changes of `valid_1_5_1.seq` that `_rotated_two_axes` makes: the rows of the file and
+# their replacements.
+TWO_AXES_ROWS = {
+    "\n5  10  0  5  0  0  0  3\n": "\n5  10  0  5  7  0  0  3\n",
+    "\n9  10  0  0  0  0  0  6\n": "\n9  10  0  5  7  0  0  6\n",
+    "\n1 1000000 100 200 100 100\n": "\n1 1000000 100 200 100 100\n7 50000 20 20 20 20\n",
+    "\n6 6 1 3\n7 7 1 0\n": "\n6 6 1 8\n7 7 1 0\n8 5 2 0\n",
+    "\n1 0.92388 0 0 0.382683\n": "\n1 0.92388 0 0 0.382683\n2 0.92388 0 0.382683 0\n",
+}
+
+
+def _rotated_two_axes(directory):
+    """`valid_1_5_1.seq` with gradient events on two axes in its two rotated blocks, written in
+    `directory` (`TWO_AXES_ROWS`). Block 5 plays gx 5 and a new trapezoid 7 on gy, with its
+    rotation of 45 degrees about z. Block 9 (of the same duration, with a rotation and no
+    gradient in `valid_1_5_1.seq`) plays the same two events with a new rotation of 45 degrees
+    about y: the same scalar part of the quaternion, about another axis. The trapezoid (50 000
+    Hz/m, a delay, rise, flat and fall time of 20 us each) has its corners at 20, 40, 60 and 80
+    us, and gx 5 at 0, 10, 30, 60 and 100 us, so each rotated axis has the times of both. No file
+    of `tests/seqfiles` has a rotated block with events on two axes, or two blocks with the same
+    events and two rotations of one angle. The amplitude keeps the slew of the rotated gradients
+    within the limit that MATLAB checks when `mr.rotate3D` adds them (`mr.addGradients`): with
+    200 000 Hz/m, MATLAB cannot read the file (a slew rate violation of 122 %)."""
+    text = (SEQFILES / "valid_1_5_1.seq").read_text()
+    for old, new in TWO_AXES_ROWS.items():
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    path = directory / "rotated_two_axes.seq"
+    path.write_text(text)
+    return path
+
+
+def _steps_at(case, edges):
+    """The times of `edges` (s) where a gradient event of MATLAB's `getBlock` starts or ends at a
+    value that is not 0: `first` and `last` of an arbitrary gradient, and the amplitude of a
+    trapezoid with a rise or a fall time of 0. Only at such a time can the gradient of one block
+    end at one value and that of the next start at another."""
+    starts = case.index.start_s
+    steps = set()
+    for edge in edges:
+        for b, block in enumerate(case.dump["blocks"]):
+            for axis in ("gx", "gy", "gz"):
+                g = block[axis]
+                if g is None:
+                    continue
+                begin = starts[b] + g["delay"]
+                if g["type"] == "trap":
+                    end = begin + g["riseTime"] + g["flatTime"] + g["fallTime"]
+                    first = g["amplitude"] if g["riseTime"] == 0 else 0.0
+                    last = g["amplitude"] if g["fallTime"] == 0 else 0.0
+                else:
+                    end, first, last = begin + g["shape_dur"], g["first"], g["last"]
+                if (abs(begin - edge) <= TIME and first != 0) or (
+                    abs(end - edge) <= TIME and last != 0
+                ):
+                    steps.add(float(edge))
+    return np.array(sorted(steps))
+
+
+def _left_out(case, turned):
+    """The open intervals of time (s) that the test of the gradient peaks leaves out, on every
+    axis: each segment of MATLAB's polyline that starts at the start or the end of a block of
+    `turned` (play indices) where a gradient event starts or ends at a value that is not 0
+    (`_steps_at`, D2.14), and each segment with a point that MATLAB restores (`_restored`, U21).
+
+    Where the gradient of one block ends and that of the next block starts at one time, MATLAB
+    keeps the last point of the earlier block and leaves out the points of the later block at
+    that time (`waveforms_and_times`, Sequence.m:2143). So its segment into the later block
+    starts at the value of the earlier block, and the measurements draw a step there, with its
+    slew, and the segment of the later block from its own first value. A segment that ends at
+    such a boundary is the same in both. So is a segment that starts at a boundary where no event
+    starts or ends at a value that is not 0 (both values are 0 there), and a segment at a boundary
+    of a block that plays no rotation, where the test of the waveform compares the midpoints."""
+    starts, durations = case.index.start_s[turned], case.index.duration_s[turned]
+    steps = _steps_at(case, np.concatenate([starts, starts + durations]))
+    intervals = []
+    for axis in ("gx", "gy", "gz"):
+        wave = case.dump["waveforms"][axis]
+        if wave is None:
+            continue
+        t = _array(wave["t"])
+        restored = _restored(case, axis, t)
+        at_step = np.abs(t[:, None] - steps[None, :]).min(axis=1, initial=np.inf) <= TIME
+        for i in np.flatnonzero(t[1:] > t[:-1]).tolist():
+            if restored[i] or restored[i + 1] or at_step[i]:
+                intervals.append((float(t[i]), float(t[i + 1])))
+    return sorted(intervals)
+
+
+def _windows(lo, hi, left_out):
+    """The closed intervals of `[lo, hi]` that are outside each open interval of `left_out`
+    (sorted by their starts), each of a length above 0."""
+    windows, start = [], lo
+    for a, b in left_out:
+        if b <= start or a >= hi:
+            continue
+        if a > start:
+            windows.append((float(start), float(a)))
+        start = max(start, b)
+    if start < hi:
+        windows.append((float(start), float(hi)))
+    return windows
+
+
+def _sides(t, v, q):
+    """The values of MATLAB's polyline `(t, v)` just before and just after each time of `q`: 0
+    before its first point and after its last point, and at a time of several points the value
+    of the first of them before it and of the last of them after it."""
+    if t.size < 2:
+        return np.zeros(q.size), np.zeros(q.size)
+    i = np.clip(np.searchsorted(t, q, side="left"), 1, t.size - 1)
+    j = np.clip(np.searchsorted(t, q, side="right") - 1, 0, t.size - 2)
+
+    def line(k0, k1):
+        span = np.where(t[k1] > t[k0], t[k1] - t[k0], 1.0)
+        return v[k0] + (v[k1] - v[k0]) * (q - t[k0]) / span
+
+    before = np.where(t[i] == q, v[i], line(i - 1, i))
+    after = np.where(t[j] == q, v[j], line(j, j + 1))
+    return (
+        np.where((q > t[0]) & (q <= t[-1]), before, 0.0),
+        np.where((q >= t[0]) & (q < t[-1]), after, 0.0),
+    )
+
+
+class _Expected:
+    """The values that `gradient_peaks` gives for the window `[lo, hi]`, from MATLAB's polylines
+    `waves` (the axis letter to `(t, v)`, or `(None, None)` for an axis with no point), by the
+    rules of `analyses/grad_peaks.py`. Each value is a list of candidates `(time, value)`, of
+    which the largest is the value:
+
+    - the peak of an axis: the ends of each segment of a length above 0, cut by the window, with
+      the value of the line at an edge that cuts it;
+    - the slew: the slope of each cut segment of `seq_utils.TIME_TOLERANCE` or more, at its start,
+      and the step from 0 at the first point and to 0 at the last point of the axis, `|value| /
+      dt`, when its time `t` has `lo <= t < hi` and is more than `seq_utils.TIME_TOLERANCE`
+      before the end of the sequence `end_s`;
+    - the vector peak: `sqrt(gx² + gy² + gz²)` at `lo`, at `hi` and at the time of each point of
+      the three axes in the window, just before and just after it (`_sides`), but not before
+      `lo` nor after `hi`.
+
+    The RMS of an axis is the square root of the integral of the square of the cut segments,
+    divided by `hi - lo`."""
+
+    def __init__(self, waves, dt, end_s, lo, hi):
+        tolerance = seq_utils.TIME_TOLERANCE
+        self.peak, self.slew, self.rms = {}, {}, {}
+        times = [np.array([lo, hi])]
+        for axis, (t, v) in waves.items():
+            self.peak[axis], self.slew[axis], self.rms[axis] = [], [], 0.0
+            if t is None:
+                continue
+            t0, t1, v0, v1 = t[:-1], t[1:], v[:-1], v[1:]
+            a, b = np.maximum(t0, lo), np.minimum(t1, hi)
+            cut = b > a
+            t0, t1, v0, v1, a, b = (x[cut] for x in (t0, t1, v0, v1, a, b))
+            span = t1 - t0
+            va = np.where(a == t0, v0, v0 + (v1 - v0) * (a - t0) / span)
+            vb = np.where(b == t1, v1, v0 + (v1 - v0) * (b - t0) / span)
+            self.peak[axis] = [*zip(a, np.abs(va), strict=True), *zip(b, np.abs(vb), strict=True)]
+            long = b - a >= tolerance
+            self.slew[axis] = list(zip(a[long], (np.abs(v1 - v0) / span)[long], strict=True))
+            for at, value in ((t[0], v[0]), (t[-1], v[-1])):
+                if value != 0 and lo <= at < min(hi, end_s - tolerance):
+                    self.slew[axis].append((at, abs(value) / dt))
+            integral = np.sum((b - a) * (va * va + va * vb + vb * vb)) / 3.0
+            self.rms[axis] = float(np.sqrt(integral / (hi - lo)))
+            times.append(t[(t >= lo) & (t <= hi)])
+        q = np.unique(np.concatenate(times))
+        before, after = np.zeros(q.size), np.zeros(q.size)
+        for t, v in waves.values():
+            if t is not None:
+                axis_before, axis_after = _sides(t, v, q)
+                before += axis_before**2
+                after += axis_after**2
+        before[q == lo] = 0.0
+        after[q == hi] = 0.0
+        self.vector = [*zip(q, np.sqrt(before), strict=True), *zip(q, np.sqrt(after), strict=True)]
+
+
+def _compare_largest(diff, where, field, value, time, candidates, tolerance):
+    """`value` is the largest value of `candidates` (`_Expected`) to `tolerance`, and when that
+    is above `tolerance`, `time` is the time (to `TIME`) of a candidate with that value: of the
+    values that are equal but for MATLAB's rounding, the package can give any."""
+    largest = float(max((c for _, c in candidates), default=0.0))
+    if abs(value - largest) > tolerance:
+        diff.add(where, field, value, largest, f"; difference {abs(value - largest):.3g}")
+    elif largest > tolerance and not any(
+        abs(at - time) <= TIME and abs(c - largest) <= tolerance for at, c in candidates
+    ):
+        times = sorted({float(at) for at, c in candidates if abs(c - largest) <= tolerance})
+        diff.add(where, f"{field} (time)", time, times)
+
+
+def compare_gradient_peaks(case, path):
+    """`gradient_peaks` of `load(path)` (`spec`) has the values of MATLAB's polylines
+    (`_Expected`) in each window: the peak, the slew and the RMS of each axis and the vector
+    peak, each with a time of MATLAB's that has the value. The windows are the whole file and
+    each block, without the intervals of `_left_out`; a window of the whole file without one is
+    `window=None`. `block_gradient_values` has the vector peak of each block that has no
+    interval left out and no neighbour of duration 0, which is that of the window of the block.
+
+    A value is compared to a relative `REL` of the largest value of MATLAB's axis, a slew to a
+    relative `REL` of the largest slew of MATLAB's axis (both of the three axes for the vector
+    peak and for an axis where MATLAB has no point), and a time to `TIME`."""
+    snap = load(path)
+    blocks, quaternions = snap.decoding.rotations()
+    turned = blocks[np.any(quaternions[:, 1:] != 0, axis=1)]
+    left_out = _left_out(case, turned)
+    dt = case.data.rasters.gradient
+    starts, durations = case.index.start_s, case.index.duration_s
+    end_s = float(starts[-1] + durations[-1])
+    waves = {}
+    for axis in ("gx", "gy", "gz"):
+        wave = case.dump["waveforms"][axis]
+        waves[axis[1]] = (None, None) if wave is None else (_array(wave["t"]), _array(wave["v"]))
+    scale = {a: np.abs(v).max() for a, (_, v) in waves.items() if v is not None}
+    whole_file = _Expected(waves, dt, end_s, 0.0, end_s)
+    slew_scale = {a: max((c for _, c in whole_file.slew[a]), default=0.0) for a in scale}
+    vector_scale, largest_slew = max(scale.values()), max(slew_scale.values())
+    for axis in waves:
+        scale.setdefault(axis, vector_scale)
+        slew_scale.setdefault(axis, largest_slew)
+
+    whole = _windows(0.0, end_s, left_out)
+    windows = [(None, None)] if whole == [(0.0, end_s)] else [(None, w) for w in whole]
+    for b in range(starts.size):
+        windows += [(b, w) for w in _windows(starts[b], starts[b] + durations[b], left_out)]
+    diff = Differences(case.name)
+    for b, window in windows:
+        lo, hi = (0.0, end_s) if window is None else window
+        where = f"window ({lo!r}, {hi!r})" + ("" if b is None else f" in block {b + 1}")
+        peaks = gradient_peaks(snap, window=window)
+        expected = _Expected(waves, dt, end_s, lo, hi)
+        for axis, ours in peaks.axes.items():
+            at = f"{where} {axis}"
+            tolerance = REL * scale[axis]
+            peak, time = ours.peak_hz_per_m, ours.peak_time_s
+            _compare_largest(diff, at, "peak", peak, time, expected.peak[axis], tolerance)
+            slew, time = ours.max_slew_hz_per_m_per_s, ours.slew_time_s
+            slew_tolerance = REL * slew_scale[axis]
+            _compare_largest(diff, at, "slew", slew, time, expected.slew[axis], slew_tolerance)
+            if abs(ours.rms_hz_per_m - expected.rms[axis]) > tolerance:
+                diff.add(at, "rms", ours.rms_hz_per_m, expected.rms[axis])
+        peak, time = peaks.vector_peak_hz_per_m, peaks.vector_peak_time_s
+        tolerance = REL * vector_scale
+        _compare_largest(diff, where, "vector peak", peak, time, expected.vector, tolerance)
+    values = block_gradient_values(snap)
+    for b in range(starts.size):
+        lo, hi = starts[b], starts[b] + durations[b]
+        next_to_0 = np.any(durations[max(b - 1, 0) : b + 2] == 0)
+        if next_to_0 or _windows(lo, hi, left_out) != [(lo, hi)]:
+            continue
+        peak, time = float(values.vector_peak_hz_per_m[b]), float(values.vector_peak_time_s[b])
+        expected = _Expected(waves, dt, end_s, lo, hi).vector
+        where = f"block {b + 1}, block_gradient_values"
+        _compare_largest(diff, where, "vector peak", peak, time, expected, REL * vector_scale)
+    diff.check()
+
+
+# The files of the test of the gradient peaks: those with a ROTATIONS section, and the one of
+# `_rotated_two_axes` (None).
+PEAK_FILES = [*ROTATION_FILES, None]
+
+
+@pytest.mark.parametrize(
+    "path",
+    PEAK_FILES,
+    ids=lambda p: "built/rotated_two_axes.seq" if p is None else str(p.relative_to(SEQFILES)),
+)
+def test_the_gradient_peaks_of_a_rotated_file_are_those_of_matlab_pulseq(
+    cases, request, tmp_path, path
+):
+    """The gradient peaks of each file with a ROTATIONS section from 1.5.1, and of a file with
+    events on two axes in each of its two rotated blocks, of two rotations of one angle
+    (`_rotated_two_axes`, which MATLAB reads in a run of its own), are those of MATLAB's rotated
+    polylines (`compare_gradient_peaks`). A file older than 1.5.1 is left out: MATLAB rotates in
+    any version, and `spec` reads ROTATIONS from 1.5.1 only (D4.6)."""
+    if path is None:
+        path = _rotated_two_axes(tmp_path)
+        dump = matlab.MatlabOracle(_cache_dir(request), COMMAND).load([path])[path]
+        assert "error" not in dump, f"{path.name}: MATLAB cannot read it: {dump['error']}"
+        case = Case(path.name, seqfile.read_seqfile(path), dump)
+    else:
+        case = case_of(cases, path)
+    if case.data.version < (1, 5, 1):
+        pytest.skip("spec reads ROTATIONS from 1.5.1 only (D4.6)")
+    compare_gradient_peaks(case, path)
