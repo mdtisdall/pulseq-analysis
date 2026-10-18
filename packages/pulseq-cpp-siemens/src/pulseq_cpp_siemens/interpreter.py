@@ -88,14 +88,17 @@ from pulseq_analysis.seqfile.model import (
     Signature,
 )
 from pulseq_analysis.seqfile.spec import MAX_LOCATIONS
+from pulseq_analysis.synth.decoding import Points
 from pulseq_analysis.synth.scanner import (
     FovRecord,
     RotationRecord,
     Session,
     SoftDelay,
+    block_physical_gradients,
     fov_flags,
     fov_record,
-    physical_gradients,
+    pure_delay_blocks,
+    rotation_rows,
     soft_delay_durations,
 )
 from pulseq_cpp_siemens import _checks
@@ -664,10 +667,6 @@ def _rotations(rotations: dict[int, tuple[float, float, float, float]]) -> np.nd
     return out
 
 
-# The points of one gradient event (`pulseq_analysis.synth.decoding.Points`): its delay (s), and
-# the offsets (s, from the delay) and the values (Hz/m) of its points.
-Points = tuple[float, np.ndarray, np.ndarray]
-
 # A value that `CppSiemensDecoding` keeps (`gradient_variants`, and the rows of the rotations of
 # `gradients_at`), before its first call.
 _NOT_KEPT = object()
@@ -712,13 +711,12 @@ class CppSiemensDecoding:
             SoftDelay(int(b), int(n), int(o) / _US, float(f), _text(h))
             for b, n, o, f, h in zip(*found, strict=True)
         ]
-        pure_delay = np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
         ticks, self.soft_delay_record = soft_delay_durations(
             self.session,
             soft_delays,
             stored,
             data.rasters.block_duration,
-            pure_delay,
+            pure_delay_blocks(blocks),
             interpreter=self.interpreter.name,
             version=data.version,
         )
@@ -797,7 +795,7 @@ class CppSiemensDecoding:
         reader's `rotate_vec3_by_quat`: the gradients that the scanner plays when it applies the
         rotation, and applies the field of view too. The field of view scales the logical axes of
         each block without NOSCL before the block's rotation, and turns each block without NOROT
-        after it (`pulseq_analysis.synth.scanner.physical_gradients`)."""
+        after it (`pulseq_analysis.synth.scanner.block_physical_gradients`)."""
         rotate_blocks = self.interpreter.rotation == "apply" if rotated is None else rotated
         session = self.session
         if (rotated is not None and not rotated) or not (session.rotates or session.scales):
@@ -808,25 +806,21 @@ class CppSiemensDecoding:
         logical = self._reading.gradients_at(
             block_index, time_us, rotated=False, actual_ru=self._actual_ru
         )
-        block_rows = np.zeros(block_index.size, dtype=bool)
-        quaternions = np.zeros((0, 4))
+        rows = table = None
         if rotate_blocks:
             if self._rotation_rows is _NOT_KEPT:
-                indices, table = self.rotations()
-                row = np.full(self.block_count, -1)
-                row[indices] = np.arange(indices.size)
-                self._rotation_rows = _frozen(row), _frozen(table)
-            row, table = self._rotation_rows
-            block_rows = row[block_index] >= 0
-            quaternions = table[row[block_index[block_rows]]]
-        return physical_gradients(
+                indices, quaternions = self.rotations()
+                self._rotation_rows = rotation_rows(self.block_count, indices), _frozen(quaternions)
+            rows, table = self._rotation_rows
+        return block_physical_gradients(
             logical,
             session,
-            scale_rows=~self._noscale[block_index],
-            block_rows=block_rows,
-            block_quaternions=quaternions,
-            fov_rows=~self._norot[block_index],
-            rotate=cs.rotate_vec3_by_quat,
+            block_index,
+            self._norot,
+            self._noscale,
+            cs.rotate_vec3_by_quat,
+            rows,
+            table,
         )
 
     def gradient_points(self, key: int, block: int, axis: int) -> Points:

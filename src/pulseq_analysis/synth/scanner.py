@@ -13,12 +13,15 @@ module has:
   `Plugin.decode(data, session)` (P22) and applies it with its own hooks.
 - The simulation of the session, one implementation for each mechanism, shared by the
   interpreters (rule 6): a plugin may import it. `soft_delay_durations` computes the duration of
-  each block from the session's soft delays by the specification's rule, `fov_flags` the flags
-  NOROT and the flag that turns off the scaling of each block, as a state across blocks, and
-  `physical_gradients` the gradients on the physical axes, in the order of MATLAB Pulseq's
-  `mr.TransformFOV`: the scaling of the logical axes first, then the block's rotation, then the
-  rotation of the field of view (the user, 2026-10-13). No source gives the order of the
-  scanner's interpreter.
+  each block from the session's soft delays by the specification's rule (on the pure delay
+  blocks of `pure_delay_blocks`), `fov_flags` the flags NOROT and the flag that turns off the
+  scaling of each block, as a state across blocks, and `physical_gradients` the gradients on the
+  physical axes, in the order of MATLAB Pulseq's `mr.TransformFOV`: the scaling of the logical
+  axes first, then the block's rotation, then the rotation of the field of view (the user,
+  2026-10-13). No source gives the order of the scanner's interpreter.
+  `block_physical_gradients` is `physical_gradients` at a block index for each row, with the
+  flags of `fov_flags` and the rows of the blocks' rotations of `rotation_rows`: what the
+  `gradients_at` of each decoding applies.
 - The records of what a decoding applied (rule 4): `RotationRecord`, `SoftDelayRecord` and
   `FovRecord`. Each decoding (`decoding.Decoding`) gives them.
 - `ScannerSettingWarning`: the warning for content of the file that a decoding leaves unapplied;
@@ -46,9 +49,12 @@ __all__ = [
     "SettingError",
     "SoftDelay",
     "SoftDelayRecord",
+    "block_physical_gradients",
     "fov_flags",
     "fov_record",
     "physical_gradients",
+    "pure_delay_blocks",
+    "rotation_rows",
     "soft_delay_durations",
 ]
 
@@ -304,6 +310,12 @@ class SoftDelay:
     hint: str
 
 
+def pure_delay_blocks(blocks: np.ndarray) -> np.ndarray:
+    """Whether each block of the block table `blocks` (`SequenceData.blocks`) has no RF, gradient
+    or ADC event (spec:545): the `pure_delay` of `soft_delay_durations`, a bool array."""
+    return np.all([blocks[c] == 0 for c in ("rf", "gx", "gy", "gz", "adc")], axis=0)
+
+
 def soft_delay_durations(
     session: Session,
     soft_delays: Sequence[SoftDelay],
@@ -434,6 +446,50 @@ def physical_gradients(
         q = np.ascontiguousarray(np.broadcast_to(np.asarray(session.fov_rotation), (n, 4)))
         out[fov_rows] = rotate(q, np.ascontiguousarray(out[fov_rows]))
     return out
+
+
+def rotation_rows(block_count: int, blocks: np.ndarray) -> np.ndarray:
+    """The row of each block (play order) in the rotations of a decoding
+    (`decoding.Decoding.rotations`) whose play indices are `blocks`: -1 for a block with no
+    rotation. An int64 array (`block_count`), read-only, for `block_physical_gradients`."""
+    rows = np.full(block_count, -1, dtype=np.int64)
+    rows[blocks] = np.arange(np.asarray(blocks).size)
+    rows.flags.writeable = False
+    return rows
+
+
+def block_physical_gradients(
+    logical: np.ndarray,
+    session: Session,
+    block_index: np.ndarray,
+    norot: np.ndarray,
+    noscale: np.ndarray,
+    rotate: Callable[[np.ndarray, np.ndarray], np.ndarray],
+    rows: np.ndarray | None = None,
+    quaternions: np.ndarray | None = None,
+) -> np.ndarray:
+    """`physical_gradients` of the logical gradients `logical` (n, 3), whose row i is of the
+    block `block_index[i]` (int64, n, play order): the session's scaling of the rows of each
+    block without its scaling flag (`noscale`, of `fov_flags`), the rotation of the rows of each
+    block with a rotation, by its quaternion (the row `rows[block]` of `quaternions`, with `rows`
+    of `rotation_rows`), then the rotation of the field of view of the rows of each block without
+    NOROT (`norot`). `rows` None turns no block by its own rotation. `rotate` is the
+    interpreter's active rotation."""
+    if rows is None:
+        turned = np.zeros(block_index.size, dtype=bool)
+        block_quaternions = np.zeros((0, 4))
+    else:
+        turned = rows[block_index] >= 0
+        block_quaternions = quaternions[rows[block_index[turned]]]
+    return physical_gradients(
+        logical,
+        session,
+        scale_rows=~noscale[block_index],
+        block_rows=turned,
+        block_quaternions=block_quaternions,
+        fov_rows=~norot[block_index],
+        rotate=rotate,
+    )
 
 
 def fov_record(
