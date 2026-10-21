@@ -5,6 +5,7 @@ its x86_64 build.
 
     sequence = load("file.seq")       # ExternalSequence::load, then the checks
     load("file.seq", oversampling="edge")  # the reader's other sampling modes (OVERSAMPLING)
+    load("file.seq", max_shape_samples=None)  # no limit of the samples of a shape
     sequence.libraries                # what load read: events, shapes, blocks, definitions
     sequence.decode_block(0)          # GetBlock and decodeBlock of one block
     sequence.decode()                 # every block, in play order
@@ -18,9 +19,11 @@ its x86_64 build.
     rotate_vec3_by_quat(q, v)         # the reader's rotation of vectors by quaternions
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
-and it rejects a file with a case of undefined behaviour of the reader before any block is
-decoded (`UndefinedBehaviour`, with every case and its code), so that the process survives the
-file. The checks take a `long` of 32 bits, as the Windows build of the reader has, on every host
+and a shape that declares more samples than `max_shape_samples` (2^27 by default) after
+`ExternalSequence::load` and before any shape is decompressed (`NotSupported`). It rejects a file
+with a case of undefined behaviour of the reader before any block is decoded
+(`UndefinedBehaviour`, with every case and its code), so that the process survives the file.
+The checks take a `long` of 32 bits, as the Windows build of the reader has, on every host
 (D5.11). A case that only a soft delay reaches (`actual_ru` longer than the stored duration of a
 block) is refused by `gradients_at`, at the times where the reader would meet it.
 
@@ -34,6 +37,7 @@ the `Sequence`: with several threads, it has the messages of the last call of
 
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -76,6 +80,12 @@ OVERSAMPLING = ("center", "edge", "preserve")
 # major*1000000 + minor*1000 + revision.
 _SUPPORTED = range(1_004_000, 1_006_000)
 
+# The default of `load`'s `max_shape_samples`: the most samples that a shape can declare, 2^27, 1
+# GiB of float64. It is `DEFAULT_MAX_SHAPE_SAMPLES` of `pulseq_analysis.seqfile.interpreters`, the
+# default of the setting of every interpreter of pulseq-analysis, which this module does not
+# import (the tests of the interpreter check that the two are equal).
+_DEFAULT_MAX_SHAPE_SAMPLES = 2**27
+
 # The first 8 bytes of a binary Pulseq file, which `ExternalSequence::load(path)` reads with
 # `loadBinary` (out of the package's scope).
 _BINARY_MAGIC = b"\x01pulseq\x02"
@@ -111,9 +121,11 @@ class UndefinedBehaviour(Rejected):
 
 
 class NotSupported(NotImplementedError):
-    """The file is outside what the package reads (Q1 of docs/plans/parser-redesign.md): a
-    version outside 1.4.0-1.5.x, a binary Pulseq file, or a folder of three files. The reader is
-    not run, and the exception says nothing about whether the file is valid."""
+    """The file is outside what the package reads. A version outside 1.4.0-1.5.x, a binary Pulseq
+    file, or a folder of three files (Q1 of docs/plans/parser-redesign.md): the reader is not
+    run. A shape that declares more samples than `load`'s `max_shape_samples`:
+    `ExternalSequence::load` ran, and no shape is decompressed and no block decoded. The
+    exception says nothing about whether the file is valid."""
 
 
 class Shape(NamedTuple):
@@ -197,11 +209,12 @@ class Sequence:
     """A file that `load` read and checked. Blocks are decoded on request; each decoded block is
     kept for `gradients_at`. `oversampling` is the reader's sampling mode of an oversampled
     arbitrary gradient (one of `OVERSAMPLING`), which `load` sets before any block is decoded.
+    `max_shape_samples` is the limit of the samples of a shape of that `load` (an int, or None).
 
-    A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode,
-    and loading it reads and checks the file again. `copy.copy` and `copy.deepcopy` return the
-    same object: nothing that a caller can reach changes after `load` (the decoded blocks are a
-    cache)."""
+    A `Sequence` can be pickled and copied. A pickle carries the bytes of the file, the mode and
+    the limit, and loading it reads and checks the file again under that limit. `copy.copy` and
+    `copy.deepcopy` return the same object: nothing that a caller can reach changes after `load`
+    (the decoded blocks are a cache)."""
 
     def __init__(
         self,
@@ -210,6 +223,7 @@ class Sequence:
         messages: str,
         data: bytes,
         oversampling: str,
+        max_shape_samples: int | None,
         hidden_one_point: dict[int, list[tuple[float, float]]],
     ):
         self._reader = reader
@@ -217,6 +231,7 @@ class Sequence:
         self.libraries = libraries
         self.messages = messages  # what the reader printed while it loaded the file
         self.oversampling = oversampling
+        self.max_shape_samples = max_shape_samples
         # The reader's messages for the block that `first_rejected_block` last found rejected:
         # with several threads, those of the last call of it to return.
         self.rejection_messages = ""
@@ -229,7 +244,7 @@ class Sequence:
         self._hidden_one_point = hidden_one_point
 
     def __reduce__(self):
-        return _load_again, (self._data, self.oversampling)
+        return _load_again, (self._data, self.oversampling, self.max_shape_samples)
 
     def __copy__(self) -> Sequence:
         return self
@@ -408,6 +423,18 @@ def _messages(messages: bytes) -> str:
     return messages.decode("utf-8", "backslashreplace")
 
 
+def _max_shape_samples(value) -> int | None:
+    """`value`, a `max_shape_samples` of `load`, as an int, or None. Raises `TypeError` when it
+    is a bool or not an integer (a numpy int is one), and `ValueError` when it is not above 0."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        raise TypeError(f"max_shape_samples is an int above 0 or None, not {value!r}")
+    if value <= 0:
+        raise ValueError(f"max_shape_samples is an int above 0 or None, not {value!r}")
+    return int(value)
+
+
 def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
     if isinstance(source, bytes):
         data, name = source, "<bytes>"
@@ -421,7 +448,11 @@ def _read_bytes(source: str | PathLike | bytes) -> tuple[bytes, str]:
     return data, name
 
 
-def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequence:
+def load(
+    source: str | PathLike | bytes,
+    oversampling: str = "center",
+    max_shape_samples: int | None = _DEFAULT_MAX_SHAPE_SAMPLES,
+) -> Sequence:
     """Read the file `source` (a path, or the bytes of a file) with `ExternalSequence::load`,
     and check it. Decodes no block.
 
@@ -429,11 +460,22 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
     `OVERSAMPLING`; ValueError otherwise). It is set before any block is decoded and stays for
     the life of the `Sequence`. "center" is the reader's default.
 
-    Raises `NotSupported` for a file outside the package's scope (the reader is not run),
+    `max_shape_samples` is the most samples that a shape can declare: 2^27 by default (the
+    setting `max_shape_samples` of every interpreter of pulseq-analysis), or None for no limit.
+    It is an int above 0: a numpy int is kept as an int, a bool or another type is a
+    `TypeError`, and 0 or less a `ValueError`. After `ExternalSequence::load`, which stores each
+    shape as the file stores it, `load` compares the number of samples of each shape of the
+    reader's libraries, as the reader read it, with the limit, before the checks decompress any
+    shape. The scanner's reader has no limit: it is the package's, so that a short file cannot
+    make the process allocate without bound (`decodeBlock` resizes a vector to that number).
+
+    Raises `NotSupported` for a file outside the package's scope (the reader is not run), and
+    for the shape of the lowest ID that declares more samples than `max_shape_samples`;
     `Rejected` when `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for the cases
     of undefined behaviour of `GetBlock` or `decodeBlock` on any block, with every case."""
     if oversampling not in OVERSAMPLING:
         raise ValueError(f"oversampling is one of {OVERSAMPLING}, not {oversampling!r}")
+    limit = _max_shape_samples(max_shape_samples)
     data, name = _read_bytes(source)
     reader = _reader.Reader(oversampling)
     # The version gate. For a file older than 1.4.0, load converts the blocks with GetBlock, before
@@ -457,15 +499,24 @@ def load(source: str | PathLike | bytes, oversampling: str = "center") -> Sequen
             f"{name}: the version gate read {found, major, minor, revision}, the reader "
             f"{libraries.version_parts}: the gate does not read the version as load does"
         )
+    for shape_id, shape in libraries.shapes.items():  # by ID, as the reader keeps them
+        if limit is not None and shape.num_samples > limit:
+            raise NotSupported(
+                f"{name}: shape {shape_id} declares {shape.num_samples} samples, more than the "
+                f"limit of {limit} (the setting max_shape_samples), and the package does not "
+                "decompress it. A larger max_shape_samples, or None for no limit, reads the file."
+            )
     checked = _checks.undefined_behaviour(
         libraries, _checks.CHECKED_SIZEOF_LONG, reader.gradient_rows()
     )
     if checked.cases:
         raise UndefinedBehaviour(checked.cases)
     reader.mark_checked()
-    return Sequence(reader, libraries, messages, data, oversampling, checked.hidden_one_point)
+    return Sequence(
+        reader, libraries, messages, data, oversampling, limit, checked.hidden_one_point
+    )
 
 
-def _load_again(data: bytes, oversampling: str) -> Sequence:
-    """What unpickling a `Sequence` calls."""
-    return load(data, oversampling=oversampling)
+def _load_again(data: bytes, oversampling: str, max_shape_samples: int | None) -> Sequence:
+    """What unpickling a `Sequence` calls: `load` with the mode and the limit of the `Sequence`."""
+    return load(data, oversampling=oversampling, max_shape_samples=max_shape_samples)
