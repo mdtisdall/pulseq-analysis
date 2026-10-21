@@ -6264,7 +6264,8 @@ code block. A bare name in a span or a block is a name of any module.
 **Checks:** Each public module and subpackage of the package has an `__all__`.
 
 **How:** The test walks the modules of the package, checks that the walk found `analyses`,
-`synth.seq_index` and `seqfile.spec`, and collects each public module with no `__all__`.
+`synth.seq_index`, `seqfile.spec` and `seqfile.conformance`, and collects each public module with
+no `__all__`.
 
 **Assumptions:** The package `pulseq_analysis` itself defines and imports no name, and is not
 read.
@@ -6369,7 +6370,7 @@ its `__all__`, and has a reason.
 
 #### `test_each_rule_that_a_fixture_can_give_has_a_fixture`
 
-**Checks:** Each code of `spec.RULES` is given by a fixture of the table, or is in `NO_FIXTURE` with its reason. Only `rotation.zero` (a quaternion of norm 0) and `limit.shape-samples` (a shape that declares more than 2^27 samples) have no fixture; their tests write the files. Each code of the table is a rule, and a code is not in both.
+**Checks:** Each code of `spec.RULES` is given by a fixture of the table, or is in `NO_FIXTURE` with its reason. Only `rotation.zero` (a quaternion of norm 0) has no fixture; its test writes the file. Each code of the table is a rule, and a code is not in both.
 
 **How:** The test collects the codes of the table and compares them with the keys of `RULES` and of `NO_FIXTURE`.
 
@@ -7013,13 +7014,21 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 **Assumptions:** None.
 
-#### `test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples`
+#### `test_a_shape_that_declares_more_samples_than_max_shape_samples_is_not_supported`
 
-**Checks:** The package's limit has a code of its own (the user, 2026-10-14): a shape that declares 200 000 000 samples, more than the package's limit of 2^27, gives `limit.shape-samples` once, in `[SHAPES]` on the line of its `shape_id`, and not `shape.length`; the message says that the specification does not state the rule.
+**Checks:** The limit of the samples of a shape is a setting of every interpreter (the user, 2026-10-18), `Spec.max_shape_samples`, 2^27 by default: a shape that declares 200 000 000 samples is `NotSupported`, not a rejection, and `spec` does not decompress it. The message gives the path, `shape 3`, the declared number, the limit and the name `max_shape_samples`. With `Spec(max_shape_samples=None)` the same file is a `SeqFileError` with one reason, `shape.length`: the 10 stored samples are not the 200 000 000 declared.
 
-**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the header of shape 3 changed from `num_samples 10` to `num_samples 200000000` (its 10 samples stay), and reads it.
+**How:** The test writes `valid_no_signature.seq` to `tmp_path` with the header of shape 3 changed from `num_samples 10` to `num_samples 200000000` (its 10 samples stay). It replaces `decompress_shape` in the module `spec` with a function that raises `AssertionError` for a shape of more than 2^27 samples and calls the original for the others, and reads the file. Then, with the original function, it reads the file with `Spec(max_shape_samples=None)`.
 
-**Assumptions:** The specification has no limit of `num_samples`; the limit is the package's, against a short file that makes the reader allocate without bound. `limit.shape-samples` has no fixture (it is in `NO_FIXTURE`); this test writes the file.
+**Assumptions:** The specification has no limit of `num_samples`; the limit is the package's, against a short file that makes the reader allocate without bound. The replacement sees only the calls through the name `decompress_shape` of the module `spec`; a decompression by another function is not seen.
+
+#### `test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare`
+
+**Checks:** A shape can declare `max_shape_samples` samples, and not one more: `valid_no_signature.seq`, whose shapes 1 and 2 declare 100 samples (the most of the file), reads with `Spec(max_shape_samples=100)`, and with 99 it is `NotSupported` ("shape 1 declares 100 samples") through `read_seqfile`, `load` and `spec._read_spec`. The model records `Spec(max_shape_samples=100)`, and with `interpreter` replaced by `Spec()` it is the model of `read_seqfile(path)`. `load` and `_read_spec` with the limit 100 give the same interpreter and model.
+
+**How:** The test reads the fixture with each limit and through each function, and compares.
+
+**Assumptions:** `read_pypulseq` reads through `read_seqfile`, so the test does not call it.
 
 #### `test_an_amplitude_shape_must_be_in_minus_1_to_1_to_within_the_tolerance`
 
@@ -9194,9 +9203,16 @@ group `pulseq_analysis.interpreters`, the protocol `Plugin`, and `synth.decode` 
 model. It needs no plugin: a fake plugin (the class `Fake` of the module, a frozen dataclass
 that reads with `spec` and decodes to a tuple) stands for one, and the tests give its entry point
 by replacing `importlib.metadata.entry_points` in the module `interpreters` (`monkeypatch`). `Fake`
-implements version 1 of the protocol (`protocol`, and `decode(data, session=None)`); the version
-is tested in section 2.29. The interpreter `cpp-siemens` is tested with its distribution (sections
-3.8 and 3.9).
+implements version 1 of the protocol (`protocol`, and `decode(data, session=None)`), and has the
+setting `max_shape_samples` of every interpreter, of the default
+`interpreters.DEFAULT_MAX_SHAPE_SAMPLES`; the version is tested in section 2.29. Two other fake
+plugins of version 1 do not have that setting of that default: `Unlimited` has no field
+`max_shape_samples`, and `OtherLimit` has it with the default 1000. `Limited`, a `Fake` that
+follows the convention of the setting (it checks the value as `Spec` does, its `str` gives the
+setting when it is not the default, and it reads with `Spec(max_shape_samples=...)` of its
+setting), and six classes made from it that each break one part of the convention, test
+`conformance.check_shape_limit`. The interpreter `cpp-siemens` is tested with its distribution
+(sections 3.8 and 3.9).
 
 #### `test_no_plugin_is_installed_with_the_package`
 
@@ -9242,6 +9258,65 @@ with one name raise `ValueError` ("more than one interpreter is named 'fake'").
 
 **How:** For each case, the test installs the entry points and asks `interpreter("fake")` (or
 `"broken"`).
+
+**Assumptions:** None.
+
+#### `test_spec_has_the_setting_max_shape_samples_with_the_default_of_every_interpreter`
+
+**Checks:** The limit of the samples of a shape is a setting of every interpreter (the user,
+2026-10-18). `interpreters.DEFAULT_MAX_SHAPE_SAMPLES` is 2^27, and is the default of
+`Spec.max_shape_samples`; `Spec(max_shape_samples=2**27)` is `Spec()`, and
+`Spec(max_shape_samples=None)` (no limit) is not. `str` is `spec` for the default, and gives the
+setting otherwise (`spec(max_shape_samples=None)`, `spec(max_shape_samples=100)`). A numpy int is
+kept as an int, so `Spec(max_shape_samples=np.int64(100))` is `Spec(max_shape_samples=100)` and
+has its `str`. A bool (also `np.True_`), a float (also `np.float64`) and a text raise `TypeError`,
+and 0 and -1 raise `ValueError`; each message names `max_shape_samples`.
+
+**How:** The test makes each interpreter and compares.
+
+**Assumptions:** None.
+
+#### `test_spec_passes_the_check_of_the_shape_limit_of_every_interpreter`
+
+**Checks:** `conformance.check_shape_limit(Spec)`, the check that the tests of a plugin call for
+their interpreter, passes for `spec`.
+
+**How:** The test calls it. It raises `AssertionError` when a check fails.
+
+**Assumptions:** The check reads small files that it writes itself; it does not show that
+`spec` reads a large shape within the limit.
+
+#### `test_the_check_of_the_shape_limit_fails_for_a_plugin_that_does_not_follow_it`
+
+**Checks:** `conformance.check_shape_limit(Limited)` passes, and the check raises
+`AssertionError`, whose message says what is wrong, for each plugin class that breaks one part of
+the convention of `max_shape_samples`: another default (`OtherLimit`, "the default of
+max_shape_samples is 1000, not 134217728"); no check of the value (`Fake`, "max_shape_samples=0
+does not raise ValueError"); a `str` that gives the default (`Verbose`); no limit in `read`
+(`Unchecked`, which reads with `spec`'s default: "a shape of 2097152 samples, over the limit
+1048576, reads"); a `NotSupported` that gives no path, number or setting (`Terse`); a limit never
+below 1000 (`Coarse`: "a shape of 8 samples, over the limit 4, reads"); a check of its own of the
+"as written" shapes that refuses a shape at the limit (`AtLimit`: "a shape of 8 samples, at the
+limit 8, does not read"); and a model that records the interpreter with its default settings
+(`Forgetful`, "the model records").
+
+**How:** Parametrized over the eight classes and the part of the message. The test calls the
+check for `Limited`, then for the class, in `pytest.raises` with the part of the message.
+
+**Assumptions:** Each class breaks one part only; the check stops at the first part that fails,
+so a class that broke two parts would test the first.
+
+#### `test_a_plugin_without_the_setting_max_shape_samples_of_its_default_is_refused`
+
+**Checks:** The convention of the protocol `Plugin` (the user, 2026-10-18): a plugin class with
+no dataclass field `max_shape_samples` (`Unlimited`) or with another default (`OtherLimit`, 1000)
+is a `TypeError`, whose message names the plugin, says what it lacks ("'unlimited' has no
+dataclass field max_shape_samples", "'other-limit' has the default 1000 of max_shape_samples")
+and gives the convention, "DEFAULT_MAX_SHAPE_SAMPLES (134217728)". This holds for
+`interpreter(name)`, for `read_seqfile` of `valid_1_5_1.seq` with an object of the class, and
+for `load` with it.
+
+**How:** The test installs the two entry points and makes each of the three calls for each class.
 
 **Assumptions:** None.
 

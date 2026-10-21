@@ -400,6 +400,7 @@ class SessionPlugin:
 
     name: ClassVar[str] = "session-plugin"
     protocol: ClassVar[int] = 1
+    max_shape_samples: int | None = interpreters.DEFAULT_MAX_SHAPE_SAMPLES
 
     def read(self, path: Path) -> seqfile.SequenceData:
         return dataclasses.replace(read_seqfile(path, "spec"), interpreter=self)
