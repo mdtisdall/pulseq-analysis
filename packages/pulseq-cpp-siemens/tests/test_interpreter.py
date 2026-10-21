@@ -26,6 +26,8 @@ from test_cpp_oracle_sanitized import SANITIZED, run
 
 from pulseq_analysis import seqfile, synth
 from pulseq_analysis.seqfile import NotSupported, SeqFileError, Spec, read_seqfile
+from pulseq_analysis.seqfile.conformance import check_shape_limit
+from pulseq_analysis.seqfile.interpreters import DEFAULT_MAX_SHAPE_SAMPLES
 from pulseq_analysis.seqfile.spec import MAX_LOCATIONS
 
 # The fixtures of this package.
@@ -512,6 +514,27 @@ def test_the_rotation_setting_is_one_of_two_and_a_setting_that_an_interpreter_la
         Spec(rotation="apply")
     with pytest.raises(TypeError):
         CppSiemens(rotate="apply")
+
+
+def test_cpp_siemens_follows_the_convention_of_max_shape_samples():
+    """`CppSiemens` passes `check_shape_limit` of pulseq-analysis (the setting of every
+    interpreter, the user, 2026-10-18), and the default of `max_shape_samples` of the reader's
+    `load`, which does not import pulseq-analysis, is `DEFAULT_MAX_SHAPE_SAMPLES`."""
+    check_shape_limit(CppSiemens)
+    load = inspect.signature(pulseq_cpp_siemens.load)
+    assert load.parameters["max_shape_samples"].default == DEFAULT_MAX_SHAPE_SAMPLES
+
+
+def test_a_shape_over_max_shape_samples_is_not_supported_with_the_path_of_the_file():
+    """`read_seqfile` of `valid_no_signature.seq` under `CppSiemens(max_shape_samples=99)` raises
+    `NotSupported` whose message starts with the path of the file and the shape, with no name of
+    the bytes that `read_cpp_siemens` gives the reader (`<bytes>`)."""
+    path = SEQFILES / "valid_no_signature.seq"
+    with pytest.raises(NotSupported) as caught:
+        read_seqfile(path, CppSiemens(max_shape_samples=99))
+    message = str(caught.value)
+    assert message.startswith(f"{path}: shape 1 declares 100 samples"), message
+    assert "<bytes>" not in message
 
 
 def test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches():

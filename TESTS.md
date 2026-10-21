@@ -10188,6 +10188,46 @@ version outside 1.4.0-1.5.x.
 
 **Assumptions:** None.
 
+#### `test_a_shape_over_max_shape_samples_is_not_supported_before_the_checks`
+
+**Checks:** `load(path, max_shape_samples=...)` checks the number of samples of each shape, as the
+reader read it, before the checks of undefined behaviour decompress any shape (the setting of
+every interpreter of pulseq-analysis, the user, 2026-10-18).
+`undefined/shape_decompress_longer.seq` declares 99 samples in its shapes 1 and 2, which
+decompress to 100 (D5.5). With the limit 98, `load` raises `NotSupported`, not
+`UndefinedBehaviour`, and the message gives the path, `shape 1`, the declared 99, the limit 98,
+the name `max_shape_samples` and None. With the limit 99, the default and None, `load` raises
+`UndefinedBehaviour` with the code `ub.shape-decompression`, as with no limit.
+
+**How:** The test loads the fixture with each limit.
+
+**Assumptions:** The order is shown by one case of undefined behaviour, in a shape that the
+checks decompress.
+
+#### `test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare`
+
+**Checks:** A shape can declare `max_shape_samples` samples, and not one more:
+`valid_no_signature.seq`, whose shapes 1 and 2 declare 100 samples (the most of the file), loads
+with the limit 100 and gives the libraries and the decoded blocks that it gives with None; with
+99 it is `NotSupported`, and the message gives `shape 1`, the declared 100, the limit 99 and the
+name `max_shape_samples`.
+
+**How:** The test loads the fixture with each limit, and compares the canonical forms of the
+driver's `--dump`.
+
+**Assumptions:** None.
+
+#### `test_max_shape_samples_of_load_is_an_int_above_0_or_none`
+
+**Checks:** `load`'s `max_shape_samples` is checked as the setting of every interpreter of
+pulseq-analysis: a numpy int is kept as an int (`Sequence.max_shape_samples`), `True`, 1.5 and
+`"100"` raise `TypeError`, and 0 and -1 raise `ValueError`, each with the message "max_shape_samples
+is an int above 0 or None".
+
+**How:** The test loads `valid_no_signature.seq` with each value.
+
+**Assumptions:** None.
+
 #### `test_oversampling_keeps_the_samples_of_its_mode`
 
 **Checks:** For an oversampled arbitrary gradient (time shape -1) of 7 samples, `load` keeps the
@@ -10233,6 +10273,22 @@ sequence with the same mode, messages, block table, decoded blocks and `gradient
 
 **Assumptions:** One file. A pickle carries the bytes of the file, and loading it reads and checks
 the file again.
+
+#### `test_a_pickle_of_a_sequence_loads_under_the_max_shape_samples_of_its_load`
+
+**Checks:** `Sequence.max_shape_samples` is the limit of its `load`, and a pickle carries it, so
+that loading the pickle reads the file again under the same limit. A file with a shape of
+200 000 000 declared samples that no event uses loads with None and is `NotSupported` with the
+default; the pickle of its `Sequence` of None loads. The pickles of `valid_no_signature.seq`
+loaded with the limits 100 and 2^27 load with the same limit. Each restored sequence has the
+libraries and the decoded blocks of the original.
+
+**How:** The test writes `valid_no_signature.seq` with that shape (ID 99, stored as a run of
+zeros in three values) added to `tmp_path`, and compares the canonical forms of the driver's
+`--dump`.
+
+**Assumptions:** No check and no block decompresses a shape that no event uses, so the file
+allocates little with no limit.
 
 #### `test_first_rejected_block_is_the_first_block_that_decodeblock_rejects`
 
@@ -11108,6 +11164,30 @@ Another value raises `ValueError`; a setting that the interpreter does not have
 settings.
 
 **Assumptions:** None.
+
+#### `test_cpp_siemens_follows_the_convention_of_max_shape_samples`
+
+**Checks:** `CppSiemens` follows the convention of the setting `max_shape_samples` of every
+interpreter (the user, 2026-10-18): `pulseq_analysis.seqfile.conformance.check_shape_limit`
+passes for it (the default, the checks of the value, `str`, and a `NotSupported` of
+`read_seqfile` for a shape over the limit, whose message gives the path, the declared number and
+the limit, and names the setting). The default of `max_shape_samples` of `pulseq_cpp_siemens.load`
+is `DEFAULT_MAX_SHAPE_SAMPLES`: the reader does not import pulseq-analysis, so it has its own copy
+of the value.
+
+**How:** The test calls `check_shape_limit(CppSiemens)` and reads the signature of `load`.
+
+**Assumptions:** Section 2.27 tests `check_shape_limit` itself. Its files have one arbitrary
+gradient whose shape is a run of zeros.
+
+#### `test_a_shape_over_max_shape_samples_is_not_supported_with_the_path_of_the_file`
+
+**Checks:** the `NotSupported` of `read_seqfile` for a shape over `max_shape_samples` of
+`CppSiemens` starts with the path of the file and the shape, and does not have the name
+`<bytes>` that the reader's `load` gives the bytes that `read_cpp_siemens` passes it.
+
+**How:** The test reads `valid_no_signature.seq`, whose largest shape is 100 samples, with
+`CppSiemens(max_shape_samples=99)`.
 
 #### `test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches`
 

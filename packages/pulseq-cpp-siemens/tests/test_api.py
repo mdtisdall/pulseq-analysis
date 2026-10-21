@@ -235,6 +235,56 @@ def test_the_version_gate_reads_each_fixture_as_load_does(path):
         assert not ok  # load returns false where the gate finds no version
 
 
+# The files of the tests of `load`'s `max_shape_samples`. In `valid_no_signature.seq` the shapes
+# 1 and 2 declare 100 samples, the most of the file. `shape_decompress_longer.seq` is that file
+# with 99 declared in the shapes 1 and 2, which decompress to 100 samples (D5.5).
+NO_SIGNATURE = SEQFILES / "valid_no_signature.seq"
+DECOMPRESS_LONGER = SEQFILES / "undefined" / "shape_decompress_longer.seq"
+
+
+def test_a_shape_over_max_shape_samples_is_not_supported_before_the_checks():
+    """With `max_shape_samples=98`, `load` raises `NotSupported` for shape 1 of
+    `shape_decompress_longer.seq`, not `UndefinedBehaviour`: the number of samples of each shape
+    is checked before the checks decompress any shape. The message gives the file, the shape, the
+    declared number and the limit, and names the setting and None. With the limit 99, the
+    default and None, `load` gives the `UndefinedBehaviour` of a `load` with no limit."""
+    with pytest.raises(cs.NotSupported) as caught:
+        cs.load(DECOMPRESS_LONGER, max_shape_samples=98)
+    for part in (str(DECOMPRESS_LONGER), "shape 1 ", "99", "98", "max_shape_samples", "None"):
+        assert part in str(caught.value)
+    for setting in ({"max_shape_samples": 99}, {}, {"max_shape_samples": None}):
+        with pytest.raises(cs.UndefinedBehaviour) as caught:
+            cs.load(DECOMPRESS_LONGER, **setting)
+        assert caught.value.code == "ub.shape-decompression"
+
+
+def test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare():
+    """`load` reads `valid_no_signature.seq` with `max_shape_samples=100`, as with None, and with
+    99 raises `NotSupported` for shape 1, the first of the two shapes of 100 samples."""
+    unlimited = canonical_dump(wrapper_dump(cs.load(NO_SIGNATURE, max_shape_samples=None)))
+    at_limit = cs.load(NO_SIGNATURE, max_shape_samples=100)
+    assert max(shape.num_samples for shape in at_limit.libraries.shapes.values()) == 100
+    assert canonical_dump(wrapper_dump(at_limit)) == unlimited
+    with pytest.raises(cs.NotSupported) as caught:
+        cs.load(NO_SIGNATURE, max_shape_samples=99)
+    for part in ("shape 1 ", "100", "99", "max_shape_samples"):
+        assert part in str(caught.value)
+
+
+def test_max_shape_samples_of_load_is_an_int_above_0_or_none():
+    """As the setting of every interpreter of pulseq-analysis: a numpy int is kept as an int, a
+    bool or another type is a `TypeError`, and 0 or less a `ValueError`."""
+    limit = cs.load(NO_SIGNATURE, max_shape_samples=np.int64(100)).max_shape_samples
+    assert limit == 100 and type(limit) is int
+    message = "max_shape_samples is an int above 0 or None"
+    for value in (True, 1.5, "100"):
+        with pytest.raises(TypeError, match=message):
+            cs.load(NO_SIGNATURE, max_shape_samples=value)
+    for value in (0, -1):
+        with pytest.raises(ValueError, match=message):
+            cs.load(NO_SIGNATURE, max_shape_samples=value)
+
+
 def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq", first=0, last=0):
     """A file of one block of 200 us: gradient 1 on X is an oversampled arbitrary gradient (time
     shape -1) of `samples` with no delay and the first and last values `first` and `last`, and
@@ -350,6 +400,22 @@ def test_a_sequence_survives_pickle_and_copy():
         assert np.array_equal(restored.gradients_at(block_index, time_us), expected)
         assert copy.copy(original) is original and copy.deepcopy(original) is original
         assert copy.deepcopy({"reading": original})["reading"] is original
+
+
+def test_a_pickle_of_a_sequence_loads_under_the_max_shape_samples_of_its_load(tmp_path):
+    """`Sequence.max_shape_samples` is the limit of its `load`, and a pickle carries it. A file
+    with a shape of 200 000 000 declared samples that no event uses loads with None, not with the
+    default, and its pickle loads. A sequence that loaded with a limit loads again with it."""
+    path = tmp_path / "unused_shape.seq"
+    unused = "\nshape_id 99\nnum_samples 200000000\n0\n0\n199999998\n"
+    path.write_text(NO_SIGNATURE.read_text() + unused)
+    with pytest.raises(cs.NotSupported):
+        cs.load(path)
+    for source, limit in ((path, None), (NO_SIGNATURE, 100), (NO_SIGNATURE, 2**27)):
+        original = cs.load(source, max_shape_samples=limit)
+        restored = pickle.loads(pickle.dumps(original))
+        assert original.max_shape_samples == restored.max_shape_samples == limit
+        assert canonical_dump(wrapper_dump(restored)) == canonical_dump(wrapper_dump(original))
 
 
 def test_first_rejected_block_is_the_first_block_that_decodeblock_rejects(tmp_path):
