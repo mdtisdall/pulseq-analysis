@@ -103,10 +103,25 @@ A caller moves in this order:
   than `spec.FIRST_TIME_TOLERANCE`) as `shape.time-order`, as it does an RF
   time shape (D3.9; review 2026-10-13 1.2.1). Before, a gradient time shape
   `-2 1 3 6 10` read, and the gradient started before its event.
-- A shape that declares more than 2^27 samples is `limit.shape-samples`, the
-  package's limit of memory, which the specification does not state; the
-  message says so (review 2026-10-13 1.2.4d). Before, it was `shape.length`, a
-  rule of the specification (spec:626).
+- The limit of the samples of a shape is a setting of every interpreter (the
+  user, 2026-10-18): `max_shape_samples`, the most samples that a shape can
+  declare, of the default `seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`
+  (2^27, 1 GiB of float64), or None for no limit. A shape that declares more
+  is `NotSupported`, before the interpreter decompresses it. The message gives
+  the path, the shape, the declared number and the limit, and names the
+  setting. The code `limit.shape-samples` is gone: before, such a shape was a
+  rejection of `spec` with that code (review 2026-10-13 1.2.4d), and before
+  that `shape.length`. `spec` has this one setting
+  (`Spec(max_shape_samples=None)`), and its `str` gives it when it is not the
+  default (`spec(max_shape_samples=None)`). Each interpreter checks the number
+  with its own reading of the file, so `read_seqfile` does not check it.
+- The protocol `seqfile.Plugin` has the setting: `seqfile.interpreter` (so
+  also `read_seqfile` and `load`) refuses a plugin class with no dataclass
+  field `max_shape_samples`, or with another default, with a `TypeError` that
+  names the plugin and the convention. Version 1 of the protocol is not
+  released, so it changes in place and `seqfile.PROTOCOL` stays 1.
+  `seqfile.conformance.check_shape_limit(cls)` checks the convention for the
+  class of an interpreter, in the tests of a plugin; `spec` passes it.
 - `spec` checks the samples of a shape with no Python loop over them (review
   2026-10-13 2.5b). One run on an Apple M1 Max, of `read_seqfile` of a file of
   4,000,000 shape samples (40 shapes of 100,000): 1.70 s before and 1.05 s
@@ -221,6 +236,9 @@ A caller moves in this order:
   block's gradients with the reader's own `rotate_vec3_by_quat`, in any
   version of the file. A setting that an interpreter does not have
   (`Spec(rotation="apply")`) raises `TypeError`.
+- `CppSiemens(max_shape_samples=...)`, the setting of every interpreter for
+  the most samples that a shape can declare: it accepts it and records it,
+  and does not check the reader's shapes against it yet.
 - `Sequence.gradients_at(..., actual_ru=...)` raises `UndefinedBehaviour`
   (`ub.gradient-one-point`) for each block and time where a soft delay longer
   than the stored duration of the block reaches the reader's read past the

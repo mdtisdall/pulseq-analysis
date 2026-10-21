@@ -702,8 +702,8 @@ decoding rotates the gradients of each block with a rotation by its quaternion
 (`SpecDecoding.gradients_at`, with the package's `decoding.rotate`, the active
 rotation in float64; `SpecDecoding.rotations` gives the blocks and their
 quaternions), as the specification describes (spec:567). It applies the content
-of the file, so it has no setting and no warning: `rotation_record` has the
-setting `"apply"` (P20, rules 2 and 4). It agrees with
+of the file, so it has no setting of the rotations and no warning:
+`rotation_record` has the setting `"apply"` (P20, rules 2 and 4). It agrees with
 `CppSiemens(rotation="apply")` of the plugin `cpp-siemens` to float32 precision,
 on each fixture with rotations from 1.5.1. The measurements (`load`, R14) take
 the rotated gradients of its decoding.
