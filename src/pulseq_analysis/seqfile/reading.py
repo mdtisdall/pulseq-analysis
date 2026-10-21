@@ -22,7 +22,10 @@ def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "spec") ->
     interpreter and its settings. Raises `SeqFileError` (a `ValueError`) when the interpreter
     rejects the file, with the code of each reason, `NotSupported` (a `NotImplementedError`) for
     a file that the package does not read, and `OSError` when the file cannot be read. A name
-    that no installed interpreter has is a `ValueError`.
+    that no installed interpreter has is a `ValueError`. A shape that declares more samples than
+    the setting `max_shape_samples` of the interpreter is `NotSupported` too: each interpreter
+    checks it with its own reading of the file, before it decompresses the shape
+    (`interpreters.Plugin`).
 
     The scope is checked before the interpreter reads the file, so it is one for every
     interpreter, with one message for each case (`errors._read_in_scope`; the
@@ -32,5 +35,5 @@ def read_seqfile(path: str | Path, interpreter: "str | Interpreter" = "spec") ->
     chosen = _interpreter(interpreter)
     written = _read_in_scope(path)
     if isinstance(chosen, Spec):
-        return spec._read_written(written)
+        return spec._read_written(written, chosen)
     return chosen.read(Path(path))

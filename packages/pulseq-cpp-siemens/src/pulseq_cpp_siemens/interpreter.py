@@ -7,9 +7,9 @@ through the entry-point group `pulseq_analysis.interpreters`, so that
 not import this package. This module needs pulseq-analysis; the rest of the package does not.
 `docs/specification.md` of this package gives what it does and why: the rule, and each exception.
 
-- `CppSiemens`: the interpreter, with its settings (`oversampling`, `rotation`); its `read`
-  gives the model (`SequenceData`), and its `decode(data, session)` the decoding
-  (`CppSiemensDecoding`) under a scanner session (`pulseq_analysis.synth.Session`). It implements
+- `CppSiemens`: the interpreter, with its settings (`oversampling`, `rotation`,
+  `max_shape_samples`); its `read` gives the model (`SequenceData`), and its
+  `decode(data, session)` the decoding (`CppSiemensDecoding`) under a scanner session (`pulseq_analysis.synth.Session`). It implements
   version 1 of the plugin protocol of pulseq-analysis (`protocol`, P22).
 - `CODES`: the code of each rejection, with the ID of its condition (`docs/specification.md`).
 
@@ -66,6 +66,7 @@ file in the last digits of float32 (D7.2). Where the reader differs from `spec`:
 """
 
 import dataclasses
+import numbers
 import re
 from collections import Counter
 from collections.abc import Iterator, Mapping
@@ -78,6 +79,7 @@ import numpy as np
 import pulseq_cpp_siemens as cs
 from pulseq_analysis.seqfile.as_written import AsWritten, read_as_written
 from pulseq_analysis.seqfile.errors import NotSupported, SeqFileError, Violation
+from pulseq_analysis.seqfile.interpreters import DEFAULT_MAX_SHAPE_SAMPLES
 from pulseq_analysis.seqfile.model import (
     TABLE_DTYPES,
     Extensions,
@@ -141,6 +143,13 @@ class CppSiemens:
     extension, is not known (the user, 2026-10-12). It is valid on a file with no rotation, and
     then rotates no block.
 
+    `max_shape_samples` is the setting of every interpreter of pulseq-analysis for the most
+    samples that a shape can declare (`pulseq_analysis.seqfile.interpreters.Plugin`):
+    `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no limit. It is an int above 0: a
+    numpy int is kept as an int, a bool or another type is a `TypeError`, and 0 or less a
+    `ValueError`. This interpreter accepts it and records it, and does not check the shapes of
+    the reader against it yet: that check comes in a later change.
+
     The scanner session (`pulseq_analysis.synth.Session`) is not a setting: `decode(data,
     session)` applies it (P22). The soft delays of the session set the duration of each block with
     the reader's own hook `setActualSoftDelay_ru`, and the field of view turns the gradients with
@@ -152,6 +161,7 @@ class CppSiemens:
     protocol: ClassVar[int] = 1
     oversampling: str = "center"
     rotation: str = "reader"
+    max_shape_samples: int | None = DEFAULT_MAX_SHAPE_SAMPLES
 
     def __post_init__(self) -> None:
         if self.oversampling not in OVERSAMPLING:
@@ -160,13 +170,20 @@ class CppSiemens:
             )
         if self.rotation not in ROTATION:
             raise ValueError(f"rotation is {self.rotation!r}, not one of {', '.join(ROTATION)}")
+        limit = self.max_shape_samples
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, numbers.Integral):
+                raise TypeError(f"max_shape_samples is an int above 0 or None, not {limit!r}")
+            if limit <= 0:
+                raise ValueError(f"max_shape_samples is an int above 0 or None, not {limit!r}")
+            object.__setattr__(self, "max_shape_samples", int(limit))
 
     def __str__(self) -> str:
         """The name, with each setting that is not its default."""
         default = CppSiemens()
         settings = [
             f"{field}={getattr(self, field)!r}"
-            for field in ("oversampling", "rotation")
+            for field in ("oversampling", "rotation", "max_shape_samples")
             if getattr(self, field) != getattr(default, field)
         ]
         return f"{self.name}({', '.join(settings)})" if settings else self.name

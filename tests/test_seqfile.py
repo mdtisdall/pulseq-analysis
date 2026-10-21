@@ -20,12 +20,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pulseq_analysis.analyses import load
 from pulseq_analysis.seqfile import (
     NotSupported,
     SeqFileError,
     Spec,
     Violation,
+    interpreters,
     read_seqfile,
+    spec,
 )
 from pulseq_analysis.seqfile.model import (
     Rasters,
@@ -166,8 +169,6 @@ VERDICTS = {
 NO_FIXTURE: dict[str, str] = {
     "rotation.zero": "no fixture has a quaternion of norm 0 (`test_rotation_quaternions_are_"
     "normalized_and_a_quaternion_of_norm_0_is_rejected` writes one)",
-    "limit.shape-samples": "no fixture declares more than 2^27 samples (`test_a_shape_that_"
-    "declares_more_samples_than_the_package_reads_is_limit_shape_samples` writes one)",
 }
 
 # The oracle files (`tests/seqfiles/oracle/SOURCES.md`): the version, the rule that the file
@@ -1719,26 +1720,58 @@ def test_a_shape_that_does_not_have_its_declared_number_of_samples_is_shape_leng
     assert "10 samples, not the 11" in violation.message
 
 
-def test_a_shape_that_declares_more_samples_than_the_package_reads_is_limit_shape_samples(
-    tmp_path,
+def test_a_shape_that_declares_more_samples_than_max_shape_samples_is_not_supported(
+    tmp_path, monkeypatch
 ):
-    """The specification has no limit of `num_samples`, and `spec` does not decompress a shape
-    that declares more than 2^27 samples: a short file could otherwise make the reader allocate
-    without bound (the user, 2026-10-14). A shape whose header declares
-    200 000 000 samples is `limit.shape-samples` on the line of its `shape_id`, not
-    `shape.length`, a rule of the specification (the package's limit; the message says so)."""
+    """The specification has no limit of `num_samples` (spec:619), and a short file could make
+    the reader allocate without bound, so the limit of the samples of a shape is a setting of
+    every interpreter (the user, 2026-10-18): `Spec.max_shape_samples`, 2^27 by default. A shape
+    whose header declares 200 000 000 samples is `NotSupported`, not a rejection, and `spec`
+    does not decompress it. The message gives the path, the shape, the number that it declares
+    and the limit, and names the setting. With `max_shape_samples=None` there is no limit, and
+    the file is `shape.length`, a rule of the specification: its 10 samples are not the
+    200 000 000 that it declares."""
     text = _text("valid_no_signature.seq")
     old = "shape_id 3\nnum_samples 10\n"
     assert old in text
-    line = text[: text.index(old)].count("\n") + 1
-    new = "shape_id 3\nnum_samples 200000000\n"
-    (violation,) = violations_of(_write(tmp_path, text.replace(old, new), "big.seq")).violations
-    assert (violation.rule, violation.section, violation.line) == (
-        "limit.shape-samples",
-        "SHAPES",
-        line,
-    )
-    assert carries_choice(violation)
+    path = _write(tmp_path, text.replace(old, "shape_id 3\nnum_samples 200000000\n"), "big.seq")
+    limit = interpreters.DEFAULT_MAX_SHAPE_SAMPLES
+    decompress = spec.decompress_shape
+
+    def no_large_shape(packed, num_samples):
+        if num_samples > limit:
+            raise AssertionError(f"spec decompresses a shape of {num_samples} samples")
+        return decompress(packed, num_samples)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(spec, "decompress_shape", no_large_shape)
+        with pytest.raises(NotSupported) as caught:
+            read_seqfile(path)
+    message = str(caught.value)
+    for part in (str(path), "shape 3 ", "200000000", str(limit), "max_shape_samples"):
+        assert part in message, (part, message)
+    with pytest.raises(SeqFileError) as rejected:
+        read_seqfile(path, Spec(max_shape_samples=None))
+    (violation,) = rejected.value.violations
+    assert violation.rule == "shape.length"
+
+
+def test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare():
+    """`max_shape_samples` is the most samples that a shape can declare: in
+    `valid_no_signature.seq` shapes 1 and 2 declare 100 samples, the most of the file, so the
+    file reads with a limit of 100 and is `NotSupported` with 99, through each way that reads a
+    file with `spec` (`read_seqfile`, `load`, `_read_spec`). The model records the interpreter
+    with its setting, and is otherwise the model of the default."""
+    path = SEQFILES / "valid_no_signature.seq"
+    data = read_seqfile(path, Spec(max_shape_samples=100))
+    assert max(shape.num_samples for shape in data.shapes.values()) == 100
+    assert data.interpreter == Spec(max_shape_samples=100)
+    assert dataclasses.replace(data, interpreter=Spec()) == read_seqfile(path)
+    assert load(path, Spec(max_shape_samples=100)).interpreter == Spec(max_shape_samples=100)
+    assert _read_spec(path, Spec(max_shape_samples=100)) == data
+    for read in (read_seqfile, load, _read_spec):
+        with pytest.raises(NotSupported, match="shape 1 declares 100 samples"):
+            read(path, Spec(max_shape_samples=99))
 
 
 def _with_shape(directory, shape_id, samples):

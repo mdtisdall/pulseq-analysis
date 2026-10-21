@@ -174,7 +174,7 @@ def test_each_public_module_has_an_all():
     contract."""
     modules = _public_modules()
     # The walk finds the modules of each subpackage and the subpackages.
-    assert {"analyses", "synth.seq_index", "seqfile.spec"} <= set(modules)
+    assert {"analyses", "synth.seq_index", "seqfile.spec", "seqfile.conformance"} <= set(modules)
     without = [name for name in modules if _all(name) is None]
     assert not without, f"public modules with no `__all__`: {without}"
 

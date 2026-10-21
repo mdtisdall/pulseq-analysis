@@ -32,18 +32,23 @@
   release in the `dev` group, remove `[tool.uv.sources]`, and run the tests
   with it. Do this in the three repositories at the same time.
 
-- **A limit of the samples of a shape for `cpp-siemens`.** `spec` does not
-  decompress a shape that declares more than 2^27 samples
-  (`limit.shape-samples`, C14, #182). `cpp-siemens` has no such limit. The
-  C++ reader reads the number of samples of a shape as an `int` (cpp:946), up
-  to 2^31 - 1, and `decodeArbGradInBlock` resizes a `std::vector<float>` to it
-  and copies it (cpp:2109, cpp:2149). `read_cpp_siemens` decodes each block
+- **The check of the limit of the samples of a shape in `cpp-siemens`.** The
+  limit is a setting of every interpreter, `max_shape_samples` (2^27 samples
+  by default; the user, 2026-10-18): a shape that declares more is
+  `NotSupported`, before the interpreter decompresses it. `spec` checks it.
+  `CppSiemens` has the setting and records it, but does not check the
+  reader's shapes against it yet. The C++ reader reads the number of samples
+  of a shape as an `int` (cpp:946), up to 2^31 - 1, and
+  `decodeArbGradInBlock` resizes a `std::vector<float>` to it and copies it
+  (cpp:2109, cpp:2149). `read_cpp_siemens` decodes each block
   (`first_rejected_block`). `valid_no_signature.seq` with shape 3 declared as
   2^26 samples (stored as four runs, 2894 bytes in all) made the peak memory
   of `read_seqfile(path, "cpp-siemens")` 548 MiB, against 35 MiB: about 8
   bytes for each declared sample (164 MiB at 2^24 samples); by that rate,
-  200 000 000 samples would take about 1.6 GB (not measured). To decide: whether `cpp-siemens` gets a limit too.
-  The scanner's reader has none.
+  200 000 000 samples would take about 1.6 GB (not measured). The scanner's
+  reader has no limit. What is left: the check of the number of samples as
+  the reader reads it, before the reader decompresses the shape, and a call
+  of `conformance.check_shape_limit(CppSiemens)` in the tests of the plugin.
 
 - **The cost of the model objects in `load`.** The plan of the fixes of the
   review of 2026-10-13 found, for task C16, that most of the rest of the time

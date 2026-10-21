@@ -195,7 +195,8 @@ from pulseq_analysis.synth import decode
 from pulseq_cpp_siemens.interpreter import CppSiemens
 
 data = read_seqfile("sequence.seq", interpreter="cpp-siemens")
-data.interpreter  # CppSiemens(oversampling='center', rotation='reader')
+data.interpreter  # CppSiemens(oversampling='center', rotation='reader',
+#   max_shape_samples=134217728)
 edge = read_seqfile("sequence.seq", interpreter=CppSiemens(oversampling="edge"))
 
 cpp = decode(data)  # the C++ reader's own decoding
@@ -219,7 +220,7 @@ this repository for this module and its tests; the tests import pypulseq, which 
 
 - `CppSiemens`: the interpreter, a frozen dataclass of the protocol
   `pulseq_analysis.seqfile.interpreters.Plugin` (`name` is `"cpp-siemens"`; `read` and `decode`),
-  with two settings.
+  with three settings.
 - `OVERSAMPLING` (the modes of `load`, above) and `ROTATION` (`"reader"`, `"apply"`).
 - `CODES`: the code of each rejection. It maps a code to a tuple of the ID of its entry and what
   the reader rejects. It includes the 11 `ub.*` codes of the top-level `CODES`, with the same IDs.
@@ -249,8 +250,13 @@ arbitrary gradient (time shape -1, D6.1): `"center"` (the reader's default, the 
 centres of the gradient raster), `"edge"` (those at its edges) or `"preserve"` (all of them);
 `OVERSAMPLING` lists them. `CppSiemens(rotation=...)` is what the decoding does with each block's
 rotation (the ROTATIONS extension, D6.2), below; `ROTATION` lists `"reader"` (the default) and
-`"apply"`. A value that is not listed is a `ValueError`. `str` gives the name with each setting
-that is not its default, for example `cpp-siemens(oversampling='edge')`.
+`"apply"`. A value that is not listed is a `ValueError`. `CppSiemens(max_shape_samples=...)` is
+the setting of every interpreter of pulseq-analysis for the most samples that a shape can declare
+(`pulseq_analysis.seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default, or None for
+no limit): an int above 0, a `TypeError` for a bool or another type and a `ValueError` for 0 or
+less. `cpp-siemens` accepts it and records it, and does not check the reader's shapes against it
+yet. `str` gives the name with each setting that is not its default, for example
+`cpp-siemens(oversampling='edge')`.
 
 **The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to the ID
 of its entry (— for none) and what the reader rejects; section 2.5 of

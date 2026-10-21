@@ -52,6 +52,7 @@ from pulseq_analysis.seqfile import (
     read_pypulseq,
     read_seqfile,
 )
+from pulseq_analysis.seqfile.interpreters import DEFAULT_MAX_SHAPE_SAMPLES
 from pulseq_analysis.synth import (
     Decoding,
     RotationRecord,
@@ -82,6 +83,7 @@ class Unrotated:
 
     name: ClassVar[str] = "unrotated"
     protocol: ClassVar[int] = 1
+    max_shape_samples: int | None = DEFAULT_MAX_SHAPE_SAMPLES
 
     def read(self, path: pathlib.Path) -> SequenceData:
         return dataclasses.replace(read_seqfile(path, "spec"), interpreter=self)

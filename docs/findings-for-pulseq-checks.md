@@ -147,8 +147,11 @@ the file (µs, and ns for the ADC dwell time). The columns of `[RF]`,
 `seqfile.model`). `interpreter` is a name (`"spec"`, `"cpp-siemens"`) or an
 interpreter object:
 
-- `seqfile.interpreters.Spec()`: no setting. `Spec(rotation="apply")` is a
-  `TypeError`.
+- `seqfile.interpreters.Spec(max_shape_samples=DEFAULT_MAX_SHAPE_SAMPLES)`:
+  one setting, the most samples that a shape can declare
+  (`seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default; None
+  for no limit). A shape that declares more is `NotSupported`, before the
+  interpreter decompresses it. `Spec(rotation="apply")` is a `TypeError`.
 - `pulseq_cpp_siemens.interpreter.CppSiemens(oversampling="center",
   rotation="reader")`: `oversampling` is one of
   `pulseq_cpp_siemens.interpreter.OVERSAMPLING` (`"center"`, `"edge"`,
@@ -156,11 +159,14 @@ interpreter object:
   `rotation` is one of `pulseq_cpp_siemens.interpreter.ROTATION` (`"reader"`,
   `"apply"`), what the decoding does with each block's rotation (D6.2). `str`
   gives the name with the settings that are not the default, for example
-  `cpp-siemens(rotation='apply')`.
+  `cpp-siemens(rotation='apply')`. It also has the setting
+  `max_shape_samples` of every interpreter, which it accepts and records; it
+  does not check the reader's shapes against it yet.
 
 A plugin is a class of the protocol `seqfile.interpreters.Plugin` (`name`,
-`protocol`, `read(path)`, `decode(data, session=None)` and `str()`), found by
-the entry-point group
+`protocol`, the dataclass field `max_shape_samples` of the default
+`DEFAULT_MAX_SHAPE_SAMPLES`, `read(path)`, `decode(data, session=None)` and
+`str()`), found by the entry-point group
 `seqfile.interpreters.GROUP` (`"pulseq_analysis.interpreters"`).
 `interpreters.interpreter(value)` gives the object of a name, and
 `interpreters.Interpreter` is `Spec | Plugin`. The module has no `INTERPRETERS`
@@ -327,7 +333,9 @@ These are the reader's values bit for bit, on each platform (section 6).
   the file in either interpreter: a version outside 1.4.0 to 1.5.x (Q1), a
   binary Pulseq file or a folder. `read_seqfile` checks them before the
   interpreter reads the file, with one message for each. It says nothing about
-  the file.
+  the file. The interpreter raises it too for a shape that declares more
+  samples than its setting `max_shape_samples` (2.2), before it decompresses
+  the shape.
 - `ValueError` for a name that no installed interpreter has, for example
   `cpp-siemens` when pulseq-cpp-siemens is not installed: "no interpreter is
   named 'cpp-siemens'; the installed interpreters are spec. A distribution adds
@@ -335,7 +343,7 @@ These are the reader's values bit for bit, on each platform (section 6).
   extra to install. `ImportError` (chained) for a plugin that does not load;
   `OSError` when the file cannot be read.
 
-**The codes of `spec`** are the keys of `seqfile.spec.RULES` (42 codes). Each
+**The codes of `spec`** are the keys of `seqfile.spec.RULES` (41 codes). Each
 is a `spec.Rule`: `text`, `source` (the lines of the specification as
 `spec:N`, the slides as "slide N", the entries of the record), `choice` (None
 when the specification or the slides state the rule; otherwise why the package
@@ -357,8 +365,13 @@ interpreters"; the codes are:
 `raster.gradient-vertex`, `gradient.nonzero-start-delay`,
 `gradient.nonzero-end-align`, `shape.length`, `shape.range`, `shape.empty`,
 `shape.event-length`, `shape.time-order`, `shape.oversampled-length`,
-`limit.shape-samples`, `extension.required-unknown`, `extension.per-block`,
-`layer1.gradient-ends`, `rotation.zero`, `signature.invalid`.
+`extension.required-unknown`, `extension.per-block`, `layer1.gradient-ends`,
+`rotation.zero`, `signature.invalid`.
+
+The code `limit.shape-samples` is gone, and pulseq-checks no longer gets it:
+a shape that declares more samples than the setting `max_shape_samples` of the
+interpreter (2^27 by default) is `NotSupported`, not a rejection (sections 2.2
+and 2.5).
 
 The limits of the rules are `spec.TOLERANCE_NS`, `spec.RANGE_TOLERANCE`,
 `spec.FIRST_TIME_TOLERANCE`, `spec.RATIO_TOLERANCE` and

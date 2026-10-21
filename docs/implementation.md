@@ -24,7 +24,7 @@ import-linter contract (`[tool.importlinter]` of `pyproject.toml`, run by
 |---|---|---|
 | The analyses | `pulseq_analysis.analyses` | `loading` (`load`), `registry`, `grad_peaks`, `grad_spectrum`, `pns_levels`, `series`, `safe`, `asc` |
 | The waveforms | `pulseq_analysis.synth` | `decoding`, `scanner`, `snapshot`, `_played`, `seq_index`, `seq_utils`, `sampling`, `events`, `_events` |
-| The files | `pulseq_analysis.seqfile` | `as_written`, `interpreters`, `reading`, `spec`, `from_pypulseq`, `model`, `errors` |
+| The files | `pulseq_analysis.seqfile` | `as_written`, `interpreters`, `reading`, `spec`, `from_pypulseq`, `conformance`, `model`, `errors` |
 
 The last part of the path of each module is unique, so the two documents
 write a module by it: `snapshot.Snapshot` is

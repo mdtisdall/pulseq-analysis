@@ -11,7 +11,14 @@
   interpreter, and its value is the class (`Plugin`). The package lists the names without
   importing a plugin, and imports a plugin only when its name is asked for. A plugin states the
   version of the protocol that it implements (`Plugin.protocol`); the package uses only a plugin
-  of its own version, `PROTOCOL` (P22).
+  of its own version, `PROTOCOL` (P22), whose class has the setting `max_shape_samples` of every
+  interpreter, of the default `DEFAULT_MAX_SHAPE_SAMPLES` (`Plugin`).
+
+Every interpreter has the setting `max_shape_samples`: the most samples that a shape of the file
+can declare, `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no limit (the user,
+2026-10-18). The specification has no limit (spec:619), and a short file can declare any number
+of samples, so a reader that decompresses each shape can allocate without bound. A shape that
+declares more is `NotSupported` (`errors`), before the interpreter decompresses it.
 
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
@@ -23,6 +30,7 @@ records the interpreter that made it. A setting that the interpreter does not ha
 
 import dataclasses
 import importlib.metadata
+import numbers
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
@@ -30,6 +38,7 @@ if TYPE_CHECKING:
     from .model import SequenceData
 
 __all__ = [
+    "DEFAULT_MAX_SHAPE_SAMPLES",
     "GROUP",
     "PROTOCOL",
     "Interpreter",
@@ -48,19 +57,52 @@ GROUP = "pulseq_analysis.interpreters"
 # Before it the protocol had no version. A change of the protocol is a change of the contract
 # with pulseq-checks (section 7.3 of the plan): a new version, noted in `CHANGELOG.md`. Version
 # 1 is not released yet, and changes in place until it is, as for `gradient_variants` and the
-# times of `gradients_at` in s, as the rest of the API (the user, 2026-10-14).
+# times of `gradients_at` in s, as the rest of the API (the user, 2026-10-14), and for the setting
+# `max_shape_samples` of every interpreter, of the default `DEFAULT_MAX_SHAPE_SAMPLES` (the user,
+# 2026-10-18).
 PROTOCOL = 1
+
+# The default of the setting `max_shape_samples` of every interpreter: the most samples that a
+# shape can declare, 2^27, 1 GiB of float64.
+DEFAULT_MAX_SHAPE_SAMPLES = 2**27
+
+
+def _max_shape_samples(value: Any) -> int | None:
+    """`value`, a setting `max_shape_samples`, as an int, or None. Raises `TypeError` when it is
+    a bool or not an integer (a numpy int is one), and `ValueError` when it is not above 0."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        raise TypeError(f"max_shape_samples is an int above 0 or None, not {value!r}")
+    if value <= 0:
+        raise ValueError(f"max_shape_samples is an int above 0 or None, not {value!r}")
+    return int(value)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Spec:
     """The `spec` interpreter: the rules of `seqfile.spec`, and the decoding of `synth.events`.
-    It has no setting."""
+
+    `max_shape_samples` is the most samples that a shape can declare (`DEFAULT_MAX_SHAPE_SAMPLES`
+    by default; None for no limit), its one setting. A shape that declares more is
+    `NotSupported`, and `spec` does not decompress it. It is an int above 0: a numpy int is kept
+    as an int, a bool or another type is a `TypeError`, and 0 or less a `ValueError`."""
 
     name: ClassVar[str] = "spec"
+    max_shape_samples: int | None = DEFAULT_MAX_SHAPE_SAMPLES
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "max_shape_samples", _max_shape_samples(self.max_shape_samples))
 
     def __str__(self) -> str:
-        return self.name
+        """The name, with each setting that is not its default."""
+        default = Spec()
+        settings = [
+            f"{field}={getattr(self, field)!r}"
+            for field in ("max_shape_samples",)
+            if getattr(self, field) != getattr(default, field)
+        ]
+        return f"{self.name}({', '.join(settings)})" if settings else self.name
 
 
 @runtime_checkable
@@ -85,11 +127,21 @@ class Plugin(Protocol):
       `synth.SettingError` for a setting that addresses something the file does not have under
       the interpreter (rule 8).
     - `str()`: the name, with each setting that is not its default.
+    - `max_shape_samples`: the most samples that a shape of the file can declare, a dataclass
+      field of the default `DEFAULT_MAX_SHAPE_SAMPLES`, or None for no limit; an int above 0
+      (a bool or another type is a `TypeError`, 0 or less a `ValueError`). `read` raises
+      `NotSupported` for a shape that declares more, before anything decompresses it. The
+      message gives the path, the ID of the shape, the number of samples that it declares and
+      the limit, and names the setting. The plugin checks the number of its own reading of the
+      file (it can differ from the "as written" reading), so `read_seqfile` does not check it.
+      `interpreter` refuses a plugin class with no such field or with another default
+      (`TypeError`). `conformance.check_shape_limit(cls)` checks a plugin class in its tests.
 
-    It is frozen and compares by its settings, as `Spec` does."""
+    It is a frozen dataclass and compares by its settings, as `Spec` does."""
 
     name: ClassVar[str]
     protocol: ClassVar[int]
+    max_shape_samples: int | None
 
     def read(self, path: Path) -> "SequenceData": ...
 
@@ -126,10 +178,34 @@ def _check_protocol(value: Any) -> None:
         )
 
 
+def _check_max_shape_samples(value: Any) -> None:
+    """Raise `TypeError` when the plugin interpreter `value` (a class or an object) has no
+    dataclass field `max_shape_samples` of the default `DEFAULT_MAX_SHAPE_SAMPLES`, the
+    convention of `Plugin`."""
+    name = getattr(value, "name", value)
+    fields = dataclasses.fields(value) if dataclasses.is_dataclass(value) else ()
+    found = next((field for field in fields if field.name == "max_shape_samples"), None)
+    convention = (
+        "every interpreter has the setting max_shape_samples, the most samples that a shape "
+        f"can declare, of the default DEFAULT_MAX_SHAPE_SAMPLES ({DEFAULT_MAX_SHAPE_SAMPLES}) "
+        f"(seqfile.interpreters.Plugin, protocol version {PROTOCOL})"
+    )
+    if found is None:
+        raise TypeError(
+            f"the interpreter {name!r} has no dataclass field max_shape_samples: {convention}"
+        )
+    if found.default != DEFAULT_MAX_SHAPE_SAMPLES:
+        raise TypeError(
+            f"the interpreter {name!r} has the default {found.default!r} of max_shape_samples: "
+            f"{convention}"
+        )
+
+
 def _plugin(name: str) -> type:
     """The class of the plugin interpreter `name`. Raises `ValueError` when no entry point or
     more than one has the name, `ImportError` when the entry point does not load, and
-    `TypeError` when the class it gives has another name or another protocol version."""
+    `TypeError` when the class it gives has another name or another protocol version, or does
+    not have the setting `max_shape_samples` of its default (`_check_max_shape_samples`)."""
     eps = _entry_points().get(name, [])
     if not eps:
         raise ValueError(
@@ -149,6 +225,7 @@ def _plugin(name: str) -> type:
     if getattr(cls, "name", None) != name:
         raise TypeError(f"the entry point {name!r} gives {cls!r}, whose name is not {name!r}")
     _check_protocol(cls)
+    _check_max_shape_samples(cls)
     return cls
 
 
@@ -156,8 +233,9 @@ def interpreter(value: "str | Interpreter") -> Interpreter:
     """The interpreter `value`: an interpreter object as it is, or a name (`interpreter_names`)
     with its default settings. Raises `ValueError` for another name (a plugin cannot be named
     `spec`), `ImportError` for a plugin that does not load, and `TypeError` for a class (its
-    message names the call that makes an object of it, for example `Spec()`), for another value
-    and for a plugin of another protocol version (`PROTOCOL`)."""
+    message names the call that makes an object of it, for example `Spec()`), for another value,
+    for a plugin of another protocol version (`PROTOCOL`), and for a plugin without the setting
+    `max_shape_samples` of the default `DEFAULT_MAX_SHAPE_SAMPLES` (`Plugin`)."""
     if isinstance(value, type):
         # The class of a plugin has the members of `Plugin`, but an interpreter is an object.
         raise TypeError(
@@ -174,6 +252,7 @@ def interpreter(value: "str | Interpreter") -> Interpreter:
         # A plugin object of another protocol version can lack a member of `Plugin`: its
         # version is checked first, for a message that names it.
         _check_protocol(value)
+        _check_max_shape_samples(value)
         if isinstance(value, Plugin):
             return value
     raise TypeError(f"an interpreter is a name or an interpreter object, not {type(value)}")

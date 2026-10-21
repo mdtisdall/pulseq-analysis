@@ -194,7 +194,7 @@ class RotationRecord:
 
     - `setting`: what the interpreter does with the rotations, `"apply"` when it rotates the
       gradients, or the name of its setting that does not (for example `"reader"`); `"apply"`
-      for `spec`, which has no setting and applies the rotations of the file.
+      for `spec`, which has no setting of the rotations and applies the rotations of the file.
     - `blocks`: the blocks with a rotation, as the interpreter finds them; for `spec` those
       whose extension list has a ROTATIONS object, from 1.5.1.
     - `not_identity`: of these, the blocks whose rotation is not the identity (a quaternion

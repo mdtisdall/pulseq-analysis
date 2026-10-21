@@ -127,6 +127,7 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
 | `pulseq_analysis.seqfile.from_pypulseq` | `read_pypulseq`: a `pypulseq.Sequence` in memory, written to text and read through an interpreter. | [8](#a-pypulseq-sequence-in-memory) |
 | `pulseq_analysis.seqfile.reading` | `read_seqfile`: a Pulseq text file through an interpreter, into a `SequenceData`. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.interpreters` | The interpreter `spec`, the protocol of a plugin interpreter, and the names of the installed interpreters. | [8](#the-interpreters) |
+| `pulseq_analysis.seqfile.conformance` | `check_shape_limit`: the check, for the tests of a plugin, that the class of an interpreter has the setting `max_shape_samples` of every interpreter. | [8](#the-interpreters) |
 | `pulseq_analysis.seqfile.errors` | `SeqFileError` and `NotSupported`. | [8](#the-interpreters) |
 | `pulseq_analysis.synth.decoding` | `decode`: the decoding of a file by its interpreter, and the protocol `Decoding` of a decoding. | [8](#the-interpreters) |
 
@@ -798,7 +799,8 @@ from pulseq_analysis.synth import decode
 interpreter_names()  # ('spec',), and the name of each plugin that is installed
 spec = read_seqfile("sequence.seq")  # interpreter="spec", the default
 data = read_seqfile("sequence.seq", interpreter="cpp-siemens")  # a plugin, by name
-data.interpreter  # CppSiemens(oversampling='center', rotation='reader'); str() is 'cpp-siemens'
+data.interpreter  # CppSiemens(oversampling='center', rotation='reader',
+#   max_shape_samples=134217728); str() is 'cpp-siemens'
 
 plugin = decode(data)  # the plugin's own decoding
 plugin.gradients_at([0, 0], [10e-6, 20e-6])  # Hz/m, times in s from the start of each block
@@ -829,7 +831,9 @@ settings. It raises:
   does not read, whatever the interpreter: a version outside 1.4.0 to 1.5.x (Q1
   of the plan), a binary Pulseq file or a folder. `read_seqfile` checks them
   before the interpreter reads the file, with one message for each. It says
-  nothing about whether the file is valid.
+  nothing about whether the file is valid. The interpreter raises it too for a
+  shape that declares more samples than its setting `max_shape_samples`
+  (below).
 - `ValueError` for a name that no installed interpreter has. The message gives
   the installed names and the entry-point group: "no interpreter is named
   'cpp-siemens'; the installed interpreters are spec. A distribution adds one
@@ -841,6 +845,22 @@ settings. It raises:
 - `TypeError` for a value that is neither a name nor an interpreter object. A
   class is not an interpreter: `read_seqfile(path, Spec)` raises `TypeError`
   whose message names `Spec()`, the object to give.
+
+**The limit of the samples of a shape.** Every interpreter has the setting
+`max_shape_samples`: the most samples that a shape of the file can declare,
+`interpreters.DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no
+limit (the user, 2026-10-18). The specification has no limit, and a short file
+can declare any number of samples, so a reader that decompresses each shape
+could allocate without bound: 2^27 samples are 1 GiB of float64. A shape that
+declares more is `NotSupported`, before the interpreter decompresses it; the
+message gives the path, the shape, the number that it declares and the limit,
+and names the setting. `read_seqfile(path, Spec(max_shape_samples=None))`
+reads such a file with `spec`. The setting is an int above 0 (a numpy int is
+kept as an int); a bool or another type raises `TypeError`, and 0 or less
+`ValueError`. `str` gives it when it is not the default:
+`spec(max_shape_samples=None)`. It is the one setting of `spec`.
+`cpp-siemens` accepts and records it, but does not check the reader's shapes
+against it yet.
 
 **Plugin interpreters.** A distribution adds an interpreter through the
 entry-point group `interpreters.GROUP` (`"pulseq_analysis.interpreters"`). The
@@ -877,6 +897,16 @@ The class is of the protocol `interpreters.Plugin`:
   The plugin applies the session with its own hooks, and may use the shared
   simulation of `scanner` ([The scanner session](#the-scanner-session)).
 - `str()`: the name, with each setting that is not its default.
+- `max_shape_samples`: a dataclass field, the setting of every interpreter
+  (above), of the default `interpreters.DEFAULT_MAX_SHAPE_SAMPLES`. `read`
+  raises `NotSupported` for a shape that declares more samples, before
+  anything decompresses it. The plugin checks the number of its own reading of
+  the file, which can differ from the "as written" reading, so `read_seqfile`
+  does not check it. `interpreters.interpreter` raises `TypeError`, which
+  names the plugin and this convention, for a class with no such field or
+  with another default. The tests of a plugin call
+  `conformance.check_shape_limit(cls)` with its class: it raises
+  `AssertionError` when the class does not follow the convention.
 
 A plugin is a frozen dataclass, as `Spec` is: two with the same settings are
 equal. A setting that the interpreter does not have (`Spec(rotation="apply")`)
@@ -1013,7 +1043,6 @@ reader of the error sees that it is the package's choice and why.
 | `shape.empty`, `shape.event-length` | choice; D3.7, D3.8 | a shape with no sample that an event uses; the shapes of one event of different lengths, or an ADC phase shape whose length is not the number of ADC samples |
 | `shape.time-order` | choice; D3.9 | an RF time shape of one sample at 0 or before, a time shape whose times do not increase, a time shape (RF or gradient) that starts before 0 |
 | `shape.oversampled-length` | spec:420, slides 4, 8 | an oversampled gradient (time ID -1) with an even number of samples |
-| `limit.shape-samples` | the package's limit of memory (the specification has none) | a shape that declares more than 2^27 samples: `spec` does not decompress it |
 | `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
 | `layer1.gradient-ends` | choice; D4.4, D4.5 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |
 | `rotation.zero` | choice; D3.10 | a quaternion of ROTATIONS of norm 0 (from 1.5.1 `spec` divides each quaternion by its norm) |

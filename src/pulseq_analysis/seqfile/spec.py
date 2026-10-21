@@ -8,7 +8,9 @@ interpreter) and reads the "as written" reading of the check with `_read_written
 `_read_spec(path)` makes the same two steps. The reading returns a `model.SequenceData`, or
 raises `SeqFileError` (a `ValueError`) with every violation of its rules, and `NotSupported` for
 a file outside the package's scope (Q1 of `docs/plans/parser-redesign.md`): a folder, a binary
-Pulseq file, or a version outside 1.4.0 to 1.5.x.
+Pulseq file, or a version outside 1.4.0 to 1.5.x. It raises `NotSupported` too for a shape that
+declares more samples than the setting `max_shape_samples` of the interpreter
+(`interpreters.Spec`), before it decompresses the shape.
 Each violation is a `Violation(rule, section, line, message)`. The error lists at most
 `MAX_LOCATIONS` violations of each rule and counts the rest (`SeqFileError.omitted`). The reader
 does not import pypulseq, uses no default for a value that the file must define, and does not
@@ -85,7 +87,7 @@ import numpy as np
 
 from . import as_written
 from .as_written import AsWritten
-from .errors import SeqFileError, Violation, _read_in_scope
+from .errors import NotSupported, SeqFileError, Violation, _read_in_scope
 from .interpreters import Spec
 from .model import (
     TABLE_DTYPES,
@@ -342,15 +344,6 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             'spec:420 ("N-1 additional points"), slides 4 and 8 (the samples alternate between '
             'centres and edges, and the shape "starts and ends at the cell centers")',
         ),
-        "limit.shape-samples": Rule(
-            "a shape declares more than 2^27 samples",
-            "the package's limit of memory, not a rule of the specification: spec:619 (the "
-            "number of samples is an integer, with no limit)",
-            choice="the specification has no limit of the number of samples of a shape, and the "
-            "C++ reader stores it in an `int` (cpp:936); this is the package's limit of memory: "
-            "a short file can declare any number of samples, and `spec` does not decompress "
-            "more than 2^27, 1 GiB of float64",
-        ),
         "rotation.zero": Rule(
             "a quaternion of ROTATIONS has a norm of 0",
             'spec:567 ("a normalized rotation quaternion"); D3.10',
@@ -397,9 +390,6 @@ _RASTERS = (
     ("AdcRasterTime", "adc"),
     ("BlockDurationRaster", "block_duration"),
 )
-# A shape of more samples is not decompressed: a short file can declare any number of samples
-# (`limit.shape-samples`, the package's limit of memory).
-_MAX_SHAPE_SAMPLES = 2**27
 # Each extension that the interpreter knows, and the first version that has it (spec:526-584;
 # TRIGGERS from 1.3.0 and the labels from 1.3.1, so in every version that the package reads).
 _KNOWN_EXTENSIONS = {
@@ -534,22 +524,24 @@ class _Ids:
         return self.order[pos], self.sorted[pos] == refs
 
 
-def _read_spec(path: str | Path) -> SequenceData:
+def _read_spec(path: str | Path, interpreter: Spec | None = None) -> SequenceData:
     """Read the Pulseq text file `path` (versions 1.4.0 to 1.5.x) into a `SequenceData`, by the
-    rules of the `spec` interpreter: the reading of `seqfile.read_seqfile(path)`, the public way.
+    rules of the `spec` interpreter `interpreter` (`Spec()` for None), with its settings: the
+    reading of `seqfile.read_seqfile(path, interpreter)`, the public way.
 
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
     (see the module docstring), `NotSupported` for a file outside the package's scope
-    (`errors._read_in_scope`), and `OSError` when the file cannot be read.
+    (`errors._read_in_scope`) and for a shape that declares more samples than
+    `interpreter.max_shape_samples`, and `OSError` when the file cannot be read.
     """
-    return _read_written(_read_in_scope(path))
+    return _read_written(_read_in_scope(path), Spec() if interpreter is None else interpreter)
 
 
-def _read_written(written: AsWritten) -> SequenceData:
+def _read_written(written: AsWritten, interpreter: Spec) -> SequenceData:
     """`_read_spec` of the file that `written` reads, a file in the package's scope
-    (`errors._read_in_scope`)."""
+    (`errors._read_in_scope`), by the interpreter `interpreter`."""
     report = _Report()
-    data = _build(written, report)
+    data = _build(written, report, interpreter)
     if report or data is None:
         raise report.error(written.path)
     return data
@@ -860,12 +852,25 @@ class _Declared:
     rows: np.ndarray
 
 
-def _read_shapes(sections: list[as_written.Section], report: _Report) -> dict[int, _ShapeInfo]:
-    """The shapes of `[SHAPES]` (as a list of its copy), by ID (module docstring)."""
+def _read_shapes(
+    sections: list[as_written.Section], report: _Report, path: str, interpreter: Spec
+) -> dict[int, _ShapeInfo]:
+    """The shapes of `[SHAPES]` (as a list of its copy), by ID (module docstring). Raises
+    `NotSupported` for the first shape of the file `path` that declares more samples than
+    `interpreter.max_shape_samples`, before any shape is decompressed."""
     declared: list[_Declared] = []
     broken: list[tuple[int, int]] = []  # (id, line) of a shape that is not well formed
     for section in sections:
         _shapes_of(section, report, declared, broken)
+    limit = interpreter.max_shape_samples
+    for d in declared:
+        if limit is not None and d.num_samples > limit:
+            raise NotSupported(
+                f"{path}: shape {d.id} declares {d.num_samples} samples, more than the limit of "
+                f"{limit} (the setting max_shape_samples of the interpreter {interpreter.name}), "
+                "and the interpreter does not decompress it. A larger max_shape_samples, or "
+                "None for no limit, reads the file."
+            )
     shapes: dict[int, _ShapeInfo] = {}
     nothing = np.zeros(0)
     # A shape with a violation is kept as a placeholder (no samples), so that a reference to it
@@ -887,16 +892,6 @@ def _read_shapes(sections: list[as_written.Section], report: _Report) -> dict[in
         if d.num_samples < 0:
             report.add(
                 "syntax.negative", "SHAPES", d.line, f"num_samples {d.num_samples} is negative"
-            )
-            shapes[d.id] = _ShapeInfo(-1, nothing, d.line, None)
-            continue
-        if d.num_samples > _MAX_SHAPE_SAMPLES:
-            report.add(
-                "limit.shape-samples",
-                "SHAPES",
-                d.line,
-                f"shape {d.id} declares {d.num_samples} samples, more than the "
-                f"{_MAX_SHAPE_SAMPLES} that the reader decompresses",
             )
             shapes[d.id] = _ShapeInfo(-1, nothing, d.line, None)
             continue
@@ -1780,8 +1775,9 @@ def _layout(name: str, version: tuple[int, int, int]) -> tuple[as_written.Column
     return as_written._NAMED[name][0]
 
 
-def _build(written: AsWritten, report: _Report) -> SequenceData | None:
-    """The model of the file `written`, or None; every violation goes to `report`."""
+def _build(written: AsWritten, report: _Report, interpreter: Spec) -> SequenceData | None:
+    """The model of the file `written` by the interpreter `interpreter`, or None; every violation
+    goes to `report`."""
     if not _encoding(written, report):
         return None
     records: list[Record] = []
@@ -1802,7 +1798,7 @@ def _build(written: AsWritten, report: _Report) -> SequenceData | None:
                     line,
                     f"the required extension {token} is not known",
                 )
-    shapes = _read_shapes(named.get("SHAPES", []), report)
+    shapes = _read_shapes(named.get("SHAPES", []), report, written.path, interpreter)
 
     def table(name: str) -> _Table | None:
         return _read_table(named.get(name, []), _layout(name, version), report, name)
@@ -1840,7 +1836,9 @@ def _build(written: AsWritten, report: _Report) -> SequenceData | None:
     _check_rotations(f)
     if report:
         return None
-    return _assemble(f, found, required, signature, sorted(records, key=lambda r: r.line))
+    return _assemble(
+        f, found, required, signature, sorted(records, key=lambda r: r.line), interpreter
+    )
 
 
 def _model_table(name: str, data: np.ndarray, **columns: Any) -> np.ndarray:
@@ -1867,8 +1865,10 @@ def _assemble(
     required: tuple[str, ...],
     signature: Signature | None,
     records: list[Record],
+    interpreter: Spec,
 ) -> SequenceData:
-    """The model of a file with no violation (every table is there)."""
+    """The model of a file with no violation (every table is there), by the interpreter
+    `interpreter`."""
     assert f.blocks and f.rf and f.grad and f.trap and f.adc and f.entries
     rasters = Rasters(*(f.rasters[attr] for _, attr in _RASTERS))  # type: ignore[arg-type]
     rf_d, g_d, t_d, a_d = f.rf.data, f.grad.data, f.trap.data, f.adc.data
@@ -1935,6 +1935,6 @@ def _assemble(
         records=tuple(records),
         signature=signature,
         origin="file",
-        interpreter=Spec(),
+        interpreter=interpreter,
         reading=None,
     )
