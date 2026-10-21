@@ -237,8 +237,16 @@ A caller moves in this order:
   version of the file. A setting that an interpreter does not have
   (`Spec(rotation="apply")`) raises `TypeError`.
 - `CppSiemens(max_shape_samples=...)`, the setting of every interpreter for
-  the most samples that a shape can declare: it accepts it and records it,
-  and does not check the reader's shapes against it yet.
+  the most samples that a shape can declare: `read` passes it to
+  `pulseq_cpp_siemens.load(source, max_shape_samples=...)`, of the default
+  2^27, or None for no limit. `load` compares the number of samples of each
+  shape, as the reader read it, with the limit after `ExternalSequence::load`
+  and before any shape is decompressed or any block decoded. A shape that
+  declares more is `NotSupported`; the message gives the file, the shape, the
+  declared number and the limit, and names the setting. The scanner's reader
+  has no limit. `Sequence.max_shape_samples` records the limit, and a pickle
+  of a `Sequence` loads under it. `CppSiemens` passes
+  `seqfile.conformance.check_shape_limit`.
 - `Sequence.gradients_at(..., actual_ru=...)` raises `UndefinedBehaviour`
   (`ub.gradient-one-point`) for each block and time where a soft delay longer
   than the stored duration of the block reaches the reader's read past the

@@ -28,6 +28,7 @@ sequence.block_soft_delays()  # the blocks with a soft delay, as GetBlock attach
 sequence.block_label_sets()  # the LABELSET events of each block that decodeLabel knows
 cs.rotate_vec3_by_quat([[1, 0, 0, 0]], [[1.0, 0, 0]])  # the reader's rotation of vectors
 cs.load("tests/seqfiles/valid_1_5_1.seq", oversampling="edge")  # the reader's other modes
+cs.load("tests/seqfiles/valid_1_5_1.seq", max_shape_samples=None)  # no limit of shape samples
 ```
 
 The top-level names that are not described above:
@@ -41,11 +42,20 @@ The top-level names that are not described above:
   entry as the value (`UndefinedBehaviour.code` and `.entry`).
   `pulseq_cpp_siemens.interpreter.CODES` has these 11 codes and the codes of the other rejections of `cpp-siemens`.
 
-`load` takes a path or the bytes of a file, and the reader's sampling mode of an oversampled
-arbitrary gradient (see below). It raises:
+`load` takes a path or the bytes of a file, the reader's sampling mode of an oversampled
+arbitrary gradient (see below), and `max_shape_samples`, the most samples that a shape can
+declare: 2^27 by default (the default of the setting of every interpreter of pulseq-analysis), or
+None for no limit. It raises:
 
 - `NotSupported` (a `NotImplementedError`) for a version outside 1.4.0-1.5.x, a binary Pulseq
   file or a folder (Q1 of the plan). The reader is not run on the file.
+- `NotSupported` for a shape that declares more samples than `max_shape_samples`, the shape of
+  the lowest ID. `ExternalSequence::load` stores each shape as the file stores it, and `load`
+  compares the number of samples of each shape of the reader's libraries with the limit before
+  the checks decompress any shape. The message gives the file, the shape, the declared number
+  and the limit, and names the setting. The scanner's reader has no limit: it is the package's,
+  so that a short file cannot make the process allocate without bound (`decodeBlock` resizes a
+  vector to the declared number).
 - `Rejected` when `ExternalSequence::load` returns false or throws, with the reader's
   `messages`. `decode_block`, `decode` and `gradients_at` raise it when `decodeBlock` returns
   false.
@@ -61,7 +71,9 @@ arbitrary gradient (see below). It raises:
   the stored duration reaches such a read, which starts after the stored duration of the block
   (D5.10); the other times of the call give the reader's values.
 
-`ValueError` for an `oversampling` that is not one of `OVERSAMPLING`.
+`ValueError` for an `oversampling` that is not one of `OVERSAMPLING`. `max_shape_samples` is an
+int above 0 or None: a numpy int is kept as an int, a bool or another type is a `TypeError`, and
+0 or less a `ValueError`. `Sequence.max_shape_samples` records it.
 
 The reader's messages (`Rejected.messages`, `Sequence.messages`, which has what `load` printed,
 and `Sequence.rejection_messages`) are the text that it printed. It quotes lines of the file
@@ -117,9 +129,9 @@ reach the read past the times of an extended trapezoid of one point whose delay 
 of the block; `gradients_at` raises `UndefinedBehaviour` at those times (D5.10). `block_label_sets()` gives the LABELSET events of
 each block that `decodeLabel` knows (it leaves out an unknown name, for example `NOSLC`).
 
-A `Sequence` can be pickled and copied. A pickle carries the bytes of the file and the mode, and
-loading it reads and checks the file again; `copy.copy` and `copy.deepcopy` return the same
-object.
+A `Sequence` can be pickled and copied. A pickle carries the bytes of the file, the mode and the
+limit `max_shape_samples`, and loading it reads and checks the file again under that limit;
+`copy.copy` and `copy.deepcopy` return the same object.
 
 `Sequence.libraries` is the reader's own reading of the file, from its private members:
 `version`, the rasters, `definitions` (bytes to bytes) and `definition_values`, `blocks` (an int64
@@ -138,7 +150,9 @@ times of an arbitrary gradient) is None.
    and refuses a version outside 1.4.0-1.5.x. `load` then checks that the reader read the same
    version.
 2. **`ExternalSequence::load`** on the bytes of the file. For 1.4.0 and later it runs no
-   `GetBlock` and no `decodeBlock`, where each case of undefined behaviour is.
+   `GetBlock` and no `decodeBlock`, where each case of undefined behaviour is. It stores each
+   shape as the file stores it, with the number of samples that the file declares, and `load`
+   then compares that number with `max_shape_samples`.
 3. **The checks** (`_checks.py`) read the libraries that `load` built, through pointers to the
    private members that an explicit template instantiation hands out (the reader's source is not
    changed), and follow what `GetBlock`, `decodeBlock` and `gradientsAt` would do with each
@@ -242,8 +256,9 @@ version gate reads the version again with the reader's own code (before the C++ 
 the checks of this package for the reader's undefined behaviour; `decodeBlock` of every block, as
 the C++ oracle does (a block that it rejects rejects the file, and no decoded block is kept); and
 the model from the reader's own libraries. It raises `SeqFileError` with the code of each reason,
-`NotSupported` when `load` refuses the version or a binary Pulseq file, and `OSError`, also for
-a folder when it is called without `read_seqfile`.
+`NotSupported` when `load` refuses the version, a binary Pulseq file or a shape that declares
+more samples than the setting `max_shape_samples`, and `OSError`, also for a folder when it is
+called without `read_seqfile`.
 
 **Settings.** `CppSiemens(oversampling=...)` is the reader's sampling mode of an oversampled
 arbitrary gradient (time shape -1, D6.1): `"center"` (the reader's default, the samples at the
@@ -254,9 +269,10 @@ rotation (the ROTATIONS extension, D6.2), below; `ROTATION` lists `"reader"` (th
 the setting of every interpreter of pulseq-analysis for the most samples that a shape can declare
 (`pulseq_analysis.seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default, or None for
 no limit): an int above 0, a `TypeError` for a bool or another type and a `ValueError` for 0 or
-less. `cpp-siemens` accepts it and records it, and does not check the reader's shapes against it
-yet. `str` gives the name with each setting that is not its default, for example
-`cpp-siemens(oversampling='edge')`.
+less. `read_cpp_siemens` passes it to `load`, so a shape that declares more samples is
+`NotSupported` before any shape is decompressed or any block decoded, and
+`CppSiemens(max_shape_samples=None)` reads the file. `str` gives the name with each setting that
+is not its default, for example `cpp-siemens(oversampling='edge')`.
 
 **The codes of the rejections.** `CODES` maps each code of a rejection of `cpp-siemens` to the ID
 of its entry (— for none) and what the reader rejects; section 2.5 of

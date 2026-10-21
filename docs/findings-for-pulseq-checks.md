@@ -160,8 +160,9 @@ interpreter object:
   `"apply"`), what the decoding does with each block's rotation (D6.2). `str`
   gives the name with the settings that are not the default, for example
   `cpp-siemens(rotation='apply')`. It also has the setting
-  `max_shape_samples` of every interpreter, which it accepts and records; it
-  does not check the reader's shapes against it yet.
+  `max_shape_samples` of every interpreter: a shape that declares more
+  samples, as the C++ reader read it, is `NotSupported`, before any shape is
+  decompressed.
 
 A plugin is a class of the protocol `seqfile.interpreters.Plugin` (`name`,
 `protocol`, the dataclass field `max_shape_samples` of the default

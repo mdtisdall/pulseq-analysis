@@ -408,3 +408,16 @@ is not present"); the "as written" reading tells them apart, so the code names t
 [2] The message gives the row; a row that starts with `#` is a comment in the specification
 (spec:171), which the reader does not skip.
 [3] The reader prints this at a debug level, so it is found from the libraries.
+
+A shape that declares more samples than the setting `max_shape_samples` is not a rejection:
+`load` raises `NotSupported` (a `NotSupported` of pulseq-analysis through `read_seqfile`), as
+for a file outside the version gate (section 2.1), and `CppSiemens(max_shape_samples=None)`
+reads the file. The default is 2^27 samples, `DEFAULT_MAX_SHAPE_SAMPLES` of
+`pulseq_analysis.seqfile.interpreters`. `load` compares the number of samples of each shape as
+the reader read it (an `int`, `cpp:946`, `cpp:971`) with the limit after
+`ExternalSequence::load`, which stores each shape as the file stores it (`cpp:953-976`), and
+before the checks of section 2.2 decompress any shape and before any `decodeBlock`, which
+resizes a vector to that number (`cpp:1994`, `cpp:2109`). The limit is not the reader's, which
+has no limit, but the package's limit of memory: a short file cannot make the process allocate
+without bound. It is a setting of every interpreter of pulseq-analysis (the user, 2026-10-18),
+not a decision of `cpp-siemens`, so it has no ID.

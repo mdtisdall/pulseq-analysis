@@ -859,8 +859,9 @@ reads such a file with `spec`. The setting is an int above 0 (a numpy int is
 kept as an int); a bool or another type raises `TypeError`, and 0 or less
 `ValueError`. `str` gives it when it is not the default:
 `spec(max_shape_samples=None)`. It is the one setting of `spec`.
-`cpp-siemens` accepts and records it, but does not check the reader's shapes
-against it yet.
+`cpp-siemens` checks the number of samples of each shape as the C++ reader
+read it, after the reader's `load` and before any shape is decompressed:
+`CppSiemens(max_shape_samples=None)` reads such a file.
 
 **Plugin interpreters.** A distribution adds an interpreter through the
 entry-point group `interpreters.GROUP` (`"pulseq_analysis.interpreters"`). The
