@@ -14,7 +14,7 @@ scope, and the check of that scope.
   reads the file. It says nothing about whether the file is valid.
 - `_read_in_scope(path)`: the check of the scope, with one message for each case, which
   `reading.read_seqfile` makes before an interpreter reads the file, so for every interpreter
-  (the user, 2026-10-14), and `spec._read_spec` too.
+  (the user, 2026-10-14).
 """
 
 import dataclasses

@@ -6643,20 +6643,18 @@ follows it, not that the decision is right.
 
 #### `test_the_default_interpreter_is_spec`
 
-**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")` and of the private `spec._read_spec(path)`.
+**Checks:** `read_seqfile(path)` gives the model of the interpreter `spec`: its `interpreter` field is `Spec()` (named `spec`), and the model equals that of `read_seqfile(path, "spec")`.
 
-**How:** The test reads one fixture the three ways and compares.
+**How:** The test reads one fixture the two ways and compares.
 
 **Assumptions:** None.
 
 #### `test_read_seqfile_is_the_one_way_to_read_a_file_through_spec`
 
 **Checks:** `read_seqfile(path)` is the one way to read a file through `spec` (the user,
-2026-10-14): the module `seqfile.spec` has no `read_spec`, and its private `_read_spec(path)` gives
-the model of `read_seqfile(path)`.
+2026-10-14): the module `seqfile.spec` has no `read_spec`.
 
-**How:** The test reads `spec.read_spec` and checks that this raises `AttributeError`, and
-compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
+**How:** The test reads `spec.read_spec` and checks that this raises `AttributeError`.
 
 **Assumptions:** None.
 
@@ -7134,7 +7132,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare`
 
-**Checks:** A shape can declare `max_shape_samples` samples, and not one more: `valid_no_signature.seq`, whose shapes 1 and 2 declare 100 samples (the most of the file), reads with `Spec(max_shape_samples=100)`, and with 99 it is `NotSupported` ("shape 1 declares 100 samples") through `read_seqfile`, `load` and `spec._read_spec`. The model records `Spec(max_shape_samples=100)`, and with `interpreter` replaced by `Spec()` it is the model of `read_seqfile(path)`. `load` and `_read_spec` with the limit 100 give the same interpreter and model.
+**Checks:** A shape can declare `max_shape_samples` samples, and not one more: `valid_no_signature.seq`, whose shapes 1 and 2 declare 100 samples (the most of the file), reads with `Spec(max_shape_samples=100)`, and with 99 it is `NotSupported` ("shape 1 declares 100 samples") through `read_seqfile` and `load`. The model records `Spec(max_shape_samples=100)`, and with `interpreter` replaced by `Spec()` it is the model of `read_seqfile(path)`. `load` with the limit 100 gives the same interpreter.
 
 **How:** The test reads the fixture with each limit and through each function, and compares.
 

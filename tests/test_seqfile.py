@@ -43,7 +43,6 @@ from pulseq_analysis.seqfile.spec import (
     RANGE_TOLERANCE,
     RULES,
     _off_raster,
-    _read_spec,
 )
 from pulseq_analysis.synth import events
 
@@ -696,19 +695,16 @@ def test_the_default_interpreter_is_spec():
     data = read_seqfile(path)
     assert data.interpreter == Spec()
     assert str(data.interpreter) == "spec"
-    assert data == read_seqfile(path, "spec") == _read_spec(path)
+    assert data == read_seqfile(path, "spec")
 
 
 def test_read_seqfile_is_the_one_way_to_read_a_file_through_spec():
     """`read_seqfile(path)` is the one way to read a file through `spec` (the user, 2026-10-14): the
-    module `spec` has no `read_spec`, and its private `_read_spec(path)` gives the model of
-    `read_seqfile(path)`."""
+    module `spec` has no `read_spec`."""
     from pulseq_analysis.seqfile import spec
 
-    path = SEQFILES / "valid_1_5_1.seq"
     with pytest.raises(AttributeError):
         _ = spec.read_spec
-    assert spec._read_spec(path) == read_seqfile(path)
 
 
 # ---- The rows of section 6 of the plan: the format and its structure ----
@@ -1781,7 +1777,7 @@ def test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare():
     """`max_shape_samples` is the most samples that a shape can declare: in
     `valid_no_signature.seq` shapes 1 and 2 declare 100 samples, the most of the file, so the
     file reads with a limit of 100 and is `NotSupported` with 99, through each way that reads a
-    file with `spec` (`read_seqfile`, `load`, `_read_spec`). The model records the interpreter
+    file with `spec` (`read_seqfile`, `load`). The model records the interpreter
     with its setting, and is otherwise the model of the default."""
     path = SEQFILES / "valid_no_signature.seq"
     data = read_seqfile(path, Spec(max_shape_samples=100))
@@ -1789,8 +1785,7 @@ def test_max_shape_samples_is_the_most_samples_that_a_shape_can_declare():
     assert data.interpreter == Spec(max_shape_samples=100)
     assert dataclasses.replace(data, interpreter=Spec()) == read_seqfile(path)
     assert load(path, Spec(max_shape_samples=100)).interpreter == Spec(max_shape_samples=100)
-    assert _read_spec(path, Spec(max_shape_samples=100)) == data
-    for read in (read_seqfile, load, _read_spec):
+    for read in (read_seqfile, load):
         with pytest.raises(NotSupported, match="shape 1 declares 100 samples"):
             read(path, Spec(max_shape_samples=99))
 
@@ -2583,7 +2578,7 @@ def _lines_of_shapes_of(call) -> int:
     `call()`, at any depth: each `line` event of `sys.settrace`, which a loop gives for each pass
     (a list comprehension too, which Python 3.12 inlines in its function)."""
     count = 0
-    filename = _read_spec.__code__.co_filename
+    filename = _off_raster.__code__.co_filename
 
     def local(frame, event, arg):
         nonlocal count

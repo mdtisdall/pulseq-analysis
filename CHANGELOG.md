@@ -613,8 +613,9 @@ of `synth.seq_index` only, not of `analyses.grad_peaks`,
 `TOLERANCE_NS`, `FIRST_TIME_TOLERANCE` and `RATIO_TOLERANCE`, which
 `docs/usage.md` gives. `seqfile.read_seqfile(path)` is the one way to read a
 file through `spec` (review 2026-10-13 6; the user, 2026-10-14):
-`spec.read_spec` is private,
-`spec._read_spec`, and `spec.read_spec` raises `AttributeError`. `tests/test_interface.py` checks that each public module
+`spec.read_spec` is gone (it raises `AttributeError`), and the private copy
+`spec._read_spec` is gone too (review 2026-10-21 4; the user, 2026-10-21).
+`tests/test_interface.py` checks that each public module
 has an `__all__`, that each name that the documents give with a public module
 is in its `__all__`, that each name of an `__all__` is in the documents, and
 that the `__all__` of a module that is not a package has no name of another
