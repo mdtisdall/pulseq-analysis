@@ -10183,24 +10183,33 @@ it, nor that the text says what the name is. A name alone counts for each module
 
 #### `test_the_documents_give_the_version_of_pulseq_cpp_siemens`
 
-**Checks:** `docs/migration.md` and the entry "Unreleased" of `CHANGELOG.md` give the version and
-the requirement on pulseq-analysis of pulseq-cpp-siemens that the plugin's `pyproject.toml` has.
-The plugin has the version of the release that the documents describe, and pulseq-analysis that
-version or the one before it. The dependencies of the plugin do not name pulseq-analysis, so that
-its wheels install and are tested without it (review 2026-10-13, 3.2).
+**Checks:** `docs/migration.md` and the newest entry of `CHANGELOG.md` give the version and the
+requirement on pulseq-analysis of pulseq-cpp-siemens that the plugin's `pyproject.toml` has. The
+plugin has the version of the release that the documents describe. Before the release (the newest
+entry is "Unreleased"), pulseq-analysis has that version or the one before it; at the release (the
+newest entry is the release), it has that version, and the requirement allows it. The dependencies
+of the plugin do not name pulseq-analysis, so that its wheels install and are tested without it
+(review 2026-10-13, 3.2; review 2026-10-21, 7.1).
 
 **How:** The test reads both `pyproject.toml` files with `tomllib`. The release is the "to" of the
-title of `docs/migration.md` ("Migrating from A to B"), and its "from" is the release before it:
-the version of pulseq-analysis is one of the two. The sentence "For `B`, both are `B`" of
-`docs/migration.md` gives `B`, which is the version of the plugin. The requirement is the code
-span `pulseq-analysis>=...` of each document: the two documents give the same one, its lower bound
-is `B`, one extra of the plugin (`[project.optional-dependencies]`) has it, and both documents name
-that extra (`pulseq-cpp-siemens[extra]`). The spaces of a requirement are not compared.
+title of `docs/migration.md` ("Migrating from A to B"), and its "from" is the release before it.
+The newest entry of `CHANGELOG.md` is its first heading `## `. When it is "Unreleased", the
+version of pulseq-analysis is A or B. Otherwise the heading is `## B (<date>)`, as the entries of
+the earlier releases are, and the version of pulseq-analysis is B. The sentence "For `B`, both are
+`B`" of `docs/migration.md` gives `B`, which is the version of the plugin. The requirement is the
+code span `pulseq-analysis>=...` of `docs/migration.md` and of the newest entry: the two documents
+give the same one, it is `pulseq-analysis>=B,<C`, the release segment of B (its numbers before
+`rc`, without trailing zeros) is less than that of C, one extra of the plugin
+(`[project.optional-dependencies]`) has it, and both documents name that extra
+(`pulseq-cpp-siemens[extra]`). The spaces of a requirement are not compared. uv does not apply
+the requirement to the path source of pulseq-analysis, and `uv lock --check` passes with the
+requirement above the version of the root, so at the release this test is the check of the
+requirement.
 
-**Assumptions:** The test does not check that the version of pulseq-analysis is the version of the
-plugin after the release: until the release, pulseq-analysis has the version before it. The upper
-bound of the requirement is not compared with the version. The wording of the documents around
-the requirement ("require") is not read.
+**Assumptions:** The test does not check the date of the entry of a release. The comparison of
+the upper bound uses only the release segments: a version of B that is a pre-release of C (B
+`0.2.0rc1`, C `0.2`) fails, as PEP 440 excludes it. The requirement has no other form than a lower
+and an upper bound. The wording of the documents around the requirement ("require") is not read.
 
 ### 2.33 The SAFE model against the original SAFE package (`test_safe_oracle.py`)
 

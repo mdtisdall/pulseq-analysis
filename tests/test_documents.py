@@ -59,7 +59,10 @@ _RECORD_ID = re.compile(r"(?<![\w.])D[1-7]\.\d+(?!\w)")
 _TEST_NAME = re.compile(r"(?<![\w./])test_\w+(?![\w.])")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
 _REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
-_UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
+# The newest entry of `CHANGELOG.md`: its heading (group 1) and its text (group 2).
+_NEWEST = re.compile(r"^## ([^\n]+)\n(.*?)^## ", re.DOTALL | re.MULTILINE)
+# The heading of the entry of a release: its version (group 1) and its date.
+_RELEASED = re.compile(r"(\S+) \(\d{4}-\d{2}-\d{2}\)")
 _SNAP_DECODING = re.compile(r"(?<![\w.])snap\.decoding\.(\w+)")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 # A path of a plan of this repository. A plan of pulseq-checks is the path followed by "of" or
@@ -687,28 +690,58 @@ def _unspaced(requirement: str) -> str:
     return "".join(requirement.split())
 
 
+def _release_segment(version: str) -> tuple[int, ...]:
+    """The release segment of a version (PEP 440) without its trailing zeros: `0.1.0rc7` gives
+    `(0, 1)`, and so does `0.1`."""
+    parts = [int(part) for part in re.match(r"\d+(?:\.\d+)*", version)[0].split(".")]
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
 def test_the_documents_give_the_version_of_pulseq_cpp_siemens():
-    """`docs/migration.md` and the entry "Unreleased" of `CHANGELOG.md` give the version of
+    """`docs/migration.md` and the newest entry of `CHANGELOG.md` give the version of
     pulseq-cpp-siemens and its requirement on pulseq-analysis, and the plugin's `pyproject.toml`
     has them. The release that the documents describe is the "to" of the title of
-    `docs/migration.md`, and the "from" is the last release: pulseq-analysis has the version of
-    one of the two. At that release, both distributions have its version ("both are"). The
-    dependencies of the plugin do not name pulseq-analysis, so its wheels install and run their
-    tests without it; one extra of the plugin has the requirement that both documents give, both
-    documents name that extra (`pulseq-cpp-siemens[extra]`), and the lower bound of the
-    requirement is the version of the release."""
+    `docs/migration.md`, and the "from" is the last release. Before the release, the newest entry
+    is "Unreleased", and pulseq-analysis has the version of one of the two. At the release, the
+    newest entry is the release (`## 0.1.0rc7 (2026-10-22)`), and both distributions have its
+    version ("both are"). The dependencies of the plugin do not name pulseq-analysis, so its
+    wheels install and run their tests without it; one extra of the plugin has the requirement
+    that both documents give, both documents name that extra (`pulseq-cpp-siemens[extra]`), the
+    lower bound of the requirement is the version of the release, and its upper bound is above
+    it. uv does not apply the requirement to the path source of pulseq-analysis in the plugin's
+    `pyproject.toml`, so at the release this test is the check that the requirement allows the
+    version of pulseq-analysis."""
     analysis = tomllib.loads(_text(ROOT / "pyproject.toml"))["project"]
     plugin = tomllib.loads(_text(PLUGIN / "pyproject.toml"))["project"]
     migration = " ".join(_text(MIGRATION).split())
     match = re.match(r"# Migrating from (\S+) to (\S+) ", migration)
     assert match is not None, f"{MIGRATION.name} has no title 'Migrating from <last> to <next>'"
     last, release = match.groups()
-    assert analysis["version"] in (last, release), (
-        f"pulseq-analysis is {analysis['version']}; {MIGRATION.name} is from {last} to {release}"
-    )
-    unreleased = _UNRELEASED.search(_text(CHANGELOG))
-    assert unreleased is not None, f"{CHANGELOG.name} has no entry 'Unreleased'"
-    documents = {MIGRATION.name: migration, CHANGELOG.name: " ".join(unreleased[1].split())}
+    newest = _NEWEST.search(_text(CHANGELOG))
+    assert newest is not None, f"{CHANGELOG.name} has no entry"
+    heading, entry = newest.groups()
+    if heading == "Unreleased":
+        assert analysis["version"] in (last, release), (
+            f"pulseq-analysis is {analysis['version']}; {MIGRATION.name} is from {last} to "
+            f"{release}"
+        )
+    else:
+        released = _RELEASED.fullmatch(heading)
+        assert released is not None, (
+            f"the newest entry of {CHANGELOG.name} is '{heading}', not 'Unreleased' or "
+            "'<version> (<date>)'"
+        )
+        assert released[1] == release, (
+            f"the newest entry of {CHANGELOG.name} is {released[1]}; {MIGRATION.name} is to "
+            f"{release}"
+        )
+        assert analysis["version"] == release, (
+            f"pulseq-analysis is {analysis['version']} in its pyproject.toml; the newest entry "
+            f"of {CHANGELOG.name} is {release}"
+        )
+    documents = {MIGRATION.name: migration, CHANGELOG.name: " ".join(entry.split())}
 
     assert re.findall(r"For `([^`]+)`, both are `([^`]+)`", migration) == [(release, release)]
     assert plugin["version"] == release, (
@@ -722,7 +755,12 @@ def test_the_documents_give_the_version_of_pulseq_cpp_siemens():
     assert len(written[MIGRATION.name]) == 1, f"the requirements on pulseq-analysis: {written}"
     assert written[CHANGELOG.name] == written[MIGRATION.name], f"they differ: {written}"
     (requirement,) = written[MIGRATION.name]
-    assert requirement.startswith(f"pulseq-analysis>={release},")
+    bounds = re.fullmatch(r"pulseq-analysis>=([^,]+),<([^,]+)", requirement)
+    assert bounds is not None, f"the requirement is not '>=<release>,<<upper>': {requirement}"
+    assert bounds[1] == release, f"the lower bound of {requirement} is not {release}"
+    assert _release_segment(release) < _release_segment(bounds[2]), (
+        f"the upper bound of {requirement} excludes {release}"
+    )
     named = [r for r in plugin["dependencies"] if _project_name(r) == "pulseq-analysis"]
     assert not named, f"the dependencies of pulseq-cpp-siemens name pulseq-analysis: {named}"
     extras = [
