@@ -349,7 +349,9 @@ class Sequence:
         """`SeqBlock::gradientsAt` (Hz/m) at each pair of a block index (play order from 0) and a
         time in us from the start of that block, as an array (n, 3): gx, gy, gz. A block that is
         not decoded yet is decoded first (`Rejected` if it does not decode). A NaN time raises
-        ValueError: the reader converts it to an int, which is undefined behaviour.
+        ValueError: the reader converts it to an int, which is undefined behaviour. A block index
+        whose dtype is not an integer (a float or a bool) raises TypeError; an empty
+        `block_index`, of any dtype, reads nothing.
 
         With `rotated`, the values of a block that has a rotation (`block_rotations`) are turned
         by its quaternion with the reader's own `rotate_vec3_by_quat` (cpp:2666-2684, the active
@@ -365,7 +367,11 @@ class Sequence:
         meet it raises `UndefinedBehaviour` (`ub.gradient-one-point`, with that block and
         time) before the reader runs. The other pairs, also those of the same block, give the
         reader's values."""
-        block_index = np.ascontiguousarray(block_index, dtype=np.int64).reshape(-1)
+        block_index = np.asarray(block_index).reshape(-1)
+        # A bool is not an integer dtype. An empty list is float64, and reads nothing.
+        if block_index.size and not np.issubdtype(block_index.dtype, np.integer):
+            raise TypeError(f"block_index is not an array of integers (dtype {block_index.dtype})")
+        block_index = np.ascontiguousarray(block_index, dtype=np.int64)
         time_us = np.ascontiguousarray(time_us, dtype=np.float64).reshape(-1)
         if block_index.shape != time_us.shape:
             raise ValueError("block_index and time_us differ in length")

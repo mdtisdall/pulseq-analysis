@@ -234,6 +234,12 @@ A caller moves in this order:
   raised `OverflowError` for an infinite count, and the message of Python's
   `int` for NaN. `spec` does not reach this: it rejects a stored value that is
   not finite first.
+- `SpecDecoding.gradients_at` raises `TypeError` for a block index whose dtype
+  is not an integer (a float or a bool), as the protocol `synth.Decoding` now
+  says (review 2026-10-21 1.3.3). Before, it cut a float to an int:
+  `gradients_at([1.9], [2e-4])` gave the gradients of block 1, and `[True]`
+  read block 1. An empty `block_index` still gives an array (0, 3): numpy
+  makes an empty list float64.
 
 ### The plugin pulseq-cpp-siemens
 
@@ -339,6 +345,11 @@ A caller moves in this order:
   Before, it gave the arrays that the `Sequence` keeps, so a write to one
   changed each later result and the soft delays of each later decoding of
   `cpp-siemens`.
+- `CppSiemensDecoding.gradients_at` and `Sequence.gradients_at` raise
+  `TypeError` for a block index whose dtype is not an integer (a float or a
+  bool), as `spec` does (review 2026-10-21 1.3.3). Before, each cut a float to
+  an int (a block index of 1.9 read block 1) and read `True` as block 1. An
+  empty `block_index` still gives an array (0, 3).
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 

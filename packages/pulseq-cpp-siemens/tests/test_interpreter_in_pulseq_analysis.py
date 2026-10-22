@@ -24,7 +24,7 @@ from test_from_pypulseq import (
 )
 from test_matlab_oracle import cases  # noqa: F401 (the fixture of the MATLAB oracle)
 
-from pulseq_analysis import seqfile
+from pulseq_analysis import seqfile, synth
 from pulseq_analysis.seqfile import SeqFileError, read_seqfile
 from pulseq_analysis.synth.events import decode_adc, decode_gradients, decode_rf
 
@@ -73,6 +73,26 @@ def test_the_events_of_spec_refuse_a_model_of_cpp_siemens():
     for decode in (decode_rf, decode_gradients, decode_adc):
         with pytest.raises(TypeError, match="synth.decode"):
             decode(data)
+
+
+def test_gradients_at_refuses_a_block_index_that_is_not_an_integer_through_cpp_siemens():
+    """`CppSiemensDecoding.gradients_at` raises `TypeError`, with a message that names
+    `block_index`, for a block index whose dtype is not an integer (1.3.3 of
+    `docs/reviews/2026-10-21-code-review.md`: `[1.9]` gave the gradients of block 1): a float, also
+    one with an integer value, and a bool. A list of ints and arrays of int32 and uint8 read block 1
+    of valid_1_5_1.seq (the trapezoid of 1e6 Hz/m on gx at 250 us), and an empty list, which numpy
+    makes float64, gives an array (0, 3)."""
+    decoding = synth.decode(
+        seqfile.read_seqfile(SEQFILES / "valid_1_5_1.seq", interpreter="cpp-siemens")
+    )
+    for index in ([1.9], [1.0], np.array([1.0]), [True], np.array([True])):
+        with pytest.raises(TypeError, match="block_index"):
+            decoding.gradients_at(index, [250e-6])
+    expected = decoding.gradients_at([1], [250e-6])
+    assert expected[0, 0] == 1e6
+    for index in (np.array([1], np.int32), np.array([1], np.uint8)):
+        assert np.array_equal(decoding.gradients_at(index, [250e-6]), expected)
+    assert decoding.gradients_at([], []).shape == (0, 3)
 
 
 @test_matlab_oracle.pytestmark
