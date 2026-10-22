@@ -489,6 +489,41 @@ bins is the number of references.
 
 **Assumptions:** None.
 
+#### `test_peak_tolerance_is_one_millionth_of_the_peak`
+
+**Checks:** `PEAK_TOLERANCE`, the fraction of the peak within which a total counts as the peak
+for `PnsLevels.peak_time_s`, is 1e-6.
+
+**How:** The test compares `pns_levels.PEAK_TOLERANCE` with 1e-6.
+
+**Assumptions:** The test checks a constant of the package, not a calculation. The other tests
+of the peak time take their expected time from `PEAK_TOLERANCE`, so they do not see a change of
+it. It needs no pypulseq.
+
+#### `test_the_peak_time_is_the_first_sample_within_peak_tolerance_of_the_peak`
+
+**Checks:** Of two equal trapezoids on x, 100 ms apart, the second with its amplitude times a
+factor, the peak time is that of the peak sample of the first when the factor is 1 + 5e-7 (the
+first is within `PEAK_TOLERANCE` of the peak), and that of the peak sample of the second when
+the factor is 1 + 5e-6 (the first is not).
+
+**How:** Parametrized over the two factors. The test writes a 1.5.1 file in `tmp_path`
+(`_TWO_TRAPEZOIDS`): a trapezoid of 100000 Hz/m with ramps of 100 us and a flat of 200 us, a
+block of 100 ms with no event, and the same trapezoid with the amplitude `100000 * factor`,
+written with 17 significant digits. It loads the file through `spec` and runs `pns_levels` with
+the example hardware. The expected peak time is a number, to an absolute 1e-12 s: 95e-6 s for
+1 + 5e-7 and 100495e-6 s for 1 + 5e-6, the centre of the last sample of the ramp up (sample 9,
+and sample 10049 of the second trapezoid).
+
+**Assumptions:** The response of the first trapezoid has decayed at the second: the slowest
+filter of x in the example hardware has tau3 = 3 ms, which keeps 3 / 3.01 of its value at each
+10 us sample, and (3 / 3.01) ** 10000 is 3.5e-15. With a second trapezoid of amplitude 0, the
+total at sample 10049 is 2.1e-17 of the peak. So the totals of the second are those of the first
+times the factor, and the threshold `peak * (1 - PEAK_TOLERANCE)` of `pns_levels` is 5e-7 of the
+peak below the peak of the first for 1 + 5e-7, and 4e-6 above it for 1 + 5e-6: far more than the
+response that is left. A neighbour of each peak sample is at most 0.97 of it, so no other sample
+is within `PEAK_TOLERANCE`. It needs no pypulseq.
+
 #### `test_the_levels_of_a_gap_with_ends_that_are_not_0_are_the_safe_model_of_the_oracle_samples`
 
 **Checks:** For a sequence that `spec` reads with a long gap, a short gap from 0 or a step at a

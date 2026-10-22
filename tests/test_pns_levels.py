@@ -200,6 +200,58 @@ def test_stored_bins_are_the_extremes_of_the_model_totals(build):
     np.testing.assert_allclose(levels.level_max_hz_per_t, ref_max, rtol=1e-6, atol=atol)
 
 
+def test_peak_tolerance_is_one_millionth_of_the_peak():
+    """`PEAK_TOLERANCE`, the fraction of the peak within which a total counts as the peak for
+    `PnsLevels.peak_time_s`, is 1e-6."""
+    assert PEAK_TOLERANCE == 1e-6
+
+
+# Two trapezoids on x (100 us ramps, 200 us flat), 100 ms apart, the amplitude of the second
+# given by `second`. The slowest filter of x in the example hardware has tau3 = 3 ms: it keeps
+# 3 / 3.01 of its value at each 10 us sample, and (3 / 3.01) ** 10000 is 3.5e-15. So at the
+# peak sample of the second trapezoid, the response of the first is below 1e-12 of the peak
+# (2.1e-17, measured with a second of amplitude 0).
+_TWO_TRAPEZOIDS = """\
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 40 0 1 0 0 0 0
+2 10000 0 0 0 0 0 0
+3 40 0 2 0 0 0 0
+
+[TRAP]
+1 100000 100 200 100 0
+2 {second} 100 200 100 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("factor", "peak_time_s"),
+    [(1 + 5e-7, 95e-6), (1 + 5e-6, 100495e-6)],
+    ids=["within", "beyond"],
+)
+def test_the_peak_time_is_the_first_sample_within_peak_tolerance_of_the_peak(
+    tmp_path, factor, peak_time_s
+):
+    """Of two equal trapezoids, the second with its amplitude times `factor` (written with 17
+    significant digits), the peak time is in the first when the factor is 1 + 5e-7, within
+    `PEAK_TOLERANCE` of the peak, and in the second when it is 1 + 5e-6. Each peak sample is
+    the last of the ramp up: sample 9 (95 us) and sample 10049 (100.495 ms)."""
+    path = tmp_path / "two_trapezoids.seq"
+    path.write_text(_TWO_TRAPEZOIDS.format(second=f"{100000 * factor:.17g}"))
+    levels = pns_levels(load(path), hardware=EXAMPLE_HW)
+    assert levels.peak_time_s == pytest.approx(peak_time_s, abs=1e-12)
+
+
 # The sequences with an end that is not 0 next to a gap that `spec` reads: the hand sequences of
 # `gap_sequences` that it reads, three of them also with every amplitude negated (the gap rules
 # do not depend on the sign), and the 8 random sequences of `random_gap_sequence(rng,
