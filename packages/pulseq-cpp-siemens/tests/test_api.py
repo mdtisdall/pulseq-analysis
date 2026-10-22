@@ -653,6 +653,20 @@ def test_block_soft_delays_are_those_that_getblock_attaches():
     assert cs.load(SEQFILES / "valid_1_4_0.seq").block_soft_delays().blocks.size == 0
 
 
+def test_a_change_to_the_soft_delays_that_a_sequence_gives_does_not_change_the_sequence():
+    sequence = cs.load(SESSION)
+    changed = sequence.block_soft_delays()
+    changed.blocks[:] = 0
+    changed.num[:] = 9
+    changed.offset_us[:] = 1
+    changed.factor[:] = 3.0
+    found = sequence.block_soft_delays()
+    assert found.blocks.tolist() == [1, 6, 7]
+    assert found.num.tolist() == [0, 0, 1]
+    assert found.offset_us.tolist() == [-100, 5000, 0]
+    assert found.factor.tolist() == [2.0, -1.0, 1.0]
+
+
 def test_block_label_sets_are_the_labels_that_decodelabel_knows():
     """The LABELSET events of each block: the reader leaves out `NOSLC`, the specification's
     spelling of its `NOSCL`."""

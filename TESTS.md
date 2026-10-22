@@ -10532,6 +10532,16 @@ none.
 
 **Assumptions:** None.
 
+#### `test_a_change_to_the_soft_delays_that_a_sequence_gives_does_not_change_the_sequence`
+
+**Checks:** A write to each array of one result of `block_soft_delays()` (`blocks`, `num`,
+`offset_us` and `factor`) of `tests/session/scanner_session.seq` changes no value of the next result.
+
+**How:** The test sets each array of the first result to a value that the file does not have, then
+compares the second result with the values of the file.
+
+**Assumptions:** The hint is a tuple, so a caller cannot change it.
+
 #### `test_block_label_sets_are_the_labels_that_decodelabel_knows`
 
 **Checks:** The LABELSET events of `tests/session/scanner_session.seq` are NOROT 1 (block 3), NOROT
