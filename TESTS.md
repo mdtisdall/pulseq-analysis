@@ -6750,9 +6750,9 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 #### `test_comments_and_blank_lines_are_skipped_after_the_header_of_any_section`
 
-**Checks:** D2.5: a comment and a blank line right after the header of `[VERSION]`, `[DEFINITIONS]`, `[TRAP]`, `[SIGNATURE]` or `extension DELAYS` do not change the model, and a comment between `Type` and `Hash` of `[SIGNATURE]` does not change the hash.
+**Checks:** D2.5: a comment and a blank line right after the header of `[VERSION]`, `[DEFINITIONS]`, `[TRAP]`, `[SIGNATURE]` or `extension DELAYS` do not change the model, the lines after the header of `[SIGNATURE]` do not change the signature, and a comment between `Type` and `Hash` of `[SIGNATURE]` does not change the hash.
 
-**How:** The test inserts the lines after each header of the 1.5.1 fixture and compares the model without the signature (whose `matches` changes with the bytes).
+**How:** The test inserts the lines after each header of the 1.5.1 fixture and compares the model without the signature (whose `matches` changes with the bytes). After the header of `[SIGNATURE]` the lines are after the hashed bytes, so there the test also compares the signature, which must still match.
 
 **Assumptions:** None.
 
