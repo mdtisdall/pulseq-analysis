@@ -1,7 +1,7 @@
 """The checks of the documents: what a document cites or links exists, no link names this
 repository at a commit, a member of a decoding that a document reads is in its protocol, a table of a document that repeats a table of the code has the values of
-the code, and the version and the requirement of pulseq-cpp-siemens that the documents give are
-those of its `pyproject.toml`.
+the code, each name of the interface is in `CHANGELOG.md`, and the version and the requirement
+of pulseq-cpp-siemens that the documents give are those of its `pyproject.toml`.
 
 The documents are the Markdown files at the top of the repository, of `docs/` and of `tests/` (and
 its folders), and the same of `packages/pulseq-cpp-siemens/`. The folders of `docs/` (`plans/`,
@@ -10,7 +10,8 @@ names of the tests also reads the Python files of `src/` and `tests/`, and the s
 The check of the plans reads each file that git tracks, outside `docs/plans/` and `docs/reviews/`.
 
 The module imports only `pulseq_analysis` and the standard library, so it needs no build of the
-plugin: it reads `CODES` of `cpp-siemens` from the source of the plugin with `ast`.
+plugin: it reads `CODES` and the settings of `CppSiemens` of `cpp-siemens` from the source of the
+plugin with `ast`.
 """
 
 import ast
@@ -29,7 +30,7 @@ from urllib.parse import unquote
 
 import pulseq_analysis
 from pulseq_analysis.analyses.registry import registry
-from pulseq_analysis.seqfile import spec
+from pulseq_analysis.seqfile import SequenceData, Spec, spec
 from pulseq_analysis.synth import Decoding, SpecDecoding
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,6 +61,7 @@ _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
 _REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
 _UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
 _SNAP_DECODING = re.compile(r"(?<![\w.])snap\.decoding\.(\w+)")
+_DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 # A path of a plan of this repository. A plan of pulseq-checks is the path followed by "of" or
 # "in" and "pulseq-checks" (group 1), across a line break too.
 _PLAN = re.compile(r"docs/plans/[\w-]+\.md(`?\s+(?:of|in)\s+pulseq-checks\b)?")
@@ -215,6 +217,34 @@ def _cpp_siemens_codes() -> dict[str, tuple[str, str]]:
             assert isinstance(call, ast.Call) and ast.unparse(call.func) == "MappingProxyType"
             return ast.literal_eval(call.args[0])
     raise AssertionError(f"{INTERPRETER} assigns no CODES")
+
+
+def _cpp_siemens_settings() -> tuple[dict[str, object], dict[str, object]]:
+    """The settings of `CppSiemens` of the plugin's `interpreter.py`, read from its source: the
+    default of each dataclass field of the class (an annotated name that is not a `ClassVar`), by
+    the name of the field, and the names that the module imports from pulseq-analysis, with their
+    values. A default is a literal, or a name that the module imports from pulseq-analysis."""
+    tree = ast.parse(_text(INTERPRETER))
+    imported = {
+        alias.asname or alias.name: getattr(importlib.import_module(node.module), alias.name)
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(PREFIX)
+        for alias in node.names
+    }
+    (cls,) = (n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "CppSiemens")
+    assert any("dataclass" in ast.unparse(d) for d in cls.decorator_list), cls.decorator_list
+    defaults = {
+        node.target.id: (
+            imported[node.value.id]
+            if isinstance(node.value, ast.Name)
+            else ast.literal_eval(node.value)
+        )
+        for node in cls.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and not ast.unparse(node.annotation).startswith("ClassVar")
+    }
+    return defaults, imported
 
 
 def _difference(written: list, code: list) -> str:
@@ -533,14 +563,28 @@ def _has_field(cls: type, name: str) -> bool:
 
 def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_result():
     """The table of the defaults of `docs/usage.md` (section 2) has one row for each parameter
-    with a default of `load`, `read_seqfile` and `read_pypulseq`, and one for each default of an
-    analysis of `registry()`, of the function of the column `compute` of the analyses table
-    (the rule of section 2 of `docs/usage.md`: a method parameter has a documented default, and
-    the result records it; the user, 2026-10-14). Each row gives the default of the
-    signature of the function, and each `Class.field` of its column "On the result" is a field
-    of the class that the function returns."""
+    with a default of `load`, `read_seqfile` and `read_pypulseq`, one for each default of an
+    analysis of `registry()`, of the function of the column `compute` of the analyses table, and
+    one for each setting of the interpreters `Spec` and `CppSiemens`: each dataclass field of the
+    class, read from the plugin's source for `CppSiemens`. This is the rule of section 2 of
+    `docs/usage.md`: a method parameter has a documented default, and the result records it (the
+    user, 2026-10-14). Each row gives the default of the signature of the function, or of the
+    field, and each `Class.field` of its column "On the result" is a field of the class that the
+    function returns, `SequenceData` for a setting. The row of a setting names
+    `SequenceData.interpreter`, which records it."""
     text = _text(USAGE)
     analyses = registry()
+    cpp_siemens, cpp_siemens_names = _cpp_siemens_settings()
+    # The reading of the plugin finds a field whose default is a literal, and one whose default
+    # is a name.
+    assert {"oversampling", "max_shape_samples"} <= set(cpp_siemens)
+    settings = {
+        "Spec": (
+            {field.name: field.default for field in dataclasses.fields(Spec)},
+            vars(importlib.import_module(Spec.__module__)),
+        ),
+        "CppSiemens": (cpp_siemens, cpp_siemens_names),
+    }
     expected = [
         (function_name, name)
         for function_name in ("load", "read_seqfile", "read_pypulseq")
@@ -553,22 +597,29 @@ def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_res
         (analysis_id,) = _CODE.findall(row[0])
         function_name = _CODE.findall(row[1])[0].split("(", 1)[0]
         expected += [(function_name, name) for name, _ in analyses[analysis_id].spec.defaults]
+    expected += [(cls, name) for cls, (defaults, _) in settings.items() for name in defaults]
     rows = _table(text, "| Call | Parameter | Default | On the result |")
     written = [(_CODE.findall(row[0])[0], _CODE.findall(row[1])[0]) for row in rows]
     assert sorted(written) == sorted(expected), _difference(written, expected)
     for (function_name, name), row in zip(written, rows, strict=True):
-        module = _module_defining(function_name)
-        signature = inspect.signature(getattr(module, function_name))
+        if function_name in settings:
+            defaults, names = settings[function_name]
+            in_code, returned = defaults[name], SequenceData
+        else:
+            module = _module_defining(function_name)
+            signature = inspect.signature(getattr(module, function_name))
+            names = vars(module)
+            in_code = signature.parameters[name].default
+            returned = signature.return_annotation
         span = _CODE.findall(row[2])[0]
         try:
             default = ast.literal_eval(span)
         except ValueError:
-            default = getattr(module, span)
-        assert default == signature.parameters[name].default, (
+            default = names[span]
+        assert default == in_code, (
             f"{function_name}: the default of {name} is {default!r} in the document and "
-            f"{signature.parameters[name].default!r} in the code"
+            f"{in_code!r} in the code"
         )
-        returned = signature.return_annotation
         fields = [
             match.groups()
             for span in _CODE.findall(row[3])
@@ -579,6 +630,51 @@ def test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_res
             assert class_name == returned.__name__ and _has_field(returned, field), (
                 f"{function_name}: {class_name}.{field} is not a field of {returned.__name__}"
             )
+        if function_name in settings:
+            assert ("SequenceData", "interpreter") in fields, (
+                f"{function_name}: the row of {name} does not name SequenceData.interpreter"
+            )
+
+
+def _changelog_names() -> set[tuple[str | None, str]]:
+    """(qualifier, name) of each part of each dotted name in a code span of `CHANGELOG.md`,
+    outside a code block: the qualifier is the part before the name, or None for the first part
+    (`spec.RANGE_TOLERANCE` gives `(None, "spec")` and `("spec", "RANGE_TOLERANCE")`). A code
+    span can cross a line break."""
+    found = set()
+    for span in _CODE.findall(_without_code_blocks(_text(CHANGELOG))):
+        for dotted in _DOTTED.findall(span):
+            parts = dotted.split(".")
+            found |= {(parts[i - 1] if i else None, part) for i, part in enumerate(parts)}
+    return found
+
+
+def test_each_name_of_a_public_module_is_in_the_changelog():
+    """Each name of the `__all__` of each public module (no part of its path starts with `_`, as
+    in `tests/test_interface.py`) is in a code span of `CHANGELOG.md`, so that the notes of a
+    release give each name that it adds (the review of 2026-10-21, 7.2). The name is the first
+    part of a dotted name (`Spec`, `Spec(max_shape_samples=None)`, `SafeHardware.from_namespace`),
+    or follows a part of the path of its module (`spec.RANGE_TOLERANCE`, and
+    `seqfile.Interpreter` for `seqfile.interpreters`): a name with another qualifier
+    (`pulseq_cpp_siemens.load`) is not the name of the module. A name that two modules have
+    (`GROUP` of `analyses.registry` and of `seqfile.interpreters`) is given for each, alone or
+    with each module. The test does not check that the entry of the name is of the release that
+    added it."""
+    names = _changelog_names()
+    # The reading finds a name with its module and a name alone.
+    assert ("spec", "FIRST_TIME_TOLERANCE") in names
+    assert (None, "decode_rf") in names
+    missing = [
+        f"{path}.{name}"
+        for path, module in _modules().items()
+        if not any(part.startswith("_") for part in path.split("."))
+        for name in module.__all__
+        if not any(
+            found == name and (qualifier is None or qualifier in path.split("."))
+            for qualifier, found in names
+        )
+    ]
+    assert not missing, f"names of an `__all__` that no code span of CHANGELOG.md gives: {missing}"
 
 
 def _project_name(requirement: str) -> str:
