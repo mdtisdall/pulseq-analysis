@@ -342,7 +342,8 @@ def soft_delay_durations(
     delays (`unavailable`) or none with that hint, when its rows disagree on the numeric ID (or
     the numeric ID has another hint too), as MATLAB raises, when a block with that hint has more
     than one soft delay or is not a pure delay block (spec:545), and when the duration is
-    negative or not finite (the user, 2026-10-13)."""
+    negative or not finite (the user, 2026-10-13), or has more ticks of the raster than an int64
+    holds."""
     stored_ticks = np.asarray(stored_ticks, dtype=np.int64)
     actual = stored_ticks.copy()
     counts: dict[int, int] = {}
@@ -386,6 +387,13 @@ def soft_delay_durations(
                     hint,
                     f"the block at play index {d.block} gets the negative duration "
                     f"{rounded * raster:g} s",
+                )
+            # 2**63 is a float exactly; a float below it converts to an int64.
+            if rounded >= 2.0**63:
+                raise error(
+                    hint,
+                    f"the block at play index {d.block} gets the duration {rounded * raster:g} s, "
+                    "more ticks of the raster than an int64 holds",
                 )
             actual[d.block] = int(rounded)
             applied += 1
