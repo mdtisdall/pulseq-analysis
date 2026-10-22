@@ -1298,7 +1298,8 @@ def _walk_extensions(f: _File) -> tuple[np.ndarray, np.ndarray]:
 
 class _Ends(NamedTuple):
     """The IDs of the events of each kind, the end of each event in nanoseconds from the start of
-    its block (NaN where it cannot be known), and for the gradients the amplitude at the end."""
+    its block (NaN where it cannot be known), and for the gradients the amplitude at the end.
+    `arbitrary` is the `first` and `last` of each row of `[GRADIENTS]` (`_gradient_ends`)."""
 
     rf_ids: np.ndarray
     rf: np.ndarray
@@ -1307,6 +1308,7 @@ class _Ends(NamedTuple):
     grad_last: np.ndarray
     adc_ids: np.ndarray
     adc: np.ndarray
+    arbitrary: tuple[np.ndarray, np.ndarray]
 
 
 def _shape_columns(f: _File) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -1505,6 +1507,7 @@ def _event_ends(f: _File) -> _Ends:
         np.concatenate([g_last, np.zeros(len(t))]),
         a["id"],
         adc_end,
+        (g_first, g_last),
     )
 
 
@@ -1843,7 +1846,7 @@ def _build(written: AsWritten, report: _Report, interpreter: Spec) -> SequenceDa
     if report:
         return None
     return _assemble(
-        f, found, required, signature, sorted(records, key=lambda r: r.line), interpreter
+        f, ends, found, required, signature, sorted(records, key=lambda r: r.line), interpreter
     )
 
 
@@ -1867,6 +1870,7 @@ def _model_table(name: str, data: np.ndarray, **columns: Any) -> np.ndarray:
 
 def _assemble(
     f: _File,
+    ends: _Ends,
     definitions: Mapping[str, tuple[tuple[str, ...], int]],
     required: tuple[str, ...],
     signature: Signature | None,
@@ -1874,7 +1878,7 @@ def _assemble(
     interpreter: Spec,
 ) -> SequenceData:
     """The model of a file with no violation (every table is there), by the interpreter
-    `interpreter`."""
+    `interpreter`. `ends` is what `_event_ends` gave for the file."""
     assert f.blocks and f.rf and f.grad and f.trap and f.adc and f.entries
     rasters = Rasters(*(f.rasters[attr] for _, attr in _RASTERS))  # type: ignore[arg-type]
     rf_d, g_d, t_d, a_d = f.rf.data, f.grad.data, f.trap.data, f.adc.data
@@ -1885,15 +1889,9 @@ def _assemble(
     else:
         rf = _model_table("rf", rf_d, center=np.nan, delay=rf_d["delay"] / _US, use="u")
         adc = _model_table("adc", a_d, dwell=a_d["dwell"] / _NS, delay=a_d["delay"] / _US)
-        _, first, last, _ = _shape_columns(f)
-        row, _ = f.shape_ids.find(g_d["shape_id"])
-        grad = _model_table(
-            "grad",
-            g_d,
-            first=g_d["amplitude"] * first[row],
-            last=g_d["amplitude"] * last[row],
-            delay=g_d["delay"] / _US,
-        )
+        # With no violation, `_gradient_ends` gave a value for each gradient.
+        first, last = ends.arbitrary
+        grad = _model_table("grad", g_d, first=first, last=last, delay=g_d["delay"] / _US)
     trap = _model_table(
         "trap",
         t_d,
