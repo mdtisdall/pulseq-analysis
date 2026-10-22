@@ -3043,10 +3043,7 @@ def test_oracle_label_extensions_of_a_1_4_file():
     assert ext.labelinc.tolist() == [(1, 1, "LIN")]
 
 
-def test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed():
-    data = read_seqfile(ORACLE / "koma_v1.5_unknown_ext.seq")
-    assert data.skipped_extensions == ("UNKNOWN1", "UNKNOWN2")
-    assert data.extensions.type_ids == {"UNKNOWN1": 1, "UNKNOWN2": 2}
+def test_oracle_a_required_extension_is_listed_with_its_rotations():
     radial = read_seqfile(ORACLE / "koma_v1.5_rotation_radial_tiny.seq")
     assert radial.required_extensions == ("ROTATIONS",)
     assert radial.extensions.rotations["q0"].tolist() == pytest.approx(

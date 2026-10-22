@@ -543,7 +543,10 @@ ROTATED = SEQFILES / "oracle" / "koma_v1.5_rotation_radial_tiny.seq"
 
 
 def rotation_matrix(q):
-    """The matrix of the active rotation by the unit quaternion q = (q0, qx, qy, qz)."""
+    """The matrix of the active rotation by the unit quaternion q = (q0, qx, qy, qz).
+
+    `_matrix` of `tests/test_session.py` of pulseq-analysis is the same function: the wheel tests
+    run without pulseq-analysis and without its tests, so each keeps its own copy."""
     w, x, y, z = q
     return np.array(
         [

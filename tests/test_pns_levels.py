@@ -960,8 +960,8 @@ def test_an_interval_across_three_chunks_does_not_depend_on_chunk_samples(monkey
 )
 def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raster):
     """The start, the end, the peak, the peak time and the number of samples of each
-    interval equal the runs of `total >= _LIMIT` that plain NumPy and `itertools.groupby` find
-    in the totals of the whole sequence, with the model run on it in one chunk."""
+    interval equal the runs of `total >= _LIMIT` that `_reference_runs` finds in the totals of
+    the whole sequence, with the model run on it in one chunk."""
     snap = load(build())
     hardware = hardware_for_peak(snap, 1.5)
     totals = []
@@ -978,25 +978,9 @@ def test_the_intervals_match_the_runs_of_the_totals(monkeypatch, build, on_raste
     total, dt = totals[0], levels.dt_s  # the rerun for the peak time records the same total
     assert total.shape[0] == levels.num_samples
 
-    expected = []
-    position = 0
-    for above, group in itertools.groupby(total >= _LIMIT):
-        length = len(list(group))
-        if above:
-            run = total[position : position + length]
-            peak_sample = position + int(np.flatnonzero(run == run.max())[0])
-            expected.append(
-                PnsInterval(
-                    start_s=position * dt,
-                    end_s=(position + length) * dt,
-                    peak_hz_per_t=float(run.max()),
-                    peak_time_s=(peak_sample + 0.5) * dt,
-                    num_samples=length,
-                )
-            )
-        position += length
+    expected = _reference_runs(total, _LIMIT, dt)
     assert len(expected) >= 1
-    assert levels.above[_LIMIT] == tuple(expected)
+    assert levels.above[_LIMIT] == expected
 
 
 @pytest.mark.pypulseq

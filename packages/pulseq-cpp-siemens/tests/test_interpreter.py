@@ -326,15 +326,6 @@ def test_a_version_outside_1_4_to_1_5_is_not_supported_before_the_reader_runs(
     assert version in str(caught.value) or "1.6" in str(caught.value)
 
 
-def test_a_binary_file_and_a_folder_are_not_supported(tmp_path):
-    path = tmp_path / "binary.seq"
-    path.write_bytes(b"\x01pulseq\x02" + b"\0" * 32)
-    with pytest.raises(NotSupported):
-        read_seqfile(path, "cpp-siemens")
-    with pytest.raises(NotSupported):
-        read_seqfile(tmp_path, "cpp-siemens")
-
-
 @pytest.mark.parametrize("case", ["folder", "binary", "version"])
 def test_both_interpreters_give_one_message_for_a_file_outside_the_scope(tmp_path, case):
     """`read_seqfile` checks the scope (a folder, a binary Pulseq file, a version outside 1.4.0
