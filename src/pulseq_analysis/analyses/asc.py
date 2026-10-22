@@ -158,8 +158,10 @@ def hardware_from_asc(path: str | Path) -> SafeHardware:
     `read_gradient_asc(path)` (with its `$INCLUDE` rule). Its name, the label of the result
     of `pns_levels`, is `hardware_name(asc)`, the component name in the file, so it has no
     path in it: two spellings of the path of one file give equal `SafeHardware`s. Raises
-    `ValueError` for a file with no gradient scale factors (see `safe_hardware`), and for a
-    component name that a `SafeHardware` refuses ("nan", "inf" or "-inf")."""
+    `ValueError` for a file with no gradient scale factors (see `safe_hardware`), for a
+    component name that is not a text or an `asCOMP` that is not a group of fields
+    (`hardware_name`), and for a component name that a `SafeHardware` refuses ("nan", "inf" or
+    "-inf")."""
     return safe_hardware(read_gradient_asc(path))
 
 
@@ -173,10 +175,19 @@ def _merge(into: dict, fields: dict) -> None:
 
 def hardware_name(asc: dict) -> str:
     """The component name in `asc`: `asCOMP[0].tName` in a scanner file, or `asCOMP.tName`.
-    "unknown" when there is neither."""
+    "unknown" when there is neither. Raises `ValueError` that names the field when `asCOMP` (or
+    `asCOMP[0]`) is not a group of fields, or `tName` is not a text: a value of the file is a
+    `ValueError`, not a `TypeError`."""
     comp = asc.get("asCOMP", {})
-    comp = comp.get(0, comp)
-    return comp.get("tName", "unknown")
+    field = "asCOMP"
+    if isinstance(comp, dict) and 0 in comp:
+        comp, field = comp[0], "asCOMP[0]"
+    if not isinstance(comp, dict):
+        raise ValueError(f"{field} is {comp!r}, not a group of fields")  # noqa: TRY004
+    name = comp.get("tName", "unknown")
+    if not isinstance(name, str):
+        raise ValueError(f"{field}.tName is {name!r}, not a text")  # noqa: TRY004
+    return name
 
 
 def safe_hardware(asc: dict) -> SafeHardware:

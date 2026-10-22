@@ -563,6 +563,11 @@ A caller moves in this order:
   Two results of one sequence whose two values of `bin_s` give the same
   `bin_samples` (`0.005` and `0.0050001` at the 10 µs raster) were equal
   (`==`), and they are no longer equal.
+- `hardware_from_asc` and `hardware_name` raise `ValueError` that names the
+  field for a component name that is not a text (`asCOMP.tName = 5`, which
+  the reader types as a number) and for an `asCOMP` that is one value
+  (review 2026-10-21 1.3.5). Before, they raised the `TypeError` of
+  `SafeHardware` and an `AttributeError`.
 
 ### The modules
 
