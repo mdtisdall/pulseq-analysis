@@ -9391,6 +9391,17 @@ with one name raise `ValueError` ("more than one interpreter is named 'fake'").
 
 **Assumptions:** None.
 
+#### `test_interpreter_names_imports_no_plugin_and_sorts_the_names`
+
+**Checks:** With five entry points (`echo`, `alpha`, `delta`, `charlie`, `bravo`, in that
+order) whose modules do not exist, `interpreter_names()` is `"spec"` and then the names sorted:
+it sorts the names of the plugins, and it imports no plugin (an import raises `ImportError`).
+
+**How:** The test installs the five entry points and calls the function.
+
+**Assumptions:** The names pass through a set, whose order depends on the hash seed, so a
+function that does not sort gives the sorted order by chance in 1 order of 120.
+
 #### `test_spec_has_the_setting_max_shape_samples_with_the_default_of_every_interpreter`
 
 **Checks:** The limit of the samples of a shape is a setting of every interpreter (the user,
