@@ -9967,7 +9967,8 @@ caller has no sequence to give it, so no `ImportError` that names the extra is n
 ### 2.32 The documents (`test_documents.py`)
 
 `test_documents.py` checks what the documents cite and link, the members of a decoding that they
-read, the tables of the documents that repeat a table of the code, and the version of pulseq-cpp-siemens that the documents give. The
+read, the tables of the documents that repeat a table of the code, that `CHANGELOG.md` gives each
+name of the interface, and the version of pulseq-cpp-siemens that the documents give. The
 documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
@@ -10133,23 +10134,52 @@ compared. `registry()` has only the analyses of this package in the test environ
 #### `test_the_defaults_table_of_usage_gives_each_default_and_its_field_on_the_result`
 
 **Checks:** The table of the defaults of `docs/usage.md` (section 2) has one row for each
-parameter with a default of `load`, `read_seqfile` and `read_pypulseq`, and one row for each
-default of an analysis of `registry()`. Each row gives the default of the signature of its
-function, and names a field of the class that the function returns: the rule of section 2 of
+parameter with a default of `load`, `read_seqfile` and `read_pypulseq`, one row for each default
+of an analysis of `registry()`, and one row for each setting of the interpreters `Spec` and
+`CppSiemens` of the plugin (finding 7.2 of `docs/reviews/2026-10-21-code-review.md`: the table
+had no row for the settings). Each row gives the default of the signature of its function, or of
+the setting, and names a field of the class that the function returns: the rule of section 2 of
 `docs/usage.md` (the user, 2026-10-14), that a method parameter has a documented default that the
-result records.
+result records. The row of a setting names `SequenceData.interpreter`, which records it.
 
 **How:** The function of an analysis is the function of the call of the column `compute` of the
-analyses table of section 7. The call and the parameter of a row are the code spans of its first
-two columns, and the rows are compared with the expected pairs (function, parameter), sorted. The
-default is the first code span of the column "Default": the literal, or, for a name (`BIN_S`), the
-attribute of the module that defines the function. A field is a code span `Class.field` of the
-column "On the result": `Class` is the name of the return annotation of the function, and `field`
-is a field of that dataclass, or a property of that class.
+analyses table of section 7. The settings of `Spec` are its dataclass fields. Those of
+`CppSiemens` are read from the source of the plugin's `interpreter.py` with `ast` (the plugin is
+not imported): each annotated name of the class that is not a `ClassVar`, with its default, a
+literal or a name that the module imports from pulseq-analysis. The test checks that the reading
+finds a setting with each kind of default. The call and the parameter of a row are the code spans
+of its first two columns (the class and the field for a setting), and the rows are compared with
+the expected pairs (function, parameter), sorted. The default is the first code span of the column
+"Default": the literal, or, for a name (`BIN_S`), the attribute of the module that defines the
+function, of the module of `Spec`, or a name that the plugin's `interpreter.py` imports from
+pulseq-analysis. A field is a code span `Class.field` of the column "On the result": `Class` is
+the name of the return annotation of the function (`SequenceData` for a setting), and `field` is a
+field of that dataclass, or a property of that class.
 
 **Assumptions:** The test does not compute a result, so it does not check that the field holds the
-value that the call used: the tests of each call do. The text of each row around its code spans is
-not read. `registry()` has only the analyses of this package in the test environment.
+value that the call used: the tests of each call do (for a setting, that the `str` of the
+interpreter gives it). The text of each row around its code spans is not read. `registry()` has
+only the analyses of this package in the test environment. A setting of `CppSiemens` has a default
+in the source, and the class is a dataclass.
+
+#### `test_each_name_of_a_public_module_is_in_the_changelog`
+
+**Checks:** Each name of the `__all__` of each public module (no part of its path starts with
+`_`) is in a code span of `CHANGELOG.md` (finding 7.2 of `docs/reviews/2026-10-21-code-review.md`:
+the entry "Unreleased" did not give the names that the release adds, although `docs/migration.md`
+says that it lists every change).
+
+**How:** The test reads each code span of `CHANGELOG.md` outside the code blocks, across a line
+break too, and each dotted name in it, as pairs (the part before a part, the part). A name of a
+module is given when it is the first part of a dotted name (`Spec`, `Spec(...)`,
+`SafeHardware.from_namespace`), or when the part before it is a part of the path of the module
+(`spec.RANGE_TOLERANCE`; `seqfile.Interpreter` for `seqfile.interpreters`). A name after another
+part (`pulseq_cpp_siemens.load`) is not the name of the module, so a name that two modules have
+(`GROUP`) is given for each only alone or with each module. The test checks that the reading finds
+a name with its module and a name alone, and gives each name that is not given.
+
+**Assumptions:** The test does not check that the name is in the entry of the release that added
+it, nor that the text says what the name is. A name alone counts for each module that has it.
 
 #### `test_the_documents_give_the_version_of_pulseq_cpp_siemens`
 
