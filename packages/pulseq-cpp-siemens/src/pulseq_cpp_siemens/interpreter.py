@@ -959,6 +959,21 @@ def _points(grad: Mapping[str, Any], raster_s: float) -> Points:
             # delay.
             t1, t2, v1, v2 = times_us[0], times_us[1], float(shape[0]), float(shape[1])
             first = (v1 * (t2 - 0.0) + v2 * (0.0 - t1)) / (t2 - t1) * float(amplitude)
+        elif times_us[0] < 0 and np.all(np.diff(times_us) >= 0):
+            # From the delay, `gradientsAt` plays the segment that holds the delay (its binary
+            # search, cpp:3638-3649), and 0 after the last time (cpp:3621): the polyline is cut
+            # at the delay, and the points before it go. Times out of order keep their points
+            # (D7.7).
+            j = int(np.searchsorted(times_us, 0.0))  # the first time at or after the delay
+            if j == times_us.size:
+                # Every time is before the delay: `gradientsAt` plays 0 from the delay on, so the
+                # event is one point of 0 at the delay.
+                times, values, first = np.zeros(1), np.zeros(1), 0.0
+            else:
+                t1, t2 = times_us[j - 1], times_us[j]
+                v1, v2 = float(shape[j - 1]), float(shape[j])
+                first = (v1 * (t2 - 0.0) + v2 * (0.0 - t1)) / (t2 - t1) * float(amplitude)
+                times, values = times[j:], values[j:]
         # The layout of `gradient_offsets`: the value at the delay, the vertices, and the value
         # at the end.
         offsets = np.concatenate([[0.0], times, times[-1:]])

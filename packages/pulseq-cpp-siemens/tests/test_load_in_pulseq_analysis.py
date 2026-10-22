@@ -392,6 +392,78 @@ def test_the_measurements_of_an_event_wholly_after_the_end_of_its_block_are_the_
     assert block_gradient_values(snap).peak_hz_per_m["x"][4] == 0.0
 
 
+def _extended_trapezoid_file(tmp_path, times: list[float], wave: list[float]):
+    """A file of one block of 100 us: gradient 1 on X is an extended trapezoid of 1000 Hz/m with
+    no delay, of the time shape `times` (in gradient rasters of 10 us) and the wave shape
+    `wave`. The reader converts each time to `long(0.5 + 10 * t)` us (cpp:2182): -1 is -9 us."""
+    text = (
+        f"""# Pulseq sequence file
+[VERSION]
+major 1
+minor 5
+revision 0
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 10 0 1 0 0 0 0
+
+[GRADIENTS]
+1 1000 0 0 2 1 0
+
+[SHAPES]
+shape_id 1
+num_samples {len(times)}
+"""
+        + "".join(f"{t}\n" for t in times)
+        + f"""
+shape_id 2
+num_samples {len(wave)}
+"""
+        + "".join(f"{v}\n" for v in wave)
+        + "\n"
+    )
+    path = tmp_path / "extended_trapezoid.seq"
+    path.write_text(text)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("times", "wave", "expected"),
+    [
+        pytest.param([-1, 1, 2], [0.5, 1, 0.5], [736.8, 789.5, 868.4, 947.4], id="-1,1,2"),
+        pytest.param(
+            [-2, -1, 1, 2], [2, 0.5, 1, 0.5], [736.8, 789.5, 868.4, 947.4], id="-2,-1,1,2"
+        ),
+        pytest.param([0, 1, 2], [0.5, 1, 0.5], [500.0, 600.0, 750.0, 900.0], id="0,1,2"),
+    ],
+)
+def test_the_measurements_of_an_extended_trapezoid_whose_first_time_is_below_0_are_the_gradients_of_the_reader(
+    tmp_path, times, wave, expected
+):
+    """An extended trapezoid on X whose first time is below 0 (`_extended_trapezoid_file`): the
+    reader plays nothing before the delay and, from it, the segment of its times that holds it
+    (its binary search, cpp:3638-3649). With the times -9, 10 and 20 us, or -19, -9, 10 and 20
+    us, it plays 736.8, 789.5, 868.4 and 947.4 Hz/m at 0, 2, 5 and 8 us; the control, of the
+    times 0, 10 and 20 us, 500, 600, 750 and 900 Hz/m. The sampler of the measurements gives the
+    reader's `gradientsAt` at each us of the block, and `gradient_peaks` the largest of these
+    values as the peak of x."""
+    snap = load(_extended_trapezoid_file(tmp_path, times, wave), "cpp-siemens")
+    time_us = np.arange(101.0)
+    reader = snap.data.reading.gradients_at(np.zeros(time_us.size, dtype=np.int64), time_us)
+    reader = reader[:, 0]
+    assert reader[[0, 2, 5, 8]] == pytest.approx(expected, abs=0.05)
+    at = sequence_index(snap).start_s[0] + time_us * 1e-6
+    sampled = gradient_sampler(snap).sample("x", at)
+    np.testing.assert_allclose(sampled, reader, rtol=0, atol=RTOL * 1000)
+    peak = gradient_peaks(snap).axes["x"].peak_hz_per_m
+    assert peak == pytest.approx(float(np.abs(reader).max()), rel=RTOL)
+
+
 @pytest.mark.parametrize("count", [1, 2])
 def test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements(tmp_path, count):
     """With `oversampling="edge"` the reader keeps no sample of an oversampled gradient of 1 or 2

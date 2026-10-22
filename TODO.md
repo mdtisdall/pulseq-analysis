@@ -40,3 +40,15 @@
   `cProfile`, 1.8 s of its 3.0 s are in the 200 003 calls of
   `model._post_init`, which makes each field of a model object immutable, and
   only 0.2 s in `read_seqfile`.
+
+- **The measurements of `cpp-siemens` on an extended trapezoid whose times
+  are out of order.** The C++ reader reads a time shape in any order:
+  `gradientsAt` finds the segment of a time by a binary search on the times
+  and ends the event at the last time of the file. The points of
+  `cpp-siemens` (`gradient_points`) take the vertices in the order of the
+  file, so the measurements differ from the reader there: the times 0, 20, 10
+  and 30 µs of the shape 0.5, 1, 0.25, 0.5 at 1000 Hz/m give 275 Hz/m at
+  12 µs on the reader and 800 in the measurements. This stays (the user,
+  2026-10-21): no writer makes such times, and only a first time below 0 is
+  cut as the reader plays it. D7.7 of
+  `packages/pulseq-cpp-siemens/docs/specification.md` has the case.

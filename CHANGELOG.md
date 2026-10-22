@@ -316,6 +316,16 @@ A caller moves in this order:
   measurements, as the reader plays it: its points
   (`CppSiemensDecoding.gradient_points`) are 0, and `gradient_peaks` no longer
   gives its `first` and `last` as a peak and a slew on its axis.
+- An extended trapezoid whose times are in order and whose first time is
+  below 0 plays in the measurements as the reader plays it (D7.7; review
+  2026-10-21 1.1.2): its points (`CppSiemensDecoding.gradient_points`) start
+  at the delay, with the value of the segment of the times that holds it, and
+  the points before the delay go. Before, the points started at the delay
+  with the first sample and went back to the first time: the times -9, 10 and
+  20 µs of the shape 0.5, 1, 0.5 at 1000 Hz/m gave 500, 600, 750 and
+  900 Hz/m at 0, 2, 5 and 8 µs, where the reader plays 736.8, 789.5, 868.4
+  and 947.4. Times out of order keep their points, and the measurements
+  differ from the reader there (the user, 2026-10-21).
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 
