@@ -2,8 +2,8 @@
 `cpp-siemens`: `gradient_peaks`, `block_gradient_values`, `gradient_spectrum`, `pns_levels` and
 `GradientSampler` against the oracle (the model of MATLAB Pulseq) and against values by hand, for
 a gradient that ends above 0 before its block ends, a gradient that starts above 0 after a delay,
-a delay off the gradient raster, and a gradient raster of 4 us with a block duration raster of
-10 us. The random sequences are those of `random_gap_sequence(rng)`, made with such gradients:
+a delay off the gradient raster, and a gradient raster of 4 us, or a little below 10 us, with a
+block duration raster of 10 us. The random sequences are those of `random_gap_sequence(rng)`, made with such gradients:
 `spec` rejects most of them, and reads a few seeds. The root tests of these measurements run
 without the plugin, so they have the sequences that `spec` reads (with the random sequences of
 `random_gap_sequence(rng, for_spec=True)`), and a test here with the name of a root test calls the
@@ -98,6 +98,7 @@ from pulseq_analysis.analyses import grad_spectrum, load
 from pulseq_analysis.analyses.grad_peaks import block_gradient_values, gradient_peaks
 from pulseq_analysis.analyses.pns_levels import pns_levels
 from pulseq_analysis.synth import ScannerSettingWarning, Session
+from pulseq_analysis.synth._played import played_gradients
 from pulseq_analysis.synth.sampling import gradient_sampler, raster_block_lengths
 from pulseq_analysis.synth.seq_index import sequence_index
 from pulseq_analysis.synth.seq_utils import TIME_TOLERANCE
@@ -129,21 +130,98 @@ def test_junction_step_uses_the_gradient_raster_of_the_file_not_of_seq_system(tm
         assert result.axes["y"].slew_time_s == pytest.approx(RASTER_4US_JUNCTION_TIME)
 
 
-@pytest.mark.parametrize("early", [0.5 * TIME_TOLERANCE, 0.9 * TIME_TOLERANCE, DT])
-def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(early):
-    """The last point of the extended trapezoid is `early` before the end of the sequence. The
-    step to 0 is counted only when `early` is more than `TIME_TOLERANCE`, in the whole file, in
-    the window that ends at the end of the sequence and in the window that ends
-    `0.5 * TIME_TOLERANCE` before it
+def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end():
+    """The last point of the extended trapezoid is one raster time before the end of the
+    sequence: the step to 0 is counted, in the whole file, in the window that ends at the end of
+    the sequence, in the window that ends `0.5 * TIME_TOLERANCE` before it and in the window from
+    100 µs to the end of the sequence
     (`check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`).
-    `spec` rejects a gradient that ends at `A` before its block ends (`gradient.nonzero-end-align`)
-    and, for an `early` that is not a multiple of the raster, a last point off the gradient
-    raster; `cpp-siemens` plays it. The test of the same name of the root tests has the `early`
-    of 0, which `spec` reads."""
-    seq = _end_step_sequence(100e-6, early)
+    `spec` rejects a gradient that ends at `A` before its block ends (`gradient.nonzero-end-align`);
+    `cpp-siemens` plays it. The test of the same name of the root tests has the `early` of 0,
+    which `spec` reads. An `early` of less than one raster time is not here: the reader keeps the
+    times of an extended trapezoid in whole us, so it plays as the `early` of 0 does (one ulp
+    before the end of the sequence). The test below with an arbitrary gradient has such values of
+    `early`."""
+    seq = _end_step_sequence(100e-6, DT)
     check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(
-        seq, load(seq, "cpp-siemens"), early
+        seq, load(seq, "cpp-siemens"), DT
     )
+
+
+_END_STEP_LAST = 1e6  # Hz/m, the last value of `_arbitrary_end_step_sequence`
+
+
+def _arbitrary_end_step_sequence(early: float) -> tuple[pp.Sequence, float]:
+    """One block of 100 us with an x arbitrary gradient of 10 samples on the gradient raster
+    `(100e-6 - early) / 10`, and that raster. The first seven samples are 0 and the last three are
+    0.4, 1 and 1 times `_END_STEP_LAST`, the first value is 0 and the last value is
+    `_END_STEP_LAST`: the last point is `early` before the end of the block, which is the end of
+    the sequence. The largest slope is from 0.4 to 1 times `_END_STEP_LAST` in one raster time, at
+    7.5 raster times; the step to 0 after the last point is larger. The C++ reader decodes an
+    arbitrary gradient only on a raster within 1e-3 us of 10 us, so the block has 10 samples."""
+    raster = (100e-6 - early) / 10
+    system = pp.Opts(
+        max_grad=1e7,
+        grad_unit="Hz/m",
+        max_slew=1e12,
+        slew_unit="Hz/m/s",
+        grad_raster_time=raster,
+    )
+    waveform = _END_STEP_LAST * np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.4, 1.0, 1.0])
+    g = pp.make_arbitrary_grad(
+        channel="x", waveform=waveform, first=0.0, last=_END_STEP_LAST, system=system
+    )
+    seq = pp.Sequence(system)
+    seq.add_block(g, pp.make_delay(100e-6))
+    return seq, raster
+
+
+@pytest.mark.parametrize("early", [0.5 * TIME_TOLERANCE, 0.9 * TIME_TOLERANCE, 2 * TIME_TOLERANCE])
+def test_the_step_after_the_last_point_of_an_arbitrary_gradient_is_counted_only_beyond_the_tolerance_before_the_end(
+    early,
+):
+    """The last point of the arbitrary gradient of `_arbitrary_end_step_sequence(early)` is
+    `early` before the end of the sequence, and the file keeps that time: the played `early` (from
+    the played gradients and the index) is `early`. The step to 0 after it, `_END_STEP_LAST`
+    divided by the raster, is counted only when `early` is more than `TIME_TOLERANCE`; else the
+    largest slew is the slope from 0.4 to 1 times `_END_STEP_LAST`. The oracle and
+    `gradient_peaks` agree on it in the whole file, in the window that ends at the end of the
+    sequence, in the window that ends `0.5 * TIME_TOLERANCE` before it (for an `early` of 0.9 of
+    `TIME_TOLERANCE` the step is before its end, so only the rule `t < end_s - TIME_TOLERANCE`
+    leaves it out), and in the window from 50 us to the end of the sequence, which is not the whole
+    file. `spec` rejects the raster (it does not divide the block duration raster,
+    `definitions.raster-commensurate`); `cpp-siemens` reads it."""
+    seq, raster = _arbitrary_end_step_sequence(early)
+    (block_id,) = seq.block_events
+    snap = load(seq, "cpp-siemens")
+    index = sequence_index(snap)
+    played = played_gradients(snap)
+    delay, offsets, _ = played.points[int(played.gx[0])]
+    assert index.end_s - ((index.start_s[0] + delay) + offsets[-1]) == pytest.approx(
+        early, abs=1e-15
+    )
+    counted = early > TIME_TOLERANCE
+
+    expected = oracle.peaks(seq)["x"]
+    step, slope = _END_STEP_LAST / raster, 0.6 * _END_STEP_LAST / raster
+    assert expected["max_slew"] == pytest.approx(step if counted else slope, rel=1e-6)
+    assert expected["slew_block"] == block_id
+    assert expected["slew_time"] == pytest.approx(
+        index.end_s - early if counted else 7.5 * raster, abs=1e-12
+    )
+    for window in (
+        None,
+        (0.0, index.end_s),
+        (0.0, index.end_s - 0.5 * TIME_TOLERANCE),
+        (50e-6, index.end_s),
+    ):
+        expected_window = oracle.peaks(seq, window)["x"]
+        result = gradient_peaks(snap, range_s=window).axes["x"]
+        assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert expected_window["slew_block"] == block_id
+        assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert result.slew_block == block_id
+        assert result.slew_time_s == pytest.approx(expected_window["slew_time"], abs=1e-12)
 
 
 def test_a_first_value_that_is_not_zero_after_a_delay_has_a_ramp_from_zero_in_its_block():
