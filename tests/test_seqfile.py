@@ -2781,6 +2781,8 @@ def test_decompress_shape_inverts_compress_on_random_shapes():
         ([1.0, 2, 2], 5, "cut at the end"),
         ([1.0, 0, 0, -3], 10, "repeat count is -3"),
         ([1.0, 0, 0, 1.5], 10, "repeat count is 1.5"),
+        ([1.0, 1.0, np.inf], 5, "repeat count is inf"),
+        ([1.0, 1.0, np.nan], 5, "repeat count is nan"),
         ([1.0, 2.0, 3.0], 4, "it has 3 samples, not the 4"),
     ],
 )
