@@ -269,7 +269,7 @@ def decompress_shape(packed: np.ndarray, num_samples: int) -> np.ndarray:
         if at + 2 >= n:
             raise ValueError("a repeat is cut at the end of the stored values")
         count = packed[at + 2]
-        if count < 0 or count != int(count):
+        if not np.isfinite(count) or count < 0 or count != int(count):
             raise ValueError(f"a repeat count is {count:g}, not a whole number of at least 0")
         reps = int(count) + 2
         total += reps

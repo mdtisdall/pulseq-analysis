@@ -228,6 +228,12 @@ A caller moves in this order:
   tolerance of 1e-9 s). `model.TIME_TOLERANCE` raises `AttributeError`, and
   its import `ImportError`. The value does not change, and
   `seq_utils.TIME_TOLERANCE` keeps its name.
+- `model.decompress_shape` raises `ValueError` ("a repeat count is inf, not a
+  whole number of at least 0") for a repeat count that is infinite or NaN, as
+  for one that is negative or not whole (review 2026-10-21 1.2.3). Before, it
+  raised `OverflowError` for an infinite count, and the message of Python's
+  `int` for NaN. `spec` does not reach this: it rejects a stored value that is
+  not finite first.
 
 ### The plugin pulseq-cpp-siemens
 
