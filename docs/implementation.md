@@ -1045,8 +1045,8 @@ an interpreter (`docs/usage.md`, "The interpreters"). Two parts do the work:
   `Plugin.decode` for an interpreter that is not `Spec`, and a plugin that
   decodes gives an object of the protocol `decoding.Decoding`.
 - `spec` is the `spec` interpreter: through `reading.read_seqfile`, the one way
-  to read a file through it (`spec._read_spec` is private), it gives a
-  `model.SequenceData` of a Pulseq text file (versions 1.4.0 to 1.5.x), or raises
+  to read a file through it, it gives a `model.SequenceData` of a Pulseq text
+  file (versions 1.4.0 to 1.5.x), or raises
   `errors.SeqFileError` with the `errors.Violation` of every rule that the file
   breaks (`spec.RULES`, at most `spec.MAX_LOCATIONS` for each rule). The module
   docstring of `spec` and each `spec.Rule` give the rule's basis: the lines of

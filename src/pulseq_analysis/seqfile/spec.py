@@ -4,13 +4,12 @@ of `seqfile.read_seqfile`; a plugin interpreter is read by name (`interpreters`)
 
 `seqfile.read_seqfile(path)` is the one way to read a file through `spec` (the user,
 2026-10-14; `spec.read_spec` was the same): it checks the scope (`errors._read_in_scope`, for every
-interpreter) and reads the "as written" reading of the check with `_read_written`. The private
-`_read_spec(path)` makes the same two steps. The reading returns a `model.SequenceData`, or
-raises `SeqFileError` (a `ValueError`) with every violation of its rules, and `NotSupported` for
-a file outside the package's scope (Q1 of `docs/plans/parser-redesign.md`): a folder, a binary
-Pulseq file, or a version outside 1.4.0 to 1.5.x. It raises `NotSupported` too for a shape that
-declares more samples than the setting `max_shape_samples` of the interpreter
-(`interpreters.Spec`), before it decompresses the shape.
+interpreter) and reads the "as written" reading of the check with `_read_written`. The reading
+returns a `model.SequenceData`, or raises `SeqFileError` (a `ValueError`) with every violation of
+its rules, and `NotSupported` for a file outside the package's scope (Q1 of
+`docs/plans/parser-redesign.md`): a folder, a binary Pulseq file, or a version outside 1.4.0 to
+1.5.x. It raises `NotSupported` too for a shape that declares more samples than the setting
+`max_shape_samples` of the interpreter (`interpreters.Spec`), before it decompresses the shape.
 Each violation is a `Violation(rule, section, line, message)`. The error lists at most
 `MAX_LOCATIONS` violations of each rule and counts the rest (`SeqFileError.omitted`). The reader
 does not import pypulseq, uses no default for a value that the file must define, and does not
@@ -79,7 +78,6 @@ import dataclasses
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
@@ -87,7 +85,7 @@ import numpy as np
 
 from . import as_written
 from .as_written import AsWritten
-from .errors import NotSupported, SeqFileError, Violation, _read_in_scope
+from .errors import NotSupported, SeqFileError, Violation
 from .interpreters import Spec
 from .model import (
     TABLE_DTYPES,
@@ -524,22 +522,15 @@ class _Ids:
         return self.order[pos], self.sorted[pos] == refs
 
 
-def _read_spec(path: str | Path, interpreter: Spec | None = None) -> SequenceData:
-    """Read the Pulseq text file `path` (versions 1.4.0 to 1.5.x) into a `SequenceData`, by the
-    rules of the `spec` interpreter `interpreter` (`Spec()` for None), with its settings: the
-    reading of `seqfile.read_seqfile(path, interpreter)`, the public way.
+def _read_written(written: AsWritten, interpreter: Spec) -> SequenceData:
+    """Read the file that `written` reads, a file in the package's scope
+    (`errors._read_in_scope`), into a `SequenceData`, by the rules of the `spec` interpreter
+    `interpreter`, with its settings: the reading of `seqfile.read_seqfile(path, interpreter)`.
 
     Raises `SeqFileError` (a `ValueError`) with all the violations when the file breaks a rule
-    (see the module docstring), `NotSupported` for a file outside the package's scope
-    (`errors._read_in_scope`) and for a shape that declares more samples than
-    `interpreter.max_shape_samples`, and `OSError` when the file cannot be read.
+    (see the module docstring), and `NotSupported` for a shape that declares more samples than
+    `interpreter.max_shape_samples`.
     """
-    return _read_written(_read_in_scope(path), Spec() if interpreter is None else interpreter)
-
-
-def _read_written(written: AsWritten, interpreter: Spec) -> SequenceData:
-    """`_read_spec` of the file that `written` reads, a file in the package's scope
-    (`errors._read_in_scope`), by the interpreter `interpreter`."""
     report = _Report()
     data = _build(written, report, interpreter)
     if report or data is None:
