@@ -69,8 +69,8 @@ straight lines (slide 4: explicit times; slide 9: a pulse "defined by vertices")
 at its last time. A gradient time shape gives the vertices of an extended trapezoid (slide 6). The
 decoding is `synth.events`.
 
-`RULES` maps each code to its `Rule`. Today's rule names of the strict reader are kept where the
-condition is the same (section 5.4 of the plan).
+`RULES` maps each code to its `Rule`. A code is a stable name of its condition (`errors`): a
+reader of the error, such as pulseq-checks, can rely on it.
 """
 
 import bisect

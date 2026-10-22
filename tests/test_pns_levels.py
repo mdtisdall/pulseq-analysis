@@ -497,9 +497,9 @@ def test_interval_finder_gives_the_runs_of_a_reference_over_random_chunks():
 @pytest.mark.pypulseq
 def test_bin_samples_for_matches_the_formula():
     """`bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
-    `wanted` is the whole number of samples of `bin_s`, at most `max(num_samples, 1)` (the
-    new test below checks the snap, and the test of a bin longer than the sequence checks
-    the cap). The calls for `wanted` alone have `num_samples = 1_000_000`: the cap
+    `wanted` is the whole number of samples of `bin_s`, at most `max(num_samples, 1)`
+    (`test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster` checks the snap,
+    and the test of a bin longer than the sequence checks the cap). The calls for `wanted` alone have `num_samples = 1_000_000`: the cap
     (1,000,000 samples) and the size term (1 sample) do not act on them. With the default
     `BIN_S` (5 ms): 500 samples at the 10 us raster for any file of 500 to 1,000,000,000
     samples (`500 * MAX_BINS`), and a coarser bin for a larger file, computed from
