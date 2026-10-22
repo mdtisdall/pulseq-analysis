@@ -132,8 +132,12 @@ events ([The block table](#7-the-block-table)).
 
 **A name that now means another object.** `from pulseq_analysis.analyses import
 registry` gives the submodule `analyses.registry`, where it gave the function
-`registry()` in `0.1.0rc6`. Import the function from the submodule:
-`from pulseq_analysis.analyses.registry import registry`. The other names of
+`registry()` in `0.1.0rc6`, and `from pulseq_analysis.analyses import
+pns_levels` gives the submodule `analyses.pns_levels`, where it gave the
+function `pns_levels()`. Neither raises: the call fails later with `TypeError`.
+Import each function from its submodule:
+`from pulseq_analysis.analyses.registry import registry` and
+`from pulseq_analysis.analyses.pns_levels import pns_levels`. The other names of
 the old module (`Analysis`, `AnalysisSpec`) raise `ImportError` from
 `pulseq_analysis.analyses`; the package `analyses` has only `load`.
 

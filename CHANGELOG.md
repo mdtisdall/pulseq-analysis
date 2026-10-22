@@ -10,7 +10,15 @@ through pypulseq. This release breaks callers of `0.1.0rc6`;
 `docs/migration.md` gives, for each name of `0.1.0rc6`, its replacement. In the
 release candidates, an incompatible change has no alias: an old name raises
 `ImportError`, `AttributeError` or `TypeError`, and an old value of an argument
-(an axis `"gx"` of the sampler) `ValueError`.
+(an axis `"gx"` of the sampler) `ValueError`. Two old imports raise nothing:
+`from pulseq_analysis.analyses import registry` gives the submodule
+`analyses.registry`, where it gave the function `registry()`, and
+`from pulseq_analysis.analyses import pns_levels` the submodule
+`analyses.pns_levels`, where it gave the function `pns_levels()`. The call
+fails later, with `TypeError` ("'module' object is not callable"). Import each
+function from its submodule:
+`from pulseq_analysis.analyses.registry import registry` and
+`from pulseq_analysis.analyses.pns_levels import pns_levels`.
 
 A caller moves in this order:
 
@@ -58,26 +66,36 @@ A caller moves in this order:
   model of the file (the version, the definitions, the rasters, the block
   table, one table for each kind of event, the shapes, the extensions and the
   signature), through an interpreter given by name or as an object.
-  `SequenceData.interpreter` records the interpreter with its settings.
+  `SequenceData.interpreter` records the interpreter with its settings. The
+  rasters are a `model.Rasters`, each table is a structured array of its dtype
+  in `model.TABLE_DTYPES`, and each shape is a `model.Shape`, as the file
+  stores it (`Shape.samples()` decompresses it).
 - The interpreter `spec`, the default (`seqfile.Spec`): as true as possible to
   the Pulseq specification (1.5.3 draft) and, for timing, to the slide set
   that its section 2.6 cites. It rejects a file where they say "must", with
   every violation and a stable code for each (`seqfile.spec.RULES`; each
   `Rule` records its basis), and where they are silent it reads the file as
   `docs/specification.md` gives, rejecting only what no current writer writes.
+  The error lists at most `spec.MAX_LOCATIONS` (20) violations of each rule,
+  and counts the rest in `SeqFileError.omitted`. An RF magnitude shape or a
+  gradient waveform may exceed 1 in absolute value by `spec.RANGE_TOLERANCE`
+  (1e-9) before `shape.range` rejects it.
   It gates the extensions by version: `DELAYS` from 1.5.0, ROTATIONS, RF_SHIMS
   and `RequiredExtensions` from 1.5.1. A 1.4.x file with an arbitrary gradient
   on the default raster, or with a time shape that does not start at 0, is
   rejected (`layer1.gradient-ends`): the file has no values at the ends of such
   a gradient (D4.4, D4.5).
 - Plugin interpreters: another distribution gives an interpreter through the
-  entry-point group `pulseq_analysis.interpreters`. Its class has the methods
+  entry-point group `pulseq_analysis.interpreters`
+  (`seqfile.interpreters.GROUP`). Its class has the methods
   of the protocol `seqfile.Plugin` (`read`, and `decode(data, session=None)`)
   and the version of the protocol, `protocol = 1` (`seqfile.PROTOCOL`); a plugin
   of another version is a `TypeError` when it is chosen.
   `seqfile.interpreter_names()` lists the names without importing a plugin. A
   name that no installed interpreter has raises `ValueError`, and a plugin
   that does not load raises `ImportError`. The package names no plugin.
+  `seqfile.Interpreter` is the type of an interpreter object: `Spec` or a
+  `Plugin`.
 - A class in place of an interpreter object (`read_seqfile(path, CppSiemens)`)
   raises `TypeError`, whose message names the object to give, `CppSiemens()`
   (review 2026-10-13 1.2.4c). Before, `interpreter()` returned the class of a
@@ -175,7 +193,9 @@ A caller moves in this order:
   in memory, written to Pulseq text with pypulseq's own writer (in a private
   temporary folder) and read through an interpreter. It gives the
   `SequenceData` of the file of `seq.write(path)`, the writer's rounding
-  included, with `origin` `"pypulseq"`. It does not change the sequence.
+  included, with `origin` `"pypulseq"`. It does not change the sequence. A
+  `SeqFileError` has `from_pypulseq.SOURCE` (`"<pypulseq.Sequence>"`) as its
+  path, in place of the temporary file.
 - `SequenceData.records`, a tuple of `seqfile.model.Record` (`kind`,
   `subject`, `reason`, `line`): what the interpreter ignored or did not apply,
   such as an unknown extension, section or label, an extension that the
@@ -188,7 +208,9 @@ A caller moves in this order:
   interpreter, an object of the protocol `synth.Decoding`: for `spec`,
   `synth.SpecDecoding`; for a plugin, its own. It has the blocks, their stored
   and actual durations, `gradient_points(key, block, axis)` (the points of one
-  gradient event as the decoding draws it, not rotated), `gradient_variants()`
+  gradient event as the decoding draws it, not rotated: a
+  `synth.decoding.Points`, its delay in s and the offsets in s from the delay
+  and the values in Hz/m of its points), `gradient_variants()`
   (which blocks decode a gradient event alike: None for `spec`; a plugin whose
   decoding of an event depends on its block says so here, and the measurements
   count each variant as an event of its own), `gradients_at` (the
@@ -444,8 +466,9 @@ A caller moves in this order:
   `floor(time / dwell)`, 89 of the 5000 boundaries `k dwell` of a pulse of
   cells of 1 us gave the sample of the cell before.
 - `seq_index.rf_events`, `grad_events` and `adc_events`, which gave
-  pypulseq's events, are removed. `seq_utils.gradient_offsets` takes a
-  `Trapezoid` or an `ArbitraryGradient`, not a pypulseq event.
+  pypulseq's events, are removed. `seq_utils.gradient_offsets` and
+  `seq_utils.gradient_points` take a `Trapezoid` or an `ArbitraryGradient`,
+  not a pypulseq event.
 
 ### The scanner session
 
@@ -621,6 +644,13 @@ is in its `__all__`, that each name of an `__all__` is in the documents, and
 that the `__all__` of a module that is not a package has no name of another
 public module.
 
+Names of `0.1.0rc6` that no entry named before, in their new modules:
+`grad_spectrum.MAX_FREQUENCY_HZ`, `FFT_WINDOW_S` and `FREQUENCY_OVERSAMPLING`
+and `pns_levels.PEAK_TOLERANCE`, whose values do not change, and
+`registry.GROUP`, the entry-point group of the analyses, and the analyses
+`registry.SEQ_INDEX`, `registry.GRADIENT_BLOCKS` and
+`registry.GRADIENT_SPECTRUM`.
+
 ### The gradient peaks
 
 - The argument `window` of `gradient_peaks` is `range_s`, the name of the
@@ -750,8 +780,9 @@ sequence against the code before each change:
 - `docs/usage.md` (section 2) gives the rule of the defaults: the data of the
   target (the scanner, its gradient coil and the nucleus) has no default, and a
   parameter of the method has a documented default that the result records. A
-  table gives each default of `load`, of the reads and of the analyses, and the
-  field of the result that records it.
+  table gives each default of `load`, of the reads and of the analyses, and
+  each setting of `Spec` and `CppSiemens`, with the field of the result that
+  records it (`SequenceData.interpreter` for a setting).
 - `docs/specification.md`: what `spec` does and why, by rule, with the codes
   of its rejections. `docs/discrepancies.md`: the record of `spec`, entry by
   entry (IDs D1.1 to D4.6), with the sources (the specification and the C++

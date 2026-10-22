@@ -247,7 +247,9 @@ call takes a gamma: the values are in units with no gamma
 ([section 9](#9-units-and-gamma)). A parameter of the method has a documented
 default, and the result records what the call used. This table gives each
 default of `load`, of the reads and of the analyses
-([section 7](#7-run-the-analyses-and-write-json)):
+([section 7](#7-run-the-analyses-and-write-json)), and each setting of the
+interpreters `Spec` and `CppSiemens` (of pulseq-cpp-siemens;
+[section 8, the interpreters](#the-interpreters)):
 
 | Call | Parameter | Default | On the result |
 |---|---|---|---|
@@ -261,6 +263,10 @@ default of `load`, of the reads and of the analyses
 | `gradient_spectrum` | `max_frequency_hz` | `MAX_FREQUENCY_HZ` (2000.0 Hz), the default of pypulseq | `GradientSpectrum.max_frequency_hz` |
 | `gradient_spectrum` | `window_s` | `FFT_WINDOW_S` (0.05 s), the default of pypulseq | `GradientSpectrum.window_s` |
 | `gradient_spectrum` | `frequency_oversampling` | `FREQUENCY_OVERSAMPLING` (3.0), the default of pypulseq | `GradientSpectrum.frequency_oversampling` |
+| `Spec` | `max_shape_samples` | `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) | `SequenceData.interpreter`: its `str` gives a value that is not the default, `spec(max_shape_samples=None)` |
+| `CppSiemens` | `oversampling` | `"center"` | `SequenceData.interpreter`: its `str` gives a value that is not the default, `cpp-siemens(oversampling='edge')` |
+| `CppSiemens` | `rotation` | `"reader"` | `SequenceData.interpreter`: its `str` gives a value that is not the default, `cpp-siemens(rotation='apply')` |
+| `CppSiemens` | `max_shape_samples` | `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) | `SequenceData.interpreter`: its `str` gives a value that is not the default, `cpp-siemens(max_shape_samples=None)` |
 
 **The cost of each call.** The time of a call grows with the size of the
 sequence: with the number of blocks, with the number of unique gradient events,
