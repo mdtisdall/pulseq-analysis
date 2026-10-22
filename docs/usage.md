@@ -832,8 +832,9 @@ settings. It raises:
   of the plan), a binary Pulseq file or a folder. `read_seqfile` checks them
   before the interpreter reads the file, with one message for each. It says
   nothing about whether the file is valid. The interpreter raises it too for a
-  shape that declares more samples than its setting `max_shape_samples`
-  (below).
+  shape that declares more samples than its setting `max_shape_samples`, and
+  for more samples that it would resample from a shape (below): the same
+  interpreter reads that file with a larger setting.
 - `ValueError` for a name that no installed interpreter has. The message gives
   the installed names and the entry-point group: "no interpreter is named
   'cpp-siemens'; the installed interpreters are spec. A distribution adds one
@@ -847,9 +848,9 @@ settings. It raises:
   whose message names `Spec()`, the object to give.
 
 **The limit of the samples of a shape.** Every interpreter has the setting
-`max_shape_samples`: the most samples that a shape of the file can declare,
-`interpreters.DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no
-limit (the user, 2026-10-18). The specification has no limit, and a short file
+`max_shape_samples`: the most samples of each array that the interpreter makes
+from a shape of the file, `interpreters.DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by
+default, or None for no limit (the user, 2026-10-18). The specification has no limit, and a short file
 can declare any number of samples, so a reader that decompresses each shape
 could allocate without bound: 2^27 samples are 1 GiB of float64. A shape that
 declares more is `NotSupported`, before the interpreter decompresses it; the
@@ -862,6 +863,18 @@ kept as an int); a bool or another type raises `TypeError`, and 0 or less
 `cpp-siemens` checks the number of samples of each shape as the C++ reader
 read it, after the reader's `load` and before any shape is decompressed:
 `CppSiemens(max_shape_samples=None)` reads such a file.
+
+The setting also limits the samples that a reader resamples from a shape (the
+user, 2026-10-21). The C++ reader resamples an RF pulse of points on the RF
+raster, into as many cells as the last time of its time shape (in RF rasters):
+a number that no shape declares, so shapes of two samples can ask for any
+number of cells. `cpp-siemens` compares the cells of each RF event with the
+limit before any block is decoded; more is `NotSupported`, whose message gives
+the path, the RF event, its time shape, the number of cells and the limit, and
+names the setting. `spec` keeps such a pulse as its points, and makes no array
+whose size is a value of a shape, so it reads the file under any limit. So the
+two interpreters can differ on such a file: `NotSupported` from `cpp-siemens`,
+a reading from `spec`.
 
 **Plugin interpreters.** A distribution adds an interpreter through the
 entry-point group `interpreters.GROUP` (`"pulseq_analysis.interpreters"`). The

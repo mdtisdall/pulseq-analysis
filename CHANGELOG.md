@@ -129,6 +129,18 @@ A caller moves in this order:
   released, so it changes in place and `seqfile.PROTOCOL` stays 1.
   `seqfile.conformance.check_shape_limit(cls)` checks the convention for the
   class of an interpreter, in the tests of a plugin; `spec` passes it.
+- `max_shape_samples` limits every array of samples that an interpreter makes
+  from a shape: the samples that a shape declares, and the samples that the
+  interpreter resamples from it (the user, 2026-10-21; review 2026-10-21
+  1.1.1). Over the limit is `NotSupported`, before the allocation. `spec` makes
+  no array from the times of a shape, so its verdicts do not change.
+  `check_shape_limit` also reads a file whose RF time shape ends at 2^21 RF
+  rasters from shapes of 2 samples: with the limit 2^20 the interpreter reads
+  it, or raises `NotSupported` that gives the path, the number of cells and
+  the limit, and names the setting; with 2^21 and with None it reads it.
+  `seqfile.NotSupported` documents both of its cases: a file outside the
+  package's scope, and a file over the setting of the interpreter, which a
+  larger setting reads (review 2026-10-21 3.1).
 - `spec` checks the samples of a shape with no Python loop over them (review
   2026-10-13 2.5b). One run on an Apple M1 Max, of `read_seqfile` of a file of
   4,000,000 shape samples (40 shapes of 100,000): 1.70 s before and 1.05 s
@@ -254,6 +266,19 @@ A caller moves in this order:
   has no limit. `Sequence.max_shape_samples` records the limit, and a pickle
   of a `Sequence` loads under it. `CppSiemens` passes
   `seqfile.conformance.check_shape_limit`.
+- `pulseq_cpp_siemens.load` compares the cells into which `decodeBlock`
+  resamples each RF pulse with a time shape (`int(0.5 + waveform_t.back())`,
+  cpp:2031) with `max_shape_samples`, after the check of the shapes and before
+  the checks of undefined behaviour, and raises `NotSupported` for the RF event
+  of the lowest ID over the limit (review 2026-10-21 1.1.1). The message gives
+  the file, the RF event, its time shape, the number of cells and the limit,
+  and names the setting. Before, three shapes of two samples and the time shape
+  `1, 5e7` made `decode_block(0)` give 50 000 000 samples, at a peak of about
+  1.2 GB, under `max_shape_samples=1000`. A number of cells above the range of an
+  `int` (infinity too) is now `NotSupported` under a limit, not
+  `ub.rf-time-range`; with None it stays `ub.rf-time-range` (D5.9). The file
+  `rf-time-range.seq` of the fuzzing corpus has the last time NaN in place of
+  infinity, so that it stays `ub.rf-time-range` under the default limit.
 - `Sequence.gradients_at(..., actual_ru=...)` raises `UndefinedBehaviour`
   (`ub.gradient-one-point`) for each block and time where a soft delay longer
   than the stored duration of the block reaches the reader's read past the

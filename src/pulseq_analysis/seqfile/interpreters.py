@@ -14,11 +14,15 @@
   of its own version, `PROTOCOL` (P22), whose class has the setting `max_shape_samples` of every
   interpreter, of the default `DEFAULT_MAX_SHAPE_SAMPLES` (`Plugin`).
 
-Every interpreter has the setting `max_shape_samples`: the most samples that a shape of the file
-can declare, `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no limit (the user,
-2026-10-18). The specification has no limit (spec:619), and a short file can declare any number
-of samples, so a reader that decompresses each shape can allocate without bound. A shape that
-declares more is `NotSupported` (`errors`), before the interpreter decompresses it.
+Every interpreter has the setting `max_shape_samples`: the most samples of each array that the
+interpreter makes from a shape of the file, `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None
+for no limit (the user, 2026-10-18). The specification has no limit (spec:619), and a short file
+can declare any number of samples, so a reader that decompresses each shape can allocate without
+bound. The setting limits the samples that a shape declares, and the samples that a reader
+resamples from a shape (the user, 2026-10-21): for example the cells of an RF pulse on the RF
+raster, whose number comes from the last time of its time shape, not from a number that a shape
+declares. Over the limit is `NotSupported` (`errors`), before the interpreter allocates the
+array.
 
 A function that reads a file takes an interpreter by name or as an object;
 `interpreter(value)` gives the object. A name gives the interpreter with its default settings.
@@ -62,8 +66,8 @@ GROUP = "pulseq_analysis.interpreters"
 # 2026-10-18).
 PROTOCOL = 1
 
-# The default of the setting `max_shape_samples` of every interpreter: the most samples that a
-# shape can declare, 2^27, 1 GiB of float64.
+# The default of the setting `max_shape_samples` of every interpreter: the most samples of each
+# array that an interpreter makes from a shape, 2^27, 1 GiB of float64.
 DEFAULT_MAX_SHAPE_SAMPLES = 2**27
 
 
@@ -127,15 +131,19 @@ class Plugin(Protocol):
       `synth.SettingError` for a setting that addresses something the file does not have under
       the interpreter (rule 8).
     - `str()`: the name, with each setting that is not its default.
-    - `max_shape_samples`: the most samples that a shape of the file can declare, a dataclass
-      field of the default `DEFAULT_MAX_SHAPE_SAMPLES`, or None for no limit; an int above 0
-      (a bool or another type is a `TypeError`, 0 or less a `ValueError`). `read` raises
-      `NotSupported` for a shape that declares more, before anything decompresses it. The
-      message gives the path, the ID of the shape, the number of samples that it declares and
-      the limit, and names the setting. The plugin checks the number of its own reading of the
-      file (it can differ from the "as written" reading), so `read_seqfile` does not check it.
-      `interpreter` refuses a plugin class with no such field or with another default
-      (`TypeError`). `conformance.check_shape_limit(cls)` checks a plugin class in its tests.
+    - `max_shape_samples`: the most samples of each array that the plugin makes from a shape of
+      the file, a dataclass field of the default `DEFAULT_MAX_SHAPE_SAMPLES`, or None for no
+      limit; an int above 0 (a bool or another type is a `TypeError`, 0 or less a
+      `ValueError`). `read` raises `NotSupported` for a shape that declares more, before
+      anything decompresses it. The message gives the path, the ID of the shape, the number of
+      samples that it declares and the limit, and names the setting. A plugin that resamples a
+      shape (for example an RF pulse on the RF raster) raises `NotSupported` for more samples
+      than the limit too, before it allocates them; the message gives the path, the event, the
+      number of samples and the limit, and names the setting. The plugin checks the numbers of
+      its own reading of the file (it can differ from the "as written" reading), so
+      `read_seqfile` does not check them. `interpreter` refuses a plugin class with no such
+      field or with another default (`TypeError`). `conformance.check_shape_limit(cls)` checks
+      a plugin class in its tests.
 
     It is a frozen dataclass and compares by its settings, as `Spec` does."""
 

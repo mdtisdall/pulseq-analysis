@@ -43,9 +43,10 @@ The top-level names that are not described above:
   `pulseq_cpp_siemens.interpreter.CODES` has these 11 codes and the codes of the other rejections of `cpp-siemens`.
 
 `load` takes a path or the bytes of a file, the reader's sampling mode of an oversampled
-arbitrary gradient (see below), and `max_shape_samples`, the most samples that a shape can
-declare: 2^27 by default (the default of the setting of every interpreter of pulseq-analysis), or
-None for no limit. It raises:
+arbitrary gradient (see below), and `max_shape_samples`, the most samples of each array that the
+reader makes from a shape (the samples that a shape declares, and the cells into which
+`decodeBlock` resamples an RF pulse): 2^27 by default (the default of the setting of every
+interpreter of pulseq-analysis), or None for no limit. It raises:
 
 - `NotSupported` (a `NotImplementedError`) for a version outside 1.4.0-1.5.x, a binary Pulseq
   file or a folder (Q1 of the plan). The reader is not run on the file.
@@ -56,6 +57,14 @@ None for no limit. It raises:
   and the limit, and names the setting. The scanner's reader has no limit: it is the package's,
   so that a short file cannot make the process allocate without bound (`decodeBlock` resizes a
   vector to the declared number).
+- `NotSupported` for an RF pulse that `decodeBlock` resamples into more cells than
+  `max_shape_samples`, the RF event of the lowest ID, after the check of the shapes and before
+  the checks of undefined behaviour. The number of cells is `int(0.5 + waveform_t.back())`, the
+  last time of the time shape in RF rasters (`cpp:2031`), not a number that a shape declares: a
+  short file can ask for any number of cells. The message gives the file, the
+  RF event, its time shape, the number of cells and the limit, and names the setting. A number
+  of cells above the range of an `int` (infinity too) is over any limit; with None, and for NaN or
+  a number below the range, it is the case `ub.rf-time-range`.
 - `Rejected` when `ExternalSequence::load` returns false or throws, with the reader's
   `messages`. `decode_block`, `decode` and `gradients_at` raise it when `decodeBlock` returns
   false.
@@ -152,7 +161,8 @@ times of an arbitrary gradient) is None.
 2. **`ExternalSequence::load`** on the bytes of the file. For 1.4.0 and later it runs no
    `GetBlock` and no `decodeBlock`, where each case of undefined behaviour is. It stores each
    shape as the file stores it, with the number of samples that the file declares, and `load`
-   then compares that number with `max_shape_samples`.
+   then compares that number with `max_shape_samples`, and then the cells into which
+   `decodeBlock` would resample each RF pulse with a time shape.
 3. **The checks** (`_checks.py`) read the libraries that `load` built, through pointers to the
    private members that an explicit template instantiation hands out (the reader's source is not
    changed), and follow what `GetBlock`, `decodeBlock` and `gradientsAt` would do with each
@@ -266,11 +276,12 @@ centres of the gradient raster), `"edge"` (those at its edges) or `"preserve"` (
 `OVERSAMPLING` lists them. `CppSiemens(rotation=...)` is what the decoding does with each block's
 rotation (the ROTATIONS extension, D6.2), below; `ROTATION` lists `"reader"` (the default) and
 `"apply"`. A value that is not listed is a `ValueError`. `CppSiemens(max_shape_samples=...)` is
-the setting of every interpreter of pulseq-analysis for the most samples that a shape can declare
-(`pulseq_analysis.seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default, or None for
-no limit): an int above 0, a `TypeError` for a bool or another type and a `ValueError` for 0 or
-less. `read_cpp_siemens` passes it to `load`, so a shape that declares more samples is
-`NotSupported` before any shape is decompressed or any block decoded, and
+the setting of every interpreter of pulseq-analysis for the most samples of each array that the
+reader makes from a shape (`pulseq_analysis.seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27,
+by default, or None for no limit): an int above 0, a `TypeError` for a bool or another type and a
+`ValueError` for 0 or less. `read_cpp_siemens` passes it to `load`, so a shape that declares more
+samples, or an RF pulse that `decodeBlock` resamples into more cells, is `NotSupported` before
+any block is decoded, and
 `CppSiemens(max_shape_samples=None)` reads the file. `str` gives the name with each setting that
 is not its default, for example `cpp-siemens(oversampling='edge')`.
 
@@ -478,7 +489,9 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
      UTF-8 in the reader's messages), with the package's verdict on
      each in `expected.json`. Both readers run on each file in each of the three sampling modes,
      as on a generated one (the verdict does not depend on the mode). It catches a regression of
-     a check deterministically.
+     a check deterministically. In `rf-time-range.seq` the last RF time is nan, not the inf of the
+     generated file: inf is over any `max_shape_samples`, so that file is `not-supported` under
+     the default limit, and nan is `ub.rf-time-range` under any limit.
    - a smoke set: the files 0 to 199 of seed 20261012, so that the generator and the harness do
      not fall behind the package.
 2. **A pull request or a push to `main` that changes the package, the oracle or its build**
@@ -487,9 +500,10 @@ changes. A new seed reaches files that a fixed set never does. So the fuzzing ru
    file has 1.6 mutations on average, so each of the 26 mutations is applied about 185 times.
    Each of the 11 codes must be confirmed at least 10 times in the set
    (`test_the_seeded_files_reach_each_case_of_undefined_behaviour`); the rarest,
-   `ub.rf-time-overrun`, is confirmed 17 times, the others 53 to 252 times. So the set cannot
-   pass by missing a case, and 3 000 is about the smallest set that still reaches each case at
-   least 10 times. Each mode has about 1 000 files (962, 1 028 and 1 010), and the files that the
+   `ub.rf-time-overrun`, is confirmed 17 times, `ub.rf-time-range` 22 times (the last times of
+   its mutation above the range of an `int` are over the default `max_shape_samples`, so
+   `not-supported`), the others 53 to 251 times. So the set cannot pass by missing a case, and
+   3 000 is about the smallest set that still reaches each case at least 10 times. Each mode has about 1 000 files (962, 1 028 and 1 010), and the files that the
    package reads have an oversampled gradient of each size (1, 2, 3, 4 or more samples) in each
    mode at least 30 times (41 to 157;
    `test_the_seeded_files_have_oversampled_gradients_of_each_size_in_each_mode`).

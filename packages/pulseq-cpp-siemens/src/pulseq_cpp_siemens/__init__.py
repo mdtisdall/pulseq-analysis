@@ -20,7 +20,8 @@ its x86_64 build.
 
 `load` refuses a version outside 1.4.0-1.5.x before the reader reads the file (`NotSupported`),
 and a shape that declares more samples than `max_shape_samples` (2^27 by default) after
-`ExternalSequence::load` and before any shape is decompressed (`NotSupported`). It rejects a file
+`ExternalSequence::load` and before any shape is decompressed, or an RF pulse that `decodeBlock`
+would resample into more cells, before any block is decoded (`NotSupported`). It rejects a file
 with a case of undefined behaviour of the reader before any block is decoded
 (`UndefinedBehaviour`, with every case and its code), so that the process survives the file.
 The checks take a `long` of 32 bits, as the Windows build of the reader has, on every host
@@ -37,6 +38,7 @@ the `Sequence`: with several threads, it has the messages of the last call of
 
 from __future__ import annotations
 
+import math
 import numbers
 from dataclasses import dataclass
 from os import PathLike
@@ -80,10 +82,11 @@ OVERSAMPLING = ("center", "edge", "preserve")
 # major*1000000 + minor*1000 + revision.
 _SUPPORTED = range(1_004_000, 1_006_000)
 
-# The default of `load`'s `max_shape_samples`: the most samples that a shape can declare, 2^27, 1
-# GiB of float64. It is `DEFAULT_MAX_SHAPE_SAMPLES` of `pulseq_analysis.seqfile.interpreters`, the
-# default of the setting of every interpreter of pulseq-analysis, which this module does not
-# import (the tests of the interpreter check that the two are equal).
+# The default of `load`'s `max_shape_samples`: the most samples of each array that the reader
+# makes from a shape, 2^27, 1 GiB of float64. It is `DEFAULT_MAX_SHAPE_SAMPLES` of
+# `pulseq_analysis.seqfile.interpreters`, the default of the setting of every interpreter of
+# pulseq-analysis, which this module does not import (the tests of the interpreter check that the
+# two are equal).
 _DEFAULT_MAX_SHAPE_SAMPLES = 2**27
 
 # The first 8 bytes of a binary Pulseq file, which `ExternalSequence::load(path)` reads with
@@ -124,8 +127,10 @@ class NotSupported(NotImplementedError):
     """The file is outside what the package reads. A version outside 1.4.0-1.5.x, a binary Pulseq
     file, or a folder of three files (Q1 of docs/plans/parser-redesign.md): the reader is not
     run. A shape that declares more samples than `load`'s `max_shape_samples`:
-    `ExternalSequence::load` ran, and no shape is decompressed and no block decoded. The
-    exception says nothing about whether the file is valid."""
+    `ExternalSequence::load` ran, and no shape is decompressed and no block decoded. An RF pulse
+    that `decodeBlock` would resample into more cells than `max_shape_samples`: no block is
+    decoded. A larger `max_shape_samples` reads such a file. The exception says nothing about
+    whether the file is valid."""
 
 
 class Shape(NamedTuple):
@@ -460,19 +465,26 @@ def load(
     `OVERSAMPLING`; ValueError otherwise). It is set before any block is decoded and stays for
     the life of the `Sequence`. "center" is the reader's default.
 
-    `max_shape_samples` is the most samples that a shape can declare: 2^27 by default (the
-    setting `max_shape_samples` of every interpreter of pulseq-analysis), or None for no limit.
-    It is an int above 0: a numpy int is kept as an int, a bool or another type is a
-    `TypeError`, and 0 or less a `ValueError`. After `ExternalSequence::load`, which stores each
-    shape as the file stores it, `load` compares the number of samples of each shape of the
-    reader's libraries, as the reader read it, with the limit, before the checks decompress any
-    shape. The scanner's reader has no limit: it is the package's, so that a short file cannot
-    make the process allocate without bound (`decodeBlock` resizes a vector to that number).
+    `max_shape_samples` is the most samples of each array that the reader makes from a shape:
+    the samples that a shape declares, and the cells into which `decodeBlock` resamples an RF
+    pulse on its time shape. It is 2^27 by default (the setting `max_shape_samples` of every
+    interpreter of pulseq-analysis), or None for no limit. It is an int above 0: a numpy int is
+    kept as an int, a bool or another type is a `TypeError`, and 0 or less a `ValueError`. After
+    `ExternalSequence::load`, which stores each shape as the file stores it, `load` compares the
+    number of samples of each shape of the reader's libraries, as the reader read it, with the
+    limit, before any shape is decompressed. Then it compares the number of cells of each RF event
+    that `decodeBlock` resamples (`int(0.5 + waveform_t.back())` of its time shape, cpp:2031) with
+    the limit, before the checks and before any block is decoded. The scanner's reader has no
+    limit: it is the package's, so that a short file cannot make the process allocate without
+    bound (`decodeBlock` resizes a vector to each of these numbers). A number of cells above the
+    range of an `int` (infinity too) is over any limit; with no limit, and for NaN or a number
+    below the range, it is the case `ub.rf-time-range`.
 
-    Raises `NotSupported` for a file outside the package's scope (the reader is not run), and
-    for the shape of the lowest ID that declares more samples than `max_shape_samples`;
-    `Rejected` when `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for the cases
-    of undefined behaviour of `GetBlock` or `decodeBlock` on any block, with every case."""
+    Raises `NotSupported` for a file outside the package's scope (the reader is not run), for
+    the shape of the lowest ID that declares more samples than `max_shape_samples`, and then for
+    the RF event of the lowest ID that `decodeBlock` resamples into more cells; `Rejected` when
+    `load` rejects the file, and `UndefinedBehaviour` (a `Rejected`) for the cases of undefined
+    behaviour of `GetBlock` or `decodeBlock` on any block, with every case."""
     if oversampling not in OVERSAMPLING:
         raise ValueError(f"oversampling is one of {OVERSAMPLING}, not {oversampling!r}")
     limit = _max_shape_samples(max_shape_samples)
@@ -506,6 +518,22 @@ def load(
                 f"limit of {limit} (the setting max_shape_samples), and the package does not "
                 "decompress it. A larger max_shape_samples, or None for no limit, reads the file."
             )
+    if limit is not None:
+        shapes = _checks._Shapes(libraries.shapes)
+        for rf_id, rf in libraries.rf.items():  # by ID, as the reader keeps them
+            cells = _checks.rf_cells(shapes, rf)
+            if cells is None:
+                continue
+            # int(cells) of the reader where it is finite; NaN is never over the limit, and stays
+            # a case of the checks (ub.rf-time-range).
+            n_cells = math.trunc(cells) if math.isfinite(cells) else cells
+            if n_cells > limit:
+                raise NotSupported(
+                    f"{name}: RF event {rf_id} is resampled on its time shape {rf['time_shape']} "
+                    f"into {n_cells} cells, more than the limit of {limit} (the setting "
+                    "max_shape_samples), and the package does not decode it. A larger "
+                    "max_shape_samples, or None for no limit, reads the file."
+                )
     checked = _checks.undefined_behaviour(
         libraries, _checks.CHECKED_SIZEOF_LONG, reader.gradient_rows()
     )

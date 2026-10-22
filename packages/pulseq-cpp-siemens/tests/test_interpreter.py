@@ -21,6 +21,7 @@ import numpy as np
 import pulseq_cpp_siemens
 import pytest
 from pulseq_cpp_siemens.interpreter import CODES, ROTATION, CppSiemens, CppSiemensDecoding
+from test_api import RESAMPLED_RF
 from test_cpp_oracle import MINIMAL_SEQ, ORACLE, SEQFILES, run_oracle
 from test_cpp_oracle_sanitized import SANITIZED, run
 
@@ -534,6 +535,20 @@ def test_a_shape_over_max_shape_samples_is_not_supported_with_the_path_of_the_fi
         read_seqfile(path, CppSiemens(max_shape_samples=99))
     message = str(caught.value)
     assert message.startswith(f"{path}: shape 1 declares 100 samples"), message
+    assert "<bytes>" not in message
+
+
+def test_an_rf_pulse_over_max_shape_samples_is_not_supported_with_the_path_of_the_file(tmp_path):
+    """`read_seqfile` of `RESAMPLED_RF` of `test_api` (an RF pulse that `decodeBlock` resamples
+    into 2000 cells, from shapes of two samples) under `CppSiemens(max_shape_samples=1000)` raises
+    `NotSupported` whose message starts with the path of the file and the RF event, with no name
+    of the bytes that `read_cpp_siemens` gives the reader (`<bytes>`)."""
+    path = tmp_path / "resampled_rf.seq"
+    path.write_bytes(RESAMPLED_RF)
+    with pytest.raises(NotSupported) as caught:
+        read_seqfile(path, CppSiemens(max_shape_samples=1000))
+    message = str(caught.value)
+    assert message.startswith(f"{path}: RF event 1 "), message
     assert "<bytes>" not in message
 
 

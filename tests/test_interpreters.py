@@ -151,6 +151,46 @@ class Forgetful(Limited):
         return dataclasses.replace(Limited.read(self, path), interpreter=Limited())
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class Resampling(Limited):
+    """`Limited` that resamples each RF pulse of points on the RF raster, as `cpp-siemens` does,
+    into `int(0.5 + t)` cells for the last time `t` of its time shape (in RF rasters), and follows
+    the convention for them: more cells than `max_shape_samples` is `NotSupported`, with the path,
+    the number of cells and the limit, and the name of the setting."""
+
+    def read(self, path: Path) -> seqfile.SequenceData:
+        data = read_seqfile(path, Spec(max_shape_samples=self.max_shape_samples))
+        limit = self.max_shape_samples
+        for rf in decode_rf(data).values():
+            if rf.dwell is None and limit is not None:
+                cells = int(0.5 + data.shapes[rf.time_id].samples()[-1])
+                if self.over(cells, limit):
+                    raise seqfile.NotSupported(self.message(path, rf.id, cells, limit))
+        return dataclasses.replace(data, interpreter=self)
+
+    def over(self, cells: int, limit: int) -> bool:
+        return cells > limit
+
+    def message(self, path: Path, rf_id: int, cells: int, limit: int) -> str:
+        return f"{path}: RF event {rf_id} has {cells} cells, max_shape_samples is {limit}"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class TerseResampling(Resampling):
+    """`Resampling` whose `NotSupported` of an RF pulse gives no path or number."""
+
+    def message(self, path: Path, rf_id: int, cells: int, limit: int) -> str:
+        return "an RF pulse is too large"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ResamplingAtLimit(Resampling):
+    """`Resampling` that also refuses an RF pulse of exactly `max_shape_samples` cells."""
+
+    def over(self, cells: int, limit: int) -> bool:
+        return cells >= limit
+
+
 def _install(monkeypatch, **values: str) -> None:
     """Entry points of the group with each name and value of `values`, and no other."""
     eps = importlib.metadata.EntryPoints(
@@ -245,6 +285,66 @@ def test_spec_passes_the_check_of_the_shape_limit_of_every_interpreter():
     conformance.check_shape_limit(Spec)
 
 
+# A file of one block of 2000 us that plays RF event 1: the magnitude (shape 1), the phase (shape
+# 2) and the time shape (shape 3) have two samples each, and the times are 1 and 2000 RF rasters.
+# It is `RESAMPLED_RF` of the tests of pulseq-cpp-siemens (`test_api.py`), whose reader resamples
+# the pulse into 2000 cells; the two are copies, since the wheel tests of the plugin run without
+# the tests of pulseq-analysis.
+RESAMPLED_RF = """# Pulseq sequence file
+# Hand-written file of the tests, not made by a Pulseq tool.
+
+[VERSION]
+major 1
+minor 5
+revision 0
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+# NUM DUR RF GX GY GZ ADC EXT
+[BLOCKS]
+1 200 1 0 0 0 0 0
+
+# id ampl. mag_id phase_id time_shape_id center delay freqPPM phasePPM freq phase use
+[RF]
+1 1000 1 2 3 1000 0 0 0 0 0 e
+
+[SHAPES]
+
+shape_id 1
+num_samples 2
+1
+1
+
+shape_id 2
+num_samples 2
+0
+0
+
+shape_id 3
+num_samples 2
+1
+2000
+
+"""
+
+
+def test_spec_reads_an_rf_pulse_of_more_cells_than_max_shape_samples(tmp_path):
+    """`spec` makes no array whose size is a value of a shape: it keeps an RF pulse of points as
+    its points. So `RESAMPLED_RF`, whose pulse `cpp-siemens` resamples into 2000 cells, reads
+    with `Spec(max_shape_samples=1000)`, and `decode_rf` gives the pulse of its two points, at 1
+    and 2000 us."""
+    path = tmp_path / "resampled_rf.seq"
+    path.write_text(RESAMPLED_RF)
+    (rf,) = decode_rf(read_seqfile(path, Spec(max_shape_samples=1000))).values()
+    assert rf.dwell is None
+    assert rf.magnitude.tolist() == [1000.0, 1000.0] and rf.phase.tolist() == [0.0, 0.0]
+    assert np.allclose(rf.t, [1e-6, 2000e-6], rtol=0, atol=1e-12)
+
+
 @pytest.mark.parametrize(
     ("cls", "message"),
     [
@@ -256,17 +356,22 @@ def test_spec_passes_the_check_of_the_shape_limit_of_every_interpreter():
         (Coarse, "a shape of 8 samples, over the limit 4, reads"),
         (AtLimit, "a shape of 8 samples, at the limit 8, does not read"),
         (Forgetful, "the model records"),
+        (TerseResampling, "the message of NotSupported of an RF pulse of 2097152 cells"),
+        (ResamplingAtLimit, "an RF pulse of 2097152 cells, at the limit 2097152, does not read"),
     ],
 )
 def test_the_check_of_the_shape_limit_fails_for_a_plugin_that_does_not_follow_it(cls, message):
-    """`conformance.check_shape_limit(cls)` passes for `Limited`, a plugin class that follows the
-    convention of `max_shape_samples`, and raises `AssertionError` that says what is wrong for a
-    class that does not: another default, no check of the value, a `str` that gives the
-    default, no limit in `read`, a message without the path, a limit that is not the setting, a
-    limit that refuses a shape at the limit, and a model that does not record the setting."""
+    """`conformance.check_shape_limit(cls)` passes for `Limited` and `Resampling`, plugin classes
+    that follow the convention of `max_shape_samples`, and raises `AssertionError` that says what
+    is wrong for a class that does not: another default, no check of the value, a `str` that
+    gives the default, no limit in `read`, a message without the path, a limit that is not the
+    setting, a limit that refuses a shape at the limit, a model that does not record the setting,
+    a message of an RF pulse over the limit without the path or the number, and a limit that
+    refuses an RF pulse of as many cells as the limit."""
     from pulseq_analysis.seqfile import conformance
 
     conformance.check_shape_limit(Limited)
+    conformance.check_shape_limit(Resampling)
     with pytest.raises(AssertionError, match=re.escape(message)):
         conformance.check_shape_limit(cls)
 

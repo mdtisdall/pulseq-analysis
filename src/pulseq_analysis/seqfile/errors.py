@@ -6,9 +6,12 @@ scope, and the check of that scope.
   for `spec`, every violation of its rules (`spec.RULES`, each with its basis); for a plugin
   interpreter, the codes that it documents. pulseq-checks and the tests name a rejection by its
   code.
-- `NotSupported` (a `NotImplementedError`): the package does not read the file, whatever the
-  interpreter (Q1 of `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary
-  Pulseq file, or a folder. It says nothing about whether the file is valid.
+- `NotSupported` (a `NotImplementedError`): the interpreter does not read the file. Either the
+  file is outside the package's scope, whatever the interpreter (Q1 of
+  `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary Pulseq file, or a
+  folder. Or the interpreter would make an array of samples from a shape of the file over its
+  setting `max_shape_samples` (`interpreters`), and the same interpreter with a larger setting
+  reads the file. It says nothing about whether the file is valid.
 - `_read_in_scope(path)`: the check of the scope, with one message for each case, which
   `reading.read_seqfile` makes before an interpreter reads the file, so for every interpreter
   (the user, 2026-10-14), and `spec._read_spec` too.
@@ -91,9 +94,12 @@ class SeqFileError(ValueError):
 
 
 class NotSupported(NotImplementedError):
-    """The package does not read the file (Q1 of `docs/plans/parser-redesign.md`): a version
-    outside 1.4.0 to 1.5.x, a binary Pulseq file, or a folder. No interpreter reads it, and the
-    exception says nothing about whether the file is valid."""
+    """The interpreter does not read the file. A file outside the package's scope (Q1 of
+    `docs/plans/parser-redesign.md`): a version outside 1.4.0 to 1.5.x, a binary Pulseq file, or
+    a folder, which no interpreter reads. Or a file from a shape of which the interpreter would
+    make an array of more samples than its setting `max_shape_samples` (the samples that a shape
+    declares, or those that the interpreter resamples from it), which the same interpreter reads
+    with a larger setting. The exception says nothing about whether the file is valid."""
 
 
 def _read_in_scope(path: str | Path) -> AsWritten:

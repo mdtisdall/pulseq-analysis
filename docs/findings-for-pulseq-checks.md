@@ -148,10 +148,12 @@ the file (µs, and ns for the ADC dwell time). The columns of `[RF]`,
 interpreter object:
 
 - `seqfile.interpreters.Spec(max_shape_samples=DEFAULT_MAX_SHAPE_SAMPLES)`:
-  one setting, the most samples that a shape can declare
-  (`seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default; None
-  for no limit). A shape that declares more is `NotSupported`, before the
-  interpreter decompresses it. `Spec(rotation="apply")` is a `TypeError`.
+  one setting, the most samples of each array that the interpreter makes from
+  a shape (`seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`, 2^27, by default;
+  None for no limit). A shape that declares more is `NotSupported`, before the
+  interpreter decompresses it. `spec` makes no other array from a shape (it
+  keeps an RF pulse of points as its points). `Spec(rotation="apply")` is a
+  `TypeError`.
 - `pulseq_cpp_siemens.interpreter.CppSiemens(oversampling="center",
   rotation="reader")`: `oversampling` is one of
   `pulseq_cpp_siemens.interpreter.OVERSAMPLING` (`"center"`, `"edge"`,
@@ -162,7 +164,10 @@ interpreter object:
   `cpp-siemens(rotation='apply')`. It also has the setting
   `max_shape_samples` of every interpreter: a shape that declares more
   samples, as the C++ reader read it, is `NotSupported`, before any shape is
-  decompressed.
+  decompressed, and so is an RF pulse that the C++ reader resamples into more
+  cells (the last time of its time shape, in RF rasters), before any block is
+  decoded (the user, 2026-10-21). So on such a pulse `cpp-siemens` gives
+  `NotSupported` and `spec` reads the file.
 
 A plugin is a class of the protocol `seqfile.interpreters.Plugin` (`name`,
 `protocol`, the dataclass field `max_shape_samples` of the default
@@ -330,13 +335,16 @@ These are the reader's values bit for bit, on each platform (section 6).
   of the codes; `omitted` maps a code to the number of its reasons left out of
   `violations`; `interpreter` is the name; `path` is the file (or
   `from_pypulseq.SOURCE`, `"<pypulseq.Sequence>"`, for a sequence in memory).
-- `seqfile.NotSupported` (a `NotImplementedError`): the package does not read
-  the file in either interpreter: a version outside 1.4.0 to 1.5.x (Q1), a
-  binary Pulseq file or a folder. `read_seqfile` checks them before the
-  interpreter reads the file, with one message for each. It says nothing about
-  the file. The interpreter raises it too for a shape that declares more
-  samples than its setting `max_shape_samples` (2.2), before it decompresses
-  the shape.
+- `seqfile.NotSupported` (a `NotImplementedError`): the interpreter does not
+  read the file. Either the package reads it in no interpreter: a version
+  outside 1.4.0 to 1.5.x (Q1), a binary Pulseq file or a folder.
+  `read_seqfile` checks them before the interpreter reads the file, with one
+  message for each. Or the interpreter would make an array of samples from a
+  shape over its setting `max_shape_samples` (2.2): a shape that declares more
+  samples, before it decompresses the shape, or an RF pulse that `cpp-siemens`
+  resamples into more cells, before it decodes a block. The same interpreter
+  reads that file with a larger setting. It says nothing about whether the file
+  is valid.
 - `ValueError` for a name that no installed interpreter has, for example
   `cpp-siemens` when pulseq-cpp-siemens is not installed: "no interpreter is
   named 'cpp-siemens'; the installed interpreters are spec. A distribution adds

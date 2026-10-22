@@ -22,10 +22,11 @@ not import this package. This module needs pulseq-analysis; the rest of the pack
    `load` then reads the version again as the reader does (the reader takes the last row of each
    key), and refuses a version outside 1.4.0 to 1.5.x and a binary Pulseq file before the C++
    reader runs: `NotSupported` too.
-2. **`ExternalSequence::load`**, then the check of the number of samples of each shape against
-   the setting `max_shape_samples` (`NotSupported` for a shape that declares more), then the
-   checks of this package for the undefined behaviour of the reader (section 5.3 of the plan): a
-   file with a case is a rejection, with a reason for each case and its `ub.*` code.
+2. **`ExternalSequence::load`**, then the check of the number of samples of each shape, and of
+   the cells into which `decodeBlock` resamples each RF pulse with a time shape, against the
+   setting `max_shape_samples` (`NotSupported` for more), then the checks of this package for
+   the undefined behaviour of the reader (section 5.3 of the plan): a file with a case is a
+   rejection, with a reason for each case and its `ub.*` code.
 3. **`decodeBlock` of every block**, as the C++ oracle's first mode does. A block that it
    rejects rejects the file. No decoded block is kept.
 4. **The model** (`model.SequenceData`) from the reader's own libraries (P14): the events,
@@ -145,13 +146,16 @@ class CppSiemens:
     then rotates no block.
 
     `max_shape_samples` is the setting of every interpreter of pulseq-analysis for the most
-    samples that a shape can declare (`pulseq_analysis.seqfile.interpreters.Plugin`):
-    `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by default, or None for no limit. It is an int above 0: a
-    numpy int is kept as an int, a bool or another type is a `TypeError`, and 0 or less a
-    `ValueError`. `read` passes it to `pulseq_cpp_siemens.load`, which compares the number of
-    samples of each shape, as the reader read it, with the limit after `ExternalSequence::load`
-    and before any shape is decompressed or any block decoded: a shape that declares more is
-    `NotSupported`. The scanner's reader has no limit: it is the package's.
+    samples of each array that the reader makes from a shape
+    (`pulseq_analysis.seqfile.interpreters.Plugin`): `DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by
+    default, or None for no limit. It is an int above 0: a numpy int is kept as an int, a bool
+    or another type is a `TypeError`, and 0 or less a `ValueError`. `read` passes it to
+    `pulseq_cpp_siemens.load`, which compares the number of samples of each shape, as the reader
+    read it, with the limit after `ExternalSequence::load` and before any shape is decompressed,
+    then the cells into which `decodeBlock` resamples each RF pulse with a time shape
+    (`int(0.5 + waveform_t.back())`, cpp:2031), before any block is decoded: a shape that
+    declares more, or an RF pulse of more cells, is `NotSupported`. The scanner's reader has no
+    limit: it is the package's.
 
     The scanner session (`pulseq_analysis.synth.Session`) is not a setting: `decode(data,
     session)` applies it (P22). The soft delays of the session set the duration of each block with
@@ -327,7 +331,8 @@ def read_cpp_siemens(path: str | Path, interpreter: CppSiemens | None = None) ->
     `read_seqfile` of pulseq-analysis checks the scope before it calls this. Raises
     `NotSupported` when `load` refuses the file (the reader's version is outside 1.4.0 to 1.5.x,
     or a binary Pulseq file, and the reader is not run; or a shape that declares more samples
-    than `interpreter.max_shape_samples`), `SeqFileError` (a `ValueError`) with the code of
+    than `interpreter.max_shape_samples`, or an RF pulse that `decodeBlock` resamples into more
+    cells), `SeqFileError` (a `ValueError`) with the code of
     `CODES` when the reader rejects the file, and `OSError` when the file cannot be read."""
     interpreter = interpreter or CppSiemens()
     path = Path(path)
