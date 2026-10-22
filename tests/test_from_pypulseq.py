@@ -26,7 +26,7 @@ from synthetic import (
     spin_echo_sequence,
 )
 
-from pulseq_analysis.seqfile import SeqFileError, Spec, read_pypulseq, read_seqfile
+from pulseq_analysis.seqfile import NotSupported, SeqFileError, Spec, read_pypulseq, read_seqfile
 from pulseq_analysis.seqfile.from_pypulseq import SOURCE
 
 # The interpreter `spec`, by name and as an object.
@@ -177,6 +177,22 @@ def check_a_rejection(seq, interpreter, code, tmp_path):
     assert error.violations == from_file.value.violations
     assert error.path == SOURCE
     assert error.interpreter == interpreter
+    assert SOURCE in str(error)
+    assert "sequence.seq" not in str(error)
+    assert error.__cause__ is None and error.__suppress_context__
+
+
+def test_a_shape_over_the_limit_of_read_pypulseq_names_the_sequence_not_the_temporary_file(
+    tmp_path,
+):
+    interpreter = Spec(max_shape_samples=3)
+    with pytest.raises(NotSupported) as caught:
+        read_pypulseq(arbitrary_gradient_sequence(), interpreter)
+    path = tmp_path / "sequence.seq"
+    with pytest.raises(NotSupported) as from_file:
+        read_written_file(arbitrary_gradient_sequence(), path, interpreter)
+    error = caught.value
+    assert str(error) == str(from_file.value).replace(str(path), SOURCE)
     assert SOURCE in str(error)
     assert "sequence.seq" not in str(error)
     assert error.__cause__ is None and error.__suppress_context__
