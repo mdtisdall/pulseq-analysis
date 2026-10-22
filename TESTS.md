@@ -7553,9 +7553,10 @@ that `_compress` has too.
 
 **Checks:** `decompress_shape` raises `ValueError` with a message that says why, when the code gives
 more or fewer samples than `num_samples`, when a repeat is cut at the end, and when a repeat count
-is negative or not a whole number.
+is negative, not a whole number, infinite or NaN (not an `OverflowError`, nor the message of
+Python's `int`).
 
-**How:** The test decompresses six stored shapes (parametrized) and matches the message.
+**How:** The test decompresses eight stored shapes (parametrized) and matches the message.
 
 **Assumptions:** None.
 
