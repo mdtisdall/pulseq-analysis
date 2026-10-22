@@ -138,7 +138,7 @@ this reason); MATLAB Pulseq writes an RF time shape of one sample (D3.9), which
 | D3.7 | `shape.empty` | an event uses a shape with no sample | an event with no samples has no waveform |
 | D3.8 | `shape.event-length` | the shapes of one event with different numbers of samples | the shapes of an event pair up by sample (spec:349, spec:443); some samples would have no partner |
 | D3.9 | `shape.time-order` | an RF time shape of one sample at 0 or before, or a time shape (RF or gradient) whose times do not increase or whose first time is below 0 | such time points define no cell, no line, or no waveform; a time shape of one sample above 0 is read as one cell (D2.10; the user, 2026-10-13) |
-| D3.10 | `rotation.zero` | a quaternion of norm 0 | `spec` divides each quaternion by its norm (spec:567: "a normalized rotation quaternion"), and one of norm 0 is no rotation |
+| D3.10 | `rotation.zero` | a quaternion of norm 0 (four zeros) | `spec` divides each quaternion by its norm (spec:567: "a normalized rotation quaternion"), and one of norm 0 is no rotation |
 | D3.11 | `syntax.shape` | a shape with no blank line after it | spec:602 declares the end of a shape with a blank line, and does not say what a shape without one is |
 | D1.3 | `raster.gradient-vertex` | a vertex of a gradient time shape off the gradient raster | section 2.3 |
 | D4.4, D4.5 | `layer1.gradient-ends` | a 1.4.x arbitrary gradient on the default raster, or with a time shape whose first time is not 0 | an exception to the rule of this section: writers do write such files (`oracle/pypulseq_simple_mprage140.seq`). A 1.4 file has no `first` and `last`, so it does not define the values at the ends, and the readers guess them differently; Pulseq 1.5 stores them |
@@ -232,7 +232,7 @@ the package's choice.
 | `shape.event-length` | D3.8 | the shapes of one event with different numbers of samples, or an ADC phase shape without one sample for each ADC sample | spec:349, spec:443, spec:120; choice |
 | `shape.time-order` | D3.9 | an RF time shape of one sample at 0 or before, or a time shape (RF or gradient) whose times do not increase or whose first time is below 0 | spec:349, spec:395; choice |
 | `shape.oversampled-length` | — | an oversampled gradient with an even number of samples | spec:420, slides 4 and 8 |
-| `rotation.zero` | D3.10 | a quaternion of norm 0 | spec:567; choice |
+| `rotation.zero` | D3.10 | a quaternion of norm 0 (four zeros) | spec:567; choice |
 | `extension.required-unknown` | — | a required extension that `spec` does not know | spec:460 |
 | `extension.per-block` | — | a block with more than one ROTATIONS or RF_SHIMS object | spec:567, spec:584 |
 | `layer1.gradient-ends` | D4.4, D4.5 | a 1.4.x arbitrary gradient with no value at its start or end | spec:290; choice |
