@@ -326,6 +326,11 @@ A caller moves in this order:
   900 Hz/m at 0, 2, 5 and 8 µs, where the reader plays 736.8, 789.5, 868.4
   and 947.4. Times out of order keep their points, and the measurements
   differ from the reader there (the user, 2026-10-21).
+- `Sequence.block_soft_delays()` gives copies of its arrays, as
+  `block_rotations()` and `block_label_sets()` do (review 2026-10-21 1.1.4).
+  Before, it gave the arrays that the `Sequence` keeps, so a write to one
+  changed each later result and the soft delays of each later decoding of
+  `cpp-siemens`.
 - What `cpp-siemens` does and why is in
   `packages/pulseq-cpp-siemens/docs/specification.md`.
 
