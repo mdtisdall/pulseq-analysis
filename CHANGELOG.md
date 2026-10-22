@@ -448,6 +448,11 @@ A caller moves in this order:
   `version` and `reason`): a setting that addresses something the file does
   not have under the interpreter, such as an unknown hint, a soft delay in a
   file before 1.5.0 under `spec`, or a negative duration.
+- A soft delay whose duration has more ticks of the block duration raster than
+  an int64 holds is a `SettingError` for its hint that names the block's play
+  index, as for a duration that is not finite (review 2026-10-21 1.3.2).
+  Before, `soft_delay_durations` raised `OverflowError` (`spec` and
+  `cpp-siemens`), for example for a soft delay of 1e14 s on a raster of 10 us.
 - `synth.SoftDelayRecord`, `synth.FovRecord` and `synth.RotationRecord`: what
   a decoding applied. `ScannerSettingWarning` is given only where content of
   the file is left unapplied.
