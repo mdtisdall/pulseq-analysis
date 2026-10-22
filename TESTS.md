@@ -9933,8 +9933,8 @@ caller has no sequence to give it, so no `ImportError` that names the extra is n
 
 ### 2.32 The documents (`test_documents.py`)
 
-`test_documents.py` checks what the documents cite and link, the tables of the documents that
-repeat a table of the code, and the version of pulseq-cpp-siemens that the documents give. The
+`test_documents.py` checks what the documents cite and link, the members of a decoding that they
+read, the tables of the documents that repeat a table of the code, and the version of pulseq-cpp-siemens that the documents give. The
 documents are the Markdown files at the top of the repository, of
 `docs/` and of `tests/` (and its folders), and the same of `packages/pulseq-cpp-siemens/`. The
 plans and the reviews (`docs/plans/`, `docs/reviews/`) are not read: they keep the text of the
@@ -10033,6 +10033,27 @@ is allowed: the pin keeps the lines that a document cites stable. A commit ID in
 not a URL or a flake reference (`6479eab`, the code of the times of `docs/implementation.md`) is
 not read. A branch or a tag
 whose name is 7 or more hex digits would count as a commit.
+
+#### `test_each_member_of_a_decoding_that_a_document_reads_is_in_the_protocol`
+
+**Checks:** Each `snap.decoding.<name>` that a document reads is a member of the protocol
+`synth.Decoding`, which is what a decoding of each interpreter has (finding 3.3 of
+`docs/reviews/2026-10-21-code-review.md`: `docs/usage.md` read the member `blocks` of
+`snap.decoding`, a field of `SpecDecoding` only). A member of `SpecDecoding` that the documents
+give as `spec` only is allowed by `SPEC_ONLY` of the test (`gradients`).
+
+**How:** The members of the protocol are the annotations and the public names of the class
+`Decoding`. The test reads each line of each document except `CHANGELOG.md`, code blocks and code
+spans too, for `snap.decoding.` and a name, with no letter, digit, `_` or dot before `snap`. It
+first checks that each name of `SPEC_ONLY` is a field of `SpecDecoding` and not in the protocol,
+that the reading finds `snap.decoding.block_durations` in `docs/usage.md`, and that a document
+reads each name of `SPEC_ONLY`. It gives the file and the line of each name that is not allowed.
+
+**Assumptions:** `CHANGELOG.md` names the members of old releases on purpose (`rf` and `adc`).
+A decoding in a variable (`cpp = decode(data)`, then `cpp.<name>`) or in a call
+(`decode(data).<name>`) is not read: the decoding of a plugin has members of its own
+(`cpp.block(0)` of the plugin's `README.md`). The test does not check that the text gives a name
+of `SPEC_ONLY` as `spec` only.
 
 #### `test_the_codes_of_spec_in_the_documents_are_spec_rules`
 
