@@ -68,7 +68,6 @@ file in the last digits of float32 (D7.2). Where the reader differs from `spec`:
 """
 
 import dataclasses
-import numbers
 import re
 from collections import Counter
 from collections.abc import Iterator, Mapping
@@ -177,13 +176,8 @@ class CppSiemens:
             )
         if self.rotation not in ROTATION:
             raise ValueError(f"rotation is {self.rotation!r}, not one of {', '.join(ROTATION)}")
-        limit = self.max_shape_samples
-        if limit is not None:
-            if isinstance(limit, bool) or not isinstance(limit, numbers.Integral):
-                raise TypeError(f"max_shape_samples is an int above 0 or None, not {limit!r}")
-            if limit <= 0:
-                raise ValueError(f"max_shape_samples is an int above 0 or None, not {limit!r}")
-            object.__setattr__(self, "max_shape_samples", int(limit))
+        # The check of `load`, so that the setting and the reader refuse the same values.
+        object.__setattr__(self, "max_shape_samples", cs._max_shape_samples(self.max_shape_samples))
 
     def __str__(self) -> str:
         """The name, with each setting that is not its default."""
