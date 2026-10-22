@@ -1,5 +1,5 @@
 """The checks of the documents: what a document cites or links exists, no link names this
-repository at a commit, a table of a document that repeats a table of the code has the values of
+repository at a commit, a member of a decoding that a document reads is in its protocol, a table of a document that repeats a table of the code has the values of
 the code, and the version and the requirement of pulseq-cpp-siemens that the documents give are
 those of its `pyproject.toml`.
 
@@ -30,6 +30,7 @@ from urllib.parse import unquote
 import pulseq_analysis
 from pulseq_analysis.analyses.registry import registry
 from pulseq_analysis.seqfile import spec
+from pulseq_analysis.synth import Decoding, SpecDecoding
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "packages" / "pulseq-cpp-siemens"
@@ -58,6 +59,7 @@ _TEST_NAME = re.compile(r"(?<![\w./])test_\w+(?![\w.])")
 _ENTRY = re.compile(r"^#{2,6} (D[1-7]\.\d+): ", re.MULTILINE)
 _REQUIREMENT = re.compile(r"`(pulseq-analysis\s*[<>=!~][^`]*)`")
 _UNRELEASED = re.compile(r"^## Unreleased\n(.*?)^## ", re.DOTALL | re.MULTILINE)
+_SNAP_DECODING = re.compile(r"(?<![\w.])snap\.decoding\.(\w+)")
 # A path of a plan of this repository. A plan of pulseq-checks is the path followed by "of" or
 # "in" and "pulseq-checks" (group 1), across a line break too.
 _PLAN = re.compile(r"docs/plans/[\w-]+\.md(`?\s+(?:of|in)\s+pulseq-checks\b)?")
@@ -368,6 +370,43 @@ def test_no_document_links_a_commit():
         for match in _PINNED.finditer(line)
     ]
     assert not found, f"the documents link this repository at a commit: {found}"
+
+
+# The members of a decoding that the documents read, are not in the protocol `Decoding`, and are
+# allowed: each is a member of `SpecDecoding`, and the documents give it as `spec` only.
+SPEC_ONLY = {"gradients": "a field of SpecDecoding; the documents give it as spec only"}
+
+
+def test_each_member_of_a_decoding_that_a_document_reads_is_in_the_protocol():
+    """Each `snap.decoding.<name>` of a document, code blocks too, is a member of the protocol
+    `synth.Decoding`, which is what a decoding of each interpreter has, or a member of
+    `SpecDecoding` that `SPEC_ONLY` allows. `CHANGELOG.md` is not read: it names the members of
+    old releases on purpose. A decoding read in another form (a variable, `cpp = decode(data)`
+    then `cpp.<name>`, or `decode(data).<name>`) is not read."""
+    members = set(Decoding.__annotations__) | {
+        name for name in vars(Decoding) if not name.startswith("_")
+    }
+    spec_fields = {field.name for field in dataclasses.fields(SpecDecoding)}
+    # An allowed name is a member of `SpecDecoding` and is not in the protocol.
+    stale = [name for name in SPEC_ONLY if name in members or name not in spec_fields]
+    assert not stale, f"SPEC_ONLY allows names that are in the protocol or not of spec: {stale}"
+    read = [
+        (document, number, name)
+        for document in _documents()
+        if document != CHANGELOG
+        for number, line in enumerate(_text(document).splitlines(), 1)
+        for name in _SNAP_DECODING.findall(line)
+    ]
+    # The reading finds a member of the protocol in a document, and each allowed name.
+    assert (USAGE, "block_durations") in {(document, name) for document, _, name in read}
+    unused = sorted(set(SPEC_ONLY) - {name for _, _, name in read})
+    assert not unused, f"SPEC_ONLY allows names that no document reads: {unused}"
+    missing = [
+        f"{document.relative_to(ROOT)}:{number}: snap.decoding.{name}"
+        for document, number, name in read
+        if name not in members and name not in SPEC_ONLY
+    ]
+    assert not missing, f"the documents read members that are not in Decoding: {missing}"
 
 
 def test_the_codes_of_spec_in_the_documents_are_spec_rules():
