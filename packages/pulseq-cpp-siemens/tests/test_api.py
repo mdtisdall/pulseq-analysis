@@ -111,6 +111,23 @@ def test_gradients_at_refuses_a_nan_time_and_a_block_that_does_not_exist():
     assert sequence.gradients_at([], []).shape == (0, 3)
 
 
+def test_gradients_at_refuses_a_block_index_that_is_not_an_integer():
+    """`gradients_at` raises TypeError, with a message that names `block_index`, for a block index
+    whose dtype is not an integer: a float (`[1.9]` gave the values of block 1), also one with an
+    integer value, and a bool. A list of ints and arrays of int32 and uint8 read block 1 (the
+    trapezoid of 1e6 Hz/m on gx at 250 us), and an empty list, which numpy makes float64, gives an
+    array (0, 3)."""
+    sequence = cs.load(VALID)
+    for index in ([1.9], [1.0], np.array([1.0]), [True], np.array([True])):
+        with pytest.raises(TypeError, match="block_index"):
+            sequence.gradients_at(index, [250.0])
+    expected = sequence.gradients_at([1], [250.0])
+    assert expected[0, 0] == 1e6
+    for index in (np.array([1], np.int32), np.array([1], np.uint8)):
+        assert np.array_equal(sequence.gradients_at(index, [250.0]), expected)
+    assert sequence.gradients_at([], []).shape == (0, 3)
+
+
 def test_a_block_that_decodeblock_rejects_raises_rejected():
     # An arbitrary gradient on a gradient raster of 4 us: decodeBlock returns false (cpp:2116).
     sequence = cs.load(SEQFILES / "valid_arbitrary_gradient_4us_raster.seq")

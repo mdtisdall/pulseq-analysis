@@ -8501,6 +8501,20 @@ reads the file with `spec`, and calls `gradients_at` with the times in seconds.
 `test_spec_rotates_the_gradients_as_cpp_siemens_with_rotation_apply` (`test_interpreter.py`) and with
 MATLAB by `test_the_rotated_gradients_of_spec_are_those_of_matlab_pulseq`.
 
+#### `test_gradients_at_refuses_a_block_index_that_is_not_an_integer`
+
+**Checks:** `SpecDecoding.gradients_at` raises `TypeError`, with a message that names
+`block_index`, for a block index whose dtype is not an integer: `[1.9]` (it gave the gradients of
+block 1: 1.3.3 of `docs/reviews/2026-10-21-code-review.md`), `[1.0]`, a float64 array, `[True]` and
+a bool array. `[1]` and arrays of int32 and uint8 read block 1 of `valid_1_4_1.seq` (1e6 Hz/m on gx
+at 250 µs, 0 on gy and gz), and an empty list, which numpy makes float64, gives an array (0, 3).
+
+**How:** The test reads the file with `spec` and calls `gradients_at` with each block index and
+the time 250 µs.
+
+**Assumptions:** One time and one block; the same refusal for `cpp-siemens` is
+`test_gradients_at_refuses_a_block_index_that_is_not_an_integer_through_cpp_siemens` (section 3.9).
+
 #### `test_rotate_is_the_active_rotation_of_a_unit_quaternion`
 
 **Checks:** `decoding.rotate(q, v)` is the active rotation `R(q) v`, q0 the scalar part: a quarter turn
@@ -10243,6 +10257,18 @@ block index outside the sequence; it gives an array (0, 3) for no point.
 
 **Assumptions:** None.
 
+#### `test_gradients_at_refuses_a_block_index_that_is_not_an_integer`
+
+**Checks:** `gradients_at` raises TypeError, with a message that names `block_index`, for a block
+index whose dtype is not an integer: `[1.9]` (it gave the values of block 1), `[1.0]`, a float64
+array, `[True]` and a bool array. Arrays of int32 and uint8 give the values of `[1]` (block 1 of
+`valid_1_5_1.seq`, the trapezoid of 1e6 Hz/m on gx at 250 µs), and an empty list, which numpy
+makes float64, gives an array (0, 3).
+
+**How:** The test calls it with each block index and the time 250 µs.
+
+**Assumptions:** One time and one block.
+
 #### `test_a_block_that_decodeblock_rejects_raises_rejected`
 
 **Checks:** For `valid_arbitrary_gradient_4us_raster.seq`, which `load` reads and whose block 0
@@ -11596,6 +11622,21 @@ model of `spec`, raise `TypeError` for the model of `cpp-siemens`, with a messag
 message for the three functions.
 
 **Assumptions:** None.
+
+#### `test_gradients_at_refuses_a_block_index_that_is_not_an_integer_through_cpp_siemens`
+
+**Checks:** `CppSiemensDecoding.gradients_at` raises `TypeError`, with a message that names
+`block_index`, for a block index whose dtype is not an integer: `[1.9]` (it gave the gradients of
+block 1: 1.3.3 of `docs/reviews/2026-10-21-code-review.md`), `[1.0]`, a float64 array, `[True]` and
+a bool array. Arrays of int32 and uint8 give the values of `[1]` (block 1 of `valid_1_5_1.seq`,
+the trapezoid of 1e6 Hz/m on gx at 250 µs), and an empty list, which numpy makes float64, gives an
+array (0, 3).
+
+**How:** The test reads the file with `cpp-siemens`, decodes it with `synth.decode`, and calls
+`gradients_at` with each block index and the time 250 µs.
+
+**Assumptions:** The default setting and the neutral session only, under which the values are
+the reader's.
 
 #### `test_the_rotated_gradients_of_cpp_siemens_are_those_of_matlab_pulseq`
 

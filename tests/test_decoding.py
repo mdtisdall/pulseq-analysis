@@ -755,6 +755,22 @@ def test_spec_gradients_at_takes_seconds_and_gives_the_lines_between_the_points_
         decoding.gradients_at([1], time_us=[250.0])
 
 
+def test_gradients_at_refuses_a_block_index_that_is_not_an_integer():
+    """`SpecDecoding.gradients_at` raises `TypeError`, with a message that names `block_index`,
+    for a block index whose dtype is not an integer (1.3.3 of
+    `docs/reviews/2026-10-21-code-review.md`: `[1.9]` gave the gradients of block 1): a float, also
+    one with an integer value, and a bool. A list of ints and arrays of int32 and uint8 read block 1
+    of valid_1_4_1.seq (1e6 Hz/m on gx at 250 us), and an empty list, which numpy makes float64,
+    gives an array (0, 3)."""
+    decoding = synth.decode(seqfile.read_seqfile(SEQFILES / "valid_1_4_1.seq"))
+    for index in ([1.9], [1.0], np.array([1.0]), [True], np.array([True])):
+        with pytest.raises(TypeError, match="block_index"):
+            decoding.gradients_at(index, [250e-6])
+    for index in ([1], np.array([1], np.int32), np.array([1], np.uint8)):
+        assert decoding.gradients_at(index, [250e-6]).tolist() == [[1e6, 0.0, 0.0]]
+    assert decoding.gradients_at([], []).shape == (0, 3)
+
+
 def test_rotate_is_the_active_rotation_of_a_unit_quaternion():
     """`decoding.rotate` turns a vector by `R(q) v` with q0 the scalar part: a quarter turn
     about z takes x to y, about x takes y to z, about y takes z to x; the identity keeps the
