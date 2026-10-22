@@ -1418,14 +1418,14 @@ grad = decode_gradients(snap.data)  # {gradient ID: Trapezoid or ArbitraryGradie
 adc = decode_adc(snap.data)  # {ADC ID: AdcEvent}
 
 # The events of a block: the block table has their IDs, 0 for none.
-row = snap.decoding.blocks[0]  # play index 0
+row = snap.data.blocks[0]  # play index 0
 pulse = rf[int(row["rf"])] if row["rf"] else None
 gx = grad[int(row["gx"])] if row["gx"] else None
 readout = adc[int(row["adc"])] if row["adc"] else None
 ```
 
 The keys are the IDs of the file, not the numbers of the block table
-(`sequence_index`). The block table of the decoding (`snap.decoding.blocks`, the
+(`sequence_index`). The block table (`snap.data.blocks`, the
 `blocks` table of the model) gives the IDs of the events of each block, in play
 order. A key that the file does not have raises `KeyError`.
 
