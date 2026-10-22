@@ -206,9 +206,12 @@ class GradientSampler:
             return np.zeros(t.size, dtype=np.float64)
 
         # The block that contains (or, past the sequence end, precedes) each end of the
-        # sample range: the last block whose start is not after that time.
+        # sample range. For the last time: the last block whose start is not after it. For
+        # the first time: the last block whose start is before it (or block 0), so that a
+        # first time where blocks of duration 0 start has the block that ends there, whose
+        # event gives the value before the step.
         start_s = self._index.start_s
-        lo_block = max(int(np.searchsorted(start_s, t[0], side="right")) - 1, 0)
+        lo_block = max(int(np.searchsorted(start_s, t[0], side="left")) - 1, 0)
         hi_block = max(int(np.searchsorted(start_s, t[-1], side="right")) - 1, 0)
 
         # The events of `axis` in that block range, plus the nearest one before it and
