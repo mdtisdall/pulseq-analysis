@@ -16,7 +16,8 @@ The review looks for these things:
 - Anything that makes the release `0.1.0rc7` wrong.
 
 It does not repeat a finding of an earlier review that is fixed. The line
-numbers are of commit `ef891d5`.
+numbers are of commit `ef891d5`. Section 8 gives the status after the fixes
+of PRs #202 to #233.
 
 Method:
 
@@ -335,3 +336,56 @@ changelog and the migration guide promise for the names of rc6 (run); the
 signatures and result fields of rc6 against `main`; the version
 (`0.1.0rc7`) and the extra `analysis` of the plugin; every relative link of
 the documents; the docs-only path of `scripts/check`.
+
+## 8. Status after PRs #202 to #233
+
+The plan `docs/plans/review-2026-10-21-fixes.md` (#201, closed in #233)
+fixed every finding of this review, before the release `0.1.0rc7` (the user,
+2026-10-21). Each task was one PR, whose title ends with the task. A task
+that changed behaviour added its tests first, and they failed before the
+fix; a task that made a test stronger showed a mutation that the old tests
+missed and the new ones catch.
+
+| Finding | Task | PR | Fix |
+|---|---|---|---|
+| 1.1.1 | C1 | #208 | `max_shape_samples` also limits the cells into which `cpp-siemens` resamples an RF pulse, before the allocation; the convention of every interpreter and `check_shape_limit` say so (the user, 2026-10-21). |
+| 1.1.2 | C2 | #210 | An extended trapezoid whose first time is below 0 plays in the measurements as the reader plays it. Times out of order are recorded (D7.7 of the plugin's record, `TODO.md`), not fixed (the user, 2026-10-21). |
+| 1.1.3 | C5 | #212 | `ub.gradient-shape-0` follows the order in which `load` reads the sections: a `[TRAP]` row of the ID replaces the event. |
+| 1.1.4 | C6 | #211 | `block_soft_delays` gives copies. |
+| 1.2.1 | C4 | #202 | A quaternion is scaled by a power of 2 before its norm; `rotation.zero` is for four zeros. |
+| 1.2.2 | C7 | #213 | The docstring of `SeqFileError` says which violations `spec` keeps (the user, 2026-10-21). |
+| 1.2.3 | C8 | #209 | `decompress_shape` raises `ValueError` for a count that is not finite. |
+| 1.2.4 | C9 | #216 | A repeated `Type` or `Hash` is read, the last wins, as D2.6; the rule text says so (the user, 2026-10-21). |
+| 1.3.1 | C3 | #206 | The sampler at the start of a block of duration 0; the time-range check has each block start. |
+| 1.3.2 (soft delay) | C10 | #214 | A soft delay that does not fit an int64 is a `SettingError`. |
+| 1.3.2 (`bin_s`) | C11 | #223 | A bin is at most the whole sequence (the user, 2026-10-21). |
+| 1.3.3 | C12 | #217 | Each `gradients_at` refuses a block index that is not an integer. |
+| 1.3.4 | C13 | #218 | `SafeAxis` refuses a `g_scale` that is not above 0 and a negative `a1` to `a3` (the user, 2026-10-21). |
+| 1.3.5 | C14 | #219 | A component name of a `.asc` file that is not a text is a `ValueError`. |
+| 3.1 | C1 | #208 | The docstrings of `NotSupported` include the setting. |
+| 3.2 | D1 | #230 | The stale text. |
+| 3.3 | D2 | #225 | `docs/usage.md` reads `snap.data.blocks`; a check reads each member of a decoding in the documents. |
+| 4 | D3, D4, D5, D6, D7 | #220, #226, #228, #221, #232 | One `_GRAD_COLUMNS`; no `spec._read_spec`; one computation of the ends of a 1.4 gradient; one check of the setting in the plugin; no duplicate tests (the twin rotation helpers name each other). |
+| 5.1, 5.2 | T1 | #203 | The step at the end, in a range and below the tolerance. |
+| 5.3 | T2 | #227 | A guard of `PEAK_TOLERANCE` and of the rule of the peak time. |
+| 5.4 | T3 | #205 | The equality of models sees each field. |
+| 5.5 | T4 | #215 | The breakers of `check_shape_limit`; its files have no number in their names. |
+| 5.6 | T5 | #207 | `SOURCE` in a `NotSupported` of `read_pypulseq`. |
+| 5.7 | T6, T7 | #222, #224 | `interpreter_names` sorts and imports no plugin; the signature after a comment. |
+| 7.1 | R1, R2 | #204, #231 | `scripts/check` checks the locks; the version test reads the newest entry of `CHANGELOG.md`. |
+| 7.2 | D8 | #229 | The release notes name each public name and each setting; a check keeps them so. |
+
+Notes:
+
+- **What the work found:**
+  - `from pulseq_analysis.analyses import pns_levels`, as `registry`, gives
+    the submodule and raises nothing (D8).
+  - A fuzz corpus file had an RF last time of `inf`, which the limit of C1
+    now refuses; it has `nan`, which stays `ub.rf-time-range`.
+  - The core package names no plugin, so the docstring of C7 names "a
+    plugin interpreter".
+- **Mutations that no test can catch,** because they give the same result:
+  the clip at 0 of C3, the cap without `max(., 1)` of C11, and the cut of
+  times out of order of C2, which the user chose not to fix.
+- **Open:** the measurements of `cpp-siemens` on an extended trapezoid whose
+  times are out of order (`TODO.md`).
