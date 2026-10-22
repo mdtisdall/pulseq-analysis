@@ -9393,9 +9393,14 @@ shows that the limit does not apply to the points of `spec`.
 `AssertionError`, whose message says what is wrong, for each plugin class that breaks one part of
 the convention of `max_shape_samples`: another default (`OtherLimit`, "the default of
 max_shape_samples is 1000, not 134217728"); no check of the value (`Fake`, "max_shape_samples=0
-does not raise ValueError"); a `str` that gives the default (`Verbose`); no limit in `read`
-(`Unchecked`, which reads with `spec`'s default: "a shape of 2097152 samples, over the limit
-1048576, reads"); a `NotSupported` that gives no path, number or setting (`Terse`); a limit never
+does not raise ValueError"); a bool accepted as the value (`AcceptsBool`, "max_shape_samples=True
+does not raise TypeError"); a float accepted as the value (`AcceptsFloat`,
+"max_shape_samples=1.5 does not raise TypeError"); a `str` that gives the default (`Verbose`); a
+`str` that does not give the setting None (`Silent`, "str of max_shape_samples=None does not give
+it"); no limit in `read` (`Unchecked`, which reads with `spec`'s default: "a shape of 2097152
+samples, over the limit 1048576, reads"); a `NotSupported` that gives no path, number or setting
+(`Terse`); a `NotSupported` that gives the path, the limit and the setting, but not the declared
+number (`PathOnly`, "the message of NotSupported does not give '2097152'"); a limit never
 below 1000 (`Coarse`: "a shape of 8 samples, over the limit 4, reads"); a check of its own of the
 "as written" shapes that refuses a shape at the limit (`AtLimit`: "a shape of 8 samples, at the
 limit 8, does not read"); a model that records the interpreter with its default settings
@@ -9406,9 +9411,10 @@ cells"); and a limit that refuses an RF pulse of as many cells as the limit
 check also passes for `Resampling`, which refuses an RF pulse of more cells than the limit with
 the path, the number of cells and the limit, and the name of the setting.
 
-**How:** Parametrized over the ten classes and the part of the message. The test calls the
-check for `Limited` and for `Resampling`, then for the class, in `pytest.raises` with the part of
-the message.
+**How:** Parametrized over the fourteen classes and the part of the message. The test calls
+the check for `Limited` and for `Resampling`, then for the class, in `pytest.raises` with the
+part of the message. The files of the check have no number in their names, so the path in a
+message does not give the declared number.
 
 **Assumptions:** Each class breaks one part only; the check stops at the first part that fails,
 so a class that broke two parts would test the first.

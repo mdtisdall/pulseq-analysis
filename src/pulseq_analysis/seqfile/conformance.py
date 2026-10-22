@@ -115,9 +115,11 @@ num_samples 2
 _LARGE, _SMALL = 2**21, 8
 
 
-def _write(folder: Path, num_samples: int) -> Path:
-    """The file `_TEXT` with a shape of `num_samples` samples, in `folder`."""
-    path = folder / f"shape_{num_samples}.seq"
+def _write(folder: Path, name: str, num_samples: int) -> Path:
+    """The file `_TEXT` with a shape of `num_samples` samples, in `folder`, named `name`. The
+    name has no number, so that a message that gives the path does not give the number of
+    samples by it."""
+    path = folder / name
     path.write_text(_TEXT.format(num_samples=num_samples, repeats=num_samples - 2))
     return path
 
@@ -194,7 +196,8 @@ def check_shape_limit(cls: type) -> None:
     if "max_shape_samples=None" not in str(unlimited):
         _fail(cls, f"str of max_shape_samples=None does not give it: {str(unlimited)!r}")
     with tempfile.TemporaryDirectory(prefix="pulseq-analysis-") as folder:
-        large, small = _write(Path(folder), _LARGE), _write(Path(folder), _SMALL)
+        large = _write(Path(folder), "large_shape.seq", _LARGE)
+        small = _write(Path(folder), "small_shape.seq", _SMALL)
         error = _refused(cls, large, _LARGE // 2)
         if error is None:
             _fail(cls, f"a shape of {_LARGE} samples, over the limit {_LARGE // 2}, reads")

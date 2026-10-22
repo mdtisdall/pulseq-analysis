@@ -123,6 +123,49 @@ class Verbose(Limited):
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class AcceptsBool(Limited):
+    """`Limited` that accepts a bool as the setting, as the int that it is."""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_shape_samples, bool):
+            object.__setattr__(self, "max_shape_samples", int(self.max_shape_samples))
+        Limited.__post_init__(self)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class AcceptsFloat(Limited):
+    """`Limited` that accepts a float as the setting, rounded down to an int."""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_shape_samples, float):
+            object.__setattr__(self, "max_shape_samples", int(self.max_shape_samples))
+        Limited.__post_init__(self)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Silent(Limited):
+    """`Limited` whose `str` does not give the setting None (no limit)."""
+
+    def __str__(self) -> str:
+        if self.max_shape_samples is None:
+            return self.name
+        return Limited.__str__(self)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PathOnly(Limited):
+    """`Limited` whose `NotSupported` gives the path, the limit and the setting, but not the
+    declared number of samples."""
+
+    def read(self, path: Path) -> seqfile.SequenceData:
+        try:
+            return Limited.read(self, path)
+        except seqfile.NotSupported:
+            message = f"{path}: a shape is over max_shape_samples={self.max_shape_samples}"
+            raise seqfile.NotSupported(message) from None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class Coarse(Limited):
     """`Limited` whose limit is never below 1000 samples."""
 
@@ -350,9 +393,13 @@ def test_spec_reads_an_rf_pulse_of_more_cells_than_max_shape_samples(tmp_path):
     [
         (OtherLimit, "the default of max_shape_samples is 1000, not 134217728"),
         (Fake, "max_shape_samples=0 does not raise ValueError"),
+        (AcceptsBool, "max_shape_samples=True does not raise TypeError"),
+        (AcceptsFloat, "max_shape_samples=1.5 does not raise TypeError"),
         (Verbose, "str gives the default of max_shape_samples"),
+        (Silent, "str of max_shape_samples=None does not give it"),
         (Unchecked, "a shape of 2097152 samples, over the limit 1048576, reads"),
         (Terse, "the message of NotSupported does not give"),
+        (PathOnly, "the message of NotSupported does not give '2097152'"),
         (Coarse, "a shape of 8 samples, over the limit 4, reads"),
         (AtLimit, "a shape of 8 samples, at the limit 8, does not read"),
         (Forgetful, "the model records"),
@@ -363,11 +410,13 @@ def test_spec_reads_an_rf_pulse_of_more_cells_than_max_shape_samples(tmp_path):
 def test_the_check_of_the_shape_limit_fails_for_a_plugin_that_does_not_follow_it(cls, message):
     """`conformance.check_shape_limit(cls)` passes for `Limited` and `Resampling`, plugin classes
     that follow the convention of `max_shape_samples`, and raises `AssertionError` that says what
-    is wrong for a class that does not: another default, no check of the value, a `str` that
-    gives the default, no limit in `read`, a message without the path, a limit that is not the
-    setting, a limit that refuses a shape at the limit, a model that does not record the setting,
-    a message of an RF pulse over the limit without the path or the number, and a limit that
-    refuses an RF pulse of as many cells as the limit."""
+    is wrong for a class that does not: another default, no check of the value, a bool or a
+    float accepted as the value, a `str` that gives the default, a `str` that does not give the
+    setting None, no limit in `read`, a message without the path, a message without the
+    declared number, a limit that is not the setting, a limit that refuses a shape at the limit,
+    a model that does not record the setting, a message of an RF pulse over the limit without
+    the path or the number, and a limit that refuses an RF pulse of as many cells as the
+    limit."""
     from pulseq_analysis.seqfile import conformance
 
     conformance.check_shape_limit(Limited)
