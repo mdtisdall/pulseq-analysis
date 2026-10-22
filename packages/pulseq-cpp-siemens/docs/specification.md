@@ -87,10 +87,16 @@ The same conditions in `spec`: [D2.1](../../../docs/discrepancies.md#d21-section
 #### D5.2: A `[GRADIENTS]` row of shape ID 0 that a block uses
 
 - Code: `ub.gradient-shape-0`.
-- Condition: a `[GRADIENTS]` row of shape ID 0 that a block uses.
-- The reader: plays an uninitialised `GradEvent` as a trapezoid (`cpp:1069`).
-- `cpp-siemens`: rejects the file with `ub.gradient-shape-0`. A row of shape 0 that no block uses
-  is read.
+- Condition: a `[GRADIENTS]` row of shape ID 0 that a block uses, and whose ID no `[TRAP]` row
+  has.
+- The reader: plays an uninitialised `GradEvent` as a trapezoid (`cpp:1069`). `load` reads
+  `[GRADIENTS]`, then `[TRAP]` (`cpp:1060-1124`), and each row replaces the event of its ID: a
+  `[TRAP]` row with the ID of a row of shape 0 replaces it, and the reader plays the `[TRAP]` row.
+- `cpp-siemens`: rejects the file with `ub.gradient-shape-0`. It follows the order in which
+  `load` reads the sections (the user, 2026-10-21): the event is the last `[GRADIENTS]` row of
+  its ID when no `[TRAP]` row has that ID (the extension reads the rows of both sections again,
+  as `load` reads them). A row of shape 0 that a `[TRAP]` row replaced, or that no block uses, is
+  read.
 - Fixture: `tests/fixtures/gradient_shape_0.seq`.
 
 #### D5.3: An RF event with time ID -1
