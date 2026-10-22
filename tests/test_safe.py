@@ -82,6 +82,11 @@ def test_a_safe_axis_keeps_its_fields_as_floats_and_is_frozen():
         ({"tau3": None}, TypeError, "SafeAxis.tau3 must be a real number"),
         ({"stim_limit": 0.0}, ValueError, "SafeAxis.stim_limit must be above 0"),
         ({"stim_limit": -1.0}, ValueError, "SafeAxis.stim_limit must be above 0"),
+        ({"g_scale": 0.0}, ValueError, "SafeAxis.g_scale must be above 0"),
+        ({"g_scale": -1.0}, ValueError, "SafeAxis.g_scale must be above 0"),
+        ({"a1": -0.1, "a2": 0.6}, ValueError, "SafeAxis.a1 must be 0 or above"),
+        ({"a1": 1.1, "a2": -0.1, "a3": 0.0}, ValueError, "SafeAxis.a2 must be 0 or above"),
+        ({"a1": 1.0, "a3": -0.1}, ValueError, "SafeAxis.a3 must be 0 or above"),
         (
             {"a1": 0.5},
             ValueError,
@@ -97,6 +102,21 @@ def test_a_safe_axis_keeps_its_fields_as_floats_and_is_frozen():
 def test_a_safe_axis_refuses_a_bad_field(changes, error, match):
     with pytest.raises(error, match=match):
         _example_axis(**changes)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"a1": 0.0, "a2": 0.5},
+        {"a1": 0.5, "a2": 0.0},
+        {"a1": 0.9, "a3": 0.0},
+        {"g_scale": 5e-324},
+    ],
+)
+def test_a_safe_axis_takes_each_sign_checked_field_at_its_smallest_value(changes):
+    axis = _example_axis(**changes)
+    for field, value in changes.items():
+        assert getattr(axis, field) == value
 
 
 def test_a_safe_axis_takes_a_sum_of_the_a_fields_within_0_001_of_1():

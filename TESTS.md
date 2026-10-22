@@ -7903,12 +7903,24 @@ fields, and expects `dataclasses.FrozenInstanceError` for the set of `tau1` and 
 
 #### `test_a_safe_axis_refuses_a_bad_field`
 
-**Checks:** `SafeAxis` raises `ValueError` for a NaN, an infinity, a `stim_limit` that is 0 or
-negative, and an `a1 + a2 + a3` that is more than 0.001 from 1; and `TypeError` for a string, a
-`bool` and `None`. The message names the field.
+**Checks:** `SafeAxis` raises `ValueError` for a NaN, an infinity, a `stim_limit` or a
+`g_scale` that is 0 or negative, a negative `a1`, `a2` or `a3`, and an `a1 + a2 + a3` that is
+more than 0.001 from 1; and `TypeError` for a string, a `bool` and `None`. The message names
+the field.
 
-**How:** Parametrized over nine changes of the example axis. The test expects the error and
-the message.
+**How:** Parametrized over fourteen changes of the example axis. The test expects the error
+and the message. In a change with a negative `a` field, the sum of the `a` fields stays 1 (for
+example `a1` 1.1, `a2` -0.1 and `a3` 0), so only the check of the sign can refuse it.
+
+**Assumptions:** None.
+
+#### `test_a_safe_axis_takes_each_sign_checked_field_at_its_smallest_value`
+
+**Checks:** `SafeAxis` takes an `a1`, `a2` or `a3` of 0 (0 turns a term off), and a `g_scale`
+of 5e-324, the smallest positive float, and stores the value.
+
+**How:** Parametrized over four changes of the example axis, each with a sum of the `a`
+fields of 1. The test makes the axis and compares each changed field with its value.
 
 **Assumptions:** None.
 

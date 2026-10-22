@@ -64,11 +64,12 @@
 
 A `SafeHardware` is the nine parameters of each gradient axis (`SAFE_FIELDS`) and a name. It
 is immutable and checked when it is made, so a function that takes one needs no further check:
-every field is a finite real number, `stim_limit` is above 0, `a1 + a2 + a3` of each axis is
-within 0.001 of 1, and the name is a `str` that the `meta` of a `series.Series` takes (not
-"nan", "inf" or "-inf"). It is the `hardware` of `pns_levels`, whose label is its name.
-`asc.hardware_from_asc` and `asc.safe_hardware` make one from a Siemens gradient `.asc` file,
-and `SafeHardware.from_namespace` from a `types.SimpleNamespace` in the form of pypulseq's
+every field is a finite real number, `stim_limit` and `g_scale` are above 0, `a1`, `a2` and
+`a3` are 0 or above, `a1 + a2 + a3` of each axis is within 0.001 of 1, and the name is a `str`
+that the `meta` of a `series.Series` takes (not "nan", "inf" or "-inf"). It is the
+`hardware` of `pns_levels`, whose label is its name. `asc.hardware_from_asc` and
+`asc.safe_hardware` make one from a Siemens gradient `.asc` file, and
+`SafeHardware.from_namespace` from a `types.SimpleNamespace` in the form of pypulseq's
 `asc_to_hw` and `safe_example_hw`. This module does not import pypulseq.
 
 The units of the fields are those of `safe_example_hw` of pypulseq: `tau1`, `tau2` and `tau3`
@@ -93,12 +94,19 @@ SAFE_FIELDS = ("tau1", "tau2", "tau3", "a1", "a2", "a3", "stim_limit", "stim_thr
 # `safe_hw_check`).
 _A_SUM_TOLERANCE = 0.001
 _AXES = ("x", "y", "z")
+# The fields that must be above 0, and those that must be 0 or above (0 turns a term off).
+_POSITIVE_FIELDS = ("stim_limit", "g_scale")
+_NON_NEGATIVE_FIELDS = ("a1", "a2", "a3")
 
 
 def _checked_field(prefix: str, axis: str, field: str, value: object) -> float:
     """`value` of `field` of the axis named `axis` as a `float`. The name in an error is
     `prefix + axis.field`. See `SafeAxis` for the rules."""
-    return real(f"{prefix}{axis}.{field}", value, positive=field == "stim_limit")
+    name = f"{prefix}{axis}.{field}"
+    result = real(name, value, positive=field in _POSITIVE_FIELDS)
+    if field in _NON_NEGATIVE_FIELDS and result < 0:
+        raise ValueError(f"{name} must be 0 or above, not {value!r}")
+    return result
 
 
 def _check_a_sum(prefix: str, axis: str, values: dict[str, float]) -> None:
@@ -117,8 +125,13 @@ class SafeAxis:
     """The SAFE parameters of one gradient axis: `tau1`, `tau2`, `tau3` (ms), `a1`, `a2`, `a3`,
     `stim_limit` (T/m/s), `stim_thresh` (T/m/s) and `g_scale`. Each is stored as a `float`.
     Construction raises `TypeError` for a field that is a `bool` or not a real number, and
-    `ValueError` for a field that is not finite, a `stim_limit` that is not above 0, and an
-    `a1 + a2 + a3` that is more than 0.001 from 1 (`_validate.real`)."""
+    `ValueError` for a field that is not finite, a `stim_limit` or a `g_scale` that is not above
+    0, a negative `a1`, `a2` or `a3` (0 turns a term off), and an `a1 + a2 + a3` that is more
+    than 0.001 from 1 (`_validate.real`). The original SAFE checks no sign: its `safe_hw_check`
+    checks only that each field is not empty and the sum of the `a` fields. The package refuses
+    these signs (the user, 2026-10-21): a `g_scale` below 0 turns the sign of each PNS value of
+    the axis, and one of 0 makes each value 0; a negative `a1`, `a2` or `a3` gives its term a
+    negative weight. `tau1`, `tau2` and `tau3` take any finite value, as in SAFE."""
 
     tau1: float
     tau2: float

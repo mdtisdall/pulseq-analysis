@@ -122,8 +122,9 @@ def test_from_namespace_accepts_a_hardware_if_and_only_if_the_originals_safe_hw_
     """`SafeHardware.from_namespace` accepts a struct if and only if `safe_hw_check` of the
     original gives 1. For a struct without an axis or a field, `safe_hw_check` fails (the field
     of an Octave struct that is not there), and `from_namespace` raises `ValueError`. The cases
-    are in the domain of the original: every field is a finite number and `stim_limit` is above 0.
-    The original does not check these, and the package does (`test_safe.py`)."""
+    are in the domain of the original: every field is a finite number, `stim_limit` and `g_scale`
+    are above 0, and `a1`, `a2` and `a3` are 0 or above. The original does not check these, and
+    the package does (`test_safe.py`)."""
     _, checks = filtered
     original = checks[case_id]
     try:
