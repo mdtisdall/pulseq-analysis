@@ -12,6 +12,7 @@ delay TE (num 0, offset -100 us, factor 2); 2 gx rotated by 90 degrees about z; 
 
 import copy
 import dataclasses
+import math
 import pickle
 import re
 from pathlib import Path
@@ -248,6 +249,40 @@ def test_a_soft_delay_that_the_file_does_not_have_is_a_setting_error(session, re
     assert pickle.loads(pickle.dumps(error)).reason == reason
     with pytest.raises(SettingError):
         load(SESSION_FILE, session=session)
+
+
+@pytest.mark.parametrize("value", [1e14, 1e15])
+def test_a_soft_delay_whose_duration_does_not_fit_an_int64_is_a_setting_error(value):
+    """Rule 8: TR = 1e14 s or 1e15 s gives block 7 (factor 1, offset 0) more ticks of the 10 us
+    raster than an int64 holds (1e19 or 1e20): a `SettingError` for the hint that names the
+    block's play index, as for a duration that is negative; `load` raises it too. At the
+    boundary, with a raster of 1 s: the largest float below 2**63 is the duration, and 2**63 is
+    a `SettingError`."""
+    data = read_seqfile(SESSION_FILE)
+    session = Session(soft_delays={"TR": value})
+    with pytest.raises(SettingError) as caught:
+        synth.decode(data, session)
+    assert caught.value.setting == "soft_delays['TR']"
+    assert caught.value.reason == (
+        f"the block at play index 7 gets the duration {value:g} s, more ticks of the raster "
+        "than an int64 holds"
+    )
+    with pytest.raises(SettingError):
+        load(SESSION_FILE, session=session)
+    delays = [SoftDelay(0, 0, 0.0, 1.0, "TD")]
+    stored = np.array([7])
+    pure = np.array([True])
+    below = math.nextafter(2.0**63, 0.0)
+    actual, _ = soft_delay_durations(
+        Session(soft_delays={"TD": below}), delays, stored, 1.0, pure, interpreter="spec",
+        version=(1, 5, 1),
+    )  # fmt: skip
+    assert actual.tolist() == [int(below)]
+    with pytest.raises(SettingError, match="the block at play index 0 gets the duration"):
+        soft_delay_durations(
+            Session(soft_delays={"TD": 2.0**63}), delays, stored, 1.0, pure, interpreter="spec",
+            version=(1, 5, 1),
+        )  # fmt: skip
 
 
 @pytest.mark.parametrize(

@@ -9674,6 +9674,18 @@ apply to this file (version 1.5.1) under the interpreter spec: REASON", and whic
 
 **Assumptions:** None.
 
+#### `test_a_soft_delay_whose_duration_does_not_fit_an_int64_is_a_setting_error`
+
+**Checks:** TR = 1e14 s and TR = 1e15 s give block 7 (factor 1, offset 0) 1e19 and 1e20 ticks of
+the 10 us raster, more than an int64 holds: a `SettingError` whose `setting` is `soft_delays['TR']`
+and whose `reason` names the play index 7 and the duration; `load` raises it too. The boundary,
+through `soft_delay_durations` with a raster of 1 s: the largest float below 2**63 is the duration
+in ticks, and 2**63 is a `SettingError` for the block at play index 0.
+
+**How:** Parametrized over the two values; the boundary is checked in each case.
+
+**Assumptions:** None.
+
 #### `test_a_soft_delay_that_is_not_one_value_of_a_pure_delay_block_is_a_setting_error`
 
 **Checks:** The user's decisions (2026-10-13), each a `SettingError` for the hint of the session,
