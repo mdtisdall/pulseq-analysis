@@ -1073,7 +1073,7 @@ dwell (`model.rf_time_step`). A time shape of one sample at 0 or before is not
 the time shape of a writer: MATLAB Pulseq puts the sample at half a dwell, and
 a dwell is above 0.
 
-The same condition in `cpp-siemens`: [D5.8](../packages/pulseq-cpp-siemens/docs/specification.md#d58-the-rf-resampling-reads-past-the-samples), [D5.9](../packages/pulseq-cpp-siemens/docs/specification.md#d59-an-rf-time-shape-whose-last-time-does-not-fit-an-int)
+The same condition in `cpp-siemens`: [D5.8](../packages/pulseq-cpp-siemens/docs/specification.md#d58-the-rf-resampling-reads-past-the-samples), [D5.9](../packages/pulseq-cpp-siemens/docs/specification.md#d59-an-rf-time-shape-whose-last-time-does-not-fit-an-int), [D7.7](../packages/pulseq-cpp-siemens/docs/specification.md#d77-an-extended-trapezoid-whose-first-time-is-below-0-or-whose-times-are-out-of-order)
 
 #### D3.10: A rotation quaternion of norm 0
 

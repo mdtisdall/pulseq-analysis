@@ -12536,7 +12536,7 @@ cut that takes the first segment gives another value at 0 µs (-850 Hz/m).
 
 **Assumptions:** One delay (0) and one amplitude. The grid of 1 µs is not the probes of
 `_reader_probes`, which come from the points under test. A time shape whose times are out of
-order is not tested: the measurements differ from the reader there.
+order is not tested: the measurements differ from the reader there (D7.7).
 
 #### `test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements`
 

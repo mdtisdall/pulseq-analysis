@@ -363,6 +363,33 @@ The same condition in `spec`: [D4.2](../../../docs/discrepancies.md#d42-the-rows
 
 The same condition in `spec`: [D2.15](../../../docs/discrepancies.md#d215-an-adc-phase-modulation-shape-rad-one-value-per-sample).
 
+#### D7.7: An extended trapezoid whose first time is below 0, or whose times are out of order
+
+- The reader holds: the times of the time shape in µs, `long(0.5 + raster_us * t)` of each time
+  `t` (`cpp:2181-2182`), in the order of the file. `gradientsAt` finds the segment of a time by a
+  binary search on them (`cpp:3638-3649`), gives the first or the last sample at the first or the
+  last time (`cpp:3628-3636`), and 0 after the last time, `times.back()` (`cpp:3621`), also when
+  an earlier time is larger.
+- The model holds: the same times. `gradients_at` gives the reader's values.
+- The measurements of pulseq-analysis (`analyses.load`, R14): for times in order (each at or
+  after the one before it) whose first time is below 0, the points of the event
+  (`gradient_points`) are cut at the delay, as the reader plays them: the first point is at the
+  delay, with the value of the segment that holds it, and the points before it go. When every
+  time is before the delay, the event is 0. The times -9, 10 and 20 µs of the shape 0.5, 1, 0.5
+  at 1000 Hz/m give 736.8, 789.5, 868.4 and 947.4 Hz/m at 0, 2, 5 and 8 µs in both. For times
+  out of order, the points are the vertices in the order of the file, and the measurements
+  differ from the reader (the user, 2026-10-21): the times 0, 20, 10 and 30 µs of the shape 0.5,
+  1, 0.25, 0.5 at 1000 Hz/m give 275 Hz/m at 12 µs on the reader and 800 in the measurements,
+  and `gradient_peaks` gives 1000 Hz/m as the peak, where the reader plays at most 750.
+- Why: no writer makes such times. The makers of an extended trapezoid of MATLAB Pulseq and
+  pypulseq refuse times that do not increase (`makeExtendedTrapezoid.m:50-51`,
+  `make_extended_trapezoid.py:87-88`), and put the first time in the delay, so that the time
+  shape starts at 0 (D3.9). The user chose to make the measurements the reader's only for a
+  first time below 0 (2026-10-21).
+- Test: `test_the_measurements_of_an_extended_trapezoid_whose_first_time_is_below_0_are_the_gradients_of_the_reader`.
+
+The same condition in `spec`: [D3.9](../../../docs/discrepancies.md#d39-an-rf-time-shape-of-one-sample-or-times-that-do-not-increase-or-start-below-0).
+
 ### 2.5 The codes of the rejections
 
 The reader gives a message, not a code. `cpp-siemens` gives each rejection a stable code, so that
