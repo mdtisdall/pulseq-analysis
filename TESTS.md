@@ -12512,6 +12512,32 @@ the sampler at the block start plus the times. The values are compared exactly.
 
 **Assumptions:** None.
 
+#### `test_the_measurements_of_an_extended_trapezoid_whose_first_time_is_below_0_are_the_gradients_of_the_reader`
+
+**Checks:** An extended trapezoid whose first time is below 0 gives the measurements the
+waveform that the reader plays: from the delay, the segment of its times that holds the delay
+(the binary search of `gradientsAt`, cpp:3638-3649), and no point before it. With the times -9,
+10 and 20 µs of the wave shape 0.5, 1, 0.5 at 1000 Hz/m, the reader plays 736.8, 789.5, 868.4
+and 947.4 Hz/m at 0, 2, 5 and 8 µs. The sampler gives the reader's values at each µs of the
+block, and `gradient_peaks` gives the largest of them as the peak of x.
+
+**How:** Parametrized over the time shapes `-1 1 2` (wave `0.5 1 0.5`) and `-2 -1 1 2` (wave
+`2 0.5 1 0.5`), whose times the reader converts to -9, 10, 20 µs and -19, -9, 10, 20 µs
+(`long(0.5 + 10 t)`, cpp:2182), and the control `0 1 2` (wave `0.5 1 0.5`). Each file
+(`_extended_trapezoid_file`) is written in `tmp_path`: one block of 100 µs, gradient 1 on X with
+no delay. The reader (`snap.data.reading.gradients_at`) is read at 0 to 100 µs of block 0 in
+steps of 1 µs, and its values at 0, 2, 5 and 8 µs are compared with the numbers above (500, 600,
+750 and 900 Hz/m for the control) to 0.05 Hz/m. The sampler, read at the block start plus the
+times, must agree with the reader to 1e-4 Hz/m, and the peak to a relative 1e-7. Without the fix
+the points start with `(0, v0)` and go back to the first time before 0, so the sampler gives 500
+Hz/m at 0 µs for `-1 1 2` and 2000 Hz/m for `-2 -1 1 2`, and `gradient_peaks` of the second
+file raises `ValueError`. The second time shape has a segment of two times below 0, so that a
+cut that takes the first segment gives another value at 0 µs (-850 Hz/m).
+
+**Assumptions:** One delay (0) and one amplitude. The grid of 1 µs is not the probes of
+`_reader_probes`, which come from the points under test. A time shape whose times are out of
+order is not tested: the measurements differ from the reader there.
+
 #### `test_an_edge_gradient_with_no_sample_plays_0_in_the_measurements`
 
 **Checks:** With `CppSiemens(oversampling="edge")`, an oversampled gradient of 1 or 2 samples has
