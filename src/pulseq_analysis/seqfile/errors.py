@@ -52,9 +52,12 @@ class Violation:
 
 class SeqFileError(ValueError):
     """An interpreter rejects a file. `violations` has its reasons, at most `MAX_LOCATIONS` of
-    `seqfile.spec` for each code, in the order of the file. `omitted` maps a code to the number
-    of its further reasons that are not in `violations`. `path` is the file, and `interpreter`
-    the name of the interpreter that rejects it."""
+    `seqfile.spec` for each code. `spec` keeps the first `MAX_LOCATIONS` of each code that it
+    finds, in the order of its checks (the shapes before the tables), and sorts the kept by line,
+    so they are not always the first lines of the file. A plugin interpreter keeps them in the
+    order that it documents. `omitted` maps a code to the number of its further reasons that are
+    not in `violations`. `path` is the file, and `interpreter` the name of the interpreter that
+    rejects it."""
 
     def __init__(
         self,
