@@ -2010,19 +2010,44 @@ relative 1e-12 and an absolute 1e-12 of the peak.
 **Assumptions:** The oracle makes its points with the same sums as the sampler. The difference
 is the rounding of the interpolation formula only.
 
+#### `test_sample_at_the_start_of_a_block_of_duration_0_does_not_depend_on_the_first_time`
+
+**Checks:** At the time where a block ends with a gradient that is not 0, and a block of duration
+0 and the block after it start, `sample` gives the value before the step, whether that time is
+the first time of `t` or not, and that value is the value of the oracle. A sample range that
+starts at that time needs the event of the block before the block of duration 0.
+
+**How:** The test writes `_BLOCK_OF_DURATION_0_AT_A_STEP` (version 1.5.1) to `tmp_path` and loads
+it with `spec` (`_load_text`). Block 1 (100 µs) has an arbitrary gradient on x that ends at
+1000 Hz/m at 100 µs. Block 2 has duration 0 and a trapezoid on x with rise, flat and fall times
+0, which plays 0. Block 3 (100 µs) has an arbitrary gradient on x from 1000 Hz/m to 0. The test
+checks that `sample("x", [100e-6])` equals `sample("x", [95e-6, 100e-6])[1]` and 1000.0
+(the end value of block 1) exactly, and the value of `oracle.sample` of `sequence_of(snap)` at
+100 µs within a relative 1e-12.
+
+**Assumptions:** None.
+
 #### `test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`
 
 **Checks:** For each time range `t[i:j]` of a grid, `sample` equals the oracle, and the same
 slice of `sample` of the whole grid exactly. The ranges start or end at an end of an event,
 inside a gap, inside a ramp, and at a step.
 
-**How:** Parametrized over `long_gap`, `zero_gap`, `short_gap_from_0` and `negated_long_gap`, the
-cases of `_TIME_RANGE_NAMES` that `spec` accepts (`short_gap`, `issue_12_delayed`,
-`off_raster_events` and `gap_of_1_5_raster_times` are in the test of the same name of section
-3.10). The body is `check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`, which
-that test calls too. The grid is about 40 times, every n-th time of the grid of the test above.
-For each axis, the check compares the whole grid with the oracle. It then compares
-`sample(t[i:j])` with `whole[i:j]` (`numpy.array_equal`) for each pair `i < j`. The sequences load through `_load_model`, and the oracle reads `sequence_of(snap)`.
+**How:** Parametrized over `long_gap`, `zero_gap`, `short_gap_from_0`, `negated_long_gap` and
+`block_of_duration_0_at_a_step`, the cases of `_TIME_RANGE_NAMES` that `spec` accepts
+(`short_gap`, `issue_12_delayed`, `off_raster_events` and `gap_of_1_5_raster_times` are in the
+test of the same name of section 3.10). The body is
+`check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`, which that test calls
+too. The grid is about 40 times, every n-th time of the grid of
+`test_sample_equals_the_oracle_for_the_whole_sequence` (`_model_times`), and each block start
+(`sequence_index(snap).start_s`). Every n-th time can leave out a block start, and the block
+range of a call is found from the block starts, so with them a range starts and ends at each
+block start, also at a time where blocks of duration 0 start. For each axis,
+the check compares the whole grid with the oracle. It then compares `sample(t[i:j])` with
+`whole[i:j]` (`numpy.array_equal`) for each pair `i < j`. The sequences of `_MODEL_SEQUENCES` load
+through `_load_model`. `block_of_duration_0_at_a_step` is the file of
+`_BLOCK_OF_DURATION_0_AT_A_STEP` (the test above), of `_TIME_RANGE_TEXTS`, which the test writes
+to `tmp_path` and loads with `_load_text`. The oracle reads `sequence_of(snap)`.
 
 **Assumptions:** None.
 

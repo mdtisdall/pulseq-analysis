@@ -4,6 +4,7 @@ pytestmark = pytest.mark.pypulseq
 pytest.importorskip("pypulseq")
 
 import math
+import pathlib
 
 import numpy as np
 import pypulseq as pp
@@ -587,6 +588,79 @@ def test_sample_equals_the_oracle_for_the_whole_sequence(name):
     _assert_matches_oracle(snap, _model_times(snap))
 
 
+# Block 1 (100 us) has x from 0 to 1000 Hz/m, which ends at 1000 Hz/m at 100 us. Block 2, of
+# duration 0, has the trapezoid 2 on x with rise, flat and fall times 0, which plays 0. Block 3
+# (100 us) has x from 1000 Hz/m at 100 us to 0. Blocks 2 and 3 start at 100 us, the time of the
+# step of x from 1000 Hz/m to 0 and back.
+_BLOCK_OF_DURATION_0_AT_A_STEP = """\
+[VERSION]
+major 1
+minor 5
+revision 1
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+[BLOCKS]
+1 10 0 1 0 0 0 0
+2 0 0 2 0 0 0 0
+3 10 0 3 0 0 0 0
+
+[GRADIENTS]
+1 1000 0 1000 1 0 0
+3 1000 1000 0 1 0 0
+
+[TRAP]
+2 500 0 0 0 0
+
+[SHAPES]
+
+shape_id 1
+num_samples 10
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+"""
+
+
+def _load_text(directory: pathlib.Path, name: str, text: str) -> Snapshot:
+    """The snapshot, read by `spec`, of the file `name`.seq with the text `text`, written in
+    `directory`."""
+    path = directory / f"{name}.seq"
+    path.write_text(text)
+    return load(path)
+
+
+def test_sample_at_the_start_of_a_block_of_duration_0_does_not_depend_on_the_first_time(tmp_path):
+    """At 100 us, where block 1 of `_BLOCK_OF_DURATION_0_AT_A_STEP` ends and a block of duration 0
+    and the block after it start, `sample` gives the same value whether 100 us is the first time
+    or the second, and the value of the oracle: the value before the step, 1000 Hz/m. The
+    sample range of 100 us alone starts at the block of duration 0, so it needs the event of
+    block 1, before that block."""
+    snap = _load_text(tmp_path, "block_of_duration_0_at_a_step", _BLOCK_OF_DURATION_0_AT_A_STEP)
+    sampler = gradient_sampler(snap)
+    alone = sampler.sample("x", np.array([100e-6]))
+    second = sampler.sample("x", np.array([95e-6, 100e-6]))
+    ref = oracle.sample(sequence_of(snap), "x", np.array([100e-6]))
+    assert alone[0] == second[1]
+    assert alone[0] == 1000.0
+    np.testing.assert_allclose(alone, ref, rtol=1e-12, atol=0.0)
+
+
+# The sequences of `_TIME_RANGE_NAMES` that are the text of a file, not a sequence of
+# `_MODEL_SEQUENCES`. The test writes each file in its `tmp_path`.
+_TIME_RANGE_TEXTS = {"block_of_duration_0_at_a_step": _BLOCK_OF_DURATION_0_AT_A_STEP}
+
 _TIME_RANGE_NAMES = [
     "long_gap",
     "short_gap",
@@ -596,6 +670,7 @@ _TIME_RANGE_NAMES = [
     "gap_of_1_5_raster_times",
     "short_gap_from_0",
     "negated_long_gap",
+    "block_of_duration_0_at_a_step",
 ]
 
 
@@ -603,9 +678,10 @@ def check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(snap: S
     """Each time range `t[i:j]` of a grid of times of `snap` at the ends of the events, inside the
     gap, at the ramps and at the steps: `sample` equals the oracle, and the same slice of
     the whole grid exactly (a range that starts or ends inside a gap or a ramp has the
-    events around it)."""
+    events around it). The grid has each block start, so that a range starts and ends at
+    each one, also where blocks of duration 0 start."""
     full = _model_times(snap)
-    t = full[:: max(1, full.size // 40)]
+    t = np.unique(np.concatenate([full[:: max(1, full.size // 40)], sequence_index(snap).start_s]))
     sampler = gradient_sampler(snap)
     for axis in "xyz":
         whole = sampler.sample(axis, t)
@@ -618,10 +694,15 @@ def check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(snap: S
 
 
 @pytest.mark.parametrize("name", _read_by_spec(_TIME_RANGE_NAMES))
-def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(name):
-    """Each time range of a grid of times, for the sequences of the model that `spec` reads
+def test_sample_of_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(name, tmp_path):
+    """Each time range of a grid of times, for the sequences of the model that `spec` reads and
+    the files of `_TIME_RANGE_TEXTS`
     (`check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid`)."""
-    check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(_load_model(name))
+    if name in _TIME_RANGE_TEXTS:
+        snap = _load_text(tmp_path, name, _TIME_RANGE_TEXTS[name])
+    else:
+        snap = _load_model(name)
+    check_a_time_range_equals_the_oracle_and_the_slice_of_the_whole_grid(snap)
 
 
 def test_the_gaps_are_found_one_time_for_each_sequence_and_axis():
