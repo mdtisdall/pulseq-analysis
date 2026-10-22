@@ -71,6 +71,28 @@ Contents:
 
 ## 1. Static checks
 
+### Locks
+
+**Checks:** Each lock matches its `pyproject.toml`: `uv.lock` of the root and
+`packages/pulseq-cpp-siemens/uv.lock`.
+
+**How:** Before the installs, `scripts/check` runs `uv lock --check` for the
+root and for `packages/pulseq-cpp-siemens`. uv resolves each project again and
+fails when the result is not the lock, for example after a change of a
+dependency or of the version in `pyproject.toml`. The lock of
+pulseq-cpp-siemens records pulseq-analysis from the path `../../`, with its
+version, so a change of the version of the root makes both locks stale. The
+check runs without `--offline`: with an empty cache, as in CI, uv fetches the
+git source of pypulseq to resolve a lock that does not match.
+
+**Assumptions:**
+
+- The check runs only in the full path of `scripts/check`. A change of only
+  documentation changes no `pyproject.toml`, so the documentation path does
+  not run it.
+- The check compares each lock with its `pyproject.toml`. It does not look
+  for a newer version of a dependency that the bounds allow.
+
 ### Dependency install
 
 **Checks:** The locked dependencies install.
@@ -82,8 +104,7 @@ environment.
 **Assumptions:**
 
 - The install uses `--frozen`, which reads `uv.lock` and does not compare it to
-  `pyproject.toml`. CI does not fail when `pyproject.toml` has a dependency
-  change that is not in `uv.lock`.
+  `pyproject.toml`. The check [Locks](#locks), before it, does.
 - The Python version is the one from the Nix devShell (3.12). No other version
   is tested.
 

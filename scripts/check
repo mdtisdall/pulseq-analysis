@@ -74,6 +74,26 @@ fi
 collected_tests="$(mktemp)"
 trap 'rm -f "$collected_tests"' EXIT
 
+echo "# uv lock --check"
+# Each sync below uses --frozen, which installs from the lock and does not compare it to
+# pyproject.toml. Here each lock must match its project: the root, and pulseq-cpp-siemens, whose
+# lock records the version of pulseq-analysis too. No --offline: when a lock does not match and
+# the cache is empty (as in CI), uv fetches the git source of pypulseq to resolve it, and with
+# --offline that fetch fails with a git error instead of the message that the lock is stale.
+# Both locks are checked before a failure, as a change of the version of the root makes both stale.
+stale=0
+for lock in uv.lock packages/pulseq-cpp-siemens/uv.lock; do
+  project=$(dirname "$lock")
+  if uv lock --check --project "$project"; then
+    echo "ok    $lock matches ${lock%uv.lock}pyproject.toml"
+  else
+    echo "FAIL  $lock: the error above (to update the lock: uv lock --project $project)" >&2
+    stale=1
+  fi
+done
+[[ $stale -eq 0 ]] || exit 1
+
+echo
 echo "# uv sync"
 uv sync --frozen
 
