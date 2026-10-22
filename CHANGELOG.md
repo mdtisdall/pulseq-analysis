@@ -285,6 +285,14 @@ A caller moves in this order:
   `ub.rf-time-range`; with None it stays `ub.rf-time-range` (D5.9). The file
   `rf-time-range.seq` of the fuzzing corpus has the last time NaN in place of
   infinity, so that it stays `ub.rf-time-range` under the default limit.
+- The check of `ub.gradient-shape-0` (D5.2) follows the order in which
+  `ExternalSequence::load` reads the sections (the user, 2026-10-21; review
+  2026-10-21 1.1.3): `load` reads `[GRADIENTS]`, then `[TRAP]`, and each row
+  replaces the event of its ID, so a gradient event is a `[GRADIENTS]` row of
+  shape 0 when no `[TRAP]` row has its ID. Before, the check told the two rows
+  apart by the amplitude and the delay, and rejected a file whose `[TRAP]` row
+  had the amplitude and the delay of the `[GRADIENTS]` row of shape 0 that it
+  replaced. The reader reads such a file, and plays the `[TRAP]` row.
 - `Sequence.gradients_at(..., actual_ru=...)` raises `UndefinedBehaviour`
   (`ub.gradient-one-point`) for each block and time where a soft delay longer
   than the stored duration of the block reaches the reader's read past the

@@ -70,6 +70,55 @@ def test_the_extension_refuses_to_decode_a_file_that_is_not_checked():
         reader.ensure_decoded(np.zeros(1, dtype=np.int64))
 
 
+# A file of one block of 200 us that plays gradient 1 on X. Gradient 1 is a [GRADIENTS] row of
+# shape 0 and a [TRAP] row with the same amplitude and delay. load reads [TRAP] after [GRADIENTS]
+# (cpp:1060-1124), and each [TRAP] row replaces the event of its ID: the block plays the trapezoid
+# of ramps of 10 us and a flat time of 100 us.
+SHAPE_0_REPLACED_BY_TRAP = b"""# Pulseq sequence file
+# Hand-written file of the tests, not made by a Pulseq tool.
+
+[VERSION]
+major 1
+minor 5
+revision 0
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+# NUM DUR RF GX GY GZ ADC EXT
+[BLOCKS]
+1 20 0 1 0 0 0 0
+
+# id amplitude first last amp_shape_id time_shape_id delay
+[GRADIENTS]
+1 1000 0 0 0 0 0
+
+# id amplitude rise flat fall delay
+[TRAP]
+1 1000 10 100 10 0
+
+"""
+
+
+def test_a_gradients_row_of_shape_0_that_a_trap_row_replaced_is_read():
+    """`SHAPE_0_REPLACED_BY_TRAP` loads, and `gradients_at` gives the trapezoid of the [TRAP] row:
+    0 at its start, 500 Hz/m in the middle of each ramp, 1000 Hz/m on the flat time, and 0 from
+    its end at 120 us. Without the [TRAP] row, the event is the [GRADIENTS] row of shape 0, and
+    `load` raises `UndefinedBehaviour` with the code `ub.gradient-shape-0`."""
+    times = [0.0, 5.0, 10.0, 60.0, 110.0, 115.0, 120.0, 150.0]
+    values = cs.load(SHAPE_0_REPLACED_BY_TRAP).gradients_at([0] * len(times), times)
+    assert values[:, 0].tolist() == [0.0, 500.0, 1000.0, 1000.0, 1000.0, 500.0, 0.0, 0.0]
+    assert not values[:, 1:].any()
+    trap = b"# id amplitude rise flat fall delay\n[TRAP]\n1 1000 10 100 10 0\n\n"
+    assert trap in SHAPE_0_REPLACED_BY_TRAP
+    with pytest.raises(cs.UndefinedBehaviour) as error:
+        cs.load(SHAPE_0_REPLACED_BY_TRAP.replace(trap, b""))
+    assert error.value.code == "ub.gradient-shape-0"
+
+
 # gradient_one_point.seq with the delay of gradient 5 at 200 us: block 4 (ID 5) lasts 100 us, and
 # its extended trapezoid of one point (40 us after its delay) has the read from 200 to 240 us.
 AFTER_BLOCK = UB_FIXTURES / "gradient_one_point_after_block.seq"

@@ -24,7 +24,6 @@ reader reads is not rejected.
 from __future__ import annotations
 
 import math
-import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -442,35 +441,18 @@ def _extended_trapezoids(
     return None, one_point
 
 
-def _same_float(a: float, b: float) -> bool:
-    return struct.pack("<f", a) == struct.pack("<f", b)
-
-
-def _gradients_of_shape_0(libraries: Libraries, rows) -> set[int]:
+def _gradients_of_shape_0(rows) -> set[int]:
     """The gradient events that load read from a [GRADIENTS] row of shape 0 (cpp:1069): a
     trapezoid whose ramp and flat times load never set. `rows` are the rows of [GRADIENTS] and
-    [TRAP] as load reads them (`Reader.gradient_rows`). A [TRAP] row of the same ID replaces the
-    event (load reads [TRAP] after [GRADIENTS]), unless load skipped [TRAP]; the event's amplitude
-    and delay say which row it holds, and where both rows have the same ones the event counts as
-    the [GRADIENTS] row."""
+    [TRAP] as load reads them (`Reader.gradient_rows`). load reads [GRADIENTS], then [TRAP]
+    (cpp:1060-1124), and each row replaces the event of its ID: the event is the last [GRADIENTS]
+    row of its ID when no [TRAP] row has that ID."""
     gradients, traps = rows
     last_gradient = {row[0]: row for row in gradients}
-    last_trap = {row[0]: row for row in traps}
-    events = set()
-    for grad_id, row in last_gradient.items():
-        entry = libraries.grad.get(grad_id)
-        if row[2] != 0 or entry is None or entry["wave_shape"] != 0:
-            continue
-        trap = last_trap.get(grad_id)
-        from_trap = (
-            trap is not None
-            and _same_float(entry["amplitude"], trap[1])
-            and entry["delay_us"] == trap[2]
-        )
-        from_gradient = _same_float(entry["amplitude"], row[1]) and entry["delay_us"] == row[4]
-        if not from_trap or from_gradient:
-            events.add(grad_id)
-    return events
+    trap_ids = {row[0] for row in traps}
+    return {
+        grad_id for grad_id, row in last_gradient.items() if row[2] == 0 and grad_id not in trap_ids
+    }
 
 
 def _check_extension_list(extension_list: dict, first: int, block: int) -> Case | None:
@@ -507,7 +489,7 @@ def undefined_behaviour(libraries: Libraries, sizeof_long: int, gradient_rows=((
     is then not known: the block has a case either way, and `hidden_one_point` has no interval of
     it."""
     shapes = _Shapes(libraries.shapes)
-    shape_0 = _gradients_of_shape_0(libraries, gradient_rows)
+    shape_0 = _gradients_of_shape_0(gradient_rows)
     cases: list[Case] = []
     hidden: dict[int, list[tuple[float, float]]] = {}
     checked_rf: dict[int, Case | None] = {}

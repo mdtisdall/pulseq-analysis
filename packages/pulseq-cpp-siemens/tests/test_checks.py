@@ -242,11 +242,15 @@ def test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0(tmp_path)
         20,
         5,
     )
-    # With the same amplitude and delay the two rows cannot be told apart: rejected.
+    # With the same amplitude and delay as the [GRADIENTS] row, the [TRAP] row replaces it too.
     path.write_text(text.replace("\n2 250000 10 20 10 5\n", "\n2 500000 10 20 10 100\n"))
-    with pytest.raises(cs.UndefinedBehaviour) as error:
-        cs.load(path)
-    assert error.value.code == "ub.gradient-shape-0"
+    grad = cs.load(path).decode_block(1)["grad"][1]
+    assert (grad["kind"], grad["ramp_up_us"], grad["flat_us"], grad["delay_us"]) == (
+        "trap",
+        10,
+        20,
+        100,
+    )
 
 
 def test_a_gradients_row_of_shape_0_that_no_block_uses_reads(tmp_path):

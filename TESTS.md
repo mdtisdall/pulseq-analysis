@@ -10712,9 +10712,8 @@ build of the reader, so that a file has one verdict on every host (D5.11).
 #### `test_a_trap_row_of_the_same_id_replaces_a_gradients_row_of_shape_0`
 
 **Checks:** A `[TRAP]` row with the ID of a `[GRADIENTS]` row of shape 0 replaces it (load reads
-`[TRAP]` after `[GRADIENTS]`): the file reads, and the block plays the `[TRAP]` row's times. When
-the two rows have the same amplitude and delay, the check cannot tell which the event holds, and
-it raises `ub.gradient-shape-0`.
+`[TRAP]` after `[GRADIENTS]`): the file reads, and the block plays the `[TRAP]` row's times, also
+when the two rows have the same amplitude and delay.
 
 **How:** The test changes `valid_no_signature.seq` and decodes the block.
 
@@ -10917,6 +10916,19 @@ reaches them (`test_fuzz.py`).
 marked checked.
 
 **How:** The test calls them on a `Reader` that has only loaded a file.
+
+**Assumptions:** None.
+
+#### `test_a_gradients_row_of_shape_0_that_a_trap_row_replaced_is_read`
+
+**Checks:** A file whose gradient 1 is a `[GRADIENTS]` row of shape 0 and a `[TRAP]` row with the
+same amplitude (1000 Hz/m) and delay (0) loads: `load` reads `[TRAP]` after `[GRADIENTS]`, and
+the `[TRAP]` row replaces the event of its ID. `gradients_at` of its block gives the trapezoid of
+the `[TRAP]` row (ramps of 10 us, a flat time of 100 us) on X and 0 on Y and Z. The same file
+without the `[TRAP]` row raises `UndefinedBehaviour` with the code `ub.gradient-shape-0`.
+
+**How:** The test loads the file from bytes (`SHAPE_0_REPLACED_BY_TRAP`), samples X at 0, 5, 10,
+60, 110, 115, 120 and 150 us, and loads it again with the `[TRAP]` section removed.
 
 **Assumptions:** None.
 
