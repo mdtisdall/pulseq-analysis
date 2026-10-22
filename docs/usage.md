@@ -222,8 +222,9 @@ guide writes a module by the last part of its path: `snapshot.Snapshot` is
   numbers are 0.0, its block fields and the times of its peaks are `None` and its
   arrays are empty, but the fields that say how it was made stay. `GradientPeaks` keeps
   `range_s`.
-  `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_s`, `bin_samples` and `on_raster`, has
-  `num_samples` 0, and has `peak_time_s` `None` and an empty tuple in `above`
+  `PnsLevels` keeps `hardware`, `hw`, `dt_s`, `bin_s` and `on_raster`, has
+  `num_samples` 0 and `bin_samples` 1 (the bin of a sequence of 0 samples, for every
+  `bin_s`), and has `peak_time_s` `None` and an empty tuple in `above`
   for each threshold (`peak_time_s` is also `None` when all the gradients have
   the amplitude 0). `GradientSpectrum` keeps its three arguments.
   `block_gradient_values` has no `reason`: for a sequence with no gradient it
@@ -456,8 +457,9 @@ for run in levels.above[0.8 * abs(gamma)]:
 are the least and the greatest total of each bin of `bin_s` (5 ms by
 default). A bin is a whole number of samples, at least one: `bin_samples` is
 `bin_s / dt_s` rounded to the nearest whole number when it is within 1e-6 of
-one, and else rounded down. A very long sequence has longer bins, so that the
-level has at most `pns_levels.MAX_BINS` (2,000,000) bins. `bin_s` changes only
+one, and else rounded down. A bin is at most the whole sequence: a `bin_s` longer
+than the sequence gives one bin of `num_samples` samples. A very long sequence has
+longer bins, so that the level has at most `pns_levels.MAX_BINS` (2,000,000) bins. `bin_s` changes only
 the level, not the peak or the runs:
 
 ```python

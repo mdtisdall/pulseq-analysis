@@ -16,6 +16,7 @@ from synthetic import (
     SYSTEM,
     block_pulse,
     empty_sequence,
+    gre_sequence,
     spin_echo_sequence,
 )
 
@@ -258,9 +259,11 @@ def test_pns_levels_keeps_one_result_for_each_bin_s(monkeypatch):
     not give the result of the default (`BIN_S`); the same `bin_s` again gives the kept
     result (the same object); the default and `bin_s=BIN_S` are one key; an `int` `bin_s`
     and the equal `float` are one key; a `bin_s` that gives the `bin_samples` of the default
-    is another key; and the bins and `bin_s` of each result are those of its `bin_s`."""
+    is another key; and the bins and `bin_s` of each result are those of its `bin_s`. The
+    sequence (one TR of `gre_sequence`, 2000 samples) is longer than the bins of 500 and 600
+    samples, so that the cap of a bin at the whole sequence does not act on them."""
     calls = _count_pns_levels_calls(monkeypatch)
-    snap = load(spin_echo_sequence())
+    snap = load(gre_sequence(num_trs=1))
 
     default = pns_levels(snap, hardware=EXAMPLE_HW)
     assert len(calls) == 1

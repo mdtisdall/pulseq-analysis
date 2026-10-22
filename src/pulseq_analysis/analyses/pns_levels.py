@@ -132,7 +132,7 @@ class PnsLevels:
 
     Without a gradient event in the sequence, `reason` is `NO_GRADIENTS` (the object of
     `seq_index.NO_GRADIENTS`), `num_samples` is 0, `bin_s` is still the `bin_s` of the call,
-    the level has no bins, `peak_hz_per_t` and each axis peak are 0, `peak_time_s` is None
+    `bin_samples` is 1 (`bin_samples_for` of 0 samples), the level has no bins, `peak_hz_per_t` and each axis peak are 0, `peak_time_s` is None
     and `above` has an empty tuple for each threshold. When the gradients all have the
     amplitude 0, the peak is 0 and `peak_time_s` is None too, and the model does not run a
     second time for the peak time. When a total is NaN (a NaN of the gradients, which the
@@ -178,13 +178,16 @@ class PnsLevels:
 def bin_samples_for(num_samples: int, dt: float, bin_s: float = BIN_S) -> int:
     """The number of samples in each bin of the level:
     `max(wanted, ceil(num_samples / MAX_BINS), 1)`. `wanted` is the bin that the caller
-    asks for (`bin_s`, in seconds): with `ratio = bin_s / dt`, it is the nearest whole
-    number when `ratio` is within `ON_RASTER_TOLERANCE` of it (the division is not exact,
-    so `0.01 / 1e-5` is a hair under 1000), and else `floor(ratio)`. The second term keeps
-    the level at `MAX_BINS` bins or fewer, and the last is the shortest bin, one sample (a
-    `bin_s` shorter than `dt` gives it). With the default `bin_s` (`BIN_S`, 5 ms): 500 at
-    the 10 us raster for a file of up to 1,000,000,000 samples (2.8 hours)."""
-    ratio = bin_s / dt
+    asks for (`bin_s`, in seconds), at most the whole sequence: with
+    `ratio = min(bin_s / dt, max(num_samples, 1))`, compared in float, it is the nearest
+    whole number when `ratio` is within `ON_RASTER_TOLERANCE` of it (the division is not
+    exact, so `0.01 / 1e-5` is a hair under 1000), and else `floor(ratio)`. A `bin_s` longer
+    than the sequence thus gives one bin of `num_samples` samples (1 for a sequence of 0
+    samples), also when `bin_s / dt` is too large for an int or is infinite. The second term
+    keeps the level at `MAX_BINS` bins or fewer, and the last is the shortest bin, one
+    sample (a `bin_s` shorter than `dt` gives it). With the default `bin_s` (`BIN_S`, 5 ms):
+    500 at the 10 us raster for a file of 500 to 1,000,000,000 samples (2.8 hours)."""
+    ratio = min(bin_s / dt, float(max(num_samples, 1)))
     nearest = round(ratio)
     wanted = nearest if abs(ratio - nearest) <= ON_RASTER_TOLERANCE else math.floor(ratio)
     coarsest_for_size = math.ceil(num_samples / MAX_BINS)
@@ -248,7 +251,9 @@ def pns_levels(
     500 samples at the 10 us raster). `bin_samples_for` gives its whole number of samples
     (the nearest number when `bin_s / dt` is within `ON_RASTER_TOLERANCE` of it, else the
     number rounded down), at least one sample (a `bin_s` shorter than `dt` gives bins of one
-    sample), and longer bins when the level would have more than `MAX_BINS` bins. It is a
+    sample), at most the whole sequence (a `bin_s` longer than the sequence gives one bin of
+    `num_samples` samples, and 1 for a sequence with no gradient event), and longer bins when
+    the level would have more than `MAX_BINS` bins. It is a
     `float` or an `int` (any `numbers.Real`, not a `bool`) that is finite and above 0
     (`_validate.real`): a `bool` or a value that is not a real number raises TypeError, and
     a value that is not finite, not above 0 or too large for a float raises ValueError,

@@ -568,6 +568,19 @@ A caller moves in this order:
   the reader types as a number) and for an `asCOMP` that is one value
   (review 2026-10-21 1.3.5). Before, they raised the `TypeError` of
   `SafeHardware` and an `AttributeError`.
+- A bin of the level of `pns_levels` is at most the whole sequence: a `bin_s`
+  longer than the sequence gives one bin of `num_samples` samples, so every
+  finite `bin_s` above 0 gives a result that `to_series` makes (the user,
+  2026-10-21; review 2026-10-21 1.3.2). Before, `bin_samples_for` raised
+  `OverflowError` for a `bin_s` of 1e304 (`bin_s / dt` is infinite), a `bin_s`
+  of 1e295 gave one bin that `to_series` refused with `ValueError`, and a
+  `bin_s` of 1000 s on a file of 103 samples gave `bin_samples` 100,000,000.
+  `PnsLevels.bin_s` is still the `bin_s` of the call. For a file shorter than
+  the bin, `bin_samples`, the `coord_step` of `pns_total` and its `meta` key
+  `bin_samples` change (103 in place of 500 for the default on that file); the
+  level, the summary and the intervals do not. For a sequence with no
+  gradient event, `bin_samples` is 1. Before, it was the samples of `bin_s`
+  (500 for the default at the 10 us raster).
 
 ### The modules
 
