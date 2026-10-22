@@ -285,6 +285,88 @@ def test_max_shape_samples_of_load_is_an_int_above_0_or_none():
             cs.load(NO_SIGNATURE, max_shape_samples=value)
 
 
+# A file of one block of 2000 us that plays RF event 1: the magnitude (shape 1), the phase (shape
+# 2) and the time shape (shape 3) have two samples each, and the times are 1 and 2000 RF rasters.
+# decodeBlock resamples the pulse into int(0.5 + 2000) = 2000 cells of the RF raster (cpp:2031).
+# tests/test_interpreters.py of pulseq-analysis has a copy, since the wheel tests run without the
+# tests of pulseq-analysis.
+RESAMPLED_RF = b"""# Pulseq sequence file
+# Hand-written file of the tests, not made by a Pulseq tool.
+
+[VERSION]
+major 1
+minor 5
+revision 0
+
+[DEFINITIONS]
+AdcRasterTime 1e-07
+BlockDurationRaster 1e-05
+GradientRasterTime 1e-05
+RadiofrequencyRasterTime 1e-06
+
+# NUM DUR RF GX GY GZ ADC EXT
+[BLOCKS]
+1 200 1 0 0 0 0 0
+
+# id ampl. mag_id phase_id time_shape_id center delay freqPPM phasePPM freq phase use
+[RF]
+1 1000 1 2 3 1000 0 0 0 0 0 e
+
+[SHAPES]
+
+shape_id 1
+num_samples 2
+1
+1
+
+shape_id 2
+num_samples 2
+0
+0
+
+shape_id 3
+num_samples 2
+1
+2000
+
+"""
+
+
+def test_an_rf_pulse_whose_resampling_has_more_cells_than_max_shape_samples_is_not_supported():
+    """`max_shape_samples` also limits the samples that `decodeBlock` resamples from a shape
+    (the user, 2026-10-21): `RESAMPLED_RF` has shapes of two samples, and its RF pulse is
+    resampled into 2000 cells. With the limit 1000, `load` raises `NotSupported` whose message
+    names the RF event, its time shape, the 2000 cells, the limit and the setting. With the limit
+    2000 and with None it loads, and the decoded block has 2000 samples of the magnitude and of
+    the phase."""
+    with pytest.raises(cs.NotSupported) as caught:
+        cs.load(RESAMPLED_RF, max_shape_samples=1000)
+    for part in ("<bytes>: RF event 1 ", "time shape 3 ", "2000", "1000", "max_shape_samples"):
+        assert part in str(caught.value)
+    for limit in (2000, None):
+        rf = cs.load(RESAMPLED_RF, max_shape_samples=limit).decode_block(0)["rf"]
+        assert len(rf["magnitude"]) == len(rf["phase"]) == 2000
+
+
+def test_an_rf_last_time_that_is_not_an_int_is_not_supported_under_a_limit():
+    """`RESAMPLED_RF` with the last time inf: `int(0.5 + inf)` is undefined (cpp:2031, D5.9), and
+    inf cells are more than any limit. Under the default limit `load` raises `NotSupported` for
+    RF event 1, before the checks; with None it raises `UndefinedBehaviour` with the code
+    `ub.rf-time-range`. A last time of NaN is not over any limit: `ub.rf-time-range` under the
+    default limit too."""
+    infinite = RESAMPLED_RF.replace(b"\n2000\n", b"\ninf\n")
+    with pytest.raises(cs.NotSupported) as caught:
+        cs.load(infinite)
+    for part in ("<bytes>: RF event 1 ", "inf cells", "max_shape_samples"):
+        assert part in str(caught.value)
+    with pytest.raises(cs.UndefinedBehaviour) as caught:
+        cs.load(infinite, max_shape_samples=None)
+    assert caught.value.code == "ub.rf-time-range"
+    with pytest.raises(cs.UndefinedBehaviour) as caught:
+        cs.load(RESAMPLED_RF.replace(b"\n2000\n", b"\nnan\n"))
+    assert caught.value.code == "ub.rf-time-range"
+
+
 def oversampled_file(tmp_path, samples: list[float], name="oversampled.seq", first=0, last=0):
     """A file of one block of 200 us: gradient 1 on X is an oversampled arbitrary gradient (time
     shape -1) of `samples` with no delay and the first and last values `first` and `last`, and

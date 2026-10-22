@@ -9253,8 +9253,11 @@ plugins of version 1 do not have that setting of that default: `Unlimited` has n
 follows the convention of the setting (it checks the value as `Spec` does, its `str` gives the
 setting when it is not the default, and it reads with `Spec(max_shape_samples=...)` of its
 setting), and six classes made from it that each break one part of the convention, test
-`conformance.check_shape_limit`. The interpreter `cpp-siemens` is tested with its distribution
-(sections 3.8 and 3.9).
+`conformance.check_shape_limit`. So do `Resampling`, a `Limited` that also follows the
+convention for the cells into which it resamples each RF pulse of points (`int(0.5 + t)` for the
+last time `t` of the time shape, in RF rasters, as `cpp-siemens` does), and two classes made from
+it that each break one part of the convention for those cells. The interpreter `cpp-siemens` is
+tested with its distribution (sections 3.8 and 3.9).
 
 #### `test_no_plugin_is_installed_with_the_package`
 
@@ -9328,6 +9331,21 @@ their interpreter, passes for `spec`.
 **Assumptions:** The check reads small files that it writes itself; it does not show that
 `spec` reads a large shape within the limit.
 
+#### `test_spec_reads_an_rf_pulse_of_more_cells_than_max_shape_samples`
+
+**Checks:** `spec` makes no array whose size is a value of a shape: it keeps an RF pulse of
+points as its points. A file whose RF pulse `cpp-siemens` resamples into 2000 cells, from shapes
+of two samples, reads with `Spec(max_shape_samples=1000)`, and `decode_rf` gives the pulse of its
+two points: no dwell, the magnitudes 1000 Hz, the phases 0, and the times 1 and 2000 us.
+
+**How:** The test writes the file `RESAMPLED_RF` of the module (one block of 2000 us; the times
+of the time shape are 1 and 2000 RF rasters of 1 us) to `tmp_path`, reads it and decodes its RF
+event. `RESAMPLED_RF` is a copy of the file of the same name of the tests of pulseq-cpp-siemens
+(`test_api.py`), which the wheel tests run without pulseq-analysis.
+
+**Assumptions:** One pulse of points. The test does not measure the memory of the reading; it
+shows that the limit does not apply to the points of `spec`.
+
 #### `test_the_check_of_the_shape_limit_fails_for_a_plugin_that_does_not_follow_it`
 
 **Checks:** `conformance.check_shape_limit(Limited)` passes, and the check raises
@@ -9339,11 +9357,17 @@ does not raise ValueError"); a `str` that gives the default (`Verbose`); no limi
 1048576, reads"); a `NotSupported` that gives no path, number or setting (`Terse`); a limit never
 below 1000 (`Coarse`: "a shape of 8 samples, over the limit 4, reads"); a check of its own of the
 "as written" shapes that refuses a shape at the limit (`AtLimit`: "a shape of 8 samples, at the
-limit 8, does not read"); and a model that records the interpreter with its default settings
-(`Forgetful`, "the model records").
+limit 8, does not read"); a model that records the interpreter with its default settings
+(`Forgetful`, "the model records"); a `NotSupported` of an RF pulse over the limit that gives no
+path or number (`TerseResampling`, "the message of NotSupported of an RF pulse of 2097152
+cells"); and a limit that refuses an RF pulse of as many cells as the limit
+(`ResamplingAtLimit`, "an RF pulse of 2097152 cells, at the limit 2097152, does not read"). The
+check also passes for `Resampling`, which refuses an RF pulse of more cells than the limit with
+the path, the number of cells and the limit, and the name of the setting.
 
-**How:** Parametrized over the eight classes and the part of the message. The test calls the
-check for `Limited`, then for the class, in `pytest.raises` with the part of the message.
+**How:** Parametrized over the ten classes and the part of the message. The test calls the
+check for `Limited` and for `Resampling`, then for the class, in `pytest.raises` with the part of
+the message.
 
 **Assumptions:** Each class breaks one part only; the check stops at the first part that fails,
 so a class that broke two parts would test the first.
@@ -10270,6 +10294,36 @@ is an int above 0 or None".
 
 **Assumptions:** None.
 
+#### `test_an_rf_pulse_whose_resampling_has_more_cells_than_max_shape_samples_is_not_supported`
+
+**Checks:** `max_shape_samples` also limits the samples that `decodeBlock` resamples from a shape
+(the user, 2026-10-21). `decodeBlock` resamples an RF pulse with a time shape into
+`int(0.5 + waveform_t.back())` cells (cpp:2031), a number that no shape declares. For a file whose
+three shapes have two samples and whose pulse is resampled into 2000 cells, `load` with the limit
+1000 raises `NotSupported`, and the message gives the name of the source (`<bytes>`), `RF event
+1`, `time shape 3`, the 2000 cells, the limit 1000 and the name `max_shape_samples`. With the
+limit 2000 and with None, `load` reads the file, and the decoded block has 2000 samples of the
+magnitude and of the phase.
+
+**How:** The test loads the bytes of `RESAMPLED_RF` (one block of 2000 us; the times of the time
+shape are 1 and 2000 RF rasters of 1 us) with each limit, and decodes block 0.
+
+**Assumptions:** The test does not measure the memory: it shows the verdicts and the number of
+cells, not that a refused file allocates no cell.
+
+#### `test_an_rf_last_time_that_is_not_an_int_is_not_supported_under_a_limit`
+
+**Checks:** A last RF time whose number of cells is not an `int` (D5.9) is over any limit: with
+the last time inf, `load` under the default limit raises `NotSupported` (the source, `RF event 1`,
+"inf cells", the name `max_shape_samples`), before the checks of undefined behaviour; with
+`max_shape_samples=None` it raises `UndefinedBehaviour` with the code `ub.rf-time-range`. A last
+time of NaN is not over any limit, and is `ub.rf-time-range` under the default limit too.
+
+**How:** The test loads `RESAMPLED_RF` with its last time 2000 replaced by inf, then by nan.
+
+**Assumptions:** Two values that are not an `int`; the fuzzing (section 3.7) has the others of
+the generator.
+
 #### `test_oversampling_keeps_the_samples_of_its_mode`
 
 **Checks:** For an oversampled arbitrary gradient (time shape -1) of 7 samples, `load` keeps the
@@ -10907,7 +10961,10 @@ reuses for extended trapezoids, three `[GRADIENTS]` rows of shape 0, a write pas
 vector inside its capacity that the Linux oracle missed before `_GLIBCXX_SANITIZE_VECTOR`), and
 six valid files (one of them has oversampled gradients of 1 to 4 samples, for the stale values of
 `gradientsAt` in the mode "edge", and one has bytes that are not UTF-8 in the messages of the
-reader). A new failure is added to it by hand.
+reader). A new failure is added to it by hand. In `rf-time-range.seq` the last time of the RF time
+shape is nan, not the inf of the fuzzing: inf is over any `max_shape_samples`, so that file would
+be `not-supported` under the default limit (the user, 2026-10-21), and nan keeps it
+`ub.rf-time-range` for both readers (the sanitized oracle reports the conversion of cpp:2031).
 
 #### `test_the_checks_agree_with_the_sanitized_oracle_on_the_seeded_files`
 
@@ -11230,6 +11287,18 @@ gradient whose shape is a run of zeros.
 
 **How:** The test reads `valid_no_signature.seq`, whose largest shape is 100 samples, with
 `CppSiemens(max_shape_samples=99)`.
+
+#### `test_an_rf_pulse_over_max_shape_samples_is_not_supported_with_the_path_of_the_file`
+
+**Checks:** the `NotSupported` of `read_seqfile` for an RF pulse that `decodeBlock` resamples
+into more cells than `max_shape_samples` of `CppSiemens` starts with the path of the file and the
+RF event, and does not have the name `<bytes>` that the reader's `load` gives the bytes that
+`read_cpp_siemens` passes it.
+
+**How:** The test writes `RESAMPLED_RF` of `test_api.py` (an RF pulse of 2000 cells, from shapes
+of two samples) to `tmp_path`, and reads it with `CppSiemens(max_shape_samples=1000)`.
+
+**Assumptions:** None.
 
 #### `test_each_block_s_rotation_is_the_quaternion_that_the_reader_attaches`
 
