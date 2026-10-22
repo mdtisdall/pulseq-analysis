@@ -893,7 +893,13 @@ def test_comments_and_blank_lines_are_skipped_after_the_header_of_any_section(tm
     for header in ("[VERSION]", "[DEFINITIONS]", "[TRAP]", "[SIGNATURE]", "extension DELAYS 4"):
         assert text.count(header + "\n") == 1
         path = _write(tmp_path, text.replace(header + "\n", header + "\n# a\n\n# b\n"), "c.seq")
-        assert same_values(read_seqfile(path), expected), header
+        data = read_seqfile(path)
+        assert same_values(data, expected), header
+        if header == "[SIGNATURE]":
+            # The hash covers only the bytes before `[SIGNATURE]`: the signature does not change,
+            # and it still matches.
+            assert data.signature == expected.signature
+            assert data.signature.matches is True
     # And inside the signature, after its first line: the signature is read to its end.
     path = _write(tmp_path, text.replace("Type md5\n", "Type md5\n# a\n"), "s.seq")
     assert read_seqfile(path).signature.hash == expected.signature.hash
