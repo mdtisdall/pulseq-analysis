@@ -887,10 +887,12 @@ there. For `SafeHardware.from_namespace`, a struct with no `x`, `y` or `z`, or
 an axis with no field of `safe.SAFE_FIELDS`, raises `ValueError` that names
 it, for example `'x.stim_thresh' missing in the hardware struct`. Each field of
 a `SafeAxis` is a finite real number: a value that is not a real number raises
-`TypeError`, and one that is not finite raises `ValueError`. `stim_limit` must
-be above 0, and `a1 + a2 + a3` of each axis must be within 0.001 of 1 (the
-rule of pypulseq's `safe_hw_check`, which the module `safe` keeps), or
-`ValueError`.
+`TypeError`, and one that is not finite raises `ValueError`. `stim_limit` and
+`g_scale` must be above 0, `a1`, `a2` and `a3` must be 0 or above (0 turns a
+term off), and `a1 + a2 + a3` of each axis must be within 0.001 of 1 (the rule
+of pypulseq's `safe_hw_check`, which the module `safe` keeps), or `ValueError`.
+The original SAFE checks no sign; the package refuses these signs (the user,
+2026-10-21).
 
 **`pns_levels`, `thresholds_hz_per_t`.** A tuple, which can be empty. Each
 element is a real number above 0, and no two are equal as floats. A value that

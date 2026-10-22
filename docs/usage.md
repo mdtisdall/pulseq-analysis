@@ -421,9 +421,10 @@ sequence with no gradient.
 
 A `SafeHardware` is checked when it is made, so `pns_levels` does not check it
 again. A struct with a missing axis or a missing field of `safe.SAFE_FIELDS`, a
-field that is not a finite number, a `stim_limit` not above 0, or an axis with
-`a1 + a2 + a3` more than 0.001 from 1 raises `ValueError` (or `TypeError` for a
-field that is not a number). A name `"nan"`, `"inf"` or `"-inf"` raises
+field that is not a finite number, a `stim_limit` or a `g_scale` not above 0, a
+negative `a1`, `a2` or `a3`, or an axis with `a1 + a2 + a3` more than 0.001
+from 1 raises `ValueError` (or `TypeError` for a field that is not a number).
+The original SAFE checks no sign. A name `"nan"`, `"inf"` or `"-inf"` raises
 `ValueError`: the JSON form of a `Series` uses these strings for a float that
 is not finite, so the name could not go into the `meta` of `pns_total`.
 

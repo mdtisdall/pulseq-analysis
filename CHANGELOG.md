@@ -527,6 +527,15 @@ A caller moves in this order:
   the result of `pns_levels`, and the JSON form of a `Series` uses these
   strings for a float that is not finite, so before, `to_series` of such a
   result raised `ValueError`.
+- `SafeAxis` raises `ValueError` that names the field for a `g_scale` that is
+  not above 0 and for a negative `a1`, `a2` or `a3` (0 turns a term off), also
+  from `SafeHardware.from_namespace` and `asc.hardware_from_asc` (review
+  2026-10-21 1.3.4; the user, 2026-10-21). Before, it took them: a negative
+  `g_scale` turned the sign of each PNS value of the axis, so that for
+  pypulseq's example hardware with `x.g_scale` -0.35, the
+  `axis_peaks_hz_per_t["x"]` of `pns_levels` of
+  `tests/seqfiles/oracle/koma_v1.4_epi.seq` was 0.0. The original SAFE checks
+  no sign. `tau1`, `tau2` and `tau3` take any finite value, as before.
 - `pns_levels` finds the largest total of each run at or above a threshold,
   and its first sample, with NumPy over each chunk, in place of a Python loop
   over the runs (review 2026-10-13 2.5c). The minimum of three runs in one
