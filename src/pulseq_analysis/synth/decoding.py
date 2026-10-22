@@ -81,7 +81,9 @@ class Decoding(Protocol):
     - `gradients_at(block_index, time_s, rotated=None)`: the gradients (Hz/m) at each pair of
       a block index and a time in s from the start of that block, an array (n, 3), 0 after the
       actual end of the block; `rotated` None follows the interpreter and the session, False
-      gives the logical gradients, True also rotates each block by its rotation.
+      gives the logical gradients, True also rotates each block by its rotation. A block index
+      whose dtype is not an integer (a float or a bool) raises TypeError; an empty
+      `block_index`, of any dtype, reads nothing.
     - `gradient_points(key, block, axis)`: the `Points` of the gradient event with the file ID
       `key` that the block `block` plays on the axis `axis` (0, 1, 2 for x, y, z), not
       rotated.
@@ -219,7 +221,11 @@ class SpecDecoding:
         (`rotate`), as `spec` applies the rotations of the file from version 1.5.1, and the
         rotation of the session's field of view of each block without NOROT. False gives the
         logical gradients, as the events store them."""
-        block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
+        block_index = np.asarray(block_index).reshape(-1)
+        # A bool is not an integer dtype. An empty list is float64, and reads nothing.
+        if block_index.size and not np.issubdtype(block_index.dtype, np.integer):
+            raise TypeError(f"block_index is not an array of integers (dtype {block_index.dtype})")
+        block_index = block_index.astype(np.int64, copy=False)
         t = np.asarray(time_s, dtype=np.float64).reshape(-1)
         if block_index.shape != t.shape:
             raise ValueError("block_index and time_s differ in length")

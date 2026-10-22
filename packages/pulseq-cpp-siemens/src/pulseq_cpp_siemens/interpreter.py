@@ -830,8 +830,15 @@ class CppSiemensDecoding:
         reader's `rotate_vec3_by_quat`: the gradients that the scanner plays when it applies the
         rotation, and applies the field of view too. The field of view scales the logical axes of
         each block without NOSCL before the block's rotation, and turns each block without NOROT
-        after it (`pulseq_analysis.synth.scanner.block_physical_gradients`)."""
-        block_index = np.asarray(block_index, dtype=np.int64).reshape(-1)
+        after it (`pulseq_analysis.synth.scanner.block_physical_gradients`).
+
+        A block index whose dtype is not an integer (a float or a bool) raises TypeError; an
+        empty `block_index`, of any dtype, reads nothing."""
+        block_index = np.asarray(block_index).reshape(-1)
+        # A bool is not an integer dtype. An empty list is float64, and reads nothing.
+        if block_index.size and not np.issubdtype(block_index.dtype, np.integer):
+            raise TypeError(f"block_index is not an array of integers (dtype {block_index.dtype})")
+        block_index = block_index.astype(np.int64, copy=False)
         time_us = np.asarray(time_s, dtype=np.float64).reshape(-1) * _US
         if block_index.shape != time_us.shape:
             raise ValueError("block_index and time_s differ in length")

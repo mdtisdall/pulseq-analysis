@@ -175,7 +175,9 @@ times of an arbitrary gradient) is None.
    of the shape before it, so the checks follow that buffer block by block.
 4. **`GetBlock` and `decodeBlock`** of a block on request, and `gradientsAt`. A block that
    `gradients_at` needs is decoded first; each decoded block is kept (`first_rejected_block`
-   keeps none). A NaN time is refused: `gradientsAt` would convert it to an `int`.
+   keeps none). A NaN time is refused: `gradientsAt` would convert it to an `int`. A block index
+   whose dtype is not an integer (a float or a bool) is a `TypeError`, unless `block_index` is
+   empty: numpy makes an empty list float64.
 
 The reader keeps state that all its objects share: `SeqBlock::s_blockDurationRaster`, which each
 `load` sets and `gradientsAt` reads, and its print function. It reads numbers with `sscanf`,
@@ -320,9 +322,9 @@ The reading is not compared by `==`. `pickle` carries the bytes of the file and 
 fields of the C++ oracle's `--dump`, `tests/cpp_oracle/README.md` of pulseq-analysis, in the
 reader's units), `gradients_at(block_index, time_s, rotated=None)` is `SeqBlock::gradientsAt` in
 Hz/m at times in s from the start of each block (the reader's `Sequence.gradients_at` takes us:
-the times times 1e6), and `gradient_points(key, block, axis)` gives the points between which
-`gradientsAt` draws its straight lines (not rotated; the values are those that `gradientsAt` gives
-at the points).
+the times times 1e6; a block index whose dtype is not an integer is a `TypeError`, as there), and
+`gradient_points(key, block, axis)` gives the points between which `gradientsAt` draws its
+straight lines (not rotated; the values are those that `gradientsAt` gives at the points).
 `gradient_variants()` says which blocks and axes decode a gradient event alike: the reader
 decodes the gradients of a block into one buffer, so a shape that writes fewer samples than it
 declares keeps the values of the shape before it in the block (D5.5). It is None for a file with
