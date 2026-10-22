@@ -579,6 +579,14 @@ public module.
   `TypeError` that names
   `gradient_sampler`, and `GradientSampler` stays the type of a sampler. The
   values do not change.
+- `GradientSampler.sample` gives the value before the step at its first time
+  `t[0]` when blocks of duration 0 start at `t[0]`, as at a later time of `t`
+  (review 2026-10-21 1.3.1). Before, the sample range could leave out the
+  event of the block that ends at `t[0]`, when a block of duration 0 there has
+  an event on the axis: for a block that ends at 1000 Hz/m at 100 us, a block
+  of duration 0 with a trapezoid of rise, flat and fall times 0, and a block
+  that starts at 1000 Hz/m, `sample("x", [100e-6])` gave 0.0 and
+  `sample("x", [95e-6, 100e-6])[1]` gave 1000.0.
 
 ### Dependencies
 
