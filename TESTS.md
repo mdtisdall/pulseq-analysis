@@ -9475,6 +9475,21 @@ written file with `read_seqfile`, and compares the two errors.
 
 **Assumptions:** None.
 
+#### `test_a_shape_over_the_limit_of_read_pypulseq_names_the_sequence_not_the_temporary_file`
+
+**Checks:** A sequence with a shape over the setting `max_shape_samples` raises the
+`NotSupported` of its written file, whose message names the sequence (`from_pypulseq.SOURCE`)
+and not the temporary file, and which does not chain the error of the temporary file. The case is
+`arbitrary_gradient_sequence` (a shape of 40 samples) through `Spec(max_shape_samples=3)`.
+
+**How:** The test reads the sequence with `read_pypulseq` and its written file with
+`read_seqfile`, and compares the message of the first with the message of the second, with the
+path of the file replaced by `SOURCE`. It checks that `__cause__` is None and that
+`__suppress_context__` is true (`raise ... from None`).
+
+**Assumptions:** `read_pypulseq` replaces the path in the same way for each interpreter, so one
+case of `spec` covers the replacement.
+
 #### `test_an_unknown_interpreter_and_an_object_that_is_not_a_sequence_raise`
 
 **Checks:** An unknown interpreter name raises `ValueError`, and an object that is not a pypulseq
