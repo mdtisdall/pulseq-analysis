@@ -445,29 +445,34 @@ def test_interval_finder_gives_the_runs_of_a_reference_over_random_chunks():
 @pytest.mark.pypulseq
 def test_bin_samples_for_matches_the_formula():
     """`bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
-    `wanted` is the whole number of samples of `bin_s` (the new test below checks the snap).
-    With the default `BIN_S` (5 ms): 500 samples at the 10 us raster for any file of up to
-    1,000,000,000 samples (`500 * MAX_BINS`), and a coarser bin for a larger file, computed
-    from `num_samples` alone. With another `bin_s`: the bin rounded down to whole samples,
-    one sample for a `bin_s` shorter than `dt`, and the coarser bin of a large file. A
+    `wanted` is the whole number of samples of `bin_s`, at most `max(num_samples, 1)` (the
+    new test below checks the snap, and the test of a bin longer than the sequence checks
+    the cap). The calls for `wanted` alone have `num_samples = 1_000_000`: the cap
+    (1,000,000 samples) and the size term (1 sample) do not act on them. With the default
+    `BIN_S` (5 ms): 500 samples at the 10 us raster for any file of 500 to 1,000,000,000
+    samples (`500 * MAX_BINS`), and a coarser bin for a larger file, computed from
+    `num_samples` alone. With another `bin_s`: the bin rounded down to whole samples, one
+    sample for a `bin_s` shorter than `dt`, and the coarser bin of a large file. A
     `pns_levels` call on a real sequence also follows the same formula, and gives that many
     bins."""
     dt = 1e-5
-    assert bin_samples_for(0, dt) == 500
+    n = 1_000_000  # the cap and the size term do not act on the calls with `n`
+    assert math.ceil(n / MAX_BINS) == 1
+    assert bin_samples_for(n, dt) == 500
     assert bin_samples_for(1_000_000_000, dt) == 500
     assert bin_samples_for(1_000_000_001, dt) == 501
     assert bin_samples_for(2_000_000_000, dt) == 1000
-    assert bin_samples_for(0, 2e-5) == 250
-    assert bin_samples_for(0, dt, BIN_S) == bin_samples_for(0, dt)
+    assert bin_samples_for(n, 2e-5) == 250
+    assert bin_samples_for(n, dt, BIN_S) == bin_samples_for(n, dt)
     assert BIN_S == 0.005
-    assert bin_samples_for(0, dt, 10.0 / 1624) == 615  # the bin of 0.1.0rc5, by `bin_s`
+    assert bin_samples_for(n, dt, 10.0 / 1624) == 615  # the bin of 0.1.0rc5, by `bin_s`
 
-    assert bin_samples_for(0, dt, 1e-3) == 100
-    assert bin_samples_for(0, dt, 1.055e-3) == 105
-    assert bin_samples_for(0, dt, 1.059e-3) == 105  # rounded down to whole samples
-    assert bin_samples_for(0, dt, 1e-6) == 1  # shorter than dt: one sample
-    assert bin_samples_for(0, dt, dt) == 1
-    assert bin_samples_for(0, 0.25, 1) == 4  # an int is a number of seconds
+    assert bin_samples_for(n, dt, 1e-3) == 100
+    assert bin_samples_for(n, dt, 1.055e-3) == 105
+    assert bin_samples_for(n, dt, 1.059e-3) == 105  # rounded down to whole samples
+    assert bin_samples_for(n, dt, 1e-6) == 1  # shorter than dt: one sample
+    assert bin_samples_for(n, dt, dt) == 1
+    assert bin_samples_for(n, 0.25, 1) == 4  # an int is a number of seconds
     assert bin_samples_for(100 * MAX_BINS, dt, 1e-3) == 100
     assert bin_samples_for(100 * MAX_BINS + 1, dt, 1e-3) == 101
     assert bin_samples_for(2 * MAX_BINS, dt, 1e-6) == 2
@@ -485,14 +490,17 @@ def test_bin_samples_for_gives_the_whole_samples_of_a_bin_s_on_the_raster():
     number, not one less because the division is not exact: for each `k` from 1 to 2000,
     `bin_s = k * 1e-5` and `bin_s = round(k * 1e-5, 10)` give `k` samples at the 10 us
     raster. A `bin_s` between two samples is rounded down (`615.5 * 1e-5` gives 615), and
-    the default is 500 samples."""
+    the default is 500 samples. The calls have `num_samples = 1_000_000`, so that the cap at
+    the whole sequence (1,000,000 samples) and the size term (1 sample) do not act."""
     dt = 1e-5
+    n = 1_000_000  # the cap and the size term do not act
+    assert math.ceil(n / MAX_BINS) == 1
     for k in range(1, 2001):
-        assert bin_samples_for(0, dt, k * 1e-5) == k, k
-        assert bin_samples_for(0, dt, round(k * 1e-5, 10)) == k, k
-    assert bin_samples_for(0, dt, 0.01) == 1000  # `0.01 / 1e-5` is a hair under 1000
-    assert bin_samples_for(0, dt, 615.5 * 1e-5) == 615
-    assert bin_samples_for(0, dt) == 500
+        assert bin_samples_for(n, dt, k * 1e-5) == k, k
+        assert bin_samples_for(n, dt, round(k * 1e-5, 10)) == k, k
+    assert bin_samples_for(n, dt, 0.01) == 1000  # `0.01 / 1e-5` is a hair under 1000
+    assert bin_samples_for(n, dt, 615.5 * 1e-5) == 615
+    assert bin_samples_for(n, dt) == 500
 
 
 @pytest.mark.pypulseq
@@ -570,6 +578,40 @@ def test_max_bins_still_limits_the_bins_for_a_short_bin_s(monkeypatch):
     long_bin = _compute(snap, hardware=EXAMPLE_HW, bin_s=num_samples * 1e-5)  # one bin
     assert long_bin.bin_samples == num_samples
     assert len(long_bin.level_min_hz_per_t) == 1
+
+
+@pytest.mark.pypulseq
+def test_a_bin_longer_than_the_sequence_is_the_whole_sequence():
+    """A `bin_s` longer than the sequence gives one bin of the whole sequence:
+    `bin_samples == num_samples`, and `to_series` makes `pns_total` with `coord_step ==
+    num_samples * dt_s`. This holds for `bin_s` of 1000 s, of `1e295` (one bin that
+    `to_series` refused before) and of `1e304` (`bin_s / dt` is infinite: `bin_samples_for`
+    raised `OverflowError` before). `PnsLevels.bin_s` is still the `bin_s` of the call, and
+    the level is that of the `bin_s` of exactly the sequence. `bin_samples_for` gives the
+    same for these `bin_s`, and 1 for a sequence of 0 samples."""
+    seq = pp.Sequence(SYSTEM)
+    seq.add_block(pp.make_trapezoid(channel="x", area=1000, system=SYSTEM))
+    snap = load(seq)
+    first = _compute(snap, hardware=EXAMPLE_HW)
+    num_samples = first.num_samples
+    dt = first.dt_s
+    assert 1 < num_samples < 1000.0 / dt
+    exact = _compute(snap, hardware=EXAMPLE_HW, bin_s=num_samples * dt)
+    assert exact.bin_samples == num_samples
+
+    for bin_s in (1000.0, 1e295, 1e304):
+        levels = _compute(snap, hardware=EXAMPLE_HW, bin_s=bin_s)
+        assert levels.bin_samples == num_samples, bin_s
+        assert levels.bin_s == bin_s
+        assert len(levels.level_min_hz_per_t) == 1
+        assert len(levels.level_max_hz_per_t) == 1
+        assert_levels_equal(levels, exact, ignore=("bin_s",))
+        (total,) = PNS_SAFE_LEVELS.to_series(levels)
+        assert total.coord_step == num_samples * dt
+        assert total.coord_end == num_samples * dt
+        assert total.meta["bin_s"] == bin_s
+        assert bin_samples_for(num_samples, dt, bin_s) == num_samples
+        assert bin_samples_for(0, dt, bin_s) == 1
 
 
 @pytest.mark.pypulseq
@@ -657,7 +699,8 @@ def test_one_long_delay_block_gives_the_result_of_the_same_time_in_short_blocks(
 def test_no_gradients():
     """A sequence with no gradient event gives `reason=NO_GRADIENTS`, no stored
     bins, a peak of 0 and `peak_time_s` of None, but still the chosen hardware and the
-    `bin_s` of the call."""
+    `bin_s` of the call. Its `bin_samples` is 1, the bin of a sequence of 0 samples, for
+    every `bin_s`."""
     levels = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW)
     assert levels.reason == NO_GRADIENTS
     assert levels.hardware == EXAMPLE_HW.name
@@ -669,7 +712,10 @@ def test_no_gradients():
     assert levels.hw == _hw_dict(safe_example_hw())
     assert levels.above == {}
     assert levels.bin_s == BIN_S
-    assert pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW, bin_s=1e-3).bin_s == 1e-3
+    assert levels.bin_samples == 1
+    other = pns_levels(load(empty_sequence()), hardware=EXAMPLE_HW, bin_s=1e-3)
+    assert other.bin_s == 1e-3
+    assert other.bin_samples == 1
 
 
 @pytest.mark.pypulseq

@@ -626,21 +626,25 @@ first sample with that total (`numpy.flatnonzero(run == run.max())[0]`) and the 
 #### `test_bin_samples_for_matches_the_formula`
 
 **Checks:** `bin_samples_for` follows `max(wanted, ceil(num_samples / MAX_BINS), 1)`, where
-`wanted` is the whole number of samples of `bin_s` (the next test checks the snap to the
-raster). With the default `bin_s`, `BIN_S` (5 ms): 500 samples at the 10 us raster for any
-file of up to 1,000,000,000 samples, and a coarser bin above that size or at a coarser
+`wanted` is the whole number of samples of `bin_s`, at most `max(num_samples, 1)` (the next
+test checks the snap to the raster, and
+`test_a_bin_longer_than_the_sequence_is_the_whole_sequence` the cap). With the default
+`bin_s`, `BIN_S` (5 ms): 500 samples at the 10 us raster for any file of 500 to
+1,000,000,000 samples, and a coarser bin above that size or at a coarser
 `dt`. With another `bin_s`: the bin rounded down to whole samples, one sample for a `bin_s`
 shorter than `dt` or equal to it, and the coarser bin of a file with more than `bin_samples
 * MAX_BINS` samples. `bin_s=10.0 / 1624`, the default of 0.1.0rc5, still gives 615. A
 `pns_levels` call on a real sequence follows the same formula and gives that many bins.
 
-**How:** Direct calls: `bin_samples_for(0, 1e-5) == 500`,
+**How:** Direct calls, with `n = 1_000_000` for the calls of `wanted` alone: the cap
+(1,000,000 samples) and the size term (`ceil(n / MAX_BINS)`, 1 sample, which the test
+checks) do not act on them. `bin_samples_for(n, 1e-5) == 500`,
 `bin_samples_for(1_000_000_000, 1e-5) == 500`, `bin_samples_for(1_000_000_001, 1e-5)
-== 501`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(0, 2e-5) ==
-250`, `bin_samples_for(0, 1e-5, BIN_S)` equal to the call without `bin_s`, `BIN_S ==
-0.005`, and `bin_samples_for(0, 1e-5, 10.0 / 1624) == 615`. Then, at
+== 501`, `bin_samples_for(2_000_000_000, 1e-5) == 1000`, `bin_samples_for(n, 2e-5) ==
+250`, `bin_samples_for(n, 1e-5, BIN_S)` equal to the call without `bin_s`, `BIN_S ==
+0.005`, and `bin_samples_for(n, 1e-5, 10.0 / 1624) == 615`. Then, at
 `dt = 1e-5`: `bin_s = 1e-3` gives 100, `1.055e-3` and `1.059e-3` give 105, `1e-6` and `dt`
-give 1, `bin_samples_for(0, 0.25, 1) == 4` (an `int` is a number of seconds),
+give 1, `bin_samples_for(n, 0.25, 1) == 4` (an `int` is a number of seconds),
 `bin_samples_for(100 * MAX_BINS, 1e-5, 1e-3) == 100` and with one more sample 101, and
 `bin_samples_for(2 * MAX_BINS, 1e-5, 1e-6) == 2`. Then
 `pns_levels(gre_sequence(num_trs=6))`'s `bin_samples` is compared with
@@ -659,8 +663,10 @@ number, not one less because the division is not exact. For each `k` from 1 to 2
 (the floor alone gives `k - 1` for 1047 of the values). A `bin_s` between two samples is
 rounded down: `615.5 * 1e-5` gives 615, and the default gives 500.
 
-**How:** Direct calls of `bin_samples_for(0, 1e-5, bin_s)` in a loop over `k`, then the
-calls for `0.01` (1000), `615.5 * 1e-5` and the default.
+**How:** Direct calls of `bin_samples_for(n, 1e-5, bin_s)` in a loop over `k`, then the
+calls for `0.01` (1000), `615.5 * 1e-5` and the default. `n = 1_000_000`, so that the cap
+at the whole sequence (1,000,000 samples) and the size term (`ceil(n / MAX_BINS)`, 1
+sample, which the test checks) do not act.
 
 **Assumptions:** The 1047 figure is from the review of 2026-10-05, for the floor without the
 tolerance.
@@ -705,6 +711,28 @@ call has `bin_s = num_samples * 1e-5`.
 
 **Assumptions:** `pns_levels` reads `MAX_BINS` as a module global (`bin_samples_for` does),
 so the replacement is used.
+
+#### `test_a_bin_longer_than_the_sequence_is_the_whole_sequence`
+
+**Checks:** A `bin_s` longer than the sequence gives one bin of the whole sequence
+(review 2026-10-21 1.3.2): `bin_samples == num_samples`, one bin, and a `pns_total` series
+from `to_series` with `coord_step == num_samples * dt_s`. This holds for a `bin_s` of 1000
+s, of `1e295` (one bin that `to_series` refused before: the tolerance of the envelope was
+larger than `coord_end`) and of `1e304` (`bin_s / dt` is infinite, and `bin_samples_for`
+raised `OverflowError` before). `PnsLevels.bin_s` is still the `bin_s` of the call, and
+every other field equals that of the `bin_s` of exactly the sequence. `bin_samples_for`
+gives `num_samples` for these `bin_s`, and 1 for a sequence of 0 samples.
+
+**How:** A sequence of one trapezoid on x (`area=1000`, 103 samples at the 10 us raster),
+built in the test. The calls are `_compute` calls (`_compute_levels`). The test checks
+that the sequence has more than one sample and is shorter than 1000 s, and that `bin_s =
+num_samples * dt_s` gives `bin_samples == num_samples`. Then for each of the three `bin_s`:
+`bin_samples`, `bin_s`, the length of the two arrays of the level, `assert_levels_equal`
+(`tests/asserts.py`) with that of `num_samples * dt_s` with `bin_s` ignored, the
+`coord_step`, `coord_end` and `meta["bin_s"]` of `pns_total`, and the direct calls of
+`bin_samples_for` with `num_samples` and with 0.
+
+**Assumptions:** None.
 
 #### `test_result_does_not_depend_on_chunk_samples`
 
@@ -760,13 +788,15 @@ every field. The samples of a delay are 0 in both, so the totals are equal.
 **Checks:** A sequence with no gradient event gives `reason=NO_GRADIENTS`, no
 stored bins, a peak of 0, `peak_time_s` of `None`, zero axis peaks, no threshold (the
 default, so `above == {}`), and still the hardware of `EXAMPLE_HW`, its `hw` fields and
-the `bin_s` of the call.
+the `bin_s` of the call. Its `bin_samples` is 1, the bin of a sequence of 0 samples, for
+every `bin_s`.
 
 **How:** `pns_levels(empty_sequence(), hardware=EXAMPLE_HW)`. Checks `reason`, `hardware`,
 the `(0,)` shape of `level_min_hz_per_t`/`level_max_hz_per_t`, `peak_hz_per_t == 0.0`,
 `peak_time_s is None`, `axis_peaks_hz_per_t == {"x": 0.0, "y": 0.0, "z": 0.0}`, `hw`
-against the 8 kept fields of `safe_example_hw()`, `above == {}` and `bin_s == BIN_S`. Then
-the call with `bin_s=1e-3` has `bin_s == 1e-3`.
+against the 8 kept fields of `safe_example_hw()`, `above == {}`, `bin_s == BIN_S` and
+`bin_samples == 1`. Then the call with `bin_s=1e-3` has `bin_s == 1e-3` and `bin_samples ==
+1`.
 
 **Assumptions:** None.
 
@@ -3554,7 +3584,9 @@ field `bin_s` is the `bin_s` of its call, also for `0.0050001` (not `bin_samples
 `thresholds_hz_per_t=(_LIMIT,)`. The call counts are 1, 1, 2, 2, 3, 3, 4 and 5. It checks the
 identities (`is`) of the repeats, `bin_samples` of the default, of the `0.006` result and of
 the `0.0050001` result, and `bin_s` of the default, of the `0.006`, the `1` and the
-`0.0050001` results.
+`0.0050001` results. The sequence is `gre_sequence(num_trs=1)` (2000 samples), longer than
+the bins of 500 and 600 samples, so that the cap of a bin at the whole sequence does not
+act on them.
 
 **Assumptions:** None.
 
