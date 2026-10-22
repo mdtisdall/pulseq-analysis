@@ -296,6 +296,16 @@ def test_a_plugin_that_does_not_load_or_has_another_name_or_two_entry_points_is_
         seqfile.interpreter("fake")
 
 
+def test_interpreter_names_imports_no_plugin_and_sorts_the_names(monkeypatch):
+    # Five names, so that an unsorted result is the sorted one by chance in 1 order of 120
+    # (the names pass through a set, whose order depends on the hash seed).
+    names = ("echo", "alpha", "delta", "charlie", "bravo")
+    _install(
+        monkeypatch, **{name: f"no_such_module_of_a_plugin_{name}:Interpreter" for name in names}
+    )
+    assert interpreters.interpreter_names() == ("spec", *sorted(names))
+
+
 def test_spec_has_the_setting_max_shape_samples_with_the_default_of_every_interpreter():
     """The limit of the samples of a shape is a setting of every interpreter (the user,
     2026-10-18): `Spec.max_shape_samples` is `interpreters.DEFAULT_MAX_SHAPE_SAMPLES` (2^27) by
