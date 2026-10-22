@@ -2428,7 +2428,7 @@ def test_a_signature_section_must_have_a_type_and_a_hash(tmp_path):
     """spec:223-232: "The [SIGNATURE] section must contain two following fields", `Type`
     and `Hash`, "along with any additional information in the format identical to that of
     [DEFINITIONS]": a missing field, or a field of two values, is `signature.invalid`; an
-    additional key reads. The last of a key repeated wins (the package's choice, D3.3)."""
+    additional key reads. The last of a key repeated wins (the package's choice, D2.6)."""
     (violation,) = violations_of(SEQFILES / "bad_signature_invalid.seq").violations
     assert (violation.rule, violation.section) == ("signature.invalid", "SIGNATURE")
     text = _text("valid_1_5_1.seq")

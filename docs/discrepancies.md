@@ -139,7 +139,7 @@ specification does not state, which its message says.
 | [D2.3](#d23-extensions-as-the-last-section) | `[EXTENSIONS]` as the last section | silent | rejects | accepts |
 | [D2.4](#d24-a-section-that-the-format-does-not-have) | Unknown section | silent | ignores | ignores |
 | [D2.5](#d25-a-blank-or--line-inside-a-section) | Blank or `#` line inside a section | silent | blank line ends a table; `#` is data | skips both |
-| [D2.6](#d26-a-definition-that-appears-twice) | A definition twice | silent | last wins | last wins |
+| [D2.6](#d26-a-definition-or-a-field-of-the-signature-that-appears-twice) | A definition or a signature field twice | silent | last wins | last wins |
 | [D2.7](#d27-a-definition-or-a-signature-hash-whose-text-reads-as-a-number) | Definition or hash that reads as a number | `any`, hash `string` | text and numbers | text |
 | [D2.8](#d28-an-rf-magnitude-sample-below-0) | RF magnitude below 0 | allows [-1, 1] | clamps to 0 | plays as written |
 | [D2.9](#d29-an-rf-phase-sample-outside-0-1) | RF phase outside [0, 1) | silent | clamps | plays as written |
@@ -383,21 +383,27 @@ Reason: the specification makes a comment of any line that starts with a hash
 (spec:171), and gives no rule that a blank line ends a table; the user chose to
 skip both (section 6 of the plan).
 
-#### D2.6: A definition that appears twice
+#### D2.6: A definition or a field of the signature that appears twice
 
 | Source | What it does |
 |---|---|
-| Specification | Silent ("a list of user-specified key/value pairs", `spec:240`). |
-| C++ reader | A map: the last line wins (`cpp:1432`, `cpp:1445`). |
+| Specification | Silent ("a list of user-specified key/value pairs", `spec:240`). `[SIGNATURE]` "must contain two following fields", `Type` and `Hash`, in the format of `[DEFINITIONS]` (section 2.4, `spec:223-232`); it says nothing of a field that appears twice. |
+| C++ reader | A map: the last line wins (`cpp:1432`, `cpp:1445`). The same for `[SIGNATURE]`: a map of its lines (`cpp:1606-1620`), from which it takes `Hash` and `Type` (`cpp:1629-1634`). |
 
 Example: `tests/seqfiles/bad_definitions_duplicate.seq` has `Name` twice (the C++
-reader accepts it).
+reader accepts it). A `[SIGNATURE]` with `Type sha1`, `Type md5`, `Hash 0000`
+and then the MD5 of the file.
+
+Writers: MATLAB Pulseq and pypulseq write one `Type` and one `Hash`
+(`write.m:282-289`, `write_seq.py:265-277`).
 
 `spec`: the last definition wins (`bad_definitions_duplicate.seq` has `Name
-again`).
+again`), and the last `Type` and the last `Hash` of `[SIGNATURE]`: the example is
+an MD5 signature that matches.
 
 Reason: the specification is silent; the user chose the last, as the C++ reader
-does (section 6 of the plan).
+does (section 6 of the plan), and the same for the signature (the user,
+2026-10-21).
 
 #### D2.7: A definition or a signature hash whose text reads as a number
 

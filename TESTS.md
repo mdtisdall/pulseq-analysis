@@ -7375,7 +7375,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 **How:** The test reads the fixture and edits the 1.5.1 fixture five ways.
 
-**Assumptions:** The last value of a repeated key is the choice of `spec` (D3.3).
+**Assumptions:** The last value of a repeated key is the choice of `spec` (D2.6).
 
 #### `test_an_extension_header_has_a_word_and_a_type_id`
 

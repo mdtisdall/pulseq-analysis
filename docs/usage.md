@@ -1060,17 +1060,18 @@ reader of the error sees that it is the package's choice and why.
 | `extension.required-unknown`, `extension.per-block` | spec:460, spec:567, spec:584 | an unknown required extension (from 1.5.1); two ROTATIONS or RF_SHIMS objects in a block |
 | `layer1.gradient-ends` | choice; D4.4, D4.5 | a 1.4 arbitrary gradient on the default raster, or with a time shape that starts after 0: the file has no value at its ends |
 | `rotation.zero` | choice; D3.10 | a quaternion of ROTATIONS of norm 0 (from 1.5.1 `spec` divides each quaternion by its norm) |
-| `signature.invalid` | spec:223-232 | `[SIGNATURE]` without one `Type` and one `Hash` |
+| `signature.invalid` | spec:223-232 | `[SIGNATURE]` with no `Type` or no `Hash`, or one that is not one value |
 
 What `spec` reads where the specification is silent (section 6 of the plan, and
 `docs/discrepancies.md` entry by entry): a blank or `#` line anywhere, also
 inside a table or a shape (in a shape a blank line ends it); a section that the
-format does not have, and `[DELAYS]`, are ignored; a definition that appears
-twice is the last; blocks play in file order, whatever their IDs; an extension
-is read from the version that introduced it (`extension DELAYS` from 1.5.0,
-ROTATIONS and RF_SHIMS from 1.5.1, section 7.8 of the plan), and in an older
-file it is unknown and ignored (`SequenceData.skipped_extensions`); from 1.5.1
-a quaternion of ROTATIONS is divided by its norm, and the decoding rotates the
+format does not have, and `[DELAYS]`, are ignored; a definition, or a `Type` or
+`Hash` of `[SIGNATURE]`, that appears twice is the last; blocks play in file
+order, whatever their IDs; an extension is read from the version that
+introduced it (`extension DELAYS` from 1.5.0, ROTATIONS and RF_SHIMS from
+1.5.1, section 7.8 of the plan), and in an older file it is unknown and ignored
+(`SequenceData.skipped_extensions`); from 1.5.1 a quaternion of ROTATIONS is
+divided by its norm, and the decoding rotates the
 block's gradients by it; an RF magnitude below 0 and an RF phase
 outside [0, 1) play as written; any gradient raster that the slides allow plays
 on its own raster; the signature is checked by the rule of the specification

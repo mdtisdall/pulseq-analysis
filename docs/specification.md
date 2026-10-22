@@ -94,7 +94,7 @@ section 6 of the plan chose (Q5).
 | D2.3 | `[EXTENSIONS]` as the last section | read (`oracle/koma_v1.5_unknown_ext.seq`) | the specification sets no order of the sections |
 | D2.4 | a section that the format does not have, or `[DELAYS]` | ignored, with a record | `[DELAYS]` was removed in 1.4.0 (spec:114), and "Current readers ignore this section" (spec:772); an unknown section is ignored as the C++ reader does |
 | D2.5 | a blank or `#` line inside a section | skipped anywhere; inside a shape, a blank line ends the shape and a `#` line is skipped (`valid_comment_in_shape.seq`) | "Comments are specified by a line starting with a hash" (spec:171); the specification gives no rule that a blank line ends a table |
-| D2.6 | a definition twice | the last | as all three readers do |
+| D2.6 | a definition, or a `Type` or `Hash` of `[SIGNATURE]`, twice | the last | as all three readers do |
 | D2.7 | a definition or a hash that reads as a number | the text; only the four rasters are numbers | `<value>` is "any" (spec:247) and the hash a "string" (spec:230); a double cannot hold the 32 digits of a hash |
 | D2.8 | an RF magnitude below 0 | played as written: a signed amplitude | the specification allows [-1, 1] for an amplitude shape (spec:624) |
 | D2.9 | an RF phase outside [0, 1) | played as written: 2π times the value, as MATLAB does | the specification gives no range for the phase |
@@ -236,7 +236,7 @@ the package's choice.
 | `extension.required-unknown` | — | a required extension that `spec` does not know | spec:460 |
 | `extension.per-block` | — | a block with more than one ROTATIONS or RF_SHIMS object | spec:567, spec:584 |
 | `layer1.gradient-ends` | D4.4, D4.5 | a 1.4.x arbitrary gradient with no value at its start or end | spec:290; choice |
-| `signature.invalid` | — | a `[SIGNATURE]` without one `Type` and one `Hash` | spec:223-232 |
+| `signature.invalid` | — | a `[SIGNATURE]` with no `Type` or no `Hash`, or one that is not one value | spec:223-232 |
 
 A version outside 1.4.0 to 1.5.x, a binary file and a folder are not a
 rejection: they raise `NotSupported` (section 2.1). A shape that declares more
