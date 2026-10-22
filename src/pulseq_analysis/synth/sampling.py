@@ -444,9 +444,9 @@ class GradientSampler:
         block.
 
         The pieces are found with `numpy.searchsorted`, for the times of the first and of
-        the last sample of `out`. A piece is at most one raster time long, so a piece
-        has a few samples at most, and the work is O(pieces in the range), with no loop over
-        the pieces."""
+        the last sample of `out`. A piece is at most `gaps.max_length_s` long (a short gap
+        is at most `dt + TIME_TOLERANCE`), so a piece has a few samples at most, and the
+        work is O(pieces in the range), with no loop over the pieces."""
         gaps = self._gaps(axis)
         if gaps.start_s.size == 0:
             return

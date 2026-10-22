@@ -398,8 +398,9 @@ class Record:
       `"removed"` (a section that the format removed, `[DELAYS]` from 1.4.0).
     - `line`: the line of the file (the header of the section, or the row of a label).
 
-    Task R16 adds the records of the mechanisms that a file uses and that are left at the
-    default.
+    The records of the mechanisms of the scanner session (the soft delays, the field of view,
+    the rotations) are on the decoding: `rotation_record`, `soft_delay_record` and
+    `fov_record` of `synth.Decoding`.
     """
 
     kind: str
