@@ -2879,6 +2879,44 @@ def test_models_are_equal_by_value_and_not_hashable(tmp_path):
     assert read_seqfile(_write(tmp_path, text, "changed.seq")) != first
 
 
+def test_a_model_differs_from_itself_with_any_field_replaced():
+    # Each compared field counts, and so does the order of the keys of a mapping. `reading` is
+    # not compared.
+    data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
+    definitions = dict(reversed(data.definitions.items()))
+    assert definitions == dict(data.definitions)
+    assert list(definitions) != list(data.definitions)
+    tables = {}
+    for name, column in (
+        ("blocks", "duration_ticks"),
+        ("rf", "amplitude"),
+        ("grad", "amplitude"),
+        ("trap", "amplitude"),
+        ("adc", "num_samples"),
+    ):
+        table = getattr(data, name).copy()
+        table[column][0] += 1
+        tables[name] = table
+    replaced = {
+        "version": (1, 5, 0),
+        "definitions": definitions,
+        "rasters": Rasters(2e-05, 1e-06, 1e-07, 1e-05),
+        "required_extensions": (),
+        **tables,
+        "shapes": {**data.shapes, 1: Shape(2, np.array([0.0, 1.0]))},
+        "extensions": dataclasses.replace(data.extensions, type_ids={"LABELSET": 1}),
+        "skipped_extensions": (),
+        "records": (),
+        "signature": None,
+        "origin": "pypulseq",
+        "interpreter": Spec(max_shape_samples=None),
+    }
+    assert set(replaced) == {f.name for f in dataclasses.fields(SequenceData) if f.compare}
+    for name, value in replaced.items():
+        assert dataclasses.replace(data, **{name: value}) != data, name
+    assert dataclasses.replace(data, reading=object()) == data
+
+
 def test_models_survive_pickle_and_deepcopy_with_their_values_and_immutability():
     data = read_seqfile(SEQFILES / "valid_1_5_1.seq")
     for clone in (pickle.loads(pickle.dumps(data)), copy.deepcopy(data)):

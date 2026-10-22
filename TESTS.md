@@ -7579,6 +7579,20 @@ different.
 
 **Assumptions:** None.
 
+#### `test_a_model_differs_from_itself_with_any_field_replaced`
+
+**Checks:** A model differs from itself with any one compared field replaced (also `interpreter`,
+`records`, `origin`, and `definitions` with the same items with the keys in another order), and
+equals itself with `reading` replaced.
+
+**How:** The test reads the 1.5.1 fixture and compares it with `dataclasses.replace` of it for each
+field. The fields come from `dataclasses.fields(SequenceData)` with `compare`, so a new field fails
+the test until it has a replaced value. The replaced values are `Spec(max_shape_samples=None)`,
+`records=()`, `origin="pypulseq"`, the definitions reversed, and a changed value of each other
+field.
+
+**Assumptions:** None.
+
 #### `test_models_survive_pickle_and_deepcopy_with_their_values_and_immutability`
 
 **Checks:** A copy from `pickle` or `copy.deepcopy` is equal to the model, and has read-only arrays
