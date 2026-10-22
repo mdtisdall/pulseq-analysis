@@ -1743,13 +1743,27 @@ def _check_trigger_ends(
     )
 
 
+_QUATERNION = ("q0", "qx", "qy", "qz")
+
+
+def _scaled(table: np.ndarray) -> list[np.ndarray]:
+    """The components of each quaternion of `table`, times the power of 2 that brings its largest
+    absolute component into [0.5, 1); four zeros stay zeros (D2.18, D3.10). Their squares then
+    neither overflow nor underflow. A power of 2 changes no rounding while the numbers stay above
+    2^-1022, so where the components as read give a norm with no overflow or underflow, the
+    quaternion divided by its norm is the same, bit for bit."""
+    exponent = np.frexp(np.max(np.abs([table[c] for c in _QUATERNION]), axis=0))[1]
+    return [np.ldexp(table[c], -exponent) for c in _QUATERNION]
+
+
 def _check_rotations(f: _File) -> None:
-    """`rotation.zero` for a quaternion of norm 0 (D3.10). ROTATIONS is read from 1.5.1 only."""
+    """`rotation.zero` for a quaternion of norm 0, that is four zeros (D3.10). ROTATIONS is read
+    from 1.5.1 only."""
     table = f.ext.tables.get("ROTATIONS")
     if table is None:
         return
     d = table.data
-    norm = np.sqrt(d["q0"] ** 2 + d["qx"] ** 2 + d["qy"] ** 2 + d["qz"] ** 2)
+    norm = np.sqrt(sum(c**2 for c in _scaled(d)))
     f.report.rows(
         "rotation.zero",
         table,
@@ -1759,12 +1773,13 @@ def _check_rotations(f: _File) -> None:
 
 
 def _normalized(rotations: np.ndarray) -> np.ndarray:
-    """The quaternions of `rotations` (the model's table) divided by their norm (D2.18)."""
+    """The quaternions of `rotations` (the model's table) divided by their norm (D2.18), which
+    is taken from their components scaled by `_scaled`."""
     out = rotations.copy()
-    q = ("q0", "qx", "qy", "qz")
-    norm = np.sqrt(sum(out[c] ** 2 for c in q))
-    for c in q:
-        out[c] = out[c] / norm
+    scaled = _scaled(out)
+    norm = np.sqrt(sum(c**2 for c in scaled))
+    for c, component in zip(_QUATERNION, scaled, strict=True):
+        out[c] = component / norm
     return out
 
 

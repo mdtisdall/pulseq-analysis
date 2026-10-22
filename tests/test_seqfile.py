@@ -2274,6 +2274,28 @@ def test_rotation_quaternions_are_normalized_and_a_quaternion_of_norm_0_is_rejec
     assert carries_choice(violation)
 
 
+def test_a_quaternion_with_large_or_small_components_is_normalized_and_only_four_zeros_are_rejected(
+    tmp_path,
+):
+    """D2.18, D3.10, spec:567: the norm of a quaternion does not overflow or underflow. The squares
+    of `1e200` overflow and those of `1e-170` underflow, in float64, so a norm taken from them is
+    inf or 0. `1e200 0 0 1e200` is the rotation of 90 degrees about z, `(sqrt(0.5), 0, 0,
+    sqrt(0.5))`; `1e-170 0 0 0` is `(1, 0, 0, 0)`. Only four zeros are `rotation.zero`."""
+    text = _text("valid_no_signature.seq")
+    old = "1 0.92388 0 0 0.382683"
+    half = np.sqrt(0.5)
+    for row, expected in (
+        ("1 1e200 0 0 1e200", (1, half, 0, 0, half)),
+        ("1 1e-170 0 0 0", (1, 1, 0, 0, 0)),
+    ):
+        path = _write(tmp_path, text.replace(old, row), "q.seq")
+        rotations = read_seqfile(path).extensions.rotations
+        assert rotations.tolist() == [pytest.approx(expected)]
+    path = _write(tmp_path, text.replace(old, "1 0 0 0 0"), "zero.seq")
+    (violation,) = violations_of(path).violations
+    assert (violation.rule, violation.section) == ("rotation.zero", "extension ROTATIONS")
+
+
 def _line_of(path, text):
     """The number (from 1) of the first line of the file `path` that is `text`."""
     return path.read_text().split("\n").index(text) + 1

@@ -103,6 +103,13 @@ A caller moves in this order:
   than `spec.FIRST_TIME_TOLERANCE`) as `shape.time-order`, as it does an RF
   time shape (D3.9; review 2026-10-13 1.2.1). Before, a gradient time shape
   `-2 1 3 6 10` read, and the gradient started before its event.
+- `spec` takes the norm of a rotation quaternion from its components times a
+  power of 2, so that their squares do not overflow or underflow, and
+  `rotation.zero` is for four zeros only (D3.10; review 2026-10-21 1.2.1).
+  Before, the row `1 1e200 0 0 1e200` read as the quaternion `(0, 0, 0, 0)`,
+  which rotates nothing, in place of the rotation of 90 degrees about z, and
+  `1 1e-170 0 0 0` was `rotation.zero`. The quaternions of the fixtures do not
+  change, bit for bit.
 - The limit of the samples of a shape is a setting of every interpreter (the
   user, 2026-10-18): `max_shape_samples`, the most samples that a shape can
   declare, of the default `seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`

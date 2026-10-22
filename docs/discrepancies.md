@@ -1084,9 +1084,18 @@ The same condition in `cpp-siemens`: [D5.8](../packages/pulseq-cpp-siemens/docs/
 
 Example: no fixture has a quaternion of norm 0. The test
 `test_rotation_quaternions_are_normalized_and_a_quaternion_of_norm_0_is_rejected`
-writes a 1.5.1 file whose rotation row is `1 0 0 0 0`.
+writes a 1.5.1 file whose rotation row is `1 0 0 0 0`. The test
+`test_a_quaternion_with_large_or_small_components_is_normalized_and_only_four_zeros_are_rejected`
+writes the rows `1 1e200 0 0 1e200` and `1 1e-170 0 0 0`.
 
-`spec`: `rotation.zero`.
+`spec`: `rotation.zero`, for four zeros only. `spec` takes the norm of a
+quaternion from its components times the power of 2 that brings the largest
+absolute component into [0.5, 1), so that the squares do not overflow or
+underflow in float64: `1 1e200 0 0 1e200` reads as `(sqrt(0.5), 0, 0, sqrt(0.5))`,
+the rotation of 90 degrees about z, and `1 1e-170 0 0 0` as `(1, 0, 0, 0)`.
+A power of 2 changes no rounding in the normal range of float64, so where the
+squares of the components as written do not overflow or underflow, the
+quaternion is the one that the plain norm gives, bit for bit.
 
 Reason: `spec` divides each quaternion by its norm (D2.18), and a quaternion of
 norm 0 is no rotation, so `spec` rejects it (the user's choice; the message says

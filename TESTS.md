@@ -7246,6 +7246,14 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 **Assumptions:** The normalization and the rejection are the user's choice (P20). Applying the rotation is task R9's, not tested here. `rotation.zero` has no fixture (it is in `NO_FIXTURE`); this test writes the file.
 
+#### `test_a_quaternion_with_large_or_small_components_is_normalized_and_only_four_zeros_are_rejected`
+
+**Checks:** D2.18, D3.10, spec:567: the norm of a quaternion of ROTATIONS does not overflow or underflow. `1e200 0 0 1e200`, whose squares overflow in float64, is `(sqrt(0.5), 0, 0, sqrt(0.5))` in the model, and `1e-170 0 0 0`, whose squares underflow, is `(1, 0, 0, 0)` and is not `rotation.zero`. `0 0 0 0` is `rotation.zero`.
+
+**How:** The test replaces the rotation row of `valid_no_signature.seq` with each of the three rows, writes the file and reads it, and compares the model's quaternion or the violation. Each of the two steps of `spec` has a row that fails it: a check of `rotation.zero` from the squares as written rejects `1e-170 0 0 0`, and a normalization from them gives `(0, 0, 0, 0)` for `1e200 0 0 1e200`.
+
+**Assumptions:** The test does not apply the rotation.
+
 #### `test_what_spec_ignores_is_in_the_records_in_file_order`
 
 **Checks:** P20, D2.4, D2.17, D2.19, D4.6: `SequenceData.records` has a `Record(kind, subject, reason, line)` for each thing that `spec` ignores, in file order: the unknown extension of `valid_1_5_1.seq`; ROTATIONS and RF_SHIMS (reason `version`) and UNKNOWN (reason `unknown`) of `valid_1_5_0_extensions_of_1_5_1.seq`; the unknown label `FOO` and the unknown extension of `valid_label_unknown.seq`; the section `[FOO]` (`unknown`) of `bad_section_unknown.seq` and `[DELAYS]` (`removed`) of `bad_section_delays.seq`; none for `valid_1_4_0.seq`. The line is that of the header or of the label row.
