@@ -6005,6 +6005,17 @@ name, removes `asCOMP` from the fields and checks that the name is "unknown".
 
 **Assumptions:** None.
 
+#### `test_a_component_name_that_is_not_a_text_is_refused_and_the_error_names_it`
+
+**Checks:** A component name that is not a text (`asCOMP.tName = 5`, which the reader types as
+a number) and an `asCOMP` that is one value (`asCOMP = 3`) raise `ValueError` that names the
+field, from `hardware_from_asc` and from `hardware_name`, as the module's rule asks for a value
+of the file. Before, they raised the `TypeError` of `SafeHardware` and an `AttributeError`.
+
+**How:** The test writes the example file and replaces its `tName` line (parametrized).
+
+**Assumptions:** None.
+
 #### `test_a_file_without_gradient_scale_factors_is_refused`
 
 **Checks:** A file with no `asGPAParameters` field raises `ValueError` that names the

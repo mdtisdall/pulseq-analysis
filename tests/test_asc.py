@@ -279,6 +279,31 @@ def test_safe_hardware_is_named_after_the_component_of_the_file(write_gradient_a
     assert safe_hardware(asc).name == "unknown"
 
 
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        ("asCOMP.tName = 5", "asCOMP.tName is 5, not a text"),
+        ("asCOMP = 3", "asCOMP is 3, not a group of fields"),
+    ],
+    ids=["number", "scalar"],
+)
+def test_a_component_name_that_is_not_a_text_is_refused_and_the_error_names_it(
+    write_gradient_asc, line, message
+):
+    """An unquoted `tName` that the reader types as a number, and an `asCOMP` that is one value
+    and not a group of fields, raise `ValueError` that names the field, from
+    `hardware_from_asc` and from `hardware_name`: a value of the file is a `ValueError`, not
+    the `TypeError` of `SafeHardware` or an `AttributeError`."""
+    path = write_gradient_asc()
+    text = path.read_text()
+    path.write_text(text.replace('asCOMP.tName = "MP_GPA_TEST"', line))
+    assert line in path.read_text()
+    with pytest.raises(ValueError, match=re.escape(message)):
+        hardware_from_asc(path)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        hardware_name(read_gradient_asc(path))
+
+
 @pytest.mark.parametrize("split", [False, True], ids=["plain", "split"])
 @pytest.mark.parametrize("function", ["hardware_from_asc", "safe_hardware"])
 def test_a_file_without_gradient_scale_factors_is_refused(write_gradient_asc, split, function):
