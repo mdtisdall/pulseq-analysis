@@ -42,7 +42,9 @@ SEQFILES = ROOT / "tests" / "seqfiles"
 
 # 90 degrees about x: y goes to z, z to -y.
 QUARTER_X = (np.sqrt(0.5), np.sqrt(0.5), 0.0, 0.0)
-# The matrix of a quaternion (q0, qx, qy, qz), the active rotation.
+# The matrix of a quaternion (q0, qx, qy, qz), the active rotation. `rotation_matrix` of the
+# plugin's `tests/test_api.py` is the same function: the wheel tests run without pulseq-analysis
+# and without these tests, so each keeps its own copy.
 
 
 def _matrix(q) -> np.ndarray:

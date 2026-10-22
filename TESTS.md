@@ -982,9 +982,9 @@ with hardware that gives a peak of 1.5 times `_LIMIT`, and
 `thresholds_hz_per_t=(_LIMIT,)`. The test sets `_CHUNK_SAMPLES` to `10**9` (one chunk) and
 wraps `_chunk_total` to keep the totals it returns. The call is a `_compute` call
 (`_compute_levels`), so that the model runs and the wrapper records the totals. It finds the runs of
-`total >= _LIMIT` with `itertools.groupby`, and takes the peak as the maximum of the run
-and the peak time as its first sample with that value. The expected `PnsInterval` tuple is
-compared with `above[_LIMIT]` with `==` (exact).
+`total >= _LIMIT` with `_reference_runs` (`itertools.groupby`), which takes the peak as the
+maximum of the run and the peak time as its first sample with that value. The expected
+`PnsInterval` tuple is compared with `above[_LIMIT]` with `==` (exact).
 
 **Assumptions:** The off-raster sequence has at least one interval at that peak.
 
@@ -7793,9 +7793,9 @@ LABELINC row.
 
 **Assumptions:** None.
 
-#### `test_oracle_unknown_extension_is_skipped_and_a_required_one_is_listed`
+#### `test_oracle_a_required_extension_is_listed_with_its_rotations`
 
-**Checks:** The two unknown extensions of `koma_v1.5_unknown_ext.seq` are skipped and have type IDs, and `RequiredExtensions` of `koma_v1.5_rotation_radial_tiny.seq` is `ROTATIONS`, with the real parts of the three quaternions of its rows (normalized, so equal to those of the file to 1e-5).
+**Checks:** `RequiredExtensions` of `koma_v1.5_rotation_radial_tiny.seq` is `ROTATIONS`, with the real parts of the three quaternions of its rows (normalized, so equal to those of the file to 1e-5). The unknown extensions of `koma_v1.5_unknown_ext.seq` are checked by `test_an_unknown_extension_that_is_not_required_is_skipped`.
 
 **How:** The test compares the fields.
 
@@ -11444,15 +11444,6 @@ reader of a version before 1.4.0 does not end inside `load`: the test ends, so t
 before the reader.
 
 **How:** For each version (parametrized), the test writes the file and reads it.
-
-**Assumptions:** None.
-
-#### `test_a_binary_file_and_a_folder_are_not_supported`
-
-**Checks:** A file that starts with the magic bytes of a binary Pulseq file, and a folder, raise
-`NotSupported`.
-
-**How:** The test writes the bytes and reads the file and its folder.
 
 **Assumptions:** None.
 
