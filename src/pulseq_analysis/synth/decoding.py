@@ -49,11 +49,9 @@ from .scanner import (
     rotation_rows,
     soft_delay_durations,
 )
-from .seq_utils import gradient_offsets
+from .seq_utils import _GRAD_COLUMNS, gradient_offsets
 
 __all__ = ["Decoding", "Points", "SpecDecoding", "decode", "rotate"]
-
-_GRAD_COLUMNS = ("gx", "gy", "gz")
 
 # The points of one gradient event: its delay (s), and the offsets (s, from the delay) and the
 # values (Hz/m) of the points between which it is straight lines (`seq_utils.gradient_offsets`).
