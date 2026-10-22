@@ -167,8 +167,11 @@ The same condition in `spec`:
 - Code: `ub.rf-time-range`.
 - Condition: an RF time shape whose last time does not fit an `int`.
 - The reader: an undefined conversion (`cpp:2031`).
-- `cpp-siemens`: rejects the file with `ub.rf-time-range`.
-- Fixture: `tests/fuzz_corpus/rf-time-range.seq`.
+- `cpp-siemens`: rejects the file with `ub.rf-time-range`. Under a limit `max_shape_samples`
+  (2^27 by default), a last time above the range of an `int`, infinity too, is over the limit and
+  `NotSupported` first (section 2.5); with `max_shape_samples=None`, and for NaN or a time below
+  the range under any limit, the file is `ub.rf-time-range`.
+- Fixture: `tests/fuzz_corpus/rf-time-range.seq` (a last time of NaN).
 
 The same condition in `spec`: [D2.11](../../../docs/discrepancies.md#d211-any-other-rf-time-shape-points).
 
@@ -421,3 +424,15 @@ resizes a vector to that number (`cpp:1994`, `cpp:2109`). The limit is not the r
 has no limit, but the package's limit of memory: a short file cannot make the process allocate
 without bound. It is a setting of every interpreter of pulseq-analysis (the user, 2026-10-18),
 not a decision of `cpp-siemens`, so it has no ID.
+
+The same setting limits the cells into which `decodeBlock` resamples an RF pulse with a time shape
+that is not regular: `int(0.5 + waveform_t.back())` cells (`cpp:2031`), and a vector of that size
+for the magnitude and for the phase (`cpp:2034-2035`). The number is the last time of the time
+shape, not a number that a shape declares, so shapes of two samples can ask for any number of
+cells. After the check of the shapes, `load` decompresses each such time shape and compares the
+cells of each RF event, by ID, with the limit, before the checks of section 2.2 and before any
+`decodeBlock`: more is `NotSupported`, whose message gives the file, the RF event, its time shape,
+the number of cells and the limit, and names the setting. The setting covers every array of
+samples that a reader makes from a shape (the user, 2026-10-21). A number of cells above the range
+of an `int` (infinity too) is over any limit, so under a limit it is `NotSupported`, not D5.9; one
+below the range of an `int`, or NaN, is never over the limit and stays D5.9.

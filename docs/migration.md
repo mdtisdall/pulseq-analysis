@@ -178,7 +178,7 @@ for a file and `None` for a sequence, as before, and `None` for a `SequenceData`
 | A rotation in the file | `NotImplementedError` | no error ([the warning](#the-warning)) |
 | The interpreter rejects the file | the error of `Sequence.read`, or none | `seqfile.SeqFileError` (a `ValueError`): `violations`, `codes`, `interpreter`, `path` |
 | A file outside the package's scope (a version outside 1.4.0 to 1.5.x, a binary file, a folder) | the error of `Sequence.read`, or none | `seqfile.NotSupported` (a `NotImplementedError`) |
-| A shape that declares more samples than the setting `max_shape_samples` of the interpreter (2^27 by default) | | `seqfile.NotSupported`; `Spec(max_shape_samples=None)` reads the file with `spec` |
+| A shape that declares more samples than the setting `max_shape_samples` of the interpreter (2^27 by default), or an RF pulse that `cpp-siemens` resamples into more cells | | `seqfile.NotSupported`; `Spec(max_shape_samples=None)` reads the file with `spec` |
 | A setting of the session that addresses something the file does not have | | `synth.SettingError` (a `ValueError`): `setting`, `interpreter`, `version`, `reason` |
 | A name that no installed interpreter has | | `ValueError` |
 | A `SequenceData` that `interpreter` did not read | | `ValueError` that names `data.interpreter` |
@@ -474,7 +474,7 @@ last column.
 | `analyses.load` | `load(source, interpreter="spec", session=None)` | [1. Quick start](usage.md#1-quick-start) |
 | `seqfile.read_seqfile`, `seqfile.interpreter_names`, `seqfile.Spec`, `seqfile.Plugin` | the interpreters, by name or object, and plugins | [The interpreters](usage.md#the-interpreters) |
 | `seqfile.SeqFileError`, `seqfile.Violation`, `seqfile.NotSupported` | the rejection of a file, and a file out of scope | [The interpreters](usage.md#the-interpreters) |
-| `max_shape_samples` of each interpreter, `seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`; `seqfile.conformance.check_shape_limit` | the most samples that a shape can declare, a setting of every interpreter; the check of the setting, for the tests of a plugin | [The interpreters](usage.md#the-interpreters) |
+| `max_shape_samples` of each interpreter, `seqfile.interpreters.DEFAULT_MAX_SHAPE_SAMPLES`; `seqfile.conformance.check_shape_limit` | the most samples of each array that an interpreter makes from a shape, a setting of every interpreter; the check of the setting, for the tests of a plugin | [The interpreters](usage.md#the-interpreters) |
 | `seqfile.SequenceData` and its tables | the model of the file (`snap.data`) | [The model](usage.md#the-model) |
 | `seqfile.read_pypulseq` | a `pypulseq.Sequence` as the file that its writer writes | [A pypulseq sequence in memory](usage.md#a-pypulseq-sequence-in-memory) |
 | `seqfile.read_as_written` | the "as written" reading | [The "as written" reading](usage.md#the-as-written-reading) |

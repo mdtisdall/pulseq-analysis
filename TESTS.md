@@ -9329,7 +9329,8 @@ their interpreter, passes for `spec`.
 **How:** The test calls it. It raises `AssertionError` when a check fails.
 
 **Assumptions:** The check reads small files that it writes itself; it does not show that
-`spec` reads a large shape within the limit.
+`spec` reads a large shape within the limit. `spec` reads its RF file under every limit, since it
+keeps the pulse as its two points.
 
 #### `test_spec_reads_an_rf_pulse_of_more_cells_than_max_shape_samples`
 
@@ -11268,16 +11269,20 @@ settings.
 
 **Checks:** `CppSiemens` follows the convention of the setting `max_shape_samples` of every
 interpreter (the user, 2026-10-18): `pulseq_analysis.seqfile.conformance.check_shape_limit`
-passes for it (the default, the checks of the value, `str`, and a `NotSupported` of
+passes for it (the default, the checks of the value, `str`, a `NotSupported` of
 `read_seqfile` for a shape over the limit, whose message gives the path, the declared number and
-the limit, and names the setting). The default of `max_shape_samples` of `pulseq_cpp_siemens.load`
+the limit, and names the setting, and for an RF pulse that the reader resamples into 2^21 cells,
+a `NotSupported` with the limit 2^20 that gives the path, the number of cells and the limit, and
+a reading with the limit 2^21 and with None). The default of `max_shape_samples` of `pulseq_cpp_siemens.load`
 is `DEFAULT_MAX_SHAPE_SAMPLES`: the reader does not import pulseq-analysis, so it has its own copy
 of the value.
 
 **How:** The test calls `check_shape_limit(CppSiemens)` and reads the signature of `load`.
 
 **Assumptions:** Section 2.27 tests `check_shape_limit` itself. Its files have one arbitrary
-gradient whose shape is a run of zeros.
+gradient whose shape is a run of zeros, or one RF pulse of two points. The check cannot see a
+plugin that resamples and ignores the limit (the cells are C++ memory), so the tests of `load`
+(section 3.1) guard the cells of `cpp-siemens`.
 
 #### `test_a_shape_over_max_shape_samples_is_not_supported_with_the_path_of_the_file`
 

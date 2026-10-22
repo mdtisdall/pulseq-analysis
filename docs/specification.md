@@ -247,4 +247,7 @@ either: it raises `NotSupported`, before `spec` decompresses the shape, and
 reading of the specification, which has no limit of `num_samples` (spec:619),
 but the package's limit of memory: 2^27 samples are 1 GiB of float64, and a
 short file cannot make `spec` allocate without bound. It is a setting of every
-interpreter (the user, 2026-10-18).
+interpreter (the user, 2026-10-18), and it limits every array of samples that
+an interpreter makes from a shape (the user, 2026-10-21). `spec` makes no array
+from the times of a shape: it keeps an RF pulse of points as its points, so the
+last time of an RF time shape is not compared with the limit.

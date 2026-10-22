@@ -327,6 +327,28 @@ def _resampling(what: str, t: np.ndarray, n_cells: int, n_mag: int, n_phase: int
     return None
 
 
+def _regular_time_shape(entry) -> bool:
+    """Whether a time shape of the library is regular: decodeBlock does not decompress it, and
+    the dwell is samples[1] (cpp:2012-2021)."""
+    return entry is not None and len(entry[2]) != entry[0] and len(entry[2]) in (3, 4)
+
+
+def rf_cells(shapes: _Shapes, rf: dict) -> float | None:
+    """The number of cells into which decodeBlock resamples the RF event `rf` (cpp:2031), as
+    `0.5 + waveform_t.back()` in double, before its conversion to `int`; or None where it does
+    not resample: no time shape (0), a regular time shape, or a time shape that does not exist,
+    has no sample or does not decompress (decodeBlock has a case or returns false first)."""
+    time = rf["time_shape"]
+    if time == 0:
+        return None
+    entry = shapes.shapes.get(time)
+    if entry is None or entry[0] <= 0 or _regular_time_shape(entry):
+        return None
+    if shapes.decompression(time)[0] != "ok":
+        return None
+    return 0.5 + float(shapes.samples(time)[-1])
+
+
 def _check_rf(shapes: _Shapes, rf_id: int, rf: dict) -> Case | None:
     mag, phase, time = rf["mag_shape"], rf["phase_shape"], rf["time_shape"]
     what = f"RF event {rf_id}"
@@ -341,17 +363,16 @@ def _check_rf(shapes: _Shapes, rf_id: int, rf: dict) -> Case | None:
     if time == 0:
         # checkRF reads the phase at each index of the magnitude (cpp:2284-2290).
         return lengths if n_phase < n_mag else None
-    entry = shapes.shapes.get(time)
-    if entry is not None and len(entry[2]) != entry[0] and len(entry[2]) in (3, 4):
-        # A regular time shape: not decompressed, the dwell is samples[1] (cpp:2012-2021).
+    if _regular_time_shape(shapes.shapes.get(time)):
         return lengths if n_phase < n_mag else None
     case = shapes.check(time, f"{what} (time shape)")
     if case:
         return case
-    if shapes.decompression(time)[0] != "ok":
+    cells = rf_cells(shapes, rf)
+    if cells is None:
         return None  # decodeBlock returns false before the resampling
     t = shapes.samples(time)
-    n_cells = _to_int(0.5 + float(t[-1]))  # int(0.5+waveform_t.back()), in double
+    n_cells = _to_int(cells)  # int(0.5+waveform_t.back())
     if n_cells is None:
         return _case(
             "ub.rf-time-range",
