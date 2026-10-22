@@ -319,7 +319,8 @@ class Sequence:
                 np.asarray(blocks), np.asarray(num), np.asarray(offset), np.asarray(factor),
                 tuple(hint),
             )  # fmt: skip
-        return self._block_soft_delays
+        blocks, num, offset, factor, hint = self._block_soft_delays
+        return SoftDelays(blocks.copy(), num.copy(), offset.copy(), factor.copy(), hint)
 
     def block_label_sets(self) -> tuple[np.ndarray, tuple[str, ...], np.ndarray]:
         """The LABELSET events of each block as `GetBlock` attaches them (the labels that
