@@ -366,7 +366,7 @@ RULES: Mapping[str, Rule] = MappingProxyType(
             "guess them differently; Pulseq 1.5 stores them",
         ),
         "signature.invalid": Rule(
-            "[SIGNATURE] has not one Type and one Hash",
+            "[SIGNATURE] has no Type or no Hash, or one that is not one value",
             'spec:223-232 ("must contain two following fields")',
         ),
     }

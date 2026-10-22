@@ -6582,6 +6582,14 @@ follows it, not that the decision is right.
 
 **Assumptions:** The bytes of the scanner's reader come from the former version of this test, which compared them with the oracle; `test_cpp_oracle.py` now compares the oracle's own check with `spec`'s (section 2.20). Each case has a blank line after the last shape, since a shape needs one (D3.11). The test does not cover a NUL byte in a line.
 
+#### `test_a_repeated_type_or_hash_of_the_signature_is_read_and_the_last_wins`
+
+**Checks:** A `[SIGNATURE]` with `Type sha1`, then `Type md5`, then `Hash 0000`, then the MD5 of the file is read with no violation as an MD5 signature with that hash, and `matches` is `True`: the last `Type` and the last `Hash` win, as D2.6 does for a definition (the user, 2026-10-21). With the first of each, the type would be SHA-1 and the hash would not match.
+
+**How:** The test builds the file in `tmp_path` from `valid_1_5_1.seq`, with a line before its `Type` and before its `Hash`, reads it, and compares the signature.
+
+**Assumptions:** The hash of `valid_1_5_1.seq` is the MD5 of the bytes that the rule covers (as in `test_signature_matches_is_reported_and_is_not_a_rule`), and the added lines come after `[SIGNATURE]`, so they do not change the hashed bytes.
+
 #### `test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file`
 
 **Checks:** `read_seqfile` takes a `str` or a `pathlib.Path` with the same result, and raises `FileNotFoundError` for a file that is not there.
@@ -7367,7 +7375,7 @@ compares `spec._read_spec(path)` with `read_seqfile(path)` on `valid_1_5_1.seq`.
 
 **How:** The test reads the fixture and edits the 1.5.1 fixture five ways.
 
-**Assumptions:** The last value of a repeated key is the choice of `spec` (D3.3).
+**Assumptions:** The last value of a repeated key is the choice of `spec` (D2.6).
 
 #### `test_an_extension_header_has_a_word_and_a_type_id`
 

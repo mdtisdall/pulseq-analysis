@@ -669,6 +669,21 @@ def test_signature_matches_hashes_the_bytes_before_the_newline_that_precedes_the
     assert read_seqfile(path).signature.matches is (scanner == hashed)
 
 
+def test_a_repeated_type_or_hash_of_the_signature_is_read_and_the_last_wins(tmp_path):
+    """The specification is silent on a repeat ("must contain two following fields", spec:223),
+    and the C++ reader keeps the last line of a key (a map), so `spec` reads a repeated `Type` or
+    `Hash` as D2.6 does a definition: the last wins (the user, 2026-10-21)."""
+    text = _text("valid_1_5_1.seq")
+    text = text.replace("Type md5\n", "Type sha1\nType md5\n")
+    text = text.replace("Hash ", "Hash 0000\nHash ", 1)
+    signature = read_seqfile(_write(tmp_path, text, "repeated.seq")).signature
+    assert (signature.type, signature.hash, signature.matches) == (
+        "md5",
+        "46631d7f179a1a0a028842b840aaac51",
+        True,
+    )
+
+
 def test_read_seqfile_takes_a_str_or_a_path_and_raises_oserror_for_a_missing_file(tmp_path):
     path = SEQFILES / "valid_1_4_0.seq"
     assert read_seqfile(str(path)) == read_seqfile(path)
@@ -2413,7 +2428,7 @@ def test_a_signature_section_must_have_a_type_and_a_hash(tmp_path):
     """spec:223-232: "The [SIGNATURE] section must contain two following fields", `Type`
     and `Hash`, "along with any additional information in the format identical to that of
     [DEFINITIONS]": a missing field, or a field of two values, is `signature.invalid`; an
-    additional key reads. The last of a key repeated wins (the package's choice, D3.3)."""
+    additional key reads. The last of a key repeated wins (the package's choice, D2.6)."""
     (violation,) = violations_of(SEQFILES / "bad_signature_invalid.seq").violations
     assert (violation.rule, violation.section) == ("signature.invalid", "SIGNATURE")
     text = _text("valid_1_5_1.seq")
