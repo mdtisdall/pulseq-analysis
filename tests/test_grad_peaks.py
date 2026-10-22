@@ -390,8 +390,11 @@ def _end_step_sequence(flat_time: float, early: float = 0.0) -> pp.Sequence:
 def test_a_gradient_that_ends_at_the_end_of_the_sequence_has_no_step(k):
     """A gradient that ends at `A` at the end of the sequence: the step to 0 after its last
     point is in no range, so the largest slew is the 1e9 Hz/m/s of the trapezoid, in block 1.
-    The 20 values of `k` give 20 end times, for which `(start + delay) + shape_dur` and `end_s`
-    can differ by one ulp."""
+    The 20 values of `k` give 20 end times. Through `spec` the last time of the package,
+    `(start + delay) + offset`, is `end_s` for each of them. In the oracle, which reads the
+    builder's `pp.Sequence`, the last point is one or two ulps before the end of the last block
+    for 13 of them (`k` from 0 to 5, from 8 to 12, 18 and 19), and its rule
+    `t < end_s - TIME_TOLERANCE` leaves the step out."""
     seq = _end_step_sequence((5 + k) * DT)
     block_a_id, _block_b_id = seq.block_events
 
@@ -414,7 +417,8 @@ def check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_bef
     `A / DT`, in block 2, at the last point (`early` is one raster time then). Else the largest
     slew is the 1e9 Hz/m/s of the trapezoid. The whole file, the window that ends at the end of
     the sequence, the window that ends `0.5 * TIME_TOLERANCE` before it (the step of an `early` of
-    0.9 * `TIME_TOLERANCE` is before the end of that window, and is not counted) and the values of
+    0.9 * `TIME_TOLERANCE` is before the end of that window, and is not counted), the window from
+    100 µs (in block 1) to the end of the sequence, which is not the whole file, and the values of
     each block agree with the oracle."""
     index = sequence_index(snap)
     block_a_id, block_b_id = seq.block_events
@@ -430,13 +434,13 @@ def check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_bef
         assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
         assert result.slew_block == expected["slew_block"]
         assert result.slew_time_s == pytest.approx(expected["slew_time"], abs=1e-12)
-    window = (0.0, index.end_s - 0.5 * TIME_TOLERANCE)
-    expected_window = oracle.peaks(seq, window)["x"]
-    result = gradient_peaks(snap, range_s=window).axes["x"]
-    assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
-    assert expected_window["slew_block"] == expected["slew_block"]
-    assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
-    assert result.slew_block == expected["slew_block"]
+    for window in ((0.0, index.end_s - 0.5 * TIME_TOLERANCE), (1e-4, index.end_s)):
+        expected_window = oracle.peaks(seq, window)["x"]
+        result = gradient_peaks(snap, range_s=window).axes["x"]
+        assert expected_window["max_slew"] == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert expected_window["slew_block"] == expected["slew_block"]
+        assert result.max_slew_hz_per_m_per_s == pytest.approx(expected["max_slew"], rel=1e-6)
+        assert result.slew_block == expected["slew_block"]
     slew = block_gradient_values(snap).slew_hz_per_m_per_s["x"]
     assert slew[1] == pytest.approx(A / DT if counted else A / 100e-6, rel=1e-6)
     if counted:
@@ -446,10 +450,11 @@ def check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_bef
 def test_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end():
     """The last point of the extended trapezoid is at the end of the sequence (an `early` of 0):
     the step to 0 is not counted, in the whole file, in the window that ends at the end of the
-    sequence and in the window that ends `0.5 * TIME_TOLERANCE` before it
+    sequence, in the window that ends `0.5 * TIME_TOLERANCE` before it and in the window from
+    100 µs to the end of the sequence
     (`check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end`).
-    `spec` reads it; the test of the same name of the `cpp-siemens` plugin has the values of
-    `early` that `spec` rejects (a last point before the end of its block, and off the raster)."""
+    `spec` reads it; the test of the same name of the `cpp-siemens` plugin has an `early` of one
+    raster time, a last point before the end of its block, which `spec` rejects."""
     seq = _end_step_sequence(100e-6, 0.0)
     check_the_step_after_the_last_point_is_counted_only_beyond_the_tolerance_before_the_end(
         seq, load(seq), 0.0
